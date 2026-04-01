@@ -136,7 +136,7 @@ describe("session update command", () => {
     const result = await updateSessionFromParams(
       {
         sessionName: "missing-session",
-        skipInstall: true,
+        skipConflictCheck: true,
       },
       {
         gitService: mockGitService,

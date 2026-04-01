@@ -109,7 +109,7 @@ export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
     // Handle legacy formats or invalid input
     const legacyMatch = unifiedFormat.match(/^task#(\d+)$/);
     if (legacyMatch) {
-      return `md:${legacyMatch[1]}`; // task#123 → md:123
+      return `md:${legacyMatch[1] || ""}`; // task#123 → md:123
     }
 
     // Check if it's already a qualified ID
@@ -147,7 +147,7 @@ export function branchNameToSessionName(branchName: string): string {
   const match = branchName.match(/^(.+#)([^#-]+)-(.+)$/);
   if (match) {
     const [, prefix, backend, localId] = match;
-    return `${prefix}${backend}:${localId}`;
+    return `${prefix || ""}${backend || ""}:${localId || ""}`;
   }
   return branchName; // Return as-is if no conversion needed
 }
@@ -166,7 +166,7 @@ export function migrateUnqualifiedId(taskId: string, defaultBackend = "md"): str
   // Handle task#123 format
   const legacyMatch = taskId.match(/^(?:task#)?(\d+)$/);
   if (legacyMatch && legacyMatch[1]) {
-    return formatTaskId(defaultBackend, legacyMatch[1]);
+    return formatTaskId(defaultBackend, legacyMatch[1] || "");
   }
 
   return taskId; // Can't migrate, return as-is

@@ -561,8 +561,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           for (const line of lines) {
             // ripgrep output format: path:line_number:content
             const match = line.match(/^([^:]+):(\d+):(.*)$/);
-            if (match && match[1] && match[2] && match[3] !== undefined) {
-              const [, filePath, lineNumber, content] = match;
+            if (match && match[1]) {
+              const filePath = match[1] || "";
+              const lineNumber = match[2] || "";
+              const content = match[3] || "";
 
               // Convert to absolute file:// URL format like Cursor
               const absolutePath = filePath.startsWith("/")

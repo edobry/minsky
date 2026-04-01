@@ -2,6 +2,7 @@
 description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
 globs:
 alwaysApply: false
+tags: [code-style, testing]
 ---
 # CLI Testing
 

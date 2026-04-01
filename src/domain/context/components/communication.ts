@@ -30,6 +30,7 @@ When using markdown in assistant messages, use backticks to format file, directo
       content,
       metadata: {
         componentId: "communication",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["communication"],
       },

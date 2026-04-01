@@ -22,6 +22,7 @@ import { validationConfigSchema, type ValidationConfig } from "./validation";
 import { tasksConfigSchema, type TasksConfig } from "./tasks";
 import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
+import { rulesConfigSchema, type RulesConfig } from "./rules";
 
 /**
  * Complete application configuration schema
@@ -57,6 +58,9 @@ export const configurationSchema = z
 
     // Workspace configuration
     workspace: workspaceConfigSchema,
+
+    // Rules configuration
+    rules: rulesConfigSchema,
   })
   .passthrough(); // Use passthrough instead of strict to allow extra properties
 
@@ -229,6 +233,7 @@ export type {
   TasksConfig,
   EmbeddingsConfig,
   WorkspaceConfig,
+  RulesConfig,
 };
 
 // Re-export schemas for external use
@@ -242,6 +247,7 @@ export {
   tasksConfigSchema,
   embeddingsConfigSchema,
   workspaceConfigSchema,
+  rulesConfigSchema,
 };
 
 // Export the main schema as default

@@ -104,8 +104,8 @@ export function normalizeRepositoryUri(
       throw new ValidationError(`Invalid HTTPS repository URL: ${uri}`);
     }
 
-    const org = match[1];
-    const repo = match[2].replace(/\.git$/, "");
+    const org = match[1] || "";
+    const repo = (match[2] || "").replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
     normalizedUri = normalizedUri.replace(/\.git$/, "");
@@ -119,8 +119,8 @@ export function normalizeRepositoryUri(
       throw new ValidationError(`Invalid SSH repository URL: ${uri}`);
     }
 
-    const org = match[1];
-    const repo = match[2].replace(/\.git$/, "");
+    const org = match[1] || "";
+    const repo = (match[2] || "").replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
     normalizedUri = normalizedUri.replace(/\.git$/, "");

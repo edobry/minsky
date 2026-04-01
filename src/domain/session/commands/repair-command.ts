@@ -8,7 +8,7 @@
  * - Workspace validation
  */
 import { log } from "../../../utils/logger";
-import { SessionProviderInterface } from "../session-db";
+import type { SessionProviderInterface } from "../types";
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createGitService } from "../../git";

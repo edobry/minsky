@@ -29,18 +29,6 @@ const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
 
-// Define a global for process to avoid linting errors
-declare const process: {
-  env: {
-    XDG_STATE_HOME?: string;
-    HOME?: string;
-    GITHUB_TOKEN?: string;
-    GH_TOKEN?: string;
-    [key: string]: string | undefined;
-  };
-  cwd(): string;
-};
-
 const execAsync = promisify(exec);
 
 /**

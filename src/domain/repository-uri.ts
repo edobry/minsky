@@ -109,7 +109,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
         // Extract host from SSH URL
         const match = uri.match(/^[^@]+@([^:]+):/);
         if (match && match[1]) {
-          components.host = match[1];
+          components.host = match[1] || "";
         }
       }
     } else {

@@ -55,6 +55,7 @@ import {
   createListRulesDirectoryOperation,
 } from "./file-operations";
 import { RuleOperationRegistry } from "./base-rule-operation";
+import type { RuleOperationDependencies } from "./base-rule-operation";
 
 // Factory for creating all rule operations
 export function createAllRuleOperations(deps: RuleOperationDependencies) {

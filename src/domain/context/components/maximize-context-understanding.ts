@@ -44,6 +44,7 @@ Bias towards not asking the user for help if you can find the answer yourself.
       content,
       metadata: {
         componentId: "maximize-context-understanding",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["maximize_context_understanding"],
       },

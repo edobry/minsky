@@ -215,7 +215,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         );
       }
 
-      const taskId = `#${taskIdMatch[1]}`;
+      const taskId = `#${taskIdMatch[1] || ""}`;
 
       // Try to find the corresponding GitHub issue
       const response = await this.octokit.rest.issues.listForRepo({
@@ -327,7 +327,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
         // Extract task ID from title if present
         const taskIdMatch = title.match(/^Task (#\d+):/);
         if (taskIdMatch) {
-          metadata.taskId = taskIdMatch[1];
+          metadata.taskId = taskIdMatch[1] || "";
           title = title.substring(taskIdMatch[0].length).trim();
         }
       } else if (trimmed.startsWith("## ")) {
@@ -458,25 +458,25 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     // Try to find qualified task ID like gh#123 in title
     const qualifiedMatch = issue.title.match(/gh#(\d+)/);
     if (qualifiedMatch && qualifiedMatch[1]) {
-      return `gh#${qualifiedMatch[1]}`;
+      return `gh#${qualifiedMatch[1] || ""}`;
     }
 
     // Try to find legacy task ID like #123 in title and convert to qualified
     const titleMatch = issue.title.match(/#(\d+)/);
     if (titleMatch && titleMatch[1]) {
-      return `gh#${titleMatch[1]}`;
+      return `gh#${titleMatch[1] || ""}`;
     }
 
     // If not in title, look in body for qualified format
     const bodyQualifiedMatch = issue.body.match(/Task ID: gh#(\d+)/);
     if (bodyQualifiedMatch && bodyQualifiedMatch[1]) {
-      return `gh#${bodyQualifiedMatch[1]}`;
+      return `gh#${bodyQualifiedMatch[1] || ""}`;
     }
 
     // If not in body, look for legacy format and convert
     const bodyMatch = issue.body.match(/Task ID: #(\d+)/);
     if (bodyMatch && bodyMatch[1]) {
-      return `gh#${bodyMatch[1]}`;
+      return `gh#${bodyMatch[1] || ""}`;
     }
 
     // Fallback to issue number with qualified format

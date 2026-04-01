@@ -100,10 +100,10 @@ export function generatePossibleSessionNames(taskId: string): string[] {
   }
 
   // New format: task-<full-qualified-id> (e.g., "task-md#123")
-  names.push(`task-${normalized}`);
+  names.push(`task-${validated}`);
 
   // Also try the exact task ID as session name (for edge cases)
-  names.push(normalized);
+  names.push(validated);
 
   // Remove duplicates while preserving order
   return [...new Set(names)];
@@ -120,7 +120,7 @@ function extractIdPart(taskId: string): string | null {
   // Handle qualified IDs like "md#123"
   const qualifiedMatch = taskId.match(/^[a-zA-Z]+#(.+)$/);
   if (qualifiedMatch) {
-    return qualifiedMatch[1];
+    return qualifiedMatch[1] || null;
   }
 
   // Handle simple #123 format

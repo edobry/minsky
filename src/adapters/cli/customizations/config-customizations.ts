@@ -245,7 +245,7 @@ export function getSessiondbCustomizations(): {
   // Forward to persistence customizations for compatibility
   const persistenceConfig = getPersistenceCustomizations();
   return {
-    category: CommandCategory.SESSIONDB, // Keep legacy category for existing registration
+    category: CommandCategory.PERSISTENCE, // Keep legacy category for existing registration
     options: persistenceConfig.options,
   };
 }

@@ -274,7 +274,7 @@ export class ConflictDetectionService {
       }
 
       const { stdout: aheadBehind } = result;
-      const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
+      const [behindStr, aheadStr] = aheadBehind.toString().trim().split("\t");
       const behind = Number(behindStr) || 0;
       const ahead = Number(aheadStr) || 0;
 
@@ -283,7 +283,7 @@ export class ConflictDetectionService {
         `git -C ${repoPath} merge-base ${baseBranch} ${sessionBranch}`
       );
 
-      const commonCommit = commonCommitResult?.stdout?.trim() || "";
+      const commonCommit = commonCommitResult?.stdout?.toString().trim() || "";
 
       // Check if session changes are already in base
       const sessionChangesInBase = await this.checkSessionChangesInBase(
@@ -379,15 +379,15 @@ export class ConflictDetectionService {
       if (!options?.dryRun) {
         const beforeHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
 
-        const beforeHash = beforeHashResult?.stdout?.trim() || "";
+        const beforeHash = beforeHashResult?.stdout?.toString().trim() || "";
 
         try {
           await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
 
           const afterHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
 
-          const afterHash = afterHashResult?.stdout?.trim() || "";
-          const merged = beforeHash.trim() !== afterHash.trim();
+          const afterHash = afterHashResult?.stdout?.toString().trim() || "";
+          const merged = beforeHash.toString().trim() !== afterHash.toString().trim();
 
           return {
             workdir: repoPath,
@@ -567,7 +567,7 @@ export class ConflictDetectionService {
       const { stdout: currentBranch } = await execAsync(
         `git -C ${repoPath} rev-parse --abbrev-ref HEAD`
       );
-      const fromBranch = currentBranch.trim();
+      const fromBranch = currentBranch.toString().trim();
 
       if (fromBranch === targetBranch) {
         return {
@@ -582,7 +582,7 @@ export class ConflictDetectionService {
 
       const statusOutputResult = await execAsync(`git -C ${repoPath} status --porcelain`);
       const statusOutput = statusOutputResult?.stdout || "";
-      const uncommittedChanges = statusOutput.trim().split("\n").filter(Boolean);
+      const uncommittedChanges = statusOutput.toString().trim().split("\n").filter(Boolean);
 
       let conflictingFiles: string[] = [];
       let wouldLoseChanges = false;
@@ -674,7 +674,7 @@ export class ConflictDetectionService {
     const regex = /CONFLICT \((.+?)\): Merge conflict in (.+)/g;
     let match;
     while ((match = regex.exec(output)) !== null) {
-      files.push(match[2]);
+      if (match[2]) files.push(match[2]);
     }
     return files;
   }
@@ -709,7 +709,7 @@ export class ConflictDetectionService {
         `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
       );
 
-      if (!sessionCommits.trim()) {
+      if (!sessionCommits.toString().trim()) {
         return true; // No session commits not in base
       }
 
@@ -722,7 +722,7 @@ export class ConflictDetectionService {
         `git -C ${repoPath} rev-parse ${baseBranch}^{tree}`
       );
 
-      return sessionTree.trim() === baseTree.trim();
+      return sessionTree.toString().trim() === baseTree.toString().trim();
     } catch (error) {
       log.warn("Could not check session changes in base", { error });
       return false;
@@ -952,7 +952,10 @@ export class ConflictDetectionService {
         );
 
         // If the content is the same when whitespace is removed, it's a formatting-only conflict
-        if (ourContent.trim() === theirContent.trim() && ourContent.trim() !== fileContent.trim()) {
+        if (
+          ourContent.toString().trim() === theirContent.toString().trim() &&
+          ourContent.toString().trim() !== fileContent.toString().trim()
+        ) {
           formattingOnlyFiles.push(file);
         }
       } catch (error) {

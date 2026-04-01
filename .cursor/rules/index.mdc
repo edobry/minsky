@@ -2,6 +2,7 @@
 description:
 globs:
 alwaysApply: false
+tags: [meta]
 ---
 # Minsky Rules Index
 

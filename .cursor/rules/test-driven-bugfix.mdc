@@ -1,3 +1,6 @@
+---
+tags: [testing]
+---
 # Test-Driven Bug Fixing
 
 When fixing bugs in the codebase, always follow this test-driven development workflow:

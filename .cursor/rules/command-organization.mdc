@@ -2,6 +2,7 @@
 description: Use this when creating/modifying CLI commands or working with the interface-agnostic architecture
 globs:
 alwaysApply: false
+tags: [architecture]
 ---
 
 # Command Organization

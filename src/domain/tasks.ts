@@ -23,6 +23,9 @@ import type { TaskStatus } from "./tasks/taskConstants";
 import { getTaskSpecRelativePath } from "./tasks/taskIO";
 import { createGitService } from "./git";
 
+// Import TaskData for use in createTaskFromTitleAndSpec return type
+import type { TaskData } from "../types/tasks/taskData";
+
 // Import and re-export functions from taskCommands.ts
 // Command-level wrapper functions for CLI integration
 // These wrap TaskService methods with parameter validation and formatting
@@ -570,15 +573,15 @@ export class MarkdownTaskBackend implements TaskBackend {
 
       if (titleWithIdMatch && titleWithIdMatch[2]) {
         // Old format: "# Task #XXX: Title"
-        title = titleWithIdMatch[2];
-        existingId = `#${titleWithIdMatch[1]}`;
+        title = titleWithIdMatch[2] || "";
+        existingId = `#${titleWithIdMatch[1] || ""}`;
         hasTaskId = true;
       } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
         // Old format: "# Task: Title"
-        title = titleWithoutIdMatch[1];
+        title = titleWithoutIdMatch[1] || "";
       } else if (cleanTitleMatch && cleanTitleMatch[1]) {
         // New clean format: "# Title"
-        title = cleanTitleMatch[1];
+        title = cleanTitleMatch[1] || "";
         // Skip if this looks like an old task format to avoid false positives
         if (title.startsWith("Task ")) {
           throw new Error(
@@ -602,7 +605,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (line.trim().startsWith("## ")) break;
         if (line.trim()) description += `${line.trim()}\n`;
       }
-      if (!spec.trim()) {
+      if (!description.trim()) {
         throw new Error("Invalid spec file: Empty Context section");
       }
 
@@ -680,7 +683,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const task: Task = {
         id: taskId,
         title,
-        description: spec.trim(),
+        description: description.trim(),
         status: TASK_STATUS.TODO,
         specPath: newSpecPath,
       };

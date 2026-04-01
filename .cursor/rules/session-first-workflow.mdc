@@ -1,3 +1,10 @@
+---
+name: Session-First Workflow
+description: "All task work must happen in session workspace. Use absolute paths. Never edit main workspace during active session."
+alwaysApply: false
+tags: [minsky]
+---
+
 # Session-First Workflow
 
 **Purpose:**
@@ -186,11 +193,6 @@ When working with code and tests:
 
 - This ensures all work happens in the correct workspace, preventing accidental changes to the main workspace.
 - It promotes proper command usage, reducing errors and workflow disruptions.
-- It improves code quality by addressing linter issues proactively.
-- **Absolute paths eliminate ambiguity** about which workspace is being modified.
-
----
-
 - It improves code quality by addressing linter issues proactively.
 - **Absolute paths eliminate ambiguity** about which workspace is being modified.
 

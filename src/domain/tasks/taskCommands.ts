@@ -11,6 +11,7 @@ import {
   TaskServiceOptions,
   TaskServiceInterface,
 } from "./taskService";
+import type { Task } from "./types";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
@@ -375,7 +376,7 @@ export async function updateTaskFromParams(
       updates.title = params.title;
     }
     if (params.spec !== undefined) {
-      updates.spec = params.spec;
+      updates.specPath = params.spec;
     }
 
     // Update the task

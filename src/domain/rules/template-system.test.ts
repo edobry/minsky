@@ -156,7 +156,7 @@ describe("Template System", () => {
             if (!syntax) {
               throw new Error(`Command not found: ${commandId}`);
             }
-            return description ? `${syntax} - ${description}` : syntax;
+            return spec ? `${syntax} - ${spec}` : syntax;
           },
           codeBlock: cliContext.helpers.codeBlock,
           conditionalSection: cliContext.helpers.conditionalSection,
@@ -243,7 +243,7 @@ describe("Template System", () => {
             if (!syntax) {
               throw new Error(`Command not found: ${commandId}`);
             }
-            return description ? `${syntax} - ${description}` : syntax;
+            return spec ? `${syntax} - ${spec}` : syntax;
           },
           codeBlock: cliContext.helpers.codeBlock,
           conditionalSection: cliContext.helpers.conditionalSection,

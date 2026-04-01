@@ -50,6 +50,11 @@ import {
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
 import { getConfiguration } from "../../../domain/configuration";
 import fs from "fs/promises";
+import fsSync from "fs";
+import { join } from "path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { RULE_PRESETS } from "../../../domain/configuration/schemas/rules";
+import { resolveActiveRules } from "../../../domain/rules/rule-selection";
 import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
@@ -147,7 +152,7 @@ type RulesGenerateParams = {
   outputDir?: string;
   dryRun?: boolean;
   overwrite?: boolean;
-  format?: "cursor" | "openai";
+  format?: RuleFormat;
   preferMcp?: boolean;
   mcpTransport?: "stdio" | "http";
   json?: boolean;
@@ -186,8 +191,8 @@ const rulesGenerateCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   format: {
-    schema: z.enum(["cursor", "openai"]),
-    description: "Rule format for file system organization (cursor or openai)",
+    schema: z.enum(["cursor", "generic"]),
+    description: "Rule format for file system organization (cursor or generic)",
     required: false,
     defaultValue: "cursor",
   },
@@ -563,7 +568,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
           mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
           preferMcp: typedParams.preferMcp || false,
-          ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
+          ruleFormat: (typedParams.format || "cursor") as RuleFormat,
           outputDir:
             typedParams.outputDir ||
             (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
@@ -725,6 +730,136 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     },
   });
 
+  // Register rules compile command
+  targetRegistry.registerCommand({
+    id: "rules.compile",
+    category: CommandCategory.RULES,
+    name: "compile",
+    description: "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
+    parameters: {
+      target: {
+        schema: z.string(),
+        description:
+          "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+        required: false,
+        defaultValue: "agents.md",
+      },
+      output: {
+        schema: z.string().optional(),
+        description: "Output file path (defaults to the target's default output path)",
+        required: false,
+      },
+      dryRun: {
+        schema: z.boolean(),
+        description: "Print compiled content to output without writing to file",
+        required: false,
+        defaultValue: false,
+      },
+      check: {
+        schema: z.boolean(),
+        description:
+          "Check if the output file is up-to-date (staleness detection). Exits non-zero if stale.",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    execute: async (params: any, ctx?: CommandExecutionContext) => {
+      log.debug("Executing rules.compile command", { params });
+
+      const typedParams = params as {
+        target?: string;
+        output?: string;
+        dryRun?: boolean;
+        check?: boolean;
+      };
+
+      const targetId = typedParams.target || "agents.md";
+
+      try {
+        const { createCompileService, agentsMdTarget, claudeMdTarget } = await import(
+          "../../../domain/rules/compile"
+        );
+
+        // Resolve workspace path
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
+
+        const compileService = createCompileService();
+
+        // For check mode, do a dry-run first to get the compiled content
+        if (typedParams.check) {
+          const dryResult = await compileService.compile(ruleService, targetId, {
+            workspacePath,
+            outputPath: typedParams.output,
+            dryRun: true,
+          });
+
+          // Determine the output path for the target
+          const targetMap: Record<string, { defaultOutputPath(w: string): string }> = {
+            "agents.md": agentsMdTarget,
+            "claude.md": claudeMdTarget,
+          };
+          const targetObj = targetMap[targetId];
+          const outputFilePath =
+            typedParams.output ||
+            (targetObj ? targetObj.defaultOutputPath(workspacePath) : `${workspacePath}/OUT.md`);
+
+          try {
+            const existingContent = await fs.readFile(outputFilePath, "utf-8");
+            const isStale = existingContent !== dryResult.content;
+            return {
+              success: true,
+              check: true,
+              stale: isStale,
+              rulesIncluded: dryResult.rulesIncluded,
+              rulesSkipped: dryResult.rulesSkipped,
+            };
+          } catch {
+            // File doesn't exist — it's stale
+            return {
+              success: true,
+              check: true,
+              stale: true,
+              rulesIncluded: dryResult.rulesIncluded,
+              rulesSkipped: dryResult.rulesSkipped,
+            };
+          }
+        }
+
+        const result = await compileService.compile(ruleService, targetId, {
+          workspacePath,
+          outputPath: typedParams.output,
+          dryRun: typedParams.dryRun || false,
+        });
+
+        if (typedParams.dryRun) {
+          return {
+            success: true,
+            dryRun: true,
+            content: result.content,
+            filesWritten: result.filesWritten,
+            rulesIncluded: result.rulesIncluded,
+            rulesSkipped: result.rulesSkipped,
+          };
+        }
+
+        return {
+          success: true,
+          dryRun: false,
+          filesWritten: result.filesWritten,
+          rulesIncluded: result.rulesIncluded,
+          rulesSkipped: result.rulesSkipped,
+        };
+      } catch (error) {
+        log.error("Failed to compile rules", {
+          error: getErrorMessage(error),
+          target: targetId,
+        });
+        throw error;
+      }
+    },
+  });
+
   // Register rules search command
   targetRegistry.registerCommand({
     id: "rules.search",
@@ -777,7 +912,13 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         }
 
         // Enhance results with rule details (similar to tasks.search)
-        const enhancedResults = [];
+        const enhancedResults: Array<{
+          id: string;
+          score: number;
+          name: string;
+          description: string;
+          format: string;
+        }> = [];
         for (const result of results) {
           try {
             // Get full rule details
@@ -821,4 +962,181 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       }
     },
   });
+
+  // ─── Rule selection commands ────────────────────────────────────────────────
+
+  // Register rules.enable command
+  targetRegistry.registerCommand({
+    id: "rules.enable",
+    category: CommandCategory.RULES,
+    name: "enable",
+    description: "Add a rule ID to the enabled list in the project config",
+    parameters: {
+      ruleId: {
+        schema: z.string(),
+        description: "The rule ID to enable",
+        required: true,
+      },
+    },
+    execute: async (params: { ruleId: string }) => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      if (!config.enabled.includes(params.ruleId)) {
+        config.enabled.push(params.ruleId);
+      }
+      // Remove from disabled if present
+      config.disabled = config.disabled.filter((id) => id !== params.ruleId);
+
+      await writeRulesSelectionConfig(workspacePath, config);
+      return {
+        success: true,
+        ruleId: params.ruleId,
+        enabled: config.enabled,
+        disabled: config.disabled,
+      };
+    },
+  });
+
+  // Register rules.disable command
+  targetRegistry.registerCommand({
+    id: "rules.disable",
+    category: CommandCategory.RULES,
+    name: "disable",
+    description: "Add a rule ID to the disabled list in the project config",
+    parameters: {
+      ruleId: {
+        schema: z.string(),
+        description: "The rule ID to disable",
+        required: true,
+      },
+    },
+    execute: async (params: { ruleId: string }) => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      if (!config.disabled.includes(params.ruleId)) {
+        config.disabled.push(params.ruleId);
+      }
+      // Remove from enabled if present
+      config.enabled = config.enabled.filter((id) => id !== params.ruleId);
+
+      await writeRulesSelectionConfig(workspacePath, config);
+      return {
+        success: true,
+        ruleId: params.ruleId,
+        enabled: config.enabled,
+        disabled: config.disabled,
+      };
+    },
+  });
+
+  // Register rules.config command
+  targetRegistry.registerCommand({
+    id: "rules.config",
+    category: CommandCategory.RULES,
+    name: "config",
+    description: "Show current rule selection state (presets, enabled, disabled)",
+    parameters: {},
+    execute: async () => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      // Get all rule IDs to compute active count
+      const ruleService = new RuleService(workspacePath);
+      const allRules = await ruleService.listRules({});
+      const allRuleIds = allRules.map((r) => r.id);
+      const activeIds = resolveActiveRules(allRuleIds, config);
+
+      return {
+        success: true,
+        presets: config.presets,
+        enabled: config.enabled,
+        disabled: config.disabled,
+        activeRuleCount: activeIds.size,
+        totalRuleCount: allRuleIds.length,
+      };
+    },
+  });
+
+  // Register rules.presets command
+  targetRegistry.registerCommand({
+    id: "rules.presets",
+    category: CommandCategory.RULES,
+    name: "presets",
+    description: "List available rule presets with their rule counts",
+    parameters: {},
+    execute: async () => {
+      const presets = Object.entries(RULE_PRESETS).map(([name, ruleIds]) => ({
+        name,
+        ruleCount: ruleIds.length,
+        rules: ruleIds,
+      }));
+      return { success: true, presets };
+    },
+  });
+}
+
+// ─── Config read/write helpers ──────────────────────────────────────────────
+
+interface RulesSelectionConfig {
+  presets: string[];
+  enabled: string[];
+  disabled: string[];
+}
+
+/**
+ * Read the rules selection config (presets/enabled/disabled) from the project
+ * config file (.minsky/config.yaml). Returns defaults if file doesn't exist.
+ */
+async function readRulesSelectionConfig(workspacePath: string): Promise<RulesSelectionConfig> {
+  const configPath = join(workspacePath, ".minsky", "config.yaml");
+  let raw: any = {};
+
+  try {
+    const content = String(await fs.readFile(configPath, "utf8"));
+    raw = parseYaml(content) || {};
+  } catch {
+    // File doesn't exist or is unreadable — start from empty config
+  }
+
+  const rules = raw?.rules || {};
+  return {
+    presets: Array.isArray(rules.presets) ? rules.presets : [],
+    enabled: Array.isArray(rules.enabled) ? rules.enabled : [],
+    disabled: Array.isArray(rules.disabled) ? rules.disabled : [],
+  };
+}
+
+/**
+ * Write the rules selection config back to the project config file.
+ */
+async function writeRulesSelectionConfig(
+  workspacePath: string,
+  config: RulesSelectionConfig
+): Promise<void> {
+  const minskyDir = join(workspacePath, ".minsky");
+  const configPath = join(minskyDir, "config.yaml");
+
+  let raw: any = {};
+  try {
+    const content = String(await fs.readFile(configPath, "utf8"));
+    raw = parseYaml(content) || {};
+  } catch {
+    // File doesn't exist — create fresh
+  }
+
+  if (!raw.rules) raw.rules = {};
+  raw.rules.presets = config.presets;
+  raw.rules.enabled = config.enabled;
+  raw.rules.disabled = config.disabled;
+
+  // Ensure directory exists
+  try {
+    await fs.mkdir(minskyDir, { recursive: true });
+  } catch {
+    // Already exists
+  }
+
+  await fs.writeFile(configPath, stringifyYaml(raw, { indent: 2 }), "utf8");
 }

@@ -20,7 +20,7 @@ import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
-import { getTaskSpecRelativePath } from "./taskIO";
+import { getTaskSpecRelativePath, readTaskSpecFile } from "./taskIO";
 import { validateQualifiedTaskId } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
 import { get as getConfig, has as hasConfig } from "../configuration";
@@ -164,7 +164,7 @@ ${description}
       throw new Error("Spec path and parser are required");
     }
 
-    const specDataResult = await this.getTaskSpecData(specPath);
+    const specDataResult = await readTaskSpecFile(specPath);
     if (!specDataResult.success) {
       throw new Error(`Failed to load spec file: ${specDataResult.error}`);
     }

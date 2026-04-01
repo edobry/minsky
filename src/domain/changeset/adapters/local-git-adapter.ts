@@ -280,7 +280,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       const statsMatch = diffStats.match(
         /(\d+) files? changed(?:, (\d+) insertions?)?(?:, (\d+) deletions?)?/
       );
-      const filesChanged = statsMatch ? parseInt(statsMatch[1]) : 0;
+      const filesChanged = statsMatch ? parseInt(statsMatch[1] || "0") : 0;
       const additions = statsMatch && statsMatch[2] ? parseInt(statsMatch[2]) : 0;
       const deletions = statsMatch && statsMatch[3] ? parseInt(statsMatch[3]) : 0;
 
@@ -395,7 +395,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
           encoding: "utf8",
         });
 
-        if (mergeBase.trim() === branchTip.trim()) {
+        if (mergeBase.toString().trim() === branchTip.toString().trim()) {
           status = "merged";
         }
       } catch {
@@ -455,6 +455,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       });
 
       const commits = commitOutput
+        .toString()
         .trim()
         .split("\n")
         .filter((line) => line.trim())
@@ -468,6 +469,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
           });
 
           const filesChanged = filesOutput
+            .toString()
             .trim()
             .split("\n")
             .filter((file) => file.trim());

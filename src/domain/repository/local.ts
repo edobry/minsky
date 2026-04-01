@@ -28,16 +28,6 @@ import type {
   SessionUpdateEvent,
 } from "./index";
 
-// Define a global for process to avoid linting errors
-declare const process: {
-  env: {
-    XDG_STATE_HOME?: string;
-    HOME?: string;
-    [key: string]: string | undefined;
-  };
-  cwd(): string;
-};
-
 const execAsync = promisify(exec);
 
 /**
@@ -67,10 +57,10 @@ export class LocalGitBackend implements RepositoryBackend {
    * Initialize session database lazily
    */
   private async getSessionDB(): Promise<SessionProviderInterface> {
-    if (!sessionDB) {
-      sessionDB = await createSessionProvider();
+    if (!this.sessionDB) {
+      this.sessionDB = await createSessionProvider();
     }
-    return sessionDB;
+    return this.sessionDB;
   }
 
   /**

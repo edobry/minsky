@@ -174,21 +174,21 @@ export function getTaskIdNumber(taskId: string): number | null {
   // Extract number from qualified format (md#123 -> 123)
   const qualifiedMatch = trimmed.match(/^[a-z-]+#(\d+)$/);
   if (qualifiedMatch) {
-    const num = parseInt(qualifiedMatch[1], 10);
+    const num = parseInt(qualifiedMatch[1] || "", 10);
     return isNaN(num) ? null : num;
   }
 
   // Extract number from legacy format (#123 -> 123)
   const legacyMatch = trimmed.match(/^#+(\d+)$/);
   if (legacyMatch) {
-    const num = parseInt(legacyMatch[1], 10);
+    const num = parseInt(legacyMatch[1] || "", 10);
     return isNaN(num) ? null : num;
   }
 
   // Extract number from task# format (task#123 -> 123)
   const taskMatch = trimmed.match(/^task#(\d+)$/i);
   if (taskMatch) {
-    const num = parseInt(taskMatch[1], 10);
+    const num = parseInt(taskMatch[1] || "", 10);
     return isNaN(num) ? null : num;
   }
 

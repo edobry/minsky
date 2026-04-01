@@ -2,6 +2,7 @@
 description: Use for systematic debugging of bun:test issues and test failures.
 globs:
 alwaysApply: false
+tags: [testing]
 ---
 # Test Debugging
 

@@ -41,6 +41,7 @@ It is *EXTREMELY* important that your generated code can be run immediately by t
       content,
       metadata: {
         componentId: "making-code-changes",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["making_code_changes"],
       },

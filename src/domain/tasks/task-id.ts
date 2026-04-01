@@ -84,7 +84,7 @@ export function sessionNameToTaskId(sessionName: string): string {
   // task-md#123 → md#123
   const match = sessionName.match(/^task-(.+)$/);
   if (match && match[1]) {
-    return match[1];
+    return match[1] || sessionName;
   }
 
   return sessionName; // Return as-is if unparseable

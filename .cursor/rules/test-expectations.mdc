@@ -2,6 +2,7 @@
 description: Use when updating test assertions or expected outputs. Apply with testing-boundaries to ensure proper test focus
 globs:
 alwaysApply: false
+tags: [testing]
 ---
 # Test Expectations Management
 

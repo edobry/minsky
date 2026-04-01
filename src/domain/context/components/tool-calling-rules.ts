@@ -46,6 +46,7 @@ You have tools at your disposal to solve the coding task. Follow these rules reg
       content,
       metadata: {
         componentId: "tool-calling-rules",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["tool_calling"],
       },

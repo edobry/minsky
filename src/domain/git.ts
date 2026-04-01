@@ -611,7 +611,7 @@ export class GitService implements GitServiceInterface {
     // 3. Try to extract taskId from branch name
     const taskIdMatch = branch.match(/task[#-]?(\d+)/i);
     if (taskIdMatch) {
-      const taskId = taskIdMatch[1];
+      const taskId = taskIdMatch[1] || "";
       log.debug("Parsed task ID from branch name", { taskId, branch });
       return taskId;
     }
@@ -667,7 +667,7 @@ export class GitService implements GitServiceInterface {
     if (fullError.includes("Command failed:")) {
       const commandMatch = fullError.match(/Command failed: (.+?)(?:\s|$)/);
       if (commandMatch) {
-        return commandMatch[1];
+        return commandMatch[1] || "";
       }
     }
 

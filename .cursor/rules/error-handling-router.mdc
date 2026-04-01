@@ -2,6 +2,7 @@
 description: REQUIRED entry point for all error handling decisions. Use to navigate to specific error handling rules like robust-error-handling or dont-ignore-errors.
 globs:
 alwaysApply: false
+tags: [safety]
 ---
 # Error Handling Guidance - Start Here
 

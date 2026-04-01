@@ -260,6 +260,7 @@ Available tools could not be determined.`;
         content,
         metadata: {
           componentId: "tool-schemas",
+          generatedAt: new Date().toISOString(),
           tokenCount: content.length / 4,
           sections: ["tool_schemas"],
         },
@@ -309,6 +310,7 @@ ${JSON.stringify(cleanToolSchemas, null, 2)}`;
       content,
       metadata: {
         componentId: "tool-schemas",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4,
         sections: ["functions"],
         totalTools: inputs.totalTools,

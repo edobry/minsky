@@ -46,10 +46,29 @@ declare module "child_process" {
 
 // Declare Node.js process global
 declare const process: {
+  arch: string;
+  argv: string[];
   cwd(): string;
   env: Record<string, string | undefined>;
+  exit(code?: number): never;
+  exitCode?: number;
+  nextTick(callback: (...args: any[]) => void, ...args: any[]): void;
+  pid: number;
+  platform: string;
+  version: string;
+  stdin: {
+    isTTY?: boolean;
+    read(): any;
+    on(event: string, listener: (...args: any[]) => void): any;
+    pipe(destination: any): any;
+  };
   stdout: {
     isTTY?: boolean;
+    write(data: string): boolean;
+  };
+  stderr: {
+    isTTY?: boolean;
+    write(data: string): boolean;
   };
 };
 

@@ -43,7 +43,7 @@ export interface InitializeProjectOptions {
   ruleFormat: "cursor" | "generic";
   mcp?: {
     enabled: boolean;
-    transport: "stdio" | "sse" | "httpStream";
+    transport?: "stdio" | "sse" | "httpStream";
     port?: number;
     host?: string;
   };
