@@ -79,8 +79,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
 
     // Get both drizzle and raw SQL connections from the provider
-    this.drizzle = await provider.getDatabaseConnection?.();
-    this.sql = await provider.getRawSqlConnection?.();
+    this.drizzle = await (provider as any).getDatabaseConnection?.();
+    this.sql = await (provider as any).getRawSqlConnection?.();
 
     if (!this.drizzle) {
       throw new Error("Failed to get database connection from persistence provider");

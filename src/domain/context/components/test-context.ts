@@ -57,7 +57,8 @@ export const TestContextComponent: ContextComponent = {
     "Testing framework state, test files, coverage configuration, and test quality insights",
 
   async gatherInputs(context: ComponentInput): Promise<TestContextInputs> {
-    const { workspacePath, userPrompt } = context;
+    const { userPrompt } = context;
+    const workspacePath = context.workspacePath ?? process.cwd();
 
     try {
       // Detect test framework
@@ -261,7 +262,7 @@ async function detectTestFramework(workspacePath: string): Promise<TestContextIn
   try {
     // Check package.json for test dependencies
     const packagePath = path.join(workspacePath, "package.json");
-    const packageContent = await fs.readFile(packagePath, "utf-8");
+    const packageContent = String(await fs.readFile(packagePath, "utf-8"));
     const packageJson = JSON.parse(packageContent);
 
     const allDeps = {
@@ -447,7 +448,7 @@ async function detectCoverageConfig(
   try {
     // Check package.json for coverage scripts
     const packagePath = path.join(workspacePath, "package.json");
-    const packageContent = await fs.readFile(packagePath, "utf-8");
+    const packageContent = String(await fs.readFile(packagePath, "utf-8"));
     const packageJson = JSON.parse(packageContent);
 
     const hasTestCoverage =
@@ -499,7 +500,7 @@ async function loadTestConfig(
 async function findTestScripts(workspacePath: string): Promise<TestContextInputs["testScripts"]> {
   try {
     const packagePath = path.join(workspacePath, "package.json");
-    const packageContent = await fs.readFile(packagePath, "utf-8");
+    const packageContent = String(await fs.readFile(packagePath, "utf-8"));
     const packageJson = JSON.parse(packageContent);
 
     const scripts: TestContextInputs["testScripts"] = [];

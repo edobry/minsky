@@ -23,7 +23,7 @@ import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-o
  */
 export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]> {
   getSchema() {
-    return taskListParamsSchema;
+    return taskListParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -49,7 +49,7 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
  */
 export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
   getSchema() {
-    return taskGetParamsSchema;
+    return taskGetParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -72,7 +72,7 @@ export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
  */
 export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParams, string> {
   getSchema() {
-    return taskStatusGetParamsSchema;
+    return taskStatusGetParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -95,7 +95,7 @@ export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParam
  */
 export class GetTaskSpecContentOperation extends BaseTaskOperation<TaskSpecContentParams, string> {
   getSchema() {
-    return taskSpecContentParamsSchema;
+    return taskSpecContentParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -112,7 +112,7 @@ export class GetTaskSpecContentOperation extends BaseTaskOperation<TaskSpecConte
     // Get the task specification content
     const specContent = await taskService.getTaskSpecContent(params.taskId, params.section);
 
-    return specContent;
+    return specContent as any;
   }
 }
 

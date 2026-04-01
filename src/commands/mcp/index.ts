@@ -227,7 +227,7 @@ async function callMcpToolDirectly(
           const trimmedLine = line.trim();
 
           // Look for JSON-RPC responses (might be direct or in debug logs)
-          let jsonrpcResponse = null;
+          let jsonrpcResponse: any = null;
 
           // Try direct JSON-RPC response
           if (

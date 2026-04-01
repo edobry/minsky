@@ -33,7 +33,8 @@ export const FileContentComponent: ContextComponent = {
   description: "Dynamically discovers and includes relevant file contents based on context",
 
   async gatherInputs(context: ComponentInput): Promise<FileContentInputs> {
-    const { workspacePath, userPrompt } = context;
+    const { userPrompt } = context;
+    const workspacePath = context.workspacePath ?? process.cwd();
 
     try {
       // Determine relevant file patterns based on user prompt
@@ -319,11 +320,16 @@ async function readFileContents(filePaths: string[]): Promise<
     type: "typescript" | "javascript" | "json" | "markdown" | "text" | "other";
   }>
 > {
-  const results = [];
+  const results: Array<{
+    path: string;
+    content: string;
+    size: number;
+    type: "typescript" | "javascript" | "json" | "markdown" | "text" | "other";
+  }> = [];
 
   for (const filePath of filePaths) {
     try {
-      const content = await fs.readFile(filePath, "utf-8");
+      const content = String(await fs.readFile(filePath, "utf-8"));
       const type = detectFileType(filePath);
 
       results.push({

@@ -325,7 +325,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return createErrorResponse(getErrorMessage(error), {
+        return createErrorResponse(getErrorMessage(error), undefined, {
           session: args.sessionName,
           path: args.sourcePath,
         });
@@ -422,7 +422,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return createErrorResponse(getErrorMessage(error), {
+        return createErrorResponse(getErrorMessage(error), undefined, {
           session: args.sessionName,
           path: args.path,
         });

@@ -153,11 +153,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
 
     // Read origin URL from the session workspace (may be a local path)
     const originUrlOutput = await gitService.execInRepository(workdir, "git remote get-url origin");
-    const firstHop = (
-      typeof originUrlOutput === "string" ? originUrlOutput : originUrlOutput?.stdout || ""
-    )
-      .toString()
-      .trim();
+    const firstHop = originUrlOutput.toString().trim();
 
     if (!firstHop) {
       throw new Error("Failed to retrieve origin URL from git");
@@ -173,11 +169,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
         upstreamPath,
         "git remote get-url origin"
       );
-      const secondHop = (
-        typeof upstreamOriginOut === "string" ? upstreamOriginOut : upstreamOriginOut?.stdout || ""
-      )
-        .toString()
-        .trim();
+      const secondHop = upstreamOriginOut.toString().trim();
       if (secondHop) {
         resolvedRemote = secondHop;
       }

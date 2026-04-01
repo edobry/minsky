@@ -40,7 +40,7 @@ export class MinskyTaskBackend implements TaskBackend {
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     let query = this.db.select().from(tasksTable);
 
-    const conditions = [];
+    const conditions: any[] = [];
 
     if (options?.status && options.status !== "all") {
       conditions.push(eq(tasksTable.status, options.status as any));
@@ -54,7 +54,7 @@ export class MinskyTaskBackend implements TaskBackend {
     conditions.push(eq(tasksTable.backend, "minsky"));
 
     if (conditions.length > 0) {
-      query = query.where(and(...conditions));
+      query = (query as any).where(and(...conditions));
     }
 
     const rows = await query;
@@ -176,7 +176,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .where(eq(taskSpecsTable.taskId, id))
       .limit(1);
 
-    const spec = specRows.length > 0 ? specRows[0].content : "";
+    const spec = specRows.length > 0 ? specRows[0]!.content : "";
 
     return {
       id: task.id,
@@ -229,7 +229,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .where(eq(taskSpecsTable.taskId, taskId))
       .limit(1);
 
-    const content = specRows.length > 0 ? specRows[0].content : "";
+    const content = specRows.length > 0 ? specRows[0]!.content : "";
 
     return {
       task,

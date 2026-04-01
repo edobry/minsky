@@ -174,7 +174,7 @@ export async function sessionPrEdit(
   if (params.bodyPath && !params.body) {
     const fs = await import("fs/promises");
     try {
-      finalBody = await fs.readFile(params.bodyPath, "utf-8");
+      finalBody = (await fs.readFile(params.bodyPath, "utf-8")).toString();
     } catch (error) {
       throw new ValidationError(`Failed to read PR body from file: ${params.bodyPath}`);
     }
@@ -189,9 +189,9 @@ export async function sessionPrEdit(
 
   const result = {
     prBranch: sessionRecord.prBranch ?? "",
-    baseBranch: sessionRecord.baseBranch || "main",
-    title: params.title || sessionRecord.prState?.title,
-    body: finalBody || sessionRecord.prState?.body,
+    baseBranch: (sessionRecord as any).baseBranch || "main",
+    title: params.title || (sessionRecord.prState as any)?.title,
+    body: finalBody || (sessionRecord.prState as any)?.body,
   };
 
   return {
@@ -219,7 +219,7 @@ export async function sessionPrList(params: {
   pullRequests: Array<{
     sessionName: string;
     taskId?: string;
-    prNumber?: number;
+    prNumber?: number | string;
     status: string;
     title: string;
     url?: string;
@@ -273,7 +273,7 @@ export async function sessionPrList(params: {
             status,
             title: prDetails.title || `PR for ${session.session}`,
             url: prDetails.url,
-            updatedAt: prDetails.updatedAt || session.updatedAt,
+            updatedAt: prDetails.updatedAt || (session as any).updatedAt,
             branch: prDetails.headBranch || session.session,
             backendType: session.backendType,
           };
@@ -576,27 +576,25 @@ export async function sessionPrGet(params: {
     }
 
     // Build PR information using live data when available, fallback to cached
+    const fp = finalPullRequest as any;
     const pullRequest = {
-      number: finalPullRequest?.number,
-      title: livePrData?.title || finalPullRequest?.title || `PR for ${sessionRecord.session}`,
+      number: fp?.number,
+      title: livePrData?.title || fp?.title || `PR for ${sessionRecord.session}`,
       sessionName: sessionRecord.session,
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"
-          ? finalPullRequest?.headBranch || currentBranch || sessionRecord.session
+          ? fp?.headBranch || currentBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.session}`,
-      status:
-        livePrData?.state ||
-        finalPullRequest?.state ||
-        (prState?.commitHash ? "created" : "not_found"),
-      url: livePrData?.html_url || finalPullRequest?.url,
+      status: livePrData?.state || fp?.state || (prState?.commitHash ? "created" : "not_found"),
+      url: livePrData?.html_url || fp?.url,
       // Use live timestamps when available
-      createdAt: livePrData?.created_at || finalPullRequest?.createdAt || prState?.createdAt,
-      updatedAt: livePrData?.updated_at || finalPullRequest?.updatedAt || prState?.lastChecked,
-      description: livePrData?.body || finalPullRequest?.body,
-      author: livePrData?.user?.login || finalPullRequest?.github?.author,
-      filesChanged: finalPullRequest?.filesChanged, // Keep from cache for performance
-      commits: finalPullRequest?.commits, // Keep from cache for performance
+      createdAt: livePrData?.created_at || fp?.createdAt || prState?.createdAt,
+      updatedAt: livePrData?.updated_at || fp?.updatedAt || prState?.lastChecked,
+      description: livePrData?.body || fp?.body,
+      author: livePrData?.user?.login || fp?.github?.author,
+      filesChanged: fp?.filesChanged, // Keep from cache for performance
+      commits: fp?.commits, // Keep from cache for performance
       backendType: (sessionRecord.backendType as any) || undefined,
     };
 

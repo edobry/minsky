@@ -33,10 +33,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!this.storage) {
       log.debug("Storage not cached, calling persistence.getStorage()");
       try {
-        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
+        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>() as any;
         // Initialize the storage
-        await this.storage.initialize();
-        log.debug(`Successfully got storage: ${this.storage.constructor.name}`);
+        await this.storage!.initialize();
+        log.debug(`Successfully got storage: ${this.storage!.constructor.name}`);
       } catch (error) {
         log.error(
           "Failed to get storage from persistence provider:",
@@ -48,7 +48,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } else {
       log.debug(`Using cached storage: ${this.storage.constructor.name}`);
     }
-    return this.storage;
+    return this.storage!;
   }
 
   // Implementation of the SessionProviderInterface
@@ -147,7 +147,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       // Normalize task ID to qualified format (mt#123 or md#123)
       let validatedTaskId: string;
       try {
-        validatedTaskId = validateQualifiedTaskId(taskId);
+        validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
       } catch (error) {
         log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
         return false;
@@ -250,7 +250,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       // Validate and normalize task ID
       let validatedTaskId: string;
       try {
-        validatedTaskId = validateQualifiedTaskId(taskId);
+        validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
       } catch (error) {
         log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
         return [];

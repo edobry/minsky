@@ -75,7 +75,7 @@ describe("Centralized Service Mock Factories", () => {
 
       const sessions = await mockSessionProvider.listSessions();
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].session).toBe("session1");
+      expect(sessions[0]!.session).toBe("session1");
     });
   });
 

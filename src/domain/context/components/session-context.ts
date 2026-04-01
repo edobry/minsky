@@ -59,14 +59,14 @@ export const SessionContextComponent: ContextComponent = {
 
             if (fullSessionRecord) {
               sessionRecord = {
-                id: fullSessionRecord.id || sessionId,
-                name: fullSessionRecord.name || sessionId || "unknown",
+                id: fullSessionRecord.session || sessionId,
+                name: fullSessionRecord.name || fullSessionRecord.session || sessionId || "unknown",
                 taskId: fullSessionRecord.taskId || taskId,
                 repoUrl: fullSessionRecord.repoUrl || "unknown",
                 branch: fullSessionRecord.branch || "main",
                 createdAt: fullSessionRecord.createdAt || new Date().toISOString(),
-                updatedAt: fullSessionRecord.updatedAt || new Date().toISOString(),
-                status: fullSessionRecord.status,
+                updatedAt: fullSessionRecord.createdAt || new Date().toISOString(),
+                status: undefined,
               };
             }
           } catch (sessionError) {

@@ -57,7 +57,7 @@ export const ErrorContextComponent: ContextComponent = {
         // Limit to first 20 files for performance
         try {
           const fullPath = path.join(workspacePath, filePath);
-          const content = await fs.readFile(fullPath, "utf-8");
+          const content = String(await fs.readFile(fullPath, "utf-8"));
           const sourceFile = ts.createSourceFile(fullPath, content, ts.ScriptTarget.Latest, true);
 
           // Create a TypeScript program to get diagnostics
@@ -131,7 +131,7 @@ export const ErrorContextComponent: ContextComponent = {
       for (const error of allErrors) {
         // Group by file
         if (!errorsByFile[error.file]) errorsByFile[error.file] = [];
-        errorsByFile[error.file].push(error);
+        errorsByFile[error.file]!.push(error);
 
         // Group by category
         const category = error.category || "other";

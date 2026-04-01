@@ -13,6 +13,8 @@ import {
 export interface MultiBackendSessionRecord extends SessionRecord {
   /** Task backend (md, gh, json, etc.) - derived from qualified task ID */
   taskBackend?: string;
+  /** Legacy task ID before migration (preserved for reference) */
+  legacyTaskId?: string;
 }
 
 /**

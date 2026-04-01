@@ -116,8 +116,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
 
-      const data = readFileSync(this.filePath, "utf8").toString();
-      const dataStr = typeof data === "string" ? data : String(data.toString());
+      const data = readFileSync(this.filePath, "utf8");
+      const dataStr = typeof data === "string" ? data : String((data as any).toString());
 
       // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.toString().trim()) {
@@ -257,7 +257,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error.message || "Unknown error"}`
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
         );
       }
 
@@ -297,7 +297,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error.message || "Unknown error"}`
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
         );
       }
 
@@ -337,7 +337,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error.message || "Unknown error"}`
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
         );
       }
 

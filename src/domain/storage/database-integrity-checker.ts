@@ -192,9 +192,9 @@ export class DatabaseIntegrityChecker {
 
       // Try to detect SQLite format first (check magic bytes)
       try {
-        const buffer = readFileSync(filePath, { encoding: null });
+        const buffer = readFileSync(filePath, { encoding: null }) as Buffer;
         if (buffer.length >= 16) {
-          const header = buffer.subarray(0, 16).toString("ascii");
+          const header = (buffer.subarray(0, 16) as any).toString("ascii") as string;
           if (header.startsWith("SQLite format 3")) {
             // It's a SQLite file - verify it's not corrupted
             try {
@@ -213,7 +213,7 @@ export class DatabaseIntegrityChecker {
 
       // Try to detect JSON format
       try {
-        const content = readFileSync(filePath, "utf8");
+        const content = readFileSync(filePath, "utf8") as string;
         const trimmed = content.trim();
 
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -239,14 +239,20 @@ export class DatabaseIntegrityChecker {
     filePath: string,
     format: StorageBackendType
   ): Promise<{ isValid: boolean; issues: string[]; warnings: string[] }> {
-    const result = { isValid: true, issues: [], warnings: [] };
+    const result: { isValid: boolean; issues: string[]; warnings: string[] } = {
+      isValid: true,
+      issues: [],
+      warnings: [],
+    };
 
     try {
       if (format === "sqlite") {
         const db = new Database(filePath);
         try {
           // Check database integrity
-          const integrityResult = db.prepare("PRAGMA integrity_check").get();
+          const integrityResult = db.prepare("PRAGMA integrity_check").get() as {
+            integrity_check?: string;
+          } | null;
           if (integrityResult?.integrity_check !== "ok") {
             result.isValid = false;
             result.issues.push("SQLite integrity check failed");
@@ -262,7 +268,9 @@ export class DatabaseIntegrityChecker {
 
           // Check session count
           try {
-            const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get();
+            const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as {
+              count?: number;
+            } | null;
             if (sessionCount?.count === 0) {
               result.warnings.push("Database is empty - no sessions found");
             }
@@ -273,7 +281,7 @@ export class DatabaseIntegrityChecker {
           db.close();
         }
       } else if (format === "json") {
-        const content = readFileSync(filePath, "utf8");
+        const content = readFileSync(filePath, "utf8") as string;
         const data = JSON.parse(content);
 
         // Validate JSON structure
@@ -347,7 +355,7 @@ export class DatabaseIntegrityChecker {
             // Try to get session count for JSON backups
             if (format === "json") {
               try {
-                const content = readFileSync(filePath, "utf8");
+                const content = readFileSync(filePath, "utf8") as string;
                 const data = JSON.parse(content);
                 if (Array.isArray(data.sessions)) {
                   backupInfo.sessionCount = data.sessions.length;

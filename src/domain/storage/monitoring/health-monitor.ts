@@ -75,17 +75,17 @@ export class SessionDbHealthMonitor {
       // Load configuration if not provided
       if (!sessionDbConfig) {
         const config = getConfiguration();
-        sessionDbConfig = config.sessiondb;
+        sessionDbConfig = config.sessiondb as unknown as SessionDbConfig;
       }
 
       // Check backend health
-      const backendHealth = await this.checkBackendHealth(sessionDbConfig);
+      const backendHealth = await this.checkBackendHealth(sessionDbConfig!);
 
       // Analyze performance metrics
       const performance = this.analyzePerformance();
 
       // Check storage-specific metrics
-      const storage = await this.checkStorageMetrics(sessionDbConfig);
+      const storage = await this.checkStorageMetrics(sessionDbConfig!);
 
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
@@ -117,7 +117,7 @@ export class SessionDbHealthMonitor {
         overall: "unhealthy",
         backend: {
           healthy: false,
-          backend: sessionDbConfig.backend || "unknown",
+          backend: sessionDbConfig?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
           errors: [`Health check failed: ${getErrorMessage(error as any)}`],
@@ -206,7 +206,7 @@ export class SessionDbHealthMonitor {
     config: SessionDbConfig,
     status: HealthStatus
   ): Promise<void> {
-    switch (config.backend) {
+    switch (config.backend as string) {
       case "json":
         await this.checkJsonBackendHealth(config, status);
         break;
@@ -240,7 +240,7 @@ export class SessionDbHealthMonitor {
         // Warn about large files
         if (stats.size > 10_000_000) {
           // 10MB
-          status.warnings.push("Large JSON file detected - consider migrating to SQLite");
+          status.warnings?.push("Large JSON file detected - consider migrating to SQLite");
         }
       }
 
@@ -250,7 +250,7 @@ export class SessionDbHealthMonitor {
         fs.accessSync(baseDir, fs.constants.R_OK | fs.constants.W_OK);
         status.details!.directoryWritable = true;
       } catch (error) {
-        status.errors.push("Directory not writable");
+        status.errors?.push("Directory not writable");
         status.details!.directoryWritable = false;
       }
     } catch (error) {
@@ -284,7 +284,7 @@ export class SessionDbHealthMonitor {
         status.details!.journalMode = journalMode;
 
         if (journalMode !== "wal") {
-          status.warnings.push("Consider enabling WAL mode for better performance");
+          status.warnings?.push("Consider enabling WAL mode for better performance");
         }
 
         // Check for locks
@@ -339,7 +339,7 @@ export class SessionDbHealthMonitor {
           status.details!.blockedQueries = lockCount;
 
           if (lockCount > 0) {
-            status.warnings.push(`${lockCount} blocked queries detected`);
+            status.warnings?.push(`${lockCount} blocked queries detected`);
           }
         } finally {
           client.release();
@@ -397,7 +397,7 @@ export class SessionDbHealthMonitor {
       const path = require("path");
 
       let checkPath: string;
-      if (config.backend === "json") {
+      if ((config.backend as string) === "json") {
         checkPath = config.baseDir || "";
       } else if (config.backend === "sqlite") {
         checkPath = path.dirname(config.dbPath || "");
@@ -452,15 +452,15 @@ export class SessionDbHealthMonitor {
     }
 
     // Backend-specific recommendations
-    if (backendHealth.backend === "json" && backendHealth.details.fileSize > 5_000_000) {
+    if (backendHealth.backend === "json" && backendHealth.details?.fileSize > 5_000_000) {
       recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
     }
 
-    if (backendHealth.backend === "sqlite" && backendHealth.details.journalMode !== "wal") {
+    if (backendHealth.backend === "sqlite" && backendHealth.details?.journalMode !== "wal") {
       recommendations.push("Enable WAL mode for better SQLite performance");
     }
 
-    if (backendHealth.backend === "postgres" && backendHealth.details.activeConnections > 80) {
+    if (backendHealth.backend === "postgres" && backendHealth.details?.activeConnections > 80) {
       recommendations.push("High connection count - consider connection pooling optimization");
     }
 

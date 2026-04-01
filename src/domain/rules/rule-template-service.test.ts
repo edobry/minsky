@@ -71,13 +71,13 @@ describe("RuleTemplateService", () => {
       description: "List all tasks",
       parameters: {
         status: {
-          schema: { type: "string", enum: ["TODO", "IN_PROGRESS", "DONE"] },
+          schema: { type: "string", enum: ["TODO", "IN_PROGRESS", "DONE"] } as any,
           description: "Filter by task status",
           required: false,
           defaultValue: undefined,
         },
         all: {
-          schema: { type: "boolean" },
+          schema: { type: "boolean" } as any,
           description: "Include all tasks (including completed)",
           required: false,
           defaultValue: false,
@@ -469,11 +469,11 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(cliResult.success).toBe(true);
-      const cliRule = cliResult.rules[0];
-      expect(cliRule.globs).toEqual(["**/*.cli.ts"]);
-      expect(cliRule.alwaysApply).toBe(true);
-      expect(cliRule.tags).toContain("cli");
-      expect(cliRule.tags).toContain("custom");
+      const cliRule = cliResult.rules[0] as any;
+      expect(cliRule!.globs).toEqual(["**/*.cli.ts"]);
+      expect(cliRule!.alwaysApply).toBe(true);
+      expect(cliRule!.tags).toContain("cli");
+      expect(cliRule!.tags).toContain("custom");
 
       // Test MCP metadata
       const mcpResult = await service.generateRules({
@@ -483,11 +483,11 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(mcpResult.success).toBe(true);
-      const mcpRule = mcpResult.rules[0];
-      expect(mcpRule.globs).toEqual(["**/*.mcp.ts"]);
-      expect(mcpRule.alwaysApply).toBe(false);
-      expect(mcpRule.tags).toContain("mcp");
-      expect(mcpRule.tags).toContain("custom");
+      const mcpRule = mcpResult.rules[0] as any;
+      expect(mcpRule!.globs).toEqual(["**/*.mcp.ts"]);
+      expect(mcpRule!.alwaysApply).toBe(false);
+      expect(mcpRule!.tags).toContain("mcp");
+      expect(mcpRule!.tags).toContain("custom");
     });
   });
 
@@ -508,8 +508,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config.interface).toBe("cli");
-      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
+      expect(result.config!.interface).toBe("cli");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
     test("generateMcpRules uses MCP configuration", async () => {
@@ -528,8 +528,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config.interface).toBe("mcp");
-      expect(result.rules[0].content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
+      expect(result.config!.interface).toBe("mcp");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
     });
 
     test("generateHybridRules uses hybrid configuration", async () => {
@@ -548,9 +548,9 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config.interface).toBe("hybrid");
+      expect(result.config!.interface).toBe("hybrid");
       // Should prefer CLI by default (preferMcp: false)
-      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
   });
 
@@ -572,7 +572,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
-      expect(result.rules[0].id).toBe("minsky-workflow");
+      expect(result.rules[0]!.id).toBe("minsky-workflow");
       expect(result.config).toEqual(DEFAULT_CLI_CONFIG);
     });
   });

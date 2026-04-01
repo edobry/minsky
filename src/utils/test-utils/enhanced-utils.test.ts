@@ -30,6 +30,7 @@ import {
   createTaskDataArray,
   createRandomId,
 } from "./factories";
+import { TaskStatus } from "../../domain/tasks/taskConstants";
 
 // Create a test suite for managed setup/teardown
 const { beforeEachTest, afterEachTest } = createTestSuite();
@@ -61,7 +62,7 @@ describe("Enhanced Test Utilities", () => {
       let mockFn = mockFunction<(n: unknown) => number>();
 
       // Set implementation
-      mockFn = mock((n) => (n as number) * 2);
+      mockFn = mock((n) => (n as number) * 2) as any;
 
       // Use the mock
       const result = mockFn(TEST_ARRAY_SIZE);
@@ -141,7 +142,7 @@ describe("Enhanced Test Utilities", () => {
               branch: "main",
             })
           ),
-        },
+        } as any,
       });
 
       // Test the overridden method
@@ -173,7 +174,7 @@ describe("Enhanced Test Utilities", () => {
                 branch: "main",
               })
             ),
-          },
+          } as any,
         },
         async (mockDeps) => {
           const deps = mockDeps as DomainDependencies;
@@ -183,7 +184,7 @@ describe("Enhanced Test Utilities", () => {
       );
 
       // Verify the result matches our temporary override
-      return result.then((_sessionName) => {
+      return result.then((_sessionName: any) => {
         expect(_sessionName).toBe("temp-session");
       });
     });
@@ -203,24 +204,24 @@ describe("Enhanced Test Utilities", () => {
       const task = createTaskData({
         id: "#042",
         title: "Special Test Task",
-        status: "IN-PROGRESS",
+        status: TaskStatus.IN_PROGRESS,
       });
 
       // Verify overrides are applied
       expect(task.id).toBe("#042");
       expect(task.title).toBe("Special Test Task");
-      expect(task.status).toBe("IN-PROGRESS");
+      expect(task.status).toBe(TaskStatus.IN_PROGRESS);
     });
 
     test("should create an array of task data", () => {
-      const tasks = createTaskDataArray(3, { status: "IN-PROGRESS" });
+      const tasks = createTaskDataArray(3, { status: TaskStatus.IN_PROGRESS });
 
       // Verify we get the right number of tasks
       expect(tasks.length).toBe(3);
 
       // Verify all tasks have the status we specified
       tasks.forEach((task) => {
-        expect(task.status).toBe("IN-PROGRESS");
+        expect(task.status).toBe(TaskStatus.IN_PROGRESS);
       });
     });
 
@@ -253,7 +254,7 @@ describe("Enhanced Test Utilities", () => {
               }
               return null;
             },
-          },
+          } as any,
           sessionDB: {
             getSession: async (name: unknown) => {
               if (name === "task#TEST_VALUE") {
@@ -261,7 +262,7 @@ describe("Enhanced Test Utilities", () => {
               }
               return null;
             },
-          },
+          } as any,
         },
         async (deps) => {
           const typedDeps = deps as DomainDependencies;
@@ -278,10 +279,11 @@ describe("Enhanced Test Utilities", () => {
       );
 
       // 4. Verify results
-      expect(result.task).toBeDefined();
-      expect(result.task?.title).toBe("Important Task");
-      expect(result.session).toBeDefined();
-      expect(result.session?.taskId).toBe("TEST_VALUE");
+      const typedResult = result as any;
+      expect(typedResult.task).toBeDefined();
+      expect(typedResult.task?.title).toBe("Important Task");
+      expect(typedResult.session).toBeDefined();
+      expect(typedResult.session?.taskId).toBe("TEST_VALUE");
     });
   });
 });

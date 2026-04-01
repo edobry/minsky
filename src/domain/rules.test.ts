@@ -94,8 +94,8 @@ describe("RuleService", () => {
       const rules = await ruleService.listRules({ format: "cursor" });
 
       expect(rules.length).toBe(1);
-      expect(rules[0].id).toBe("test-cursor");
-      expect(rules[0].format).toBe("cursor");
+      expect(rules[0]!.id).toBe("test-cursor");
+      expect(rules[0]!.format).toBe("cursor");
     });
 
     test("lists only generic rules when format is generic", async () => {
@@ -115,8 +115,8 @@ describe("RuleService", () => {
       const rules = await ruleService.listRules({ format: "generic" });
 
       expect(rules.length).toBe(1);
-      expect(rules[0].id).toBe("test-generic");
-      expect(rules[0].format).toBe("generic");
+      expect(rules[0]!.id).toBe("test-generic");
+      expect(rules[0]!.format).toBe("generic");
     });
   });
 

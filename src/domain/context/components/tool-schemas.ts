@@ -146,7 +146,6 @@ export const ToolSchemasComponent: ContextComponent = {
             } else {
               toolSchemas[relevantTool.tool.id] = {
                 description: relevantTool.tool.description,
-                syntax: relevantTool.tool.syntax,
                 parameters: {
                   type: "object",
                   properties,
@@ -165,8 +164,8 @@ export const ToolSchemasComponent: ContextComponent = {
           const allCommands = registry.getAllCommands();
           originalToolCount = allCommands.length;
           reductionPercentage =
-            originalToolCount > 0
-              ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
+            originalToolCount! > 0
+              ? Math.round(((originalToolCount! - totalTools) / originalToolCount!) * 100)
               : 0;
           filteredBy = "user-query";
         } catch (error) {

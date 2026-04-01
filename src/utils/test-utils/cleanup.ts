@@ -73,7 +73,7 @@ export class TestCleanupManager {
       path: itemPath,
       type,
       created: Date.now(),
-      description,
+      description: spec,
     });
   }
 

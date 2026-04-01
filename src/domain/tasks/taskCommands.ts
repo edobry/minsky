@@ -164,15 +164,14 @@ export async function getTaskFromParams(
 
     // Get the task
     log.debug("[getTaskFromParams] About to get task");
-    const task = await taskService.getTask(validParams.taskId);
+    const taskIdStr = Array.isArray(validParams.taskId)
+      ? validParams.taskId[0]!
+      : validParams.taskId;
+    const task = await taskService.getTask(taskIdStr);
     log.debug("[getTaskFromParams] Task retrieved", { taskExists: !!task });
 
     if (!task) {
-      throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
-        "task",
-        validParams.taskId
-      );
+      throw new ResourceNotFoundError(`Task ${taskIdStr} not found`, "task", taskIdStr);
     }
 
     const duration = Date.now() - startTime;
@@ -380,7 +379,7 @@ export async function updateTaskFromParams(
     }
 
     // Update the task
-    const updatedTask = await taskService.updateTask(qualifiedTaskId, updates);
+    const updatedTask = await (taskService as any).updateTask(qualifiedTaskId, updates);
 
     return updatedTask;
   } catch (error) {
@@ -405,7 +404,9 @@ export async function createTaskFromParams(
   params: TaskCreateParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createConfiguredTaskService: (options: TaskServiceOptions) => TaskServiceInterface;
+    createConfiguredTaskService: (
+      options: TaskServiceOptions
+    ) => TaskServiceInterface | Promise<TaskServiceInterface>;
   } = {
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
@@ -428,7 +429,7 @@ export async function createTaskFromParams(
     });
 
     // Create task service
-    const taskService = deps.createConfiguredTaskService({
+    const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -491,7 +492,7 @@ export async function createTaskFromTitleAndDescription(
   if (validParams.specPath) {
     const fs = await import("fs/promises");
     try {
-      specContent = await fs.readFile(validParams.specPath, "utf-8");
+      specContent = (await fs.readFile(validParams.specPath, "utf-8")).toString();
     } catch (error) {
       throw new Error(
         `Failed to read spec from file ${validParams.specPath}: ${getErrorMessage(error)}`
@@ -515,7 +516,9 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createConfiguredTaskService: (options: TaskServiceOptions) => TaskServiceInterface;
+    createConfiguredTaskService: (
+      options: TaskServiceOptions
+    ) => TaskServiceInterface | Promise<TaskServiceInterface>;
   } = {
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
@@ -544,7 +547,7 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Create task service
-    const taskService = deps.createConfiguredTaskService({
+    const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -592,7 +595,7 @@ export async function getTaskSpecContentFromParams(
       // Find the next section or end of file
       let sectionEnd = lines.length;
       for (let i = sectionStart + 1; i < lines.length; i++) {
-        if (lines[i].startsWith("## ")) {
+        if (lines[i]?.startsWith("## ")) {
           sectionEnd = i;
           break;
         }

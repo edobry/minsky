@@ -131,7 +131,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
-        return target[prop];
+        return (target as any)[prop];
       }
 
       // For methods that don't exist, create a mock function

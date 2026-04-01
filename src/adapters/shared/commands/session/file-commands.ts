@@ -90,7 +90,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
       // Read from pattern file
       try {
         const content = await fs.readFile(params.patternFile, "utf8");
-        return content;
+        return content.toString();
       } catch (error) {
         throw new MinskyError(
           `Failed to read pattern file '${params.patternFile}': ${getErrorMessage(error)}`
@@ -124,7 +124,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
         return;
       }
 
-      process.stdin.setEncoding("utf8");
+      (process.stdin as any).setEncoding("utf8");
 
       process.stdin.on("data", (chunk) => {
         content += chunk;
@@ -223,7 +223,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
 
     // Write the file
     await writeFile(resolvedPath, finalContent, "utf8");
-    const bytesWritten = Buffer.byteLength(finalContent, "utf8");
+    const bytesWritten = (Buffer as any).byteLength(finalContent, "utf8");
 
     return createSuccessResponse({
       timestamp: new Date().toISOString(),

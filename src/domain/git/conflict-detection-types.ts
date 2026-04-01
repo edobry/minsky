@@ -13,6 +13,12 @@ export interface ConflictPrediction {
   resolutionStrategies: ResolutionStrategy[];
   userGuidance: string;
   recoveryCommands: string[];
+  /** Whether the conflicts can be automatically resolved */
+  canAutoResolve?: boolean;
+  /** Recommendations for resolving conflicts */
+  recommendations?: string[];
+  /** Overall complexity of the conflict */
+  overallComplexity?: "simple" | "moderate" | "complex";
 }
 
 export interface ConflictFile {

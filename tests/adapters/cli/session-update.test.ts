@@ -64,7 +64,7 @@ describe("session update command", () => {
   });
 
   afterEach(() => {
-    cleanupSessionTestData(testData);
+    cleanupSessionTestData(testData.tempDir);
     // Clean up using mock filesystem
     mockFs.cleanup();
   });

@@ -56,7 +56,7 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    */
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
-    const format = context.format.toLowerCase() as OutputFormat;
+    const format = (context.format ?? "text").toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
@@ -84,7 +84,7 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    * @returns JSON-serializable object
    */
   formatJson(data: T, context: CommandExecutionContext): object {
-    return data;
+    return data as unknown as object;
   }
 }
 

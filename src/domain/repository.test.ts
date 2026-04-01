@@ -6,26 +6,26 @@ import { RepositoryBackendType } from "./repository";
 
 describe("Repository backends", () => {
   test("RepositoryBackendType enum has correct values", () => {
-    expect(RepositoryBackendType.LOCAL).toBe("local");
-    expect(RepositoryBackendType.REMOTE).toBe("remote");
-    expect(RepositoryBackendType.GITHUB).toBe("github");
+    expect(RepositoryBackendType.LOCAL).toBe("local" as any);
+    expect(RepositoryBackendType.REMOTE).toBe("remote" as any);
+    expect(RepositoryBackendType.GITHUB).toBe("github" as any);
   });
 
   test("RepositoryBackendType enum has all three backend types", () => {
     const values = Object.values(RepositoryBackendType);
-    expect(values).toContain("local");
-    expect(values).toContain("remote");
-    expect(values).toContain("github");
+    expect(values).toContain("local" as any);
+    expect(values).toContain("remote" as any);
+    expect(values).toContain("github" as any);
     expect(values.length).toBe(3);
   });
 
   test("RepositoryBackendType LOCAL value matches string literal", () => {
     const backendType: RepositoryBackendType = RepositoryBackendType.LOCAL;
-    expect(backendType).toBe("local");
+    expect(backendType).toBe("local" as any);
   });
 
   test("RepositoryBackendType GITHUB value matches string literal", () => {
     const backendType: RepositoryBackendType = RepositoryBackendType.GITHUB;
-    expect(backendType).toBe("github");
+    expect(backendType).toBe("github" as any);
   });
 });

@@ -89,7 +89,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.BLOCKED);
     });
 
@@ -131,7 +131,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.TODO);
     });
 
@@ -168,7 +168,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
@@ -205,7 +205,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.DONE);
     });
 
@@ -236,7 +236,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
+      await expect(getTaskStatusFromParams(params, mockDeps as any)).rejects.toThrow(
         "Task md#999 not found or has no status"
       );
     });
@@ -279,7 +279,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.BLOCKED);
     });
 
@@ -322,7 +322,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps as any);
       expect(result).toBe(TASK_STATUS.BLOCKED);
     });
   });
@@ -373,7 +373,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps as any);
       expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
 
@@ -409,7 +409,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task md#999 not found");
+      await expect(getTaskFromParams(params, mockDeps as any)).rejects.toThrow(
+        "Task md#999 not found"
+      );
     });
 
     test("should handle task ID normalization", async () => {
@@ -456,7 +458,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps as any);
       expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
 
@@ -505,7 +507,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps as any);
       expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
   });
@@ -545,7 +547,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params, mockDeps as any);
       expect(result).toEqual(mockTasks);
     });
 
@@ -588,7 +590,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params, mockDeps as any);
       expect(result).toEqual([mockTasks[0]]);
     });
 
@@ -633,7 +635,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params, mockDeps as any);
       expect(result).toEqual([mockTasks[0], mockTasks[1]]);
     });
   });
@@ -688,8 +690,8 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService as any,
       };
 
-      await setTaskStatusFromParams(params as any, mockDeps);
-      expect(statusSetTo).toBe(TASK_STATUS.DONE);
+      await setTaskStatusFromParams(params as any, mockDeps as any);
+      expect(statusSetTo).toBe(TASK_STATUS.DONE as any);
     });
 
     test("should throw error when task not found", async () => {
@@ -725,7 +727,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(setTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
+      await expect(setTaskStatusFromParams(params, mockDeps as any)).rejects.toThrow(
         "Task md#999 not found"
       );
     });
@@ -779,8 +781,8 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createConfiguredTaskService: async (options: any) => mockTaskService as any,
       };
 
-      await setTaskStatusFromParams(params as any, mockDeps);
-      expect(statusSetTo).toBe(TASK_STATUS.DONE);
+      await setTaskStatusFromParams(params as any, mockDeps as any);
+      expect(statusSetTo).toBe(TASK_STATUS.DONE as any);
     });
   });
 
@@ -810,7 +812,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         }),
       };
 
-      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow();
+      await expect(getTaskFromParams(params, mockDeps as any)).rejects.toThrow();
     });
 
     test("should handle empty task ID", async () => {
@@ -838,7 +840,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         }),
       };
 
-      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow();
+      await expect(getTaskFromParams(params, mockDeps as any)).rejects.toThrow();
     });
 
     test("should handle backend parameter", async () => {
@@ -889,7 +891,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps as any);
       expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
   });

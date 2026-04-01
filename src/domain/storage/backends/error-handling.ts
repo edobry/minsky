@@ -89,7 +89,7 @@ export class StorageError extends Error {
       recoveryActions: this.recoveryActions,
       retryable: this.retryable,
       stack: this.stack,
-      originalError: this.originalError.message,
+      originalError: this.originalError?.message,
     };
   }
 }
@@ -335,7 +335,7 @@ export class StorageErrorClassifier {
   }
 
   private static classifyPostgresError(error: Error, errorMessage: string) {
-    const pgError = error; // PostgreSQL errors have specific properties
+    const pgError = error as NodeJS.ErrnoException; // PostgreSQL errors have specific properties
 
     // Connection refused
     if (errorMessage.includes("econnrefused") || errorMessage.includes("connection refused")) {

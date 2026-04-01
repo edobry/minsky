@@ -9,7 +9,7 @@ export async function inspectSessionFromParams(params: {
 }): Promise<Session | null> {
   try {
     const sessionContext = await getCurrentSessionContext();
-    return sessionContext;
+    return sessionContext as Session | null;
   } catch (error) {
     return null;
   }

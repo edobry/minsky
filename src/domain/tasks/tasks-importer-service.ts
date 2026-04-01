@@ -35,8 +35,8 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
   if (parts.length !== 2) {
     throw new Error(`Invalid qualified task ID: ${id}`);
   }
-  const prefix = parts[0];
-  const sourceTaskId = parts[1];
+  const prefix = parts[0]!;
+  const sourceTaskId = parts[1]!;
 
   const backendMap: Record<string, string> = {
     md: "markdown",
@@ -45,7 +45,7 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
     jf: "json-file",
   };
 
-  const backend = backendMap[prefix];
+  const backend = backendMap[prefix]!;
   if (!backend) {
     throw new Error(`Unknown task ID prefix: ${prefix}`);
   }
@@ -61,7 +61,7 @@ export class TasksImporterService {
 
     // 1) Read tasks markdown
     const tasksPath = getTasksFilePath(this.workspacePath);
-    const tasksContent = await fs.readFile(tasksPath, "utf-8");
+    const tasksContent = (await fs.readFile(tasksPath, "utf-8")).toString();
     const parsed = parseTasksFromMarkdown(tasksContent);
 
     // Optional status filter and limit
@@ -85,8 +85,8 @@ export class TasksImporterService {
       throw new Error("Current persistence provider does not support SQL operations");
     }
 
-    const sql = await provider.getRawSqlConnection?.();
-    const db = await provider.getDatabaseConnection?.();
+    const sql = await (provider as any).getRawSqlConnection?.();
+    const db = await (provider as any).getDatabaseConnection?.();
 
     if (!sql) {
       throw new Error("Failed to get raw SQL connection from persistence provider");
@@ -126,7 +126,7 @@ export class TasksImporterService {
       const specPath = getTaskSpecFilePath(id, t.title || "", this.workspacePath);
       let specContent = "";
       try {
-        specContent = await fs.readFile(specPath, "utf-8");
+        specContent = (await fs.readFile(specPath, "utf-8")).toString();
       } catch {
         // spec may not exist; proceed with empty content
       }

@@ -42,7 +42,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): MockFunction<ReturnType<T>, Parameters<T>> & T {
   // Cast through unknown to ensure proper type mapping
-  return createMock(implementation) as MockFunction<ReturnType<T>, Parameters<T>> & T;
+  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
 
 /**

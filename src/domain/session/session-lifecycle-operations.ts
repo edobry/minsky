@@ -37,7 +37,7 @@ export async function getSessionImpl(
     });
 
     // Get the session details using the resolved session name
-    return deps.sessionDB.getSession(resolvedContext.sessionName);
+    return deps.sessionDB.getSession(resolvedContext.sessionName) as Promise<Session | null>;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
@@ -59,7 +59,7 @@ export async function listSessionsImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<Session[]> {
-  return deps.sessionDB.listSessions();
+  return deps.sessionDB.listSessions() as Promise<Session[]>;
 }
 
 /**
@@ -171,7 +171,7 @@ export async function inspectSessionImpl(
 
   const session = await deps.sessionDB.getSession(context.sessionId);
 
-  return session;
+  return session as Session | null;
 }
 
 /**
@@ -220,7 +220,7 @@ export async function cleanupSessionImpl(
 
     // 3. Safety validation (unless force flag is used)
     if (!force) {
-      await validateSessionSafeForCleanup(sessionRecord, sessionName, taskId);
+      await validateSessionSafeForCleanup(sessionRecord as Session | null, sessionName, taskId);
     }
 
     // 4. Remove session directories

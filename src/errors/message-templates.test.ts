@@ -19,6 +19,7 @@ import {
   createConfigErrorMessage,
   getErrorMessage,
   createErrorContext,
+  SessionErrorType,
   type CommandSuggestion,
   type ContextInfo,
   type ErrorTemplate,
@@ -249,7 +250,7 @@ describe("Error Message Templates", () => {
 
   describe("createSessionErrorMessage", () => {
     test("creates not found session error", () => {
-      const result = createSessionErrorMessage("test-session", "not_found");
+      const result = createSessionErrorMessage("test-session", SessionErrorType.NOT_FOUND);
 
       expect(result).toContain('🔍 Session "test-session" Not Found');
       expect(result).toContain("The session you're trying to access doesn't exist");
@@ -260,7 +261,7 @@ describe("Error Message Templates", () => {
     });
 
     test("creates session exists error", () => {
-      const result = createSessionErrorMessage("test-session", "exists");
+      const result = createSessionErrorMessage("test-session", SessionErrorType.ALREADY_EXISTS);
 
       expect(result).toContain('🚫 Session "test-session" Already Exists');
       expect(result).toContain("A session with this name already exists");
@@ -270,7 +271,7 @@ describe("Error Message Templates", () => {
     });
 
     test("creates invalid session error", () => {
-      const result = createSessionErrorMessage("test-session", "invalid");
+      const result = createSessionErrorMessage("test-session", SessionErrorType.INVALID);
 
       expect(result).toContain('❌ Invalid Session "test-session"');
       expect(result).toContain("The session exists but is in an invalid state");
@@ -339,8 +340,8 @@ describe("Error Message Templates", () => {
       const context = createErrorContext().addCurrentDirectory().build();
 
       expect(context).toHaveLength(1);
-      expect(context[0].label).toBe("Current directory");
-      expect(context[0].value).toBe("/mock/projects/minsky");
+      expect(context[0]!.label).toBe("Current directory");
+      expect(context[0]!.value).toBe("/mock/projects/minsky");
     });
 
     test("adds session information", () => {
@@ -402,16 +403,16 @@ describe("Error Message Templates", () => {
         .build();
 
       expect(context).toHaveLength(4);
-      expect(context[0].label).toBe("Session");
-      expect(context[1].label).toBe("Task ID");
-      expect(context[2].label).toBe("Repository");
-      expect(context[3].label).toBe("Current directory");
+      expect(context[0]!.label).toBe("Session");
+      expect(context[1]!.label).toBe("Task ID");
+      expect(context[2]!.label).toBe("Repository");
+      expect(context[3]!.label).toBe("Current directory");
     });
   });
 
   describe("Error message consistency", () => {
     test("all templates use consistent emoji patterns", () => {
-      const sessionError = createSessionErrorMessage("test", "not_found");
+      const sessionError = createSessionErrorMessage("test", SessionErrorType.NOT_FOUND);
       const validationError = createValidationErrorMessage("field", "value", ["option1"]);
       const commandError = createCommandFailureMessage("cmd", new Error("fail"), []);
 
@@ -428,7 +429,7 @@ describe("Error Message Templates", () => {
 
     test("all templates have consistent structure", () => {
       const templates = [
-        createSessionErrorMessage("test", "not_found"),
+        createSessionErrorMessage("test", SessionErrorType.NOT_FOUND),
         createValidationErrorMessage("field", "value", ["option1"]),
         createMissingInfoMessage("operation", [{ description: "desc", command: "cmd" }]),
       ];

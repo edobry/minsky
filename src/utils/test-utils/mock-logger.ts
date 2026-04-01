@@ -59,13 +59,15 @@ export interface MockLoggerInterface {
 export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInterface {
   const logs: LogEntry[] = [];
 
-  const loggerConfig: LoggerConfig = configOverride || {
-    mode: "auto",
-    level: "silent", // Default to silent in tests
-    enableAgentLogs: false,
-  };
+  const loggerConfig: LoggerConfig =
+    configOverride ||
+    ({
+      mode: "auto",
+      level: "error", // Default to error level in tests (effectively silent)
+      enableAgentLogs: false,
+    } as LoggerConfig);
 
-  const currentLogMode = LogMode.HUMAN; // Default to human mode in tests
+  const currentLogMode: LogMode = LogMode.HUMAN; // Default to human mode in tests
 
   function addLog(level: string, message: string | Error, metadata?: any) {
     const entry: LogEntry = {
@@ -94,9 +96,9 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
     systemDebug: (message: string, metadata?: any) => addLog("debug", message, metadata),
 
     // Configuration and mode
-    mode: currentLogMode === LogMode.STRUCTURED ? "STRUCTURED" : "HUMAN",
-    isStructuredMode: () => currentLogMode === LogMode.STRUCTURED,
-    isHumanMode: () => currentLogMode === LogMode.HUMAN,
+    mode: (currentLogMode as LogMode) === LogMode.STRUCTURED ? "STRUCTURED" : "HUMAN",
+    isStructuredMode: () => (currentLogMode as LogMode) === LogMode.STRUCTURED,
+    isHumanMode: () => (currentLogMode as LogMode) === LogMode.HUMAN,
     config: loggerConfig,
 
     // Internal (empty mocks for compatibility)

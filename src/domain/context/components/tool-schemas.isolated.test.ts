@@ -33,10 +33,10 @@ describe("Tool Schemas Component - Query-Aware Filtering Tests", () => {
       const shouldFilterByQuery1 = Boolean(userQuery?.trim()) && !customRegistry;
       expect(shouldFilterByQuery1).toBe(false); // Custom registry = should NOT filter
 
-      const shouldFilterByQuery2 = Boolean(userQuery?.trim()) && !undefined;
+      const shouldFilterByQuery2 = Boolean(userQuery?.trim()) && !(undefined as any);
       expect(shouldFilterByQuery2).toBe(true); // No registry = should filter
 
-      const shouldFilterByQuery3 = Boolean(userQuery?.trim()) && !null;
+      const shouldFilterByQuery3 = Boolean(userQuery?.trim()) && !(null as any);
       expect(shouldFilterByQuery3).toBe(true); // Null registry = should filter
     });
 

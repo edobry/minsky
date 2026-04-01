@@ -45,10 +45,10 @@ export async function startSessionImpl(
     branch,
     noStatusUpdate,
     quiet,
-    json,
     skipInstall,
     packageManager,
   } = params;
+  const json = (params as any).json;
 
   try {
     log.debug("Starting session with params", {

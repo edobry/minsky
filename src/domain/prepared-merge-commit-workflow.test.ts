@@ -21,7 +21,7 @@ import { log } from "../utils/logger";
 setupTestMocks();
 
 describe("Prepared Merge Commit Workflow (Task #144)", () => {
-  let mockExecAsync: unknown;
+  let mockExecAsync: any;
   let gitCommands: string[] = [];
 
   beforeEach(() => {
@@ -74,7 +74,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePr method with our spy
-      gitService.preparePr = preparePrSpy;
+      (gitService as any).preparePr = preparePrSpy;
 
       // Execute the preparePr method
       await gitService.preparePr({
@@ -145,7 +145,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace with correct implementation
-      gitService.preparePr = correctPreparePrSpy;
+      (gitService as any).preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
@@ -261,7 +261,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         }
       });
 
-      gitService.preparePr = preparePrWithConflictSpy;
+      (gitService as any).preparePr = preparePrWithConflictSpy;
 
       // Should throw error on merge conflict
       await expect(

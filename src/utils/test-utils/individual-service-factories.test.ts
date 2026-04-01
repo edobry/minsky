@@ -54,8 +54,8 @@ describe("Individual Service Mock Factories", () => {
       const mockProvider = createMockSessionProvider({ sessions });
 
       expect(await mockProvider.listSessions()).toEqual(sessions);
-      expect(await mockProvider.getSession("test-session")).toEqual(sessions[0]);
-      expect(await mockProvider.getSessionByTaskId("md#123")).toEqual(sessions[0]);
+      expect(await mockProvider.getSession("test-session")).toEqual(sessions[0] ?? null);
+      expect(await mockProvider.getSessionByTaskId("md#123")).toEqual(sessions[0] ?? null);
       expect(await mockProvider.getSession("nonexistent")).toBeNull();
     });
 

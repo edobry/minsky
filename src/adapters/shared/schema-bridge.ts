@@ -115,7 +115,11 @@ export function getSchemaDescription(
   let description = fallback;
 
   // Check if we have a description in the schema
-  if ("description" in schema && typeof schema.description === "string" && schema.spec.length > 0) {
+  if (
+    "description" in schema &&
+    typeof schema.description === "string" &&
+    (schema as any).description.length > 0
+  ) {
     description = schema.description;
   } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
     const innerDesc = schema._def.innerType.description;

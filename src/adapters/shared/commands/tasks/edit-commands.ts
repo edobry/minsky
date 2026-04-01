@@ -133,7 +133,7 @@ export class TasksEditCommand extends BaseTaskCommand {
       } else if (params.specFile) {
         // Read from file
         try {
-          newSpecContent = await fs.readFile(params.specFile, "utf-8");
+          newSpecContent = (await fs.readFile(params.specFile, "utf-8")).toString();
           this.debug(`Read spec content from file: ${params.specFile}`);
         } catch (error) {
           throw new ValidationError(
@@ -166,7 +166,7 @@ export class TasksEditCommand extends BaseTaskCommand {
     try {
       // Get the appropriate backend for this task
       const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-      const { resolveRepoPath } = await import("../../../../domain/workspace");
+      const { resolveRepoPath } = (await import("../../../../domain/workspace")) as any;
       const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
 
       const service = await createConfiguredTaskService({
@@ -177,7 +177,9 @@ export class TasksEditCommand extends BaseTaskCommand {
       });
 
       // Get the backend that manages this task
-      const backend = service.getBackendByPrefix(service.parsePrefixFromId(validatedTaskId));
+      const backend = (service as any).getBackendByPrefix(
+        (service as any).parsePrefixFromId(validatedTaskId)
+      );
       if (!backend) {
         throw new ValidationError(`No backend found for task ID: ${validatedTaskId}`);
       }
@@ -203,7 +205,7 @@ export class TasksEditCommand extends BaseTaskCommand {
         this.debug("Updated task metadata with title and/or spec");
       } else if (updates.title) {
         // Title-only update via updateTask
-        await service.updateTask(validatedTaskId, { title: updates.title });
+        await (service as any).updateTask(validatedTaskId, { title: updates.title });
         this.debug("Updated task title only");
       }
 
@@ -290,7 +292,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
-    const tempFile = join(tempDir, `task-${Buffer.from(randomBytes(8)).toString("hex")}.md`);
+    const tempFile = join(tempDir, `task-${Buffer.from(randomBytes(8) as any).toString("hex")}.md`);
 
     try {
       // Write current spec content to temp file
@@ -323,7 +325,7 @@ export class TasksEditCommand extends BaseTaskCommand {
       });
 
       // Read the edited content
-      const editedContent = await fs.readFile(tempFile, "utf-8");
+      const editedContent = (await fs.readFile(tempFile, "utf-8")).toString();
 
       // Clean up temp file
       try {

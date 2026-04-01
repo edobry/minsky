@@ -13,7 +13,8 @@ export interface TaskServiceInterface {
   ): Promise<{ task: any; specPath: string; content: string; section?: string }>;
   getWorkspacePath(): string;
   getBackendForTask?(taskId: string): Promise<string>;
-  listBackends?(): Array<{ name: string; prefix: string }>;
+  listBackends?(): any[];
+  updateTask?(taskId: string, updates: any): Promise<any>;
 }
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
@@ -89,7 +90,7 @@ export async function createConfiguredTaskService(options: {
 
           // PersistenceService should already be initialized at application startup
           const persistence = PersistenceService.getProvider();
-          const db = await persistence.getDatabaseConnection();
+          const db = await (persistence as any).getDatabaseConnection();
 
           const minskyBackend = createMinskyTaskBackend({
             name: TaskBackend.MINSKY,
@@ -120,7 +121,7 @@ export async function createConfiguredTaskService(options: {
     try {
       // Get PersistenceService (should already be initialized at application startup)
       const { PersistenceService } = await import("../persistence/service");
-      let persistenceProvider = null;
+      let persistenceProvider: any = null;
       try {
         persistenceProvider = PersistenceService.getProvider();
         log.debug("PersistenceService available for multi-backend mode");
@@ -242,5 +243,4 @@ export function parseGitHubRepoString(input: string): { owner: string; repo: str
 }
 
 // ---- Type Exports ----
-
-export type { TaskServiceOptions };
+// TaskServiceOptions is already exported above as `export interface TaskServiceOptions`

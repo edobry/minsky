@@ -158,7 +158,7 @@ export function normalizeTaskId(id: string): string | undefined {
     if (parts.length === 2) {
       const localId = parts[1];
       // Return in legacy format for backward compatibility
-      return /^[a-zA-Z0-9_]+$/.test(localId) ? `#${localId}` : undefined;
+      return /^[a-zA-Z0-9_]+$/.test(localId ?? "") ? `#${localId}` : undefined;
     }
   }
 
@@ -381,8 +381,8 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  * @param state Task state object
  * @returns Formatted markdown content
  */
-export function formatTaskStateToMarkdown(state: TaskStatus): string {
-  return formatTasksToMarkdown(state.tasks);
+export function formatTaskStateToMarkdown(state: { tasks: TaskData[] } | any): string {
+  return formatTasksToMarkdown((state as any).tasks);
 }
 
 /**

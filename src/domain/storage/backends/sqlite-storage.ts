@@ -146,7 +146,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
           : `${process.env.HOME}/.local/state/minsky`,
       };
 
-      return { success: true, data: state };
+      return { success: true, data: state as unknown as TState };
     } catch (error) {
       return {
         success: false,
@@ -161,7 +161,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     }
 
     try {
-      const sessions = state.sessions || [];
+      const sessions = (state as any).sessions || [];
 
       // Use Drizzle transaction
       await this.drizzleDb.transaction(async (tx) => {
@@ -235,7 +235,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
-          query = query.where(and(...conditions));
+          query = query.where(and(...conditions)) as any;
         }
       }
 
@@ -281,7 +281,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       const updateData = toSqliteInsert(mergedEntity as any);
 
       // Remove the session field from updates (it's the primary key)
-      delete updateData.session;
+      delete (updateData as Partial<typeof updateData>).session;
 
       if (Object.keys(updateData).length === 0) {
         return existing; // No updates needed

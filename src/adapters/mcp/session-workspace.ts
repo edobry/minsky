@@ -211,7 +211,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return createErrorResponse(errorMessage, undefined, {
           path: args.path,
           session: args.sessionName,
         });
@@ -264,7 +264,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return createErrorResponse(errorMessage, undefined, {
           path: args.path,
           session: args.sessionName,
         });
@@ -329,7 +329,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return createErrorResponse(errorMessage, undefined, {
           path: args.path,
           session: args.sessionName,
         });

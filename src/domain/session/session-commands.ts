@@ -61,18 +61,18 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
     const result = await updateSessionFromParams({
       name: params.session,
       branch: params.branch,
-      force: params.force,
-      dryRun: params.dryRun,
-      noStash: params.noStash,
-      noPush: params.noPush,
-      skipConflictCheck: params.skipConflictCheck,
-      skipIfAlreadyMerged: params.skipIfAlreadyMerged,
-      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-    });
+      force: params.force ?? false,
+      dryRun: params.dryRun ?? false,
+      noStash: params.noStash ?? false,
+      noPush: params.noPush ?? false,
+      skipConflictCheck: params.skipConflictCheck ?? false,
+      skipIfAlreadyMerged: params.skipIfAlreadyMerged ?? false,
+      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
+    } as any);
 
     return {
       success: true,
-      message: result.message || "Session updated successfully",
+      message: (result as any).message || "Session updated successfully",
     };
   } catch (error) {
     log.debug("Pure session update failed", {
@@ -103,16 +103,16 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
 
   log.debug("Pure session approve command", { session: params.session });
 
-  const { sessionApprove } = await import("./index.js");
+  const { approveSessionPr } = await import("./session-approval-operations.js");
 
   try {
-    const result = await sessionApprove({
-      name: params.session,
+    const result = await approveSessionPr({
+      session: params.session,
     });
 
     return {
       success: true,
-      message: result.message || "Session approved successfully",
+      message: "Session approved successfully",
     };
   } catch (error) {
     log.debug("Pure session approve failed", {
@@ -276,7 +276,7 @@ export async function sessionCommit(params: {
         .filter(Boolean);
       files = lines.map((line) => {
         const parts = line.split("\t");
-        const status = parts[0];
+        const status = parts[0] ?? "";
         let path = parts[1] || "";
         if (status.startsWith("R") || status.startsWith("C")) {
           path = parts[2] || parts[1] || "";

@@ -40,35 +40,35 @@ export class ModularTaskCommandsManager {
    * List tasks using the provided parameters
    */
   async listTasksFromParams(params: TaskListParams): Promise<any[]> {
-    return await this.operations.listTasks.execute(params);
+    return await this.operations.listTasks.execute(params as any);
   }
 
   /**
    * Get a task by ID using the provided parameters
    */
   async getTaskFromParams(params: TaskGetParams): Promise<any> {
-    return await this.operations.getTask.execute(params);
+    return await this.operations.getTask.execute(params as any);
   }
 
   /**
    * Get task status using the provided parameters
    */
   async getTaskStatusFromParams(params: TaskStatusGetParams): Promise<string> {
-    return await this.operations.getTaskStatus.execute(params);
+    return await this.operations.getTaskStatus.execute(params as any);
   }
 
   /**
    * Set task status using the provided parameters
    */
   async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<any> {
-    return await this.operations.setTaskStatus.execute(params);
+    return await this.operations.setTaskStatus.execute(params as any);
   }
 
   /**
    * Create task using the provided parameters
    */
   async createTaskFromParams(params: TaskCreateParams): Promise<any> {
-    return await this.operations.createTask.execute(params);
+    return await this.operations.createTask.execute(params as any);
   }
 
   /**
@@ -82,16 +82,17 @@ export class ModularTaskCommandsManager {
     const params: TaskCreateFromTitleAndDescriptionParams = {
       title,
       spec,
+      force: false,
       ...options,
     };
-    return await this.operations.createTaskFromTitleAndSpec.execute(params);
+    return await this.operations.createTaskFromTitleAndSpec.execute(params as any);
   }
 
   /**
    * Get task specification content using the provided parameters
    */
   async getTaskSpecContentFromParams(params: TaskSpecContentParams): Promise<string> {
-    return await this.operations.getTaskSpecContent.execute(params);
+    return await this.operations.getTaskSpecContent.execute(params as any);
   }
 
   /**

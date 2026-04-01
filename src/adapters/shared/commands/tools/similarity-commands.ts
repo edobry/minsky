@@ -10,7 +10,7 @@ import { sharedCommandRegistry } from "../../command-registry";
 import { createLogger } from "../../../../utils/logger";
 import { CommonParameters } from "../../common-parameters";
 
-const log = createLogger("tools-similarity-commands");
+const log = createLogger();
 
 // === Parameter Definitions ===
 
@@ -117,7 +117,7 @@ export class ToolsSimilarCommand {
     searchResults: Array<{ id: string; score?: number }>,
     includeDetails: boolean = false
   ): Promise<EnhancedToolResult[]> {
-    const enhanced = [];
+    const enhanced: any[] = [];
 
     for (const result of searchResults) {
       try {
@@ -217,7 +217,7 @@ export class ToolsSearchCommand {
     searchResults: Array<{ id: string; score?: number }>,
     includeDetails: boolean = false
   ): Promise<EnhancedToolResult[]> {
-    const enhanced = [];
+    const enhanced: any[] = [];
 
     for (const result of searchResults) {
       try {

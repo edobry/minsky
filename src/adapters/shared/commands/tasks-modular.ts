@@ -217,7 +217,7 @@ export class ModularTasksCommandManager {
         name: similarCommand.name,
         description: similarCommand.description,
         parameters: (similarCommand as any).parameters,
-        execute: similarCommand.execute.bind(similarCommand),
+        execute: similarCommand.execute.bind(similarCommand) as any,
       });
 
       sharedCommandRegistry.registerCommand({
@@ -226,7 +226,7 @@ export class ModularTasksCommandManager {
         name: searchCommand.name,
         description: searchCommand.description,
         parameters: (searchCommand as any).parameters,
-        execute: searchCommand.execute.bind(searchCommand),
+        execute: searchCommand.execute.bind(searchCommand) as any,
       });
 
       // Register index embeddings command

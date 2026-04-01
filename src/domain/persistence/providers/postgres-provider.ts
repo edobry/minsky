@@ -36,13 +36,13 @@ export class PostgresPersistenceProvider
   /**
    * Base PostgreSQL capabilities (no vector storage)
    */
-  readonly capabilities = {
+  readonly capabilities: PersistenceCapabilities & { sql: true } = {
     sql: true,
     transactions: true,
     jsonb: true,
     vectorStorage: false,
     migrations: true,
-  } as const;
+  };
 
   // Note: Capabilities are returned by getCapabilities() method below
 
@@ -211,13 +211,13 @@ export class PostgresVectorPersistenceProvider
   /**
    * PostgreSQL capabilities with vector storage
    */
-  readonly capabilities = {
+  override readonly capabilities: PersistenceCapabilities & { sql: true; vectorStorage: true } = {
     sql: true,
     transactions: true,
     jsonb: true,
     vectorStorage: true,
     migrations: true,
-  } as const;
+  };
 
   async initialize(): Promise<void> {
     // Initialize base PostgreSQL functionality first
@@ -235,7 +235,7 @@ export class PostgresVectorPersistenceProvider
         ) as exists
       `;
 
-      if (!result[0].exists) {
+      if (!result[0]?.exists) {
         throw new Error("pgvector extension not available - factory should have prevented this");
       }
 
@@ -258,7 +258,7 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
-    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+    return new PostgresVectorStorage(this.sql, this.db as any, dimension, {
       tableName: "tasks_embeddings",
       idColumn: "task_id",
       embeddingColumn: "vector",

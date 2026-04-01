@@ -127,8 +127,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
         ruleId: r.id,
         relevanceScore: 1,
         reasoning: "Embedding similarity match",
-        confidenceLevel: "high",
-        ruleName: undefined,
+        confidenceLevel: "high" as const,
       })),
       queryAnalysis: {
         intent: `Embeddings search for: ${query}`,
@@ -179,7 +178,7 @@ async function gatherContextHints(
   // Try to detect project type from package.json
   try {
     const packageJsonPath = `${workspacePath}/package.json`;
-    const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf-8"));
+    const packageJson = JSON.parse(String(await fs.readFile(packageJsonPath, "utf-8")));
 
     if (packageJson.dependencies || packageJson.devDependencies) {
       const deps = {
@@ -245,7 +244,7 @@ function outputHumanReadableResults(
       const confidenceEmoji = getConfidenceEmoji(suggestion.confidenceLevel);
       const scoreFormatted = (suggestion.relevanceScore * 100).toFixed(0);
 
-      log.debug(`${index + 1}. ${suggestion.ruleName || suggestion.ruleId} ${confidenceEmoji}`);
+      log.debug(`${index + 1}. ${suggestion.ruleId} ${confidenceEmoji}`);
       log.debug(`   Relevance: ${scoreFormatted}% (${suggestion.confidenceLevel} confidence)`);
       log.debug(`   Reasoning: ${suggestion.reasoning}`);
       log.debug();
@@ -261,7 +260,7 @@ function outputHumanReadableResults(
   // Usage hints
   if (response.suggestions.length > 0) {
     log.debug(`💡 To use a rule: Add it to your Cursor Rules or check its content with:`);
-    log.debug(`   minsky rules get ${response.suggestions[0].ruleId}`);
+    log.debug(`   minsky rules get ${response.suggestions[0]!.ruleId}`);
   }
 }
 

@@ -21,8 +21,8 @@ import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-i
 import {
   detectRepositoryBackendTypeFromUrl,
   resolveRepositoryAndBackend,
-  RepositoryBackendType,
 } from "./repository-backend-detection";
+import { RepositoryBackendType } from "../repository";
 import { taskIdToSessionName } from "../tasks/task-id";
 
 export interface StartSessionDependencies {
@@ -73,10 +73,10 @@ export async function startSessionImpl(
     branch,
     noStatusUpdate,
     quiet,
-    json,
     skipInstall,
     packageManager,
   } = params;
+  const json = (params as any).json;
 
   try {
     log.debug("Starting session with params", {

@@ -21,7 +21,7 @@ const migrateParamsSchema = z.object({
 
 export type MigrateParams = z.infer<typeof migrateParamsSchema>;
 
-export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams, any> {
+export class MigrateTasksCommand extends BaseTaskCommand {
   readonly id = "tasks.migrate";
   readonly name = "migrate";
   readonly description = "Import markdown task specs/metadata into DB (dry-run by default)";
@@ -47,11 +47,12 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams, any> {
     });
 
     if (p.json || context.format === "json") {
-      return this.createSuccessResult(result);
+      return { success: true, ...result };
     }
 
     this.display(result, dryRun);
-    return this.createSuccessResult({
+    return {
+      success: true,
       summary: {
         total: result.total,
         inserted: result.inserted,
@@ -59,7 +60,7 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams, any> {
         skipped: result.skipped,
         errors: result.errors,
       },
-    });
+    };
   }
 
   private display(result: any, dryRun: boolean): void {

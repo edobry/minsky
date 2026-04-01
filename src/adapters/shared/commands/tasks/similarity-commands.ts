@@ -59,7 +59,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
       spec?: string;
     }>
   > {
-    const enhanced = [];
+    const enhanced: any[] = [];
 
     for (const result of searchResults) {
       try {
@@ -126,7 +126,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        details: params.details, // Pass through details flag for CLI formatter
+        details: (params as any).details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );
@@ -156,7 +156,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
       spec?: string;
     }>
   > {
-    const enhanced = [];
+    const enhanced: any[] = [];
 
     for (const result of searchResults) {
       try {
@@ -280,7 +280,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        details: params.details, // Pass through details flag for CLI formatter
+        details: (params as any).details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );

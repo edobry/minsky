@@ -3,6 +3,7 @@
  * This module provides functions to create test data for various domain entities
  */
 import type { TaskData } from "../../types/tasks/taskData";
+import { TaskStatus } from "../../domain/tasks/taskConstants";
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults
@@ -14,7 +15,7 @@ export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
   return {
     id: defaultId,
     title: "Test Task",
-    status: "TODO",
+    status: TaskStatus.TODO,
     description: "This is a test task",
     worklog: [
       {

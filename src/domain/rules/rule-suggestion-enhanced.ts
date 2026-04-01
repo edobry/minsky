@@ -2,9 +2,7 @@ import type { Rule } from "./types";
 import { classifyRuleType, RuleType } from "./rule-classifier";
 import { matchesGlobPatterns } from "./glob-matcher";
 import { extractRuleMentions, stripRuleMentions } from "./rule-mention-parser";
-import { createLogger } from "../../utils/logger";
-
-const log = createLogger("rule-suggestion-enhanced");
+import { log } from "../../utils/logger";
 
 /**
  * Options for enhanced rule suggestion
@@ -151,12 +149,17 @@ export async function suggestRules(
 /**
  * Group rules by their type for organized display
  */
-export function groupRulesByType(rules: Rule[]): Record<string, Rule[]> {
-  const grouped: Record<string, Rule[]> = {
-    always: [],
-    autoAttached: [],
-    agentRequested: [],
-    manual: [],
+export function groupRulesByType(rules: Rule[]): Record<string, Rule[]> & {
+  always: Rule[];
+  autoAttached: Rule[];
+  agentRequested: Rule[];
+  manual: Rule[];
+} {
+  const grouped = {
+    always: [] as Rule[],
+    autoAttached: [] as Rule[],
+    agentRequested: [] as Rule[],
+    manual: [] as Rule[],
   };
 
   for (const rule of rules) {

@@ -106,7 +106,7 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
     prApproved: record.prApproved || null,
-    prState: record.prState || null,
+    prState: (record.prState || null) as any,
 
     // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,

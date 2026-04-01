@@ -178,12 +178,12 @@ export class TasksCreateCommand extends BaseTaskCommand {
       const title = this.validateRequired(params.title, "title");
 
       // Validate that either description or specPath is provided
-      if (!params.description && !params.specPath) {
+      if (!(params as any).description && !params.specPath) {
         throw new ValidationError("Either --description or --spec-path must be provided");
       }
 
       // Both description and specPath provided is an error
-      if (params.description && params.specPath) {
+      if ((params as any).description && params.specPath) {
         throw new ValidationError(
           "Cannot provide both --description and --spec-path - use one or the other"
         );
@@ -192,7 +192,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
       // Create the task using the same function as main branch
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
-        spec: params.description, // Map description to spec
+        spec: (params as any).description, // Map description to spec
         specPath: params.specPath,
         force: params.force ?? false,
         backend: params.backend,
@@ -289,7 +289,7 @@ export class TasksDeleteCommand extends BaseTaskCommand {
       {
         success: result.success,
         taskId: validatedTaskId,
-        task: result.task,
+        task: (result as any).task,
         message,
       },
       params.json

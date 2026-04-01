@@ -254,7 +254,7 @@ export class ConflictDetectionService {
       );
 
       // Check if result is valid before destructuring
-      if (!result || typeof result.stdout !== "string") {
+      if (!result || !result.stdout) {
         log.warn("Git rev-list command returned invalid result", {
           result,
           repoPath,
@@ -273,8 +273,8 @@ export class ConflictDetectionService {
         };
       }
 
-      const { stdout: aheadBehind } = result;
-      const [behindStr, aheadStr] = aheadBehind.toString().trim().split("\t");
+      const aheadBehind = String(result.stdout);
+      const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
       const behind = Number(behindStr) || 0;
       const ahead = Number(aheadStr) || 0;
 
@@ -399,7 +399,7 @@ export class ConflictDetectionService {
           // Check for conflicts
           const statusResult = await execAsync(`git -C ${repoPath} status --porcelain`);
 
-          const status = statusResult?.stdout || "";
+          const status = String(statusResult?.stdout || "");
           const hasConflicts =
             status.includes("UU") || status.includes("AA") || status.includes("DD");
 

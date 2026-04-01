@@ -47,7 +47,8 @@ export const DependencyContextComponent: ContextComponent = {
   description: "Project dependencies, package.json analysis, and dependency health insights",
 
   async gatherInputs(context: ComponentInput): Promise<DependencyContextInputs> {
-    const { workspacePath, userPrompt } = context;
+    const { userPrompt } = context;
+    const workspacePath = context.workspacePath ?? process.cwd();
 
     try {
       // Read package.json
@@ -218,7 +219,7 @@ async function readPackageJson(
 ): Promise<DependencyContextInputs["packageJson"]> {
   try {
     const packagePath = path.join(workspacePath, "package.json");
-    const content = await fs.readFile(packagePath, "utf-8");
+    const content = String(await fs.readFile(packagePath, "utf-8"));
     const packageJson = JSON.parse(content);
 
     return {
@@ -271,7 +272,7 @@ async function estimatePackageCount(lockPath: string, type: string): Promise<num
       return 0;
     }
 
-    const content = await fs.readFile(lockPath, "utf-8");
+    const content = String(await fs.readFile(lockPath, "utf-8"));
 
     if (type === "npm") {
       // Count packages in package-lock.json

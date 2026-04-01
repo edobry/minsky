@@ -193,7 +193,7 @@ export async function sessionReview(
       taskId: sessionRecord.taskId,
       taskSpec,
       prDescription,
-      prBranch: effectivePrBranch,
+      prBranch: effectivePrBranch ?? "",
       baseBranch,
       diff,
       diffStats,

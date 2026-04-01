@@ -44,10 +44,7 @@ export interface CursorRulesFileList {
  * Build the list of files that would be written for cursor-rules target.
  * Used for both actual compilation and dry-run support.
  */
-export function buildCursorRulesContent(
-  rules: Rule[],
-  outputDir: string
-): CursorRulesFileList {
+export function buildCursorRulesContent(rules: Rule[], outputDir: string): CursorRulesFileList {
   const files: Array<{ path: string; content: string }> = [];
   const rulesIncluded: string[] = [];
   const rulesSkipped: string[] = [];

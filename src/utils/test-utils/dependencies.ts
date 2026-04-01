@@ -655,12 +655,21 @@ export interface MockPersistenceProviderOptions {
   capabilities?: {
     sql?: boolean;
     vectorStorage?: boolean;
+    transactions?: boolean;
+    jsonb?: boolean;
+    migrations?: boolean;
   };
   getDatabaseConnection?: () => Promise<any>;
   getStorage?: () => any;
   initialize?: () => Promise<void>;
   close?: () => Promise<void>;
-  getCapabilities?: () => { sql: boolean; vectorStorage: boolean };
+  getCapabilities?: () => {
+    sql: boolean;
+    vectorStorage: boolean;
+    transactions: boolean;
+    jsonb: boolean;
+    migrations: boolean;
+  };
 }
 
 /**
@@ -718,7 +727,15 @@ export function createMockPersistenceProvider(
       }),
     getStorage: options.getStorage || (() => ({})),
     close: options.close || (() => Promise.resolve()),
-    getCapabilities: options.getCapabilities || (() => ({ sql: true, vectorStorage: true })),
+    getCapabilities:
+      options.getCapabilities ||
+      (() => ({
+        sql: true,
+        vectorStorage: true,
+        transactions: true,
+        jsonb: true,
+        migrations: true,
+      })),
   });
 }
 

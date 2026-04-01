@@ -98,7 +98,7 @@ export async function resolveRepositoryAndBackend(options?: {
   try {
     const { getConfiguration } = await import("../configuration/index");
     const cfg = getConfiguration();
-    defaultBackend = cfg.repository?.default_repo_backend || "github";
+    defaultBackend = (cfg.repository as any)?.default_repo_backend || "github";
   } catch (_err) {
     defaultBackend = "github";
   }

@@ -68,17 +68,28 @@ export class PersistenceProviderFactory {
  * Mock persistence provider for testing
  */
 class MockPersistenceProvider extends PersistenceProvider {
-  readonly capabilities = {
-    sql: false,
-    transactions: false,
-    jsonb: false,
-    vectorStorage: false,
-    migrations: false,
-    ...this.customCapabilities,
+  readonly capabilities: {
+    sql: boolean;
+    transactions: boolean;
+    jsonb: boolean;
+    vectorStorage: boolean;
+    migrations: boolean;
   };
 
   constructor(private customCapabilities?: Partial<PersistenceProvider["capabilities"]>) {
     super();
+    this.capabilities = {
+      sql: false,
+      transactions: false,
+      jsonb: false,
+      vectorStorage: false,
+      migrations: false,
+      ...customCapabilities,
+    };
+  }
+
+  getCapabilities() {
+    return this.capabilities;
   }
 
   async initialize(): Promise<void> {

@@ -84,9 +84,12 @@ export async function sessionPr(
     let bodyContent = body;
     if (!bodyContent && bodyPath) {
       try {
-        bodyContent = await readFile(bodyPath, "utf-8");
+        bodyContent = (await readFile(bodyPath, "utf-8")).toString();
         if (debug) {
-          log.debug("Read body content from file", { bodyPath, contentLength: bodyContent.length });
+          log.debug("Read body content from file", {
+            bodyPath,
+            contentLength: bodyContent?.length ?? 0,
+          });
         }
       } catch (error) {
         throw new ValidationError(
@@ -109,6 +112,7 @@ export async function sessionPr(
         skipConflictCheck: params.skipConflictCheck,
         draft: params.draft,
         debug,
+        noStatusUpdate: params.noStatusUpdate,
       },
       {
         sessionDB,

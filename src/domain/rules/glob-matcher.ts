@@ -148,7 +148,7 @@ function matchGlob(filePath: string, pattern: string): boolean {
       // Normalize path separators
       regexPattern += "/";
       i++;
-    } else if ("[]()+{}^$|".includes(char)) {
+    } else if (char !== undefined && "[]()+{}^$|".includes(char)) {
       // Escape other regex special characters
       regexPattern += `\\${char}`;
       i++;

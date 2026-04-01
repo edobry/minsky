@@ -304,8 +304,8 @@ describe("Task 223 Enhanced Error Messages", () => {
       const error = createTaskIdParsingErrorMessage("xyz", []);
 
       // Should contain specific commands users can run
-      expect(error as Error).toMatch(/minsky tasks get \d+/);
-      expect(error as Error).toMatch(/minsky tasks list/);
+      expect(error as unknown as Error).toMatch(/minsky tasks get \d+/);
+      expect(error as unknown as Error).toMatch(/minsky tasks list/);
 
       // Commands should be preceded by emojis for consistency
       const hasCommandEmoji = error.includes("⚡") && error.includes("minsky tasks");
@@ -330,9 +330,9 @@ describe("Task 223 Enhanced Error Messages", () => {
         context
       );
 
-      expect(error as Error).toContain("File: /path/to/file.ts");
-      expect(error as Error).toContain("Line: 42");
-      expect(error as Error).toContain("Function: processTask");
+      expect(error as unknown as Error).toContain("File: /path/to/file.ts");
+      expect(error as unknown as Error).toContain("Line: 42");
+      expect(error as unknown as Error).toContain("Function: processTask");
     });
   });
 });

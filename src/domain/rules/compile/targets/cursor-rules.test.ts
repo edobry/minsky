@@ -136,22 +136,19 @@ describe("cursor-rules target", () => {
     it("each file path is in the output directory with .mdc extension", () => {
       const rules = [makeRule("my-rule", "Content")];
       const { files } = buildCursorRulesContent(rules, "/output/dir");
-      expect(files[0].path).toBe("/output/dir/my-rule.mdc");
+      expect(files[0]!.path).toBe("/output/dir/my-rule.mdc");
     });
 
     it("file content is the serialized .mdc for the rule", () => {
       const rules = [makeRule("test-rule", "Rule body text", { name: "Test Rule" })];
       const { files } = buildCursorRulesContent(rules, "/output");
-      expect(files[0].content).toContain("name:");
-      expect(files[0].content).toContain("Test Rule");
-      expect(files[0].content).toContain("Rule body text");
+      expect(files[0]!.content).toContain("name:");
+      expect(files[0]!.content).toContain("Test Rule");
+      expect(files[0]!.content).toContain("Rule body text");
     });
 
     it("all rules are included in rulesIncluded", () => {
-      const rules = [
-        makeRule("rule-one", "Content one"),
-        makeRule("rule-two", "Content two"),
-      ];
+      const rules = [makeRule("rule-one", "Content one"), makeRule("rule-two", "Content two")];
       const { rulesIncluded } = buildCursorRulesContent(rules, "/output");
       expect(rulesIncluded).toContain("rule-one");
       expect(rulesIncluded).toContain("rule-two");
@@ -173,8 +170,8 @@ describe("cursor-rules target", () => {
     it("uses the rule id as the filename (not the path or name)", () => {
       const rule = makeRule("my-rule-id", "Content", { name: "Some Other Name" });
       const { files } = buildCursorRulesContent([rule], "/output");
-      expect(files[0].path).toContain("my-rule-id.mdc");
-      expect(files[0].path).not.toContain("Some Other Name");
+      expect(files[0]!.path).toContain("my-rule-id.mdc");
+      expect(files[0]!.path).not.toContain("Some Other Name");
     });
   });
 });

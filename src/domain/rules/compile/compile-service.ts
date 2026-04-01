@@ -125,8 +125,7 @@ async function compileDryRun(
 
   if (target.id === "cursor-rules") {
     const { buildCursorRulesContent } = await import("./targets/cursor-rules");
-    const outputDir =
-      options.outputPath || cursorRulesTarget.defaultOutputPath(workspacePath);
+    const outputDir = options.outputPath || cursorRulesTarget.defaultOutputPath(workspacePath);
     const { files, rulesIncluded, rulesSkipped } = buildCursorRulesContent(rules, outputDir);
     const summary = files
       .map(({ path: filePath, content }) => `// ${filePath}\n${content}`)

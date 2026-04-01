@@ -27,7 +27,7 @@ import { createFormattedValidationError } from "../../../utils/zod-error-formatt
  */
 export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParams, any> {
   getSchema() {
-    return taskStatusSetParamsSchema;
+    return taskStatusSetParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -53,7 +53,7 @@ export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParam
  */
 export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any> {
   getSchema() {
-    return taskCreateParamsSchema;
+    return taskCreateParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -69,18 +69,17 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any
     // If description path is provided, read from file
     if (params.specPath) {
       try {
-        description = await readFile(params.specPath, "utf-8");
+        description = (await readFile(params.specPath, "utf-8")).toString();
       } catch (error) {
         throw new Error(`Failed to read description from file: ${params.specPath}`);
       }
     }
 
     // Create the task
-    const result = await taskService.createTask({
-      title: params.title,
+    const result = await taskService.createTask(params.title, {
       description,
       force: params.force,
-    });
+    } as any);
 
     return result;
   }
@@ -94,7 +93,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
   any
 > {
   getSchema() {
-    return taskCreateFromTitleAndDescriptionParamsSchema;
+    return taskCreateFromTitleAndDescriptionParamsSchema as any;
   }
 
   getOperationName(): string {
@@ -110,17 +109,16 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
     // If specPath is provided, read from file
     if (params.specPath) {
       try {
-        spec = await readFile(params.specPath, "utf-8");
+        spec = (await readFile(params.specPath, "utf-8")).toString();
       } catch (error) {
         throw new Error(`Failed to read spec from file: ${params.specPath}`);
       }
     }
 
     // Create the task with title and spec
-    const result = await taskService.createTask({
-      title: params.title,
+    const result = await taskService.createTask(params.title, {
       description: spec,
-    });
+    } as any);
 
     return result;
   }
@@ -131,7 +129,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
  */
 export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, any> {
   getSchema() {
-    return taskDeleteParamsSchema;
+    return taskDeleteParamsSchema as any;
   }
 
   getOperationName(): string {

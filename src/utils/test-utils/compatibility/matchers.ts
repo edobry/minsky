@@ -115,11 +115,11 @@ class AnyMatcher extends AsymmetricMatcherBase {
   }
 
   toString(): string {
-    return `Any<${this.expectedType?.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 
   toJSON(): string {
-    return `Any<${this.expectedType?.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 }
 
@@ -407,7 +407,9 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
  * Check if an object is an asymmetric matcher
  */
 export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
-  return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
+  return (
+    obj !== null && typeof obj === "object" && typeof (obj as any).asymmetricMatch === "function"
+  );
 }
 
 // Export a function to extend the global expect with asymmetric matchers

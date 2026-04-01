@@ -99,7 +99,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
     if (!this.storage) {
       throw new Error("JsonPersistenceProvider not initialized");
     }
-    return this.storage as DatabaseStorage<T, S>;
+    return this.storage as unknown as DatabaseStorage<T, S>;
   }
 
   /**
@@ -121,7 +121,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
    */
   async close(): Promise<void> {
     if (this.storage) {
-      await this.storage.close();
+      await (this.storage as any).close?.();
       this.storage = null;
     }
     this.isInitialized = false;

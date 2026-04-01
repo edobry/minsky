@@ -205,15 +205,15 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "feature-branch", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
         getSession: mock(() =>
           Promise.resolve({
             session: "test-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
-        ) as unknown,
-        getSessionWorkdir: mock(() => "/test/repo/sessions/test-session") as unknown,
+        ) as any,
+        getSessionWorkdir: mock(() => "/test/repo/sessions/test-session") as any,
       };
 
       const gitService = new GitService();
@@ -228,9 +228,9 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle missing session in PR workflow", async () => {
       const mockDeps = {
-        execAsync: mock() as unknown,
-        getSession: mock(() => Promise.resolve(null)) as unknown,
-        getSessionWorkdir: mock() as unknown,
+        execAsync: mock() as any,
+        getSession: mock(() => Promise.resolve(null)) as any,
+        getSessionWorkdir: mock() as any,
       };
 
       const gitService = new GitService();
@@ -269,15 +269,15 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "1 file changed, 1 insertion(+)", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
         getSession: mock(() =>
           Promise.resolve({
             session: "task-143-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
-        ) as unknown,
-        getSessionWorkdir: mock(() => "/test/repo/sessions/task-143-session") as unknown,
+        ) as any,
+        getSessionWorkdir: mock(() => "/test/repo/sessions/task-143-session") as any,
         getSessionByTaskId: mock(() =>
           Promise.resolve({
             session: "task-143-session",
@@ -285,7 +285,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             repoUrl: "https://github.com/user/repo.git",
             taskId: "143",
           })
-        ) as unknown,
+        ) as any,
       };
 
       const gitService = new GitService();
@@ -303,10 +303,10 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should throw error when taskId has no associated session", async () => {
       const mockDeps = {
-        execAsync: mock() as unknown,
-        getSession: mock() as unknown,
-        getSessionWorkdir: mock() as unknown,
-        getSessionByTaskId: mock(() => Promise.resolve(null)) as unknown,
+        execAsync: mock() as any,
+        getSession: mock() as any,
+        getSessionWorkdir: mock() as any,
+        getSessionByTaskId: mock(() => Promise.resolve(null)) as any,
       };
 
       const gitService = new GitService();
@@ -320,9 +320,9 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should throw error when getSessionByTaskId dependency is not available", async () => {
       const mockDeps = {
-        execAsync: mock() as unknown,
-        getSession: mock() as unknown,
-        getSessionWorkdir: mock() as unknown,
+        execAsync: mock() as any,
+        getSession: mock() as any,
+        getSessionWorkdir: mock() as any,
         // getSessionByTaskId is intentionally omitted
       };
 
@@ -362,16 +362,16 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "1 file changed, 1 insertion(+)", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
         getSession: mock(() =>
           Promise.resolve({
             session: "direct-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
-        ) as unknown,
-        getSessionWorkdir: mock(() => "/test/repo/sessions/direct-session") as unknown,
-        getSessionByTaskId: mock() as unknown,
+        ) as any,
+        getSessionWorkdir: mock(() => "/test/repo/sessions/direct-session") as any,
+        getSessionByTaskId: mock() as any,
       };
 
       const gitService = new GitService();
@@ -404,14 +404,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           }
           // Fail other git commands to test error handling
           throw new Error("git: command not found");
-        }) as unknown,
+        }) as any,
         getSession: mock(() =>
           Promise.resolve({
             session: "test-session",
             repoName: "test-repo",
           })
-        ) as unknown,
-        getSessionWorkdir: mock(() => "/test/repo") as unknown,
+        ) as any,
+        getSessionWorkdir: mock(() => "/test/repo") as any,
       };
 
       const gitService = new GitService();
@@ -441,7 +441,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.commitWithDependencies(
@@ -466,7 +466,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           execAsync: mock(async () => ({
             stdout: testCase.output,
             stderr: "",
-          })) as unknown,
+          })) as any,
         };
 
         const result = await gitService.commitWithDependencies("Test", "/test/repo", mockDeps);
@@ -479,7 +479,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         execAsync: mock(async () => ({
           stdout: "Invalid git output",
           stderr: "",
-        })) as unknown,
+        })) as any,
       };
 
       await expect(
@@ -493,7 +493,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           const cmd = command as string;
           expect(cmd).toContain("--amend");
           return { stdout: "[main def456] Amended commit\n 1 file changed", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.commitWithDependencies(
@@ -516,7 +516,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Saved working directory and index state", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
@@ -534,7 +534,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "", stderr: "" }; // No changes
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
@@ -554,7 +554,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Dropped refs/stash@{0}", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
@@ -571,7 +571,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "", stderr: "" }; // No stash
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
@@ -597,7 +597,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.mergeBranchWithDependencies(
@@ -626,7 +626,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Merge made by the 'recursive' strategy.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.mergeBranchWithDependencies(
@@ -646,7 +646,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           const cmd = command as string;
           expect(cmd.includes("git -C /test/repo add")).toBe(true);
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       // Test stageAll
@@ -665,7 +665,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         execAsync: mock(async (command: unknown) => {
           capturedCommand = command as string;
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       // Test stageAll uses add -A
@@ -692,7 +692,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Fetching origin", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
@@ -712,7 +712,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Already up to date.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
@@ -733,7 +733,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             return { stdout: "Updated", stderr: "" };
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
+        }) as any,
       };
 
       const result = await gitService.pullLatestWithDependencies(
@@ -758,11 +758,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     });
 
     test("should handle clone with empty repository URL validation", async () => {
-      const mockDeps = {
-        execAsync: mock() as unknown,
-        mkdir: mock() as unknown,
-        readdir: mock() as unknown,
-        access: mock() as unknown,
+      const mockDeps: any = {
+        execAsync: mock() as any,
+        mkdir: mock() as any,
+        readdir: mock() as any,
+        access: mock() as any,
       };
 
       await expect(
@@ -770,7 +770,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           {
             repoUrl: "",
             session: "test-session",
-          },
+          } as any,
           mockDeps
         )
       ).rejects.toThrow("Repository URL is required for cloning");
@@ -785,7 +785,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     });
 
     test("should handle clone failure during git command execution", async () => {
-      const mockDeps = {
+      const mockDeps: any = {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
           if (cmd.includes("git clone")) {
@@ -794,12 +794,12 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             );
           }
           return { stdout: "", stderr: "" };
-        }) as unknown,
-        mkdir: mock() as unknown,
+        }) as any,
+        mkdir: mock() as any,
         readdir: mock(async () => {
           throw new Error("ENOENT");
-        }) as unknown,
-        access: mock() as unknown,
+        }) as any,
+        access: mock() as any,
       };
 
       await expect(
@@ -807,7 +807,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           {
             repoUrl: "https://github.com/user/nonexistent.git",
             session: "test-session",
-          },
+          } as any,
           mockDeps
         )
       ).rejects.toThrow("Failed to clone git repository");
@@ -833,7 +833,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const mockDeps = {
         execAsync: mock(async () => {
           throw new Error("fatal: not a git repository");
-        }) as unknown,
+        }) as any,
       };
 
       await expect(gitService.stashChangesWithDependencies("/test/repo", mockDeps)).rejects.toThrow(
@@ -941,7 +941,7 @@ describe("Service-Level Git Operations with Dependency Injection", () => {
         execAsync: mock(async () => ({
           stdout: "[main def456] minimal commit",
           stderr: "",
-        })) as unknown,
+        })) as any,
       };
 
       const result = await gitService.commitWithDependencies(

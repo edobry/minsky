@@ -94,11 +94,14 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    */
   private async readDb(): Promise<SessionRecord[]> {
     const dbState = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
+    const sessions = Array.isArray(dbState)
+      ? dbState
+      : (dbState as { sessions: SessionRecord[] }).sessions;
     this.state = {
-      sessions: dbState.sessions,
+      sessions,
       baseDir: this.baseDir,
     };
-    return dbState.sessions;
+    return sessions;
   }
 
   /**
@@ -188,7 +191,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    */
   async getSessionWorkdir(_sessionName: string): Promise<string | undefined> {
     await this.readDb();
-    return getSessionWorkdirFn(this.state, _sessionName);
+    return getSessionWorkdirFn(this.state, _sessionName) ?? undefined;
   }
 }
 

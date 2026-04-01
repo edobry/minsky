@@ -13,7 +13,10 @@ setupTestMocks();
 // Type guard to check if a schema has a description property
 const hasDescription = (obj: unknown): obj is { description: string } => {
   return (
-    obj && typeof obj === "object" && "description" in obj && typeof obj.description === "string"
+    !!obj &&
+    typeof obj === "object" &&
+    "description" in obj &&
+    typeof (obj as any).description === "string"
   );
 };
 
@@ -21,8 +24,8 @@ describe("Parameter Schemas", () => {
   describe("Schema Helpers", () => {
     it("optionalString should create an optional string schema with description", () => {
       const schema = schemas.optionalString("Test description");
-      expect(schema._def.typeName).toBe("ZodOptional");
-      expect(schema._def.innerType._def.typeName).toBe("ZodString");
+      expect(schema._def.typeName as any).toBe("ZodOptional");
+      expect((schema._def.innerType._def as any).typeName as any).toBe("ZodString");
 
       const innerType = schema._def.innerType as z.ZodString;
       expect(innerType._def.description).toBe("Test description");
@@ -30,14 +33,14 @@ describe("Parameter Schemas", () => {
 
     it("requiredString should create a required string schema with description", () => {
       const schema = schemas.requiredString("Test description");
-      expect(schema._def.typeName).toBe("ZodString");
+      expect(schema._def.typeName as any).toBe("ZodString");
       expect(schema._def.description).toBe("Test description");
     });
 
     it("optionalBoolean should create an optional boolean schema with description", () => {
       const schema = schemas.optionalBoolean("Test description");
-      expect(schema._def.typeName).toBe("ZodOptional");
-      expect(schema._def.innerType._def.typeName).toBe("ZodBoolean");
+      expect(schema._def.typeName as any).toBe("ZodOptional");
+      expect((schema._def.innerType._def as any).typeName as any).toBe("ZodBoolean");
 
       const innerType = schema._def.innerType as z.ZodBoolean;
       expect(innerType._def.description).toBe("Test description");

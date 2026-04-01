@@ -40,7 +40,7 @@ const migrateBackendParamsSchema = z.object({
 
 export type MigrateBackendParams = z.infer<typeof migrateBackendParamsSchema>;
 
-export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendParams, any> {
+export class TasksMigrateBackendCommand extends BaseTaskCommand {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
   readonly description = `Migrate tasks between different backends (${MIGRATION_BACKENDS.join(", ")})`;
@@ -172,14 +172,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     }
 
     if (p.json || context.format === "json") {
-      return this.createSuccessResult({
-        ...result,
-        validation: validationResult,
-      });
+      return { success: true, ...result, validation: validationResult };
     }
 
     this.displayResults(result, dryRun, sourceBackend, targetBackend);
-    return this.createSuccessResult({
+    return {
+      success: true,
       sourceBackend,
       targetBackend,
       summary: {
@@ -190,7 +188,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         validated: validationResult?.passed.length || 0,
         validationFailed: validationResult?.failed.length || 0,
       },
-    });
+    };
   }
 
   private async detectCurrentBackend(workspacePath: string): Promise<string> {
@@ -198,7 +196,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const detectedBackend = await _backendDetectionService.detectBackend(workspacePath);
 
     // Convert TaskBackend enum to string format expected by migration command
-    switch (detectedBackend) {
+    switch (detectedBackend as string) {
       case "MARKDOWN":
         return "markdown";
       case "JSON_FILE":
@@ -436,10 +434,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     }
 
     // Default: Clean up technical error message for user consumption
-    const cleanError = errorMessage
-      .replace(/^Error:\s*/i, "")
-      .replace(/\s+at\s+.*$/gm, "") // Remove stack trace lines
-      .split("\n")[0] // Take only first line
+    const cleanError = (
+      errorMessage
+        .replace(/^Error:\s*/i, "")
+        .replace(/\s+at\s+.*$/gm, "") // Remove stack trace lines
+        .split("\n")[0] ?? ""
+    ) // Take only first line
       .slice(0, 100); // Limit length
 
     return cleanError || "Unknown migration error occurred.";
@@ -505,13 +505,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         const error = detail.error || "";
 
         if (error.includes("Spec file not found") || error.includes("may already be migrated")) {
-          groups["Already migrated"].push(detail);
+          groups["Already migrated"]!.push(detail);
         } else if (error.includes("spec file") || error.includes("not found")) {
-          groups["Missing spec files"].push(detail);
+          groups["Missing spec files"]!.push(detail);
         } else if (error.includes("symbolic links") || error.includes("permissions")) {
-          groups["File system issues"].push(detail);
+          groups["File system issues"]!.push(detail);
         } else {
-          groups["Other errors"].push(detail);
+          groups["Other errors"]!.push(detail);
         }
       });
 
@@ -662,7 +662,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         if (!failureGroups[failure.reason]) {
           failureGroups[failure.reason] = [];
         }
-        failureGroups[failure.reason].push(failure);
+        failureGroups[failure.reason]!.push(failure);
       });
 
       for (const [reason, failures] of Object.entries(failureGroups)) {

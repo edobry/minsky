@@ -203,7 +203,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       // Extract task ID from spec path
       const pathParts = specPath.split("/");
-      const fileName = pathParts[pathParts.length - 1];
+      const fileName = pathParts[pathParts.length - 1]!;
 
       // Only match legitimate task files: {1-4 digit ID}-{title}.md
       // Exclude temporary files like temp-task-{title}-{timestamp}.md
@@ -227,7 +227,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
-        return issue.title.includes(taskId) || issue.body.includes(taskId);
+        return issue.title.includes(taskId) || (issue.body ?? "").includes(taskId);
       });
 
       if (!issue) {
@@ -352,14 +352,14 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
 
-    let content = `# Task ${metadata.taskId || "#000"}: ${title}\n\n`;
+    let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
 
     if (description) {
       content += `## Description\n${description}\n\n`;
     }
 
     // Add GitHub-specific metadata if available
-    if (metadata.githubIssue) {
+    if (metadata?.githubIssue) {
       const githubIssue = metadata.githubIssue;
       content += "## GitHub Issue\n";
       content += `- Issue: #${githubIssue.number}\n`;
@@ -508,7 +508,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    return [this.statusLabels[status] || this.statusLabels.TODO];
+    return [(this.statusLabels[status] || this.statusLabels.TODO) as string];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {
@@ -564,16 +564,16 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | undefined> {
     try {
       const task = await this.getTask(id);
-      return task?.status || null;
+      return task?.status || undefined;
     } catch (error) {
       log.error("Failed to get task status", {
         id,
         error: getErrorMessage(error),
       });
-      return null;
+      return undefined;
     }
   }
 
@@ -737,7 +737,7 @@ ${description}
         const provider = PersistenceService.getProvider();
 
         if (provider.capabilities.sql) {
-          const db = await provider.getDatabaseConnection?.();
+          const db = await (provider as any).getDatabaseConnection?.();
 
           if (db) {
             const { tasksTable } = await import("../storage/schemas/task-embeddings");

@@ -12,6 +12,7 @@ import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
 import { FileEditSchema } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+import type { MorphFastApplyRequest } from "../../domain/ai/edit-pattern-utils";
 import { generateUnifiedDiff, generateDiffSummary } from "../../utils/diff";
 
 // Import schemas that haven't been migrated yet
@@ -163,7 +164,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return createErrorResponse(errorMessage, undefined, {
           path: args.path,
           session: args.sessionName,
         });
@@ -245,7 +246,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return createErrorResponse(errorMessage, undefined, {
           path: args.path,
           session: args.sessionName,
         });
@@ -277,7 +278,7 @@ export async function applyEditPattern(
   const { RateLimitError, AuthenticationError, ServerError } = await import(
     "../../domain/ai/enhanced-error-types"
   );
-  const { analyzeEditPattern, createMorphCompletionParams, MorphFastApplyRequest } = await import(
+  const { analyzeEditPattern, createMorphCompletionParams } = await import(
     "../../domain/ai/edit-pattern-utils"
   );
   const { getConfiguration } = await import("../../domain/configuration");
@@ -305,7 +306,7 @@ export async function applyEditPattern(
   // Find fast-apply capable provider (currently Morph, extendable to others)
   const fastApplyProviders = Object.entries(aiConfig.providers)
     .filter(
-      ([name, providerConfig]) => providerConfig?.enabled && name === "morph" // Add other fast-apply providers here as needed
+      ([name, providerConfig]) => (providerConfig as any)?.enabled && name === "morph" // Add other fast-apply providers here as needed
     )
     .map(([name]) => name);
 
@@ -315,7 +316,7 @@ export async function applyEditPattern(
 
   if (fastApplyProviders.length > 0) {
     // Use fast-apply provider
-    provider = fastApplyProviders[0];
+    provider = fastApplyProviders[0]!;
     model = provider === "morph" ? "morph-v3-large" : undefined;
     isFastApply = true;
     log.debug(`Using fast-apply provider: ${provider}`);

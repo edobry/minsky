@@ -94,7 +94,7 @@ export class TestQualityMonitor {
     // Look for alternating patterns of success/failure
     let transitions = 0;
     for (let i = 1; i < history.length; i++) {
-      if (history[i].status !== history[i - 1].status) {
+      if (history[i]!.status !== history[i - 1]!.status) {
         transitions++;
       }
     }
@@ -136,7 +136,7 @@ export class TestQualityMonitor {
     const flakyTests: Array<{ testName: string; filePath: string; metrics: TestMetrics }> = [];
 
     for (const [key, history] of this.executions) {
-      const [filePath, testName] = key.split("::");
+      const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 
       if (metrics && metrics.category === "flaky") {
@@ -156,7 +156,7 @@ export class TestQualityMonitor {
     const allTests: Array<{ testName: string; filePath: string; metrics: TestMetrics }> = [];
 
     for (const [key, history] of this.executions) {
-      const [filePath, testName] = key.split("::");
+      const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 
       if (metrics) {
@@ -198,7 +198,7 @@ export class TestQualityMonitor {
     }> = [];
 
     for (const [key, history] of this.executions) {
-      const [filePath, testName] = key.split("::");
+      const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 
       if (metrics) {

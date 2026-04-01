@@ -123,7 +123,9 @@ export class RuleService {
    */
   async listRules(options: RuleOptions = {}): Promise<Rule[]> {
     const rules: Rule[] = [];
-    const formats: RuleFormat[] = options.format ? [options.format] : ["minsky", "cursor", "generic"];
+    const formats: RuleFormat[] = options.format
+      ? [options.format]
+      : ["minsky", "cursor", "generic"];
 
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);

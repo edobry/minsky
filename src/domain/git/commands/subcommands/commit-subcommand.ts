@@ -47,10 +47,24 @@ export const commitCommandParams: CommandParameterMap = {
 };
 
 /**
+ * Extended context type that includes parameters for legacy command handlers
+ */
+interface CommitCommandContext extends CommandExecutionContext {
+  parameters: {
+    message: string;
+    all?: boolean;
+    amend?: boolean;
+    noStage?: boolean;
+    repo?: string;
+    session?: string;
+  };
+}
+
+/**
  * Execute the commit command
  */
 export async function executeCommitCommand(
-  context: CommandExecutionContext
+  context: CommitCommandContext
 ): Promise<{ commitHash: string; message: string }> {
   const { message, all, amend, noStage, repo, session } = context.parameters;
 

@@ -194,7 +194,7 @@ async function reconstructSessionRecord(
       repoName,
       repoUrl,
       createdAt,
-      taskId: validateQualifiedTaskId(taskId),
+      taskId: validateQualifiedTaskId(taskId) ?? undefined,
       branch,
     };
 
@@ -219,7 +219,7 @@ function extractRepoName(repoUrl: string): string {
   if (repoUrl.includes("/")) {
     // Handle URLs like "https://github.com/user/repo.git" or "/path/to/repo"
     const parts = repoUrl.split("/");
-    const lastPart = parts[parts.length - 1];
+    const lastPart = parts[parts.length - 1] ?? "";
     return lastPart.replace(".git", "") || "unknown";
   }
 

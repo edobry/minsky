@@ -10,6 +10,11 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
+
+// Options type for JsonFileTaskBackend - extends base config with optional db file path
+export interface JsonFileTaskBackendOptions extends TaskBackendConfig {
+  dbFilePath?: string;
+}
 import type { TaskData } from "../../types/tasks/taskData";
 
 import { createJsonFileStorage } from "../storage/json-file-storage";
@@ -80,7 +85,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       throw new Error(`Task ${id} not found`);
     }
 
-    tasks[taskIndex].status = status;
+    tasks[taskIndex]!.status = status;
     await this.saveAllTasks(tasks);
   }
 
@@ -93,7 +98,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     const tasks = await this.getAllTasks();
     const maxId = tasks.reduce((max, task) => {
       const match = task.id.match(/^json-file#(\d+)$/);
-      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+      return match ? Math.max(max, parseInt(match[1]!, 10)) : max;
     }, 0);
 
     const newId = `json-file#${maxId + 1}`;
@@ -168,7 +173,7 @@ ${description}
     if (!specDataResult.success) {
       throw new Error(`Failed to load spec file: ${specDataResult.error}`);
     }
-    const spec = this.parseTaskSpec(specDataResult.content || "");
+    const spec = specParser(specDataResult.content || "");
 
     // Use the spec ID if available, otherwise generate a sequential ID
     let taskId: string;
@@ -179,7 +184,7 @@ ${description}
       taskId = validateQualifiedTaskId(spec.id) || spec.id;
     } else {
       // TASK 283: Generate plain ID format for storage using proper max ID logic
-      taskId = getNextTaskId(tasks); // Uses max existing ID + 1, returns plain format
+      taskId = getNextTaskId(tasks as any); // Uses max existing ID + 1, returns plain format
     }
 
     // Create the new task data
@@ -211,7 +216,7 @@ ${description}
       const provider = PersistenceService.getProvider();
 
       if (provider.capabilities.sql) {
-        const db = await provider.getDatabaseConnection?.();
+        const db = await (provider as any).getDatabaseConnection?.();
 
         if (db) {
           const { tasksTable } = await import("../storage/schemas/task-embeddings");
@@ -271,7 +276,7 @@ ${description}
       return {
         id: task.id,
         title: task.title,
-        spec: content,
+        spec: content.toString(),
         status: task.status,
         backend: task.backend || this.name,
         createdAt: undefined,
@@ -290,12 +295,12 @@ ${description}
       throw new Error(`Task ${id} not found`);
     }
 
-    tasks[taskIndex].title = metadata.title;
-    tasks[taskIndex].status = metadata.status;
+    tasks[taskIndex]!.title = metadata.title;
+    tasks[taskIndex]!.status = metadata.status;
 
     // Update spec file
-    if (metadata.spec && tasks[taskIndex].specPath) {
-      await fs.writeFile(tasks[taskIndex].specPath, metadata.spec);
+    if (metadata.spec && tasks[taskIndex]!.specPath) {
+      await fs.writeFile(tasks[taskIndex]!.specPath!, metadata.spec);
     }
 
     await this.saveAllTasks(tasks);
@@ -310,7 +315,7 @@ ${description}
       }
 
       const content = await fs.readFile(this.tasksFilePath, "utf-8");
-      const data = JSON.parse(content);
+      const data = JSON.parse(content.toString());
       return Array.isArray(data) ? data : [];
     } catch (error) {
       log.warn("Failed to read tasks file", { error: getErrorMessage(error as any) });
@@ -330,7 +335,7 @@ ${description}
     }
   }
 
-  private getTaskSpecPath(taskId: string, title: string): string {
+  getTaskSpecPath(taskId: string, title: string): string {
     const cleanId = taskId.replace(/^(json-file)?#/, "");
     const slug = title
       .toLowerCase()

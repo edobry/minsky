@@ -79,7 +79,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
     }
 
     // Read and parse the file
-    const content = await (this.deps.fsPromises || fs).readFile(filePath, "utf-8");
+    const content = String(await (this.deps.fsPromises || fs).readFile(filePath, "utf-8"));
 
     try {
       // Parse frontmatter

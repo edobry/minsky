@@ -327,12 +327,12 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Update the task with provided updates
     const updatedTask = {
-      ...tasks[taskIndex],
+      ...tasks[taskIndex]!,
       ...updates,
-      id: tasks[taskIndex].id, // Preserve original ID
+      id: tasks[taskIndex]!.id, // Preserve original ID
     };
 
-    tasks[taskIndex] = updatedTask;
+    tasks[taskIndex] = updatedTask as any;
 
     // Save updated tasks
     const formattedContent = this.formatTasks(tasks);
@@ -345,11 +345,11 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Return the updated task in the expected format
     return {
       id: updatedTask.id,
-      title: updatedTask.title,
+      title: updatedTask.title || "",
       description: updatedTask.description || "",
-      status: updatedTask.status,
+      status: updatedTask.status || "",
       specPath: updatedTask.specPath || "",
-    };
+    } as any;
   }
 
   async createTask(specPath: string | any, _options?: CreateTaskOptions): Promise<Task> {
@@ -820,7 +820,7 @@ ${description}
         const provider = PersistenceService.getProvider();
 
         if (provider.capabilities.sql) {
-          const db = await provider.getDatabaseConnection?.();
+          const db = await (provider as any).getDatabaseConnection?.();
 
           if (db) {
             const { tasksTable } = await import("../storage/schemas/task-embeddings");

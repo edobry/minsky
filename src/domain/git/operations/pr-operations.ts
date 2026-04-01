@@ -54,7 +54,7 @@ export class CreatePullRequestOperation extends BaseGitOperation<
     params: CreatePullRequestParams,
     gitService: GitServiceInterface
   ): Promise<{ markdown: string; statusUpdateResult?: any }> {
-    const result = await gitService.pr({
+    const result = await gitService.pr!({
       session: params.session,
       repoPath: params.repo,
       branch: params.branch,
@@ -86,7 +86,7 @@ export class PreparePrOperation extends BaseGitOperation<PreparePrParams, Prepar
     params: PreparePrParams,
     gitService: GitServiceInterface
   ): Promise<PreparePrResult> {
-    const result = await gitService.preparePr({
+    const result = await gitService.preparePr!({
       session: params.session,
       repoPath: params.repo,
       baseBranch: params.baseBranch,
@@ -119,7 +119,7 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
     params: MergePrParams,
     gitService: GitServiceInterface
   ): Promise<MergePrResult> {
-    const result = await gitService.mergePr({
+    const result = await gitService.mergePr!({
       prBranch: params.prBranch,
       repoPath: params.repo,
       baseBranch: params.baseBranch,
@@ -140,10 +140,10 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
  * Factory functions for creating PR operations
  */
 export const createCreatePullRequestOperation = (deps?: GitOperationDependencies) =>
-  new CreatePullRequestOperation(deps);
+  new CreatePullRequestOperation(deps!);
 
 export const createPreparePrOperation = (deps?: GitOperationDependencies) =>
-  new PreparePrOperation(deps);
+  new PreparePrOperation(deps!);
 
 export const createMergePrOperation = (deps?: GitOperationDependencies) =>
-  new MergePrOperation(deps);
+  new MergePrOperation(deps!);

@@ -120,7 +120,7 @@ export class ParameterProcessor {
     Object.entries(parameters).forEach(([name, value]) => {
       const paramDef = paramDefs[name];
       if (paramDef && value !== undefined && value !== null) {
-        if (paramDef.type === "number" && typeof value !== "number") {
+        if ((paramDef as any).type === "number" && typeof value !== "number") {
           // Try to convert string to number
           const numValue = Number(value);
           if (isNaN(numValue)) {
@@ -129,7 +129,7 @@ export class ParameterProcessor {
             // Update the value in place
             parameters[name] = numValue;
           }
-        } else if (paramDef.type === "boolean" && typeof value !== "boolean") {
+        } else if ((paramDef as any).type === "boolean" && typeof value !== "boolean") {
           // Try to convert string to boolean
           if (typeof value === "string") {
             if (value.toLowerCase() === "true" || value === "1") {

@@ -10,7 +10,7 @@ import type { PersistenceConfig } from "../../../domain/configuration/types";
 // Mock the postgres module to avoid real database connections
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
-  const queryString = strings[0];
+  const queryString = strings[0]!;
   if (queryString.includes("pg_extension") && queryString.includes("vector")) {
     return Promise.resolve([{ exists: true }]); // Mock pgvector as available
   }
@@ -58,9 +58,9 @@ describe("PostgresPersistenceProvider", () => {
 
     // Should return real PostgresStorage instance, not stub
     expect(storage).toBeInstanceOf(PostgresStorage);
-    expect(storage.readState).toBeDefined();
-    expect(storage.getEntities).toBeDefined();
-    expect(storage.initialize).toBeDefined();
+    expect((storage as any).readState).toBeDefined();
+    expect((storage as any).getEntities).toBeDefined();
+    expect((storage as any).initialize).toBeDefined();
   });
 
   test("getStorage() throws error when not initialized", () => {
@@ -68,14 +68,14 @@ describe("PostgresPersistenceProvider", () => {
   });
 
   test("initialize() sets up provider correctly", async () => {
-    expect(provider.isInitialized).toBe(false);
+    expect((provider as any).isInitialized).toBe(false);
 
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
 
     await provider.initialize();
 
-    expect(provider.isInitialized).toBe(true);
+    expect((provider as any).isInitialized).toBe(true);
   });
 
   test("getRawSqlConnection() returns connection when initialized", async () => {
@@ -87,7 +87,7 @@ describe("PostgresPersistenceProvider", () => {
 
     expect(connection).toBeDefined();
     // Should return the mocked SQL connection
-    expect(connection).toBe(mockSql);
+    expect(connection).toBe(mockSql as any);
   });
 
   test("getCapabilities() returns correct PostgreSQL capabilities (base provider)", () => {

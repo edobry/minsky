@@ -52,7 +52,7 @@ export class ToolsIndexEmbeddingsCommand {
       );
       const { createLogger } = await import("../../../../utils/logger");
 
-      const log = createLogger("tools:index-embeddings");
+      const log = createLogger();
       const service = await createToolEmbeddingService();
 
       // If limit is specified, we'll need to get all tools and slice
@@ -98,7 +98,7 @@ export class ToolsIndexEmbeddingsCommand {
       };
     } catch (error) {
       const { createLogger } = await import("../../../../utils/logger");
-      const log = createLogger("tools:index-embeddings");
+      const log = createLogger();
 
       const errorMsg = `Failed to index tool embeddings: ${
         error instanceof Error ? error.message : String(error)

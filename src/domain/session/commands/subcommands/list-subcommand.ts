@@ -38,8 +38,7 @@ export async function executeSessionListCommand(
 
   const result = await sessionList({
     repo,
-    json,
-  });
+  } as any);
 
   if (context.debug) {
     log.debug("Session list command executed successfully", { result });

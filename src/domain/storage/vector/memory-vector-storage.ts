@@ -64,7 +64,7 @@ export class MemoryVectorStorage implements VectorStorage {
     const n = Math.min(a.length, b.length);
     let s = 0;
     for (let i = 0; i < n; i++) {
-      const d = a[i] - b[i];
+      const d = a[i]! - b[i]!;
       s += d * d;
     }
     return Math.sqrt(s);

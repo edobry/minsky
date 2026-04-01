@@ -105,7 +105,7 @@ export function createTasksDepsTreeCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
+      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -135,7 +135,7 @@ export function createTasksDepsGraphCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
+      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -228,7 +228,7 @@ async function generateDependencyTree(
 
           // Recursively show dependencies if within depth limit
           if (maxDepth > 1) {
-            const subDeps = await graphService.listDependencies(dep);
+            const subDeps = await graphService.listDependencies(dep!);
             for (let j = 0; j < subDeps.length && j < 3; j++) {
               const subDep = subDeps[j];
               const subConnector = isLast ? "    └── " : "│   └── ";
@@ -302,7 +302,7 @@ async function generateDependencyGraph(
     lines.push(`━`.repeat(60));
     lines.push(`Showing ${statusFilter || "TODO"} tasks with dependencies\n`);
 
-    const tasksWithDeps = [];
+    const tasksWithDeps: any[] = [];
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
@@ -349,7 +349,7 @@ async function generateDependencyGraph(
 
     // Group by dependency chains
     const processed = new Set<string>();
-    const chains = [];
+    const chains: any[][] = [];
 
     // Find root tasks (tasks with no dependencies)
     const rootTasks = tasksWithDeps.filter((t) => t.dependencies.length === 0);
@@ -373,7 +373,7 @@ async function generateDependencyGraph(
 
     // Render chains
     for (let chainIndex = 0; chainIndex < chains.length; chainIndex++) {
-      const chain = chains[chainIndex];
+      const chain = chains[chainIndex]!;
       const isLastChain = chainIndex === chains.length - 1;
 
       await renderDependencyChain(chain, lines, graphService, taskService, isLastChain);
@@ -568,7 +568,7 @@ async function generateGraphvizDot(
 
     lines.push("");
 
-    const tasksWithDeps = [];
+    const tasksWithDeps: any[] = [];
     const allTaskIds = new Set<string>();
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries

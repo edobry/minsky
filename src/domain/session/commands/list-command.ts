@@ -18,7 +18,7 @@ export async function sessionList(
       sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     };
 
-    return await deps.sessionDB.listSessions();
+    return (await deps.sessionDB.listSessions()) as unknown as Session[];
   } catch (error) {
     throw new Error(
       `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`

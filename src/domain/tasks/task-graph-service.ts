@@ -6,8 +6,8 @@ function isQualifiedId(id: string): boolean {
   return (
     typeof id === "string" &&
     id.includes("#") &&
-    id.split("#")[0].length > 0 &&
-    id.split("#")[1].length > 0
+    (id.split("#")[0] ?? "").length > 0 &&
+    (id.split("#")[1] ?? "").length > 0
   );
 }
 

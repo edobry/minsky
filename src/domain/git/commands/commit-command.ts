@@ -37,13 +37,13 @@ export async function commitChangesFromParams(params: {
 
   // Stage changes if requested
   if (params.all && !params.noStage) {
-    await gitService.stageAll(repoPath);
+    await gitService.stageAll!(repoPath);
   } else if (!params.noStage) {
-    await gitService.stageModified(repoPath);
+    await gitService.stageModified!(repoPath);
   }
 
   // Commit changes
-  const commitHash = await gitService.commit(params.message, repoPath, params.amend);
+  const commitHash = await gitService.commit!(params.message, repoPath, params.amend);
 
   log("Changes committed successfully", {
     commitHash,

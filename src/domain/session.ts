@@ -231,9 +231,12 @@ export async function startSessionFromParams(
     noStatusUpdate: params.noStatusUpdate || false,
     quiet: params.quiet || false,
     repo: params.repo, // Repository path
+    debug: false,
+    format: "text" as const,
+    force: false,
   };
 
-  return startSessionImpl(sessionStartParams, deps);
+  return startSessionImpl(sessionStartParams as any, deps);
 }
 
 /**
@@ -751,7 +754,7 @@ export async function checkPrBranchExistsOptimized(
       exists: sessionRecord.prState.exists,
       lastChecked: sessionRecord.prState.lastChecked,
     });
-    return sessionRecord.prState.exists;
+    return sessionRecord.prState.exists ?? false;
   }
 
   // Cache is stale or missing, perform git operations and update cache
@@ -898,7 +901,8 @@ export async function approveSessionFromParams(
     reviewId: number | string;
     approvedBy: string;
     approvedAt: string;
-    prNumber?: string;
+    prNumber: string | number;
+    [key: string]: any;
   };
   wasAlreadyApproved: boolean;
 }> {
@@ -922,7 +926,7 @@ export async function approveSessionFromParams(
       json: params.json,
       reviewComment: params.reviewComment,
     },
-    depsInput
+    depsInput as any
   );
 
   // Transform the result to match the expected interface
@@ -1284,7 +1288,7 @@ async function cleanupLocalBranches(
 
   // Clean up the task branch (e.g., task#265 or 265)
   // Try various possible branch name formats
-  const possibleTaskBranches = [];
+  const possibleTaskBranches: string[] = [];
 
   // Add sessionName if it looks like a task branch (task#265)
   if (sessionName && sessionName !== prBranch) {

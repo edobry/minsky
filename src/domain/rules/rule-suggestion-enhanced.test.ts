@@ -84,7 +84,7 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
 
       const alwaysRules = suggestions.filter((r) => r.id === "always-rule-1");
       expect(alwaysRules).toHaveLength(1);
-      expect(alwaysRules[0].id).toBe("always-rule-1");
+      expect(alwaysRules[0]!.id).toBe("always-rule-1");
     });
 
     it("should include AUTO_ATTACHED rules when files match globs", async () => {
@@ -272,7 +272,7 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
 
       // Should only have always-apply rules
       expect(suggestions).toHaveLength(1);
-      expect(suggestions[0].id).toBe("always-rule-1");
+      expect(suggestions[0]!.id).toBe("always-rule-1");
     });
 
     it("should handle similarity service errors gracefully", async () => {

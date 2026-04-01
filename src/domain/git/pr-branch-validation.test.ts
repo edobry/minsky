@@ -59,7 +59,7 @@ describe("PR Branch Validation Bug Fix", () => {
 
       // This test should FAIL until we fix the bug
       // Currently it creates pr/pr/task-md#357 instead of rejecting
-      await expect(preparePrImpl(options, deps)).rejects.toThrow(
+      await expect(preparePrImpl(options, deps as any)).rejects.toThrow(
         /Cannot create PR from PR branch 'pr\/task-md#357'/
       );
     });
@@ -122,7 +122,7 @@ describe("PR Branch Validation Bug Fix", () => {
       };
 
       // This should work fine - creating PR from session branch
-      const result = await preparePrImpl(options, deps);
+      const result = await preparePrImpl(options, deps as any);
       expect(result.prBranch).toBe("pr/task-md#357");
     });
 
@@ -152,7 +152,7 @@ describe("PR Branch Validation Bug Fix", () => {
       };
 
       await expect(
-        preparePrImpl({ session: "test", title: "Test", body: "Test" }, mockDeps)
+        preparePrImpl({ session: "test", title: "Test", body: "Test" }, mockDeps as any)
       ).rejects.toThrow(/Cannot create PR from PR branch 'pr\/feature-branch'/);
     });
   });

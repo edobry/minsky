@@ -79,7 +79,7 @@ export class TaskSimilarityService {
     const uniqueTerms = Array.from(new Set(terms.map((t) => t.toLowerCase())));
 
     if (uniqueTerms.length === 1) {
-      return uniqueTerms[0];
+      return uniqueTerms[0]!;
     }
 
     // For multiple terms, create a coherent query

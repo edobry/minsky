@@ -155,14 +155,14 @@ export class CommitOperation extends BaseGitOperation<
     // Handle staging if not disabled
     if (!params.noStage) {
       if (params.all) {
-        await gitService.stageAll(params.repo);
+        await gitService.stageAll!(params.repo);
       } else {
-        await gitService.stageModified(params.repo);
+        await gitService.stageModified!(params.repo);
       }
     }
 
     // Commit changes
-    const commitHash = await gitService.commit(params.message, params.repo, params.amend);
+    const commitHash = await gitService.commit!(params.message, params.repo, params.amend);
 
     return {
       commitHash,
@@ -183,10 +183,12 @@ export class CommitOperation extends BaseGitOperation<
 /**
  * Factory functions for creating basic operations
  */
-export const createCloneOperation = (deps?: GitOperationDependencies) => new CloneOperation(deps);
+export const createCloneOperation = (deps?: GitOperationDependencies) => new CloneOperation(deps!);
 
-export const createBranchOperation = (deps?: GitOperationDependencies) => new BranchOperation(deps);
+export const createBranchOperation = (deps?: GitOperationDependencies) =>
+  new BranchOperation(deps!);
 
-export const createPushOperation = (deps?: GitOperationDependencies) => new PushOperation(deps);
+export const createPushOperation = (deps?: GitOperationDependencies) => new PushOperation(deps!);
 
-export const createCommitOperation = (deps?: GitOperationDependencies) => new CommitOperation(deps);
+export const createCommitOperation = (deps?: GitOperationDependencies) =>
+  new CommitOperation(deps!);

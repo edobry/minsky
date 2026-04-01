@@ -69,7 +69,7 @@ export function createMcpSuccessResponse<T extends Record<string, any>>(
     ...(context.path && { path: context.path }),
     ...(context.resolvedPath && { resolvedPath: context.resolvedPath }),
     ...additionalData,
-  };
+  } as unknown as FileMcpResponse & T;
 }
 
 /**

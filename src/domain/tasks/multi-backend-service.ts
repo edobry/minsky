@@ -212,7 +212,7 @@ export class TaskServiceImpl implements TaskService {
         const workspacePath = backend.getWorkspacePath();
         const tasksFilePath = getTasksFilePath(workspacePath);
         const content = await fs.readFile(tasksFilePath, "utf-8").catch(() => "");
-        const tasks = parseTasksFromMarkdown(content);
+        const tasks = parseTasksFromMarkdown(content.toString());
 
         // Find task (replicating backend's matching logic)
         const index = tasks.findIndex((task) => {
@@ -235,7 +235,7 @@ export class TaskServiceImpl implements TaskService {
 
     const final = await this.getTask(taskId);
     // In tests with mocked IO, allow eventual consistency without throwing
-    return final || (await backend.getTask(taskId));
+    return (final || (await backend.getTask(taskId))) as Task;
   }
 
   async deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -423,7 +423,7 @@ export class TaskServiceImpl implements TaskService {
       return {
         task,
         specPath,
-        content,
+        content: content.toString(),
         section,
       };
     } catch (error) {

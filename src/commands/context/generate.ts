@@ -193,7 +193,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   const result = await generateContext(request);
 
   // Perform analysis if requested or needed for visualization
-  let analysisResult = null;
+  let analysisResult: any = null;
   if (
     options.analyze ||
     options.analyzeOnly ||
@@ -462,7 +462,12 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
   const targetModel = options.model || "gpt-4o";
 
   // Analyze each component's token usage
-  const componentAnalysis = [];
+  const componentAnalysis: Array<{
+    component: string;
+    tokens: number;
+    percentage: string;
+    content_length: number;
+  }> = [];
   for (const component of result.components) {
     const tokens = await tokenizationService.countTokens(component.content, targetModel);
     const percentage = result.metadata.totalTokens
@@ -490,7 +495,7 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
   );
 
   // Get tokenizer information
-  const tokenizerInfo = tokenizationService.getTokenizerInfo?.(targetModel) || {
+  const tokenizerInfo = (tokenizationService as any).getTokenizerInfo?.(targetModel) || {
     name: "tiktoken",
     encoding: "cl100k_base",
     description: "OpenAI tokenizer",
@@ -525,7 +530,14 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
  * Generate optimization suggestions based on component analysis
  */
 function generateContextOptimizations(componentAnalysis: any[], totalTokens: number) {
-  const optimizations = [];
+  const optimizations: Array<{
+    type: string;
+    component: any;
+    currentTokens: any;
+    suggestion: string;
+    confidence: string;
+    potentialSavings: number;
+  }> = [];
 
   for (const component of componentAnalysis) {
     const percentage = parseFloat(component.percentage);
@@ -940,7 +952,12 @@ function groupComponentsByCategory(components: any[], analysisResult?: any) {
     (c) => !categorizedComponents.includes(c.component)
   );
 
-  const groups = [];
+  const groups: Array<{
+    name: string;
+    totalTokens: number;
+    percentage: number;
+    components: any[];
+  }> = [];
 
   if (environmentComponents.length > 0) {
     const groupTokens = environmentComponents.reduce((sum, comp) => sum + comp.tokens, 0);
@@ -1018,7 +1035,7 @@ async function displayModelComparison(models: string[], options: GenerateOptions
     ? options.components.split(",").map((c) => c.trim())
     : getDefaultComponents();
 
-  const comparisons = [];
+  const comparisons: Array<{ model: string; result: any }> = [];
 
   for (const model of models) {
     try {
@@ -1104,8 +1121,8 @@ async function displayModelComparison(models: string[], options: GenerateOptions
 
     // Show visualization for first model if requested
     if (options.visualize && comparisons.length > 0) {
-      log.cli(`\n📊 Visualization for ${comparisons[0].model}`);
-      displayContextVisualization(comparisons[0].result, options);
+      log.cli(`\n📊 Visualization for ${comparisons[0]!.model}`);
+      displayContextVisualization(comparisons[0]!.result, options);
     }
   }
 }

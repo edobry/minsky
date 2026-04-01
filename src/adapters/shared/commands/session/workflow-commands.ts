@@ -189,10 +189,12 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
         const { DefaultAICompletionService } = await import(
           "../../../../domain/ai/completion-service"
         );
-        const { ConfigurationService } = await import("../../../../domain/configuration");
+        const { getConfiguration } = await import("../../../../domain/configuration");
 
         // Create AI completion service
-        const configService = new ConfigurationService(process.cwd());
+        const configService: any = {
+          loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+        };
         const aiService = new DefaultAICompletionService(configService);
         const reviewService = new AIReviewService(aiService);
 
@@ -256,7 +258,7 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
       );
 
       // Get adapter to submit comment
-      const adapter = await changesetService.getAdapter();
+      const adapter = await (changesetService as any).getAdapter();
       if (adapter && typeof adapter.approve === "function") {
         const commentText = this.formatAIReviewComment(aiResult);
         await adapter.approve(reviewResult.changeset.id, commentText);
@@ -285,7 +287,7 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
       );
 
       // Get adapter to approve
-      const adapter = await changesetService.getAdapter();
+      const adapter = await (changesetService as any).getAdapter();
       if (adapter && typeof adapter.approve === "function") {
         const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
         await adapter.approve(reviewResult.changeset.id, approvalText);
@@ -301,7 +303,7 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
    * Format AI review result as a comment
    */
   private formatAIReviewComment(aiResult: any): string {
-    const sections = [];
+    const sections: string[] = [];
 
     sections.push(`## 🤖 AI Code Review`);
     sections.push(`**Overall Score:** ${aiResult.overall.score}/10`);

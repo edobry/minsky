@@ -39,7 +39,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            stashEntries[stashEntries.length - 1]!.command.match(/"([^"]+)"/)?.[1] ||
             "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
@@ -135,7 +135,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            stashEntries[stashEntries.length - 1]!.command.match(/"([^"]+)"/)?.[1] ||
             "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
@@ -212,7 +212,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            stashEntries[stashEntries.length - 1]!.command.match(/"([^"]+)"/)?.[1] ||
             "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {

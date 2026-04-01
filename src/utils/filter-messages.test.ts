@@ -6,16 +6,17 @@ import {
 } from "./filter-messages";
 import { expectToHaveLength } from "./test-utils/assertions";
 import { UI_TEST_PATTERNS } from "./test-utils/test-constants";
+import { TaskStatus } from "../domain/tasks/taskConstants";
 
 describe("Filter Messages Utility", () => {
   describe("getStatusFilterMessage", () => {
     test("returns correct message for a given status", () => {
-      const message = getStatusFilterMessage("IN-PROGRESS");
+      const message = getStatusFilterMessage(TaskStatus.IN_PROGRESS);
       expect(message).toBe("Showing tasks with status 'IN-PROGRESS'");
     });
 
     test("includes the status in single quotes", () => {
-      const message = getStatusFilterMessage("DONE");
+      const message = getStatusFilterMessage(TaskStatus.DONE);
       expect(message).toContain("'DONE'");
     });
   });
@@ -34,7 +35,7 @@ describe("Filter Messages Utility", () => {
 
   describe("generateFilterMessages", () => {
     test("returns status filter message when status is provided", () => {
-      const messages = generateFilterMessages({ status: "IN-PROGRESS" });
+      const messages = generateFilterMessages({ status: TaskStatus.IN_PROGRESS });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'IN-PROGRESS'");
     });
@@ -51,7 +52,7 @@ describe("Filter Messages Utility", () => {
     });
 
     test("prioritizes status filter over active tasks message", () => {
-      const messages = generateFilterMessages({ status: "TODO", all: false });
+      const messages = generateFilterMessages({ status: TaskStatus.TODO, all: false });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'TODO'");
     });

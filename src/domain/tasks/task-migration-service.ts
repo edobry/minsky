@@ -92,7 +92,7 @@ export class TaskMigrationService {
     };
 
     // 1) Read and backup central tasks file
-    const tasksContent = await fs.readFile(this.tasksFilePath, "utf-8");
+    const tasksContent = (await fs.readFile(this.tasksFilePath, "utf-8")).toString();
     if (createBackup && !dryRun) {
       result.backupPath = await this.createBackup(tasksContent);
       log.info("Created backup", { backupPath: result.backupPath });
@@ -144,7 +144,8 @@ export class TaskMigrationService {
 
       if (taskMatch) {
         const [, prefix, checkbox, title, taskIdWithBrackets] = taskMatch;
-        const taskId = taskIdWithBrackets;
+        const taskId = taskIdWithBrackets ?? "";
+        const titleStr = (title ?? "").trim();
 
         // Extract task status from checkbox and title
         const status = checkbox === "x" ? "DONE" : "TODO"; // Simplified status detection
@@ -155,7 +156,7 @@ export class TaskMigrationService {
             originalId: taskId,
             status: "skipped",
             reason: `Status ${status} doesn't match filter ${statusFilter}`,
-            title: title.trim(),
+            title: titleStr,
           });
           migratedLines.push(line);
           continue;
@@ -166,7 +167,7 @@ export class TaskMigrationService {
           migrationDetails.push({
             originalId: taskId,
             status: "already-qualified",
-            title: title.trim(),
+            title: titleStr,
           });
           migratedLines.push(line);
           continue;
@@ -181,7 +182,7 @@ export class TaskMigrationService {
             originalId: taskId,
             newId: migratedId,
             status: "migrated",
-            title: title.trim(),
+            title: titleStr,
           });
           migratedLines.push(newLine);
         } else {
@@ -189,7 +190,7 @@ export class TaskMigrationService {
             originalId: taskId,
             status: "failed",
             reason: "Could not parse legacy ID",
-            title: title.trim(),
+            title: titleStr,
           });
           migratedLines.push(line);
         }
@@ -323,7 +324,7 @@ export class TaskMigrationService {
     const errors: string[] = [];
 
     try {
-      const content = await fs.readFile(this.tasksFilePath, "utf-8");
+      const content = (await fs.readFile(this.tasksFilePath, "utf-8")).toString();
       const lines = content.split("\n");
 
       for (const [index, line] of lines.entries()) {

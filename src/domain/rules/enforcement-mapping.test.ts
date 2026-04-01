@@ -22,7 +22,7 @@ describe("getEnforcement", () => {
   it("returned mapping contains well-formed mechanisms", () => {
     const result = getEnforcement("template-literals");
     expect(result).toBeDefined();
-    const mechanism = result!.mechanisms[0];
+    const mechanism = result!.mechanisms[0]!;
     expect(mechanism.type).toBe("eslint");
     expect(typeof mechanism.name).toBe("string");
     expect(mechanism.name.length).toBeGreaterThan(0);

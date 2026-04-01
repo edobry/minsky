@@ -33,7 +33,7 @@ function resolveWorkspacePath(config: MarkdownConfig): WorkspaceResolutionResult
       if (typeof mainPath === "string" && mainPath.trim().length > 0) {
         return {
           workspacePath: mainPath,
-          method: "config",
+          method: "explicit",
           description: "Using configured workspace.mainPath",
         };
       }

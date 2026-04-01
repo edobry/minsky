@@ -214,9 +214,10 @@ export class RebaseOperation extends BaseGitOperation<RebaseParams, any> {
 /**
  * Factory functions for creating advanced operations
  */
-export const createMergeOperation = (deps?: GitOperationDependencies) => new MergeOperation(deps);
+export const createMergeOperation = (deps?: GitOperationDependencies) => new MergeOperation(deps!);
 
 export const createCheckoutOperation = (deps?: GitOperationDependencies) =>
-  new CheckoutOperation(deps);
+  new CheckoutOperation(deps!);
 
-export const createRebaseOperation = (deps?: GitOperationDependencies) => new RebaseOperation(deps);
+export const createRebaseOperation = (deps?: GitOperationDependencies) =>
+  new RebaseOperation(deps!);

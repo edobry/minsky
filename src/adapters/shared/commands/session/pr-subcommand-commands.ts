@@ -70,11 +70,11 @@ function parseConventionalTitleShared(title: string): {
   if (match) {
     if (match.length === 4) {
       const [, type, scope, rest] = match;
-      return { type: type.toLowerCase(), scope, title: rest };
+      return { type: type!.toLowerCase(), scope, title: rest ?? "" };
     }
     if (match.length === 3) {
       const [, type, rest] = match;
-      return { type: type.toLowerCase(), title: rest };
+      return { type: type!.toLowerCase(), title: rest ?? "" };
     }
   }
   return { title };
@@ -636,7 +636,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         const titleLine = formatPrTitleLineShared({
           status: pr.status,
           rawTitle: pr.title || "",
-          prNumber: pr.prNumber,
+          prNumber: pr.prNumber !== undefined ? Number(pr.prNumber) : undefined,
           taskId: pr.taskId,
           sessionName: pr.sessionName,
         });
@@ -777,9 +777,9 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         output.push(`URL:         ${pullRequest.url}`);
       }
 
-      if (pullRequest.description) {
+      if ((pullRequest as any).description) {
         output.push("", "Description:");
-        output.push(pullRequest.description);
+        output.push((pullRequest as any).description);
       }
 
       if (pullRequest.filesChanged && pullRequest.filesChanged.length > 0) {

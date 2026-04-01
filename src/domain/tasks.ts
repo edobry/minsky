@@ -109,13 +109,10 @@ export async function getTaskFromParams(params: any) {
   log.debug("tasks.get created TaskService", {
     backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
-  const task = await taskService.getTask(validParams.taskId);
+  const taskId = Array.isArray(validParams.taskId) ? validParams.taskId[0]! : validParams.taskId;
+  const task = await taskService.getTask(taskId);
   if (!task) {
-    throw new ResourceNotFoundError(
-      `Task ${validParams.taskId} not found`,
-      "task",
-      validParams.taskId
-    );
+    throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
   }
   return task;
 }
@@ -172,7 +169,7 @@ export async function updateTaskFromParams(params: any) {
     updates.spec = params.spec;
   }
 
-  const updatedTask = await taskService.updateTask(params.taskId, updates);
+  const updatedTask = await (taskService as any).updateTask(params.taskId, updates);
   return updatedTask;
 }
 
@@ -188,7 +185,7 @@ export async function createTaskFromParams(params: any) {
     backend:
       taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
-  return await taskService.createTask(validParams.specPath);
+  return await taskService.createTask(validParams.specPath || "");
 }
 
 export async function createTaskFromTitleAndSpec(params: any) {
@@ -246,7 +243,7 @@ export async function getTaskSpecContentFromParams(params: any) {
         log.debug("tasks.spec backend from configuration", { backend });
       } else if (configResult.config.backend) {
         // Fallback to deprecated root backend property for backward compatibility
-        backend = configResult.config.backend;
+        backend = configResult.config.backend as string;
         log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
           backend,
         });
@@ -347,7 +344,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
-    return task ? task.status : null;
+    return task ? task.status : undefined;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -754,8 +751,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     const os = await import("os");
 
     // Generate task ID and spec path
-    const taskId = this.generateTaskId(title);
-    const specPath = this.buildSpecPath(taskId, title);
+    const taskId = (this as any).generateTaskId(title);
+    const specPath = (this as any).buildSpecPath(taskId, title);
 
     // Create directories if needed
     const specDir = path.dirname(specPath);
@@ -772,15 +769,15 @@ export class MarkdownTaskBackend implements TaskBackend {
     const taskData: TaskData = {
       id: taskId,
       title,
-      status: "TODO",
+      status: "TODO" as any,
       specPath,
       backend: this.name,
     };
 
     // Add to tasks list
-    const tasks = await this.getAllTasks();
+    const tasks = await (this as any).getAllTasks();
     const updatedTasks = [...tasks, taskData];
-    await this.saveAllTasks(updatedTasks);
+    await (this as any).saveAllTasks(updatedTasks);
 
     return taskData;
   }
@@ -895,6 +892,17 @@ export class MarkdownTaskBackend implements TaskBackend {
       return false;
     }
   }
+
+  getCapabilities() {
+    return {
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+      canList: true,
+      supportsMetadata: false,
+      supportsSearch: false,
+    };
+  }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
@@ -918,7 +926,7 @@ export class GitHubTaskBackend implements TaskBackend {
 
   async getTaskStatus(id: string): Promise<string | undefined> {
     log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
-    return null;
+    return undefined;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -950,5 +958,16 @@ export class GitHubTaskBackend implements TaskBackend {
   async deleteTask(_id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     // Implementation needed
     throw new Error("Method not implemented");
+  }
+
+  getCapabilities() {
+    return {
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+      canList: true,
+      supportsMetadata: false,
+      supportsSearch: false,
+    };
   }
 }

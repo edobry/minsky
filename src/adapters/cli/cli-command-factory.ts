@@ -964,10 +964,11 @@ function formatEffectiveValueSources(
 
   for (const path of sortedPaths) {
     const valueInfo = effectiveValues[path];
+    if (!valueInfo) continue;
     if (!valuesBySource[valueInfo.source]) {
       valuesBySource[valueInfo.source] = [];
     }
-    valuesBySource[valueInfo.source].push({
+    valuesBySource[valueInfo.source]!.push({
       path,
       value: valueInfo.value,
     });

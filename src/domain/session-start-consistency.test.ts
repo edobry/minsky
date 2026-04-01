@@ -88,7 +88,7 @@ describe("Session Start Consistency Tests", () => {
       };
 
       // Act
-      await startSessionFromParams(params, {
+      await startSessionFromParams(params as any, {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
         taskService: mockTaskService,
@@ -128,7 +128,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -157,7 +157,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -186,7 +186,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -226,7 +226,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -267,7 +267,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -297,7 +297,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -331,7 +331,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params, {
+        startSessionFromParams(params as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
@@ -362,7 +362,7 @@ describe("Session Start Consistency Tests", () => {
       };
 
       // Act
-      const result = await startSessionFromParams(params, {
+      const result = await startSessionFromParams(params as any, {
         sessionDB: sessionDbMock,
         gitService: mockGitService,
         taskService: mockTaskService,

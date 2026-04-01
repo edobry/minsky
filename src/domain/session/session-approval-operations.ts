@@ -176,12 +176,12 @@ export async function approveSessionPr(
     return {
       session: sessionNameToUse,
       taskId: sessionRecord.taskId,
-      prBranch: sessionRecord.prBranch,
+      prBranch: sessionRecord.prBranch ?? "",
       approvalInfo: {
         reviewId: "already-approved",
         approvedBy: "unknown", // We don't track who approved previously
         approvedAt: new Date().toISOString(),
-        prNumber: sessionRecord.prBranch,
+        prNumber: sessionRecord.prBranch ?? "",
       },
       wasAlreadyApproved: true,
     };

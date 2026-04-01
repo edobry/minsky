@@ -38,7 +38,7 @@ export class RuleSimilarityService {
       async getVectorStorage() {
         return null;
       },
-    } as PersistenceProvider;
+    } as unknown as PersistenceProvider;
 
     return new RuleSimilarityService(mockPersistence, workspacePath, config);
   }

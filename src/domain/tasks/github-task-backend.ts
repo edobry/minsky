@@ -60,4 +60,20 @@ export class GitHubTaskBackend implements TaskBackend {
     // Implementation needed
     throw new Error("Method not implemented");
   }
+
+  async createTaskFromTitleAndSpec(title: string, spec: string, options?: any): Promise<Task> {
+    // Implementation needed
+    throw new Error("Method not implemented");
+  }
+
+  getCapabilities() {
+    return {
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+      canList: true,
+      supportsMetadata: false,
+      supportsSearch: false,
+    };
+  }
 }

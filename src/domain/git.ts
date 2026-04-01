@@ -187,6 +187,36 @@ export interface GitServiceInterface {
       autoResolveConflicts?: boolean;
     }
   ): Promise<SmartUpdateResult>;
+
+  /**
+   * Stage all changes including deletions
+   */
+  stageAll?(repoPath?: string): Promise<void>;
+
+  /**
+   * Stage modified files
+   */
+  stageModified?(repoPath?: string): Promise<void>;
+
+  /**
+   * Commit staged changes
+   */
+  commit?(message: string, repoPath?: string, amend?: boolean): Promise<string>;
+
+  /**
+   * Create a pull request
+   */
+  pr?(options: PrOptions): Promise<PrResult>;
+
+  /**
+   * Prepare a pull request
+   */
+  preparePr?(options: PreparePrOptions): Promise<PreparePrResult>;
+
+  /**
+   * Merge a pull request
+   */
+  mergePr?(options: MergePrOptions): Promise<MergePrResult>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it

@@ -126,13 +126,14 @@ async function runMigrationsWithDrizzleKit(options: {
         postgres: {
           connectionString:
             config.persistence?.postgres?.connectionString ||
-            config.sessiondb?.postgres?.connectionString ||
+            (config as any).sessiondb?.postgres?.connectionString ||
             null,
         },
         sqlite: {
-          path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
+          path:
+            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
         },
-        backend: config.persistence?.backend || config.sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -162,8 +163,8 @@ async function runMigrationsWithDrizzleKit(options: {
       const conf = rawConfig.config;
       const connectionString =
         conf.persistence?.postgres?.connectionString ||
-        conf.sessiondb?.postgres?.connectionString ||
-        conf.sessiondb?.connectionString ||
+        (conf as any).sessiondb?.postgres?.connectionString ||
+        (conf as any).sessiondb?.connectionString ||
         (process.env as any).MINSKY_POSTGRES_URL;
 
       if (connectionString) {
@@ -226,7 +227,7 @@ async function runMigrationsWithDrizzleKit(options: {
 
         if (sql) {
           // Try to extract just the first line of SQL for brevity
-          const sqlFirstLine = sql.split("\n")[0].trim();
+          const sqlFirstLine = (sql.split("\n")[0] ?? "").trim();
           cleanError = `Database error: ${dbError}\n\nFailed SQL: ${sqlFirstLine}${sql.includes("\n") ? "..." : ""}`;
         } else {
           cleanError = `Database error: ${dbError}`;
@@ -272,13 +273,14 @@ async function checkAndGenerateMigrations(): Promise<{ nothingToDo?: boolean }> 
         postgres: {
           connectionString:
             config.persistence?.postgres?.connectionString ||
-            config.sessiondb?.postgres?.connectionString ||
+            (config as any).sessiondb?.postgres?.connectionString ||
             null,
         },
         sqlite: {
-          path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
+          path:
+            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
         },
-        backend: config.persistence?.backend || config.sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -414,16 +416,16 @@ async function runSchemaMigrationsForConfiguredBackend(
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
-  const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as
-    | "sqlite"
-    | "postgres";
+  const backend = (config.persistence?.backend ||
+    (config as any).sessiondb?.backend ||
+    "sqlite") as "sqlite" | "postgres";
 
   if (backend === "sqlite") {
     // SQLite: bun:sqlite + drizzle migrator
     const dbPath =
       config.persistence?.sqlite?.dbPath ||
-      config.sessiondb?.sqlite?.path ||
-      config.sessiondb?.dbPath ||
+      (config as any).sessiondb?.sqlite?.path ||
+      (config as any).sessiondb?.dbPath ||
       getDefaultSqliteDbPath();
     if (dryRun) {
       // Build preview plan
@@ -633,8 +635,8 @@ async function runSchemaMigrationsForConfiguredBackend(
   if (backend === "postgres") {
     const connectionString =
       config.persistence?.postgres?.connectionString ||
-      config.sessiondb?.postgres?.connectionString ||
-      config.sessiondb?.connectionString ||
+      (config as any).sessiondb?.postgres?.connectionString ||
+      (config as any).sessiondb?.connectionString ||
       (process.env as any).MINSKY_POSTGRES_URL;
 
     if (!connectionString) {
@@ -926,9 +928,9 @@ sharedCommandRegistry.registerCommand({
         // Auto-detect backend and run appropriate migration flow
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as
-          | "sqlite"
-          | "postgres";
+        const backend = (config.persistence?.backend ||
+          (config as any).sessiondb?.backend ||
+          "sqlite") as "sqlite" | "postgres";
 
         const shouldApply = Boolean(execute);
 
@@ -980,7 +982,7 @@ sharedCommandRegistry.registerCommand({
       const config = getConfiguration();
 
       // Check for drift in current configuration
-      const configuredBackend = config.persistence?.backend || config.sessiondb?.backend;
+      const configuredBackend = config.persistence?.backend || (config as any).sessiondb?.backend;
       // JSON backend has been removed; retain guardrails without impossible comparisons
       // (no action needed here)
 
@@ -1006,9 +1008,8 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
-        const configuredBackend = (config.persistence?.backend || config.sessiondb?.backend) as
-          | "sqlite"
-          | "postgres";
+        const configuredBackend = (config.persistence?.backend ||
+          (config as any).sessiondb?.backend) as "sqlite" | "postgres";
         if (!configuredBackend) {
           throw new Error(
             "No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config."
@@ -1020,8 +1021,8 @@ sharedCommandRegistry.registerCommand({
           // Use configured path or default
           const dbPath =
             config.persistence?.sqlite?.dbPath ||
-            config.sessiondb?.sqlite?.path ||
-            config.sessiondb?.dbPath ||
+            (config as any).sessiondb?.sqlite?.path ||
+            (config as any).sessiondb?.dbPath ||
             getDefaultSqliteDbPath();
           sourceConfig.sqlite = { dbPath };
           sourceDescription = `SQLite backend: ${dbPath}`;
@@ -1029,8 +1030,8 @@ sharedCommandRegistry.registerCommand({
           sqliteSourcePath = dbPath;
         } else if (configuredBackend === "postgres") {
           const connectionString =
-            config.sessiondb?.postgres?.connectionString ||
-            config.sessiondb?.connectionString ||
+            (config as any).sessiondb?.postgres?.connectionString ||
+            (config as any).sessiondb?.connectionString ||
             process.env.MINSKY_POSTGRES_URL;
           if (!connectionString) {
             throw new Error(
@@ -1157,8 +1158,8 @@ sharedCommandRegistry.registerCommand({
       } else if (to === "postgres") {
         // Use config-driven PostgreSQL connection
         const connectionString =
-          config.sessiondb?.postgres?.connectionString ||
-          config.sessiondb?.connectionString ||
+          (config as any).sessiondb?.postgres?.connectionString ||
+          (config as any).sessiondb?.connectionString ||
           process.env.MINSKY_POSTGRES_URL;
 
         if (!connectionString) {
@@ -1193,14 +1194,14 @@ sharedCommandRegistry.registerCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
-      const targetStorage = targetProvider.getStorage();
-      const writeResult = await targetStorage.writeState(sourceState.data);
+      const targetStorage = targetProvider.getStorage() as any;
+      const writeResult = await targetStorage.writeState(sourceState);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
       }
 
       log.cli(
-        `✅ Data successfully migrated to ${to} backend (${sourceState.data.sessions.length} sessions)`
+        `✅ Data successfully migrated to ${to} backend (${sourceState.sessions.length} sessions)`
       );
     } catch (error) {
       // Re-throw as proper Error while preserving original message for handler parsing
@@ -1260,7 +1261,7 @@ sharedCommandRegistry.registerCommand({
       } else {
         // Auto-detect from configuration
         const config = getConfiguration();
-        const configuredBackend = config.persistence?.backend || config.sessiondb?.backend;
+        const configuredBackend = config.persistence?.backend || (config as any).sessiondb?.backend;
 
         // Guard against unsupported historical backends
         if (configuredBackend && !["sqlite", "postgres"].includes(configuredBackend as string)) {
@@ -1371,8 +1372,8 @@ async function validateSqliteBackend(
       // Use configured path or default
       dbPath =
         config.persistence?.sqlite?.dbPath ||
-        config.sessiondb?.sqlite?.path ||
-        config.sessiondb?.dbPath ||
+        (config as any).sessiondb?.sqlite?.path ||
+        (config as any).sessiondb?.dbPath ||
         getDefaultSqliteDbPath();
       log.cli(`Using configured/default file: ${dbPath}`);
     }
@@ -1446,8 +1447,8 @@ async function validatePostgresBackend(): Promise<{
     // Get PostgreSQL connection string
     const connectionString =
       config.persistence?.postgres?.connectionString ||
-      config.sessiondb?.postgres?.connectionString ||
-      config.sessiondb?.connectionString ||
+      (config as any).sessiondb?.postgres?.connectionString ||
+      (config as any).sessiondb?.connectionString ||
       process.env.MINSKY_POSTGRES_URL;
 
     if (!connectionString) {
@@ -1474,7 +1475,7 @@ async function validatePostgresBackend(): Promise<{
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
-      const rawConnection = await provider.getRawSqlConnection();
+      const rawConnection = await (provider as any).getRawSqlConnection();
       if (rawConnection) {
         // Test SQL query
         await rawConnection`SELECT 1 as test`;
@@ -1490,12 +1491,13 @@ async function validatePostgresBackend(): Promise<{
         // Check schema is up to date (no pending migrations)
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = config.persistence?.backend || config.sessiondb?.backend || "sqlite";
+        const backend =
+          config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite";
 
         if (backend === "postgres") {
           const connectionString =
             config.persistence?.postgres?.connectionString ||
-            config.sessiondb?.postgres?.connectionString ||
+            (config as any).sessiondb?.postgres?.connectionString ||
             (process.env as any).MINSKY_POSTGRES_URL;
 
           if (connectionString) {
@@ -1515,7 +1517,7 @@ async function validatePostgresBackend(): Promise<{
         // Test vector storage if supported
         if (provider.getCapabilities().vectorStorage) {
           try {
-            const vectorStorage = await provider.getVectorStorage!(1536); // OpenAI embedding dimension
+            const vectorStorage = await (provider as any).getVectorStorage!(1536); // OpenAI embedding dimension
             if (vectorStorage) {
               // Try a simple vector operation with a dummy vector (all zeros)
               const dummyVector = new Array(1536).fill(0);

@@ -18,7 +18,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     handler: async (args) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
+      const db = await (persistence as any).getDatabaseConnection();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(args.fromTaskId, args.toTaskId);
       return { success: true, created: result.created };
@@ -32,7 +32,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     handler: async (args) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
+      const db = await (persistence as any).getDatabaseConnection();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(args.fromTaskId, args.toTaskId);
       return { success: true, removed: result.removed };
@@ -46,7 +46,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     handler: async (args) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
+      const db = await (persistence as any).getDatabaseConnection();
       const service = new TaskGraphService(db);
       if (args.direction === "dependents") {
         const list = await service.listDependents(args.taskId);

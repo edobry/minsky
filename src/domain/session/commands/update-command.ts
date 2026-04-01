@@ -76,8 +76,8 @@ export async function updateSessionFromParams(
 
       // Call backend hook for extensible post-update operations
       // Future: This will support work item generation and AI-powered automation
-      if (deps.backend?.onSessionUpdated) {
-        await deps.backend.onSessionUpdated({
+      if ((deps as any).backend?.onSessionUpdated) {
+        await (deps as any).backend.onSessionUpdated({
           session,
           workdir,
           updateType: "pull", // This was a pull operation
@@ -87,7 +87,7 @@ export async function updateSessionFromParams(
         });
       }
 
-      return session;
+      return session as unknown as Session;
     } catch (error) {
       throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`);
     }

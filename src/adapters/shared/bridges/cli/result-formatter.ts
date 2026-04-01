@@ -425,14 +425,14 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     const pad = (text: string, width: number) => text.padEnd(width, " ");
 
     // Print header
-    log.cli(headers.map((h, i) => pad(h, widths[i])).join("  "));
+    log.cli(headers.map((h, i) => pad(h, widths[i] ?? 0)).join("  "));
     // Print separator
     log.cli(widths.map((w) => "-".repeat(w)).join("  "));
 
     // Print rows
     rows.forEach((row) => {
       const cells = Array.from({ length: colCount }, (_, i) =>
-        pad((row[i] ?? "").toString(), widths[i])
+        pad((row[i] ?? "").toString(), widths[i] ?? 0)
       );
       log.cli(cells.join("  "));
     });

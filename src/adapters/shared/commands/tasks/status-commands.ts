@@ -88,7 +88,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
 
     // If status is not provided, prompt for it interactively
     if (!status) {
-      status = await this.promptForStatus(previousStatus);
+      status = (await this.promptForStatus(previousStatus ?? "")) ?? "";
     }
 
     // If no change, return a clear no-op message and skip update

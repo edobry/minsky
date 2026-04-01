@@ -114,7 +114,7 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
     if (!this.storage) {
       throw new Error("SqlitePersistenceProvider not initialized");
     }
-    return this.storage as DatabaseStorage<T, S>;
+    return this.storage as unknown as DatabaseStorage<T, S>;
   }
 
   /**

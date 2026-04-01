@@ -34,7 +34,7 @@ export async function createPullRequestFromParams(params: {
     noStatusUpdate: params.noStatusUpdate,
   };
 
-  const result = await gitService.pr(options);
+  const result = await gitService.pr!(options);
 
   if (params.debug) {
     log("Pull request created successfully", { result });
@@ -69,7 +69,7 @@ export async function preparePrFromParams(params: {
     debug: params.debug,
   };
 
-  const result = await gitService.preparePr(options);
+  const result = await gitService.preparePr!(options);
 
   if (params.debug) {
     log("Pull request prepared successfully", { result });
@@ -95,7 +95,7 @@ export async function mergePrFromParams(params: {
     session: params.session,
   };
 
-  const result = await gitService.mergePr(options);
+  const result = await gitService.mergePr!(options);
   log("Pull request merged successfully", { result });
 
   return result;

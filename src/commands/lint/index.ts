@@ -55,7 +55,7 @@ async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResul
       cwd: configReader["projectRoot"] || process.cwd(),
     });
 
-    return JSON.parse(output);
+    return JSON.parse(String(output));
   } catch (error: any) {
     // Linter exits with non-zero when issues found, but still outputs JSON
     if (error.stdout) {
@@ -159,9 +159,9 @@ async function outputConfigDetection(configReader: ProjectConfigReader): Promise
   log.cli(`├─ Config Source: ${config.configSource}`);
   log.cli(`├─ Package Manager: ${config.runtime.packageManager || "unknown"}`);
   log.cli(`├─ Language: ${config.runtime.language || "unknown"}`);
-  log.cli(`├─ Lint Command: ${config.workflows.lint || "none"}`);
-  log.cli(`├─ Lint JSON Command: ${config.workflows.lintJson || "none"}`);
-  log.cli(`└─ Lint Fix Command: ${config.workflows.lintFix || "none"}`);
+  log.cli(`├─ Lint Command: ${config.workflows.lint?.jsonCommand || "none"}`);
+  log.cli(`├─ Lint JSON Command: ${config.workflows.lint?.jsonCommand || "none"}`);
+  log.cli(`└─ Lint Fix Command: ${config.workflows.lint?.fixCommand || "none"}`);
 }
 
 /**

@@ -48,7 +48,7 @@ export class PostgresProviderFactory {
 
       await testSql.end(); // Clean up test connection
 
-      const hasVectorExtension = result[0].exists;
+      const hasVectorExtension = result[0]?.exists;
 
       if (hasVectorExtension) {
         log.debug("Creating PostgreSQL provider with vector support");
