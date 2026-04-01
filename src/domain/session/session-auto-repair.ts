@@ -120,7 +120,7 @@ function extractIdPart(taskId: string): string | null {
   // Handle qualified IDs like "md#123"
   const qualifiedMatch = taskId.match(/^[a-zA-Z]+#(.+)$/);
   if (qualifiedMatch) {
-    return qualifiedMatch[1];
+    return qualifiedMatch[1] || null;
   }
 
   // Handle simple #123 format

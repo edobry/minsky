@@ -674,7 +674,7 @@ export class ConflictDetectionService {
     const regex = /CONFLICT \((.+?)\): Merge conflict in (.+)/g;
     let match;
     while ((match = regex.exec(output)) !== null) {
-      files.push(match[2]);
+      if (match[2]) files.push(match[2]);
     }
     return files;
   }

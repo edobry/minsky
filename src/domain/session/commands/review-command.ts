@@ -140,7 +140,7 @@ export async function sessionReview(
       );
       if (statsMatch) {
         diffStats = {
-          filesChanged: parseInt(statsMatch[1], 10),
+          filesChanged: parseInt(statsMatch[1] || "0", 10),
           insertions: parseInt(statsMatch[2] || "0", 10),
           deletions: parseInt(statsMatch[3] || "0", 10),
         };
@@ -171,7 +171,7 @@ export async function sessionReview(
           );
           if (statsMatch) {
             diffStats = {
-              filesChanged: parseInt(statsMatch[1], 10),
+              filesChanged: parseInt(statsMatch[1] || "0", 10),
               insertions: parseInt(statsMatch[2] || "0", 10),
               deletions: parseInt(statsMatch[3] || "0", 10),
             };
