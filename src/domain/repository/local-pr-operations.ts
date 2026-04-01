@@ -8,9 +8,8 @@
  * workdir resolver) so the main class stays a thin delegation layer.
  */
 
-import { exec } from "child_process";
-import { promisify } from "util";
 import { execGitWithTimeout } from "../../utils/git-exec";
+import { execAsync } from "../../utils/exec";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -21,8 +20,6 @@ import {
 } from "../git/prepared-merge-commit-workflow";
 import type { SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "./index";
-
-const execAsync = promisify(exec);
 
 // ── Shared context passed to every function ──────────────────────────────
 

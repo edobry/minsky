@@ -156,7 +156,9 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     const { writeFile, stat } = await import("fs/promises");
     const { dirname } = await import("path");
     const { mkdir } = await import("fs/promises");
-    const { SessionPathResolver } = await import("../../../../adapters/mcp/session-files");
+    const { SessionPathResolver } = await import(
+      "../../../../domain/session/session-path-resolver"
+    );
     const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
     const { createSuccessResponse } = await import("../../../../domain/schemas");
 

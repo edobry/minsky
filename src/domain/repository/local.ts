@@ -1,7 +1,5 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout, gitCloneWithTimeout } from "../../utils/git-exec";
@@ -32,8 +30,7 @@ import {
   approvePullRequest as _approvePR,
   getPullRequestApprovalStatus as _getApprovalStatus,
 } from "./local-pr-approval";
-
-const execAsync = promisify(exec);
+import { execAsync } from "../../utils/exec";
 
 /**
  * Local Git Repository Backend implementation

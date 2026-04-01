@@ -2,7 +2,7 @@ import type { SessionGetParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { Session, SessionProviderInterface, SessionDependencies } from "../types";
-import { ResourceNotFoundError, ValidationError } from "../../errors/index";
+import { ResourceNotFoundError, ValidationError } from "../../../errors/index";
 
 /**
  * Gets session details based on parameters

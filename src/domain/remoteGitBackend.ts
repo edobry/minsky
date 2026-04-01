@@ -2,9 +2,8 @@
  * Remote Git backend implementation for Minsky.
  * Manages remote Git repositories using the system Git client.
  */
-import { exec } from "child_process";
 import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
-import { promisify } from "util";
+import { execAsync } from "../utils/exec";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
 import { RepositoryBackendType } from "./repository";
@@ -25,7 +24,6 @@ import {
 import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
-const execAsync = promisify(exec);
 
 /**
  * RemoteGitBackend implements the RepositoryBackend interface for remote Git repositories.

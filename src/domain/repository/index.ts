@@ -9,11 +9,12 @@
 export * from "./RepositoryBackend";
 export * from "./approval-types";
 
-// Import RepositoryStatus but define our own ValidationResult
-import type { RepositoryStatus } from "../repository";
+// Import RepositoryStatus from legacy-types (previously from ../repository)
+import type { RepositoryStatus } from "./legacy-types";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
+import { execAsync } from "../../utils/exec";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
@@ -400,9 +401,6 @@ export async function createRepositoryBackend(
       // For local repositories, validate the path exists (if it's a local path)
       if (!config.repoUrl.includes("://") && !config.repoUrl.includes("@")) {
         try {
-          const { exec } = await import("child_process");
-          const { promisify } = await import("util");
-          const execAsync = promisify(exec);
           const { stdout } = await execAsync(
             `test -d "${config.repoUrl}" && echo "exists" || echo "not exists"`
           );

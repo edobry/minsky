@@ -18,7 +18,7 @@
 
 import { describe, test, expect, mock } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
-import { ValidationError, MinskyError } from "../errors";
+import { ValidationError, MinskyError } from "../../errors";
 import {
   createMockGitService,
   createMockSessionProvider,

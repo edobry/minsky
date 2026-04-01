@@ -3,9 +3,8 @@
  * Manages local Git repositories using the system Git client.
  */
 
-import { exec } from "child_process";
 import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
-import { promisify } from "util";
+import { execAsync } from "../utils/exec";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
@@ -26,8 +25,6 @@ import {
 import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
 import { execGitWithTimeout } from "../utils/git-exec";
-
-const execAsync = promisify(exec);
 
 /**
  * LocalGitBackend implements the RepositoryBackend interface for local Git repositories.

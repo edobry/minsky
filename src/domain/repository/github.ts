@@ -1,14 +1,13 @@
 import { join } from "path";
 import { HTTP_OK } from "../../utils/constants";
 import { mkdir } from "fs/promises";
-import { promisify } from "util";
-import { exec } from "child_process";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { execAsync } from "../../utils/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
 import { execGitWithTimeout } from "../../utils/git-exec";
 import { MinskyError } from "../../errors/index";
-import type { RepositoryStatus, ValidationResult } from "../repository";
+import type { RepositoryStatus, ValidationResult } from "./legacy-types";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -40,8 +39,6 @@ import {
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
-
-const execAsync = promisify(exec);
 
 /**
  * GitHub Repository Backend implementation
