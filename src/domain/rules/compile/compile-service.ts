@@ -10,6 +10,7 @@ import type { RuleService } from "../../rules";
 import type { CompileTarget, CompileResult, TargetOptions } from "./types";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
+import { resolveActiveRules } from "../rule-selection";
 
 export class CompileService {
   private targets = new Map<string, CompileTarget>();
@@ -25,7 +26,11 @@ export class CompileService {
   async compile(
     ruleService: RuleService,
     targetId: string,
-    options: TargetOptions & { workspacePath: string; dryRun?: boolean }
+    options: TargetOptions & {
+      workspacePath: string;
+      dryRun?: boolean;
+      selectionConfig?: { presets: string[]; enabled: string[]; disabled: string[] };
+    }
   ): Promise<CompileResult & { content?: string }> {
     const target = this.targets.get(targetId);
     if (!target) {
@@ -34,13 +39,20 @@ export class CompileService {
       );
     }
 
-    const { workspacePath, dryRun, ...targetOptions } = options;
+    const { workspacePath, dryRun, selectionConfig, ...targetOptions } = options;
 
     // List all rules
     const allRules = await ruleService.listRules({});
 
-    // Filter by ruleTypes if specified
+    // Apply rule selection config (presets/enabled/disabled) if provided
     let filteredRules = allRules;
+    if (selectionConfig) {
+      const allRuleIds = allRules.map((r) => r.id);
+      const activeIds = resolveActiveRules(allRuleIds, selectionConfig);
+      filteredRules = allRules.filter((r) => activeIds.has(r.id));
+    }
+
+    // Filter by ruleTypes if specified
     if (targetOptions.ruleTypes && targetOptions.ruleTypes.length > 0) {
       const allowedTypes = new Set(targetOptions.ruleTypes);
       filteredRules = allRules.filter((rule) => allowedTypes.has(classifyRuleType(rule)));
