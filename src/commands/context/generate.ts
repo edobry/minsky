@@ -2,6 +2,7 @@
  * Context generate command implementation
  *
  * Generate AI context using modular components with optional analysis and visualization.
+ * This is a thin orchestrator that delegates to focused modules.
  */
 
 import { Command } from "commander";
@@ -14,9 +15,11 @@ import {
 } from "../../domain/context/components/index";
 
 import type { GenerateRequest, GenerateResult, GenerateOptions } from "./generate-types";
+import { generateContext, getDefaultComponents } from "./generate-core";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayAnalysisResults, outputCSV } from "./generate-display";
 import { generateVisualizationData, displayContextVisualization } from "./generate-visualization";
+import { displayModelComparison } from "./generate-comparison";
 
 export function createGenerateCommand(): Command {
   // Register default components
@@ -242,217 +245,6 @@ function outputConsoleResults(
     }
     if (analysisResult && options.visualize) {
       displayContextVisualization(analysisResult, options);
-    }
-  }
-}
-
-/**
- * Get default components to include
- */
-function getDefaultComponents(): string[] {
-  return [
-    "environment",
-    "workspace-rules",
-    "system-instructions",
-    "communication",
-    "tool-calling-rules",
-    "maximize-parallel-tool-calls",
-    "maximize-context-understanding",
-    "making-code-changes",
-    "code-citation-format",
-    "task-management",
-    "tool-schemas",
-    "project-context",
-    "session-context",
-  ];
-}
-
-/**
- * Generate context using the modular component system
- */
-async function generateContext(request: GenerateRequest): Promise<GenerateResult> {
-  const startTime = Date.now();
-  const registry = getContextComponentRegistry();
-  const components = registry.getWithDependencies(request.components);
-
-  const outputs: Array<{
-    component_id: string;
-    content: string;
-    generated_at: string;
-    token_count?: number;
-  }> = [];
-
-  const skipped: string[] = [];
-  const errors: string[] = [];
-
-  // Process each component
-  for (const component of components) {
-    try {
-      log.debug(`Generating component: ${component.id}`);
-
-      // Use new split architecture if available, fallback to legacy generate
-      let output;
-      if (component.gatherInputs && component.render) {
-        const gatheredInputs = await component.gatherInputs(request.input);
-        output = component.render(gatheredInputs, request.input);
-      } else if (component.generate) {
-        output = await component.generate(request.input);
-      } else {
-        throw new Error(`Component ${component.id} has no generation method`);
-      }
-
-      // Estimate token count (rough approximation: 1 token ~ 4 characters)
-      const tokenCount = Math.floor(output.content.length / 4);
-
-      outputs.push({
-        component_id: component.id,
-        content: output.content,
-        generated_at: output.metadata?.generatedAt || new Date().toISOString(),
-        token_count: tokenCount,
-      });
-
-      log.debug(`Component ${component.id} generated successfully`, {
-        tokens: tokenCount,
-        length: output.content.length,
-      });
-    } catch (error) {
-      const errorMsg = `Failed to generate component ${component.id}: ${error instanceof Error ? error.message : String(error)}`;
-      log.error(errorMsg, { error });
-      errors.push(errorMsg);
-      skipped.push(component.id);
-    }
-  }
-
-  const generationTime = Date.now() - startTime;
-  const totalTokens = outputs.reduce((sum, o) => sum + (o.token_count || 0), 0);
-
-  // Create combined text output
-  let content: string;
-  if (outputs.length > 0) {
-    const sections = outputs.map((o) => o.content);
-    content = [
-      "# Generated AI Context",
-      "",
-      `Generated at: ${new Date().toISOString()}`,
-      "",
-      `Components: ${outputs.map((o) => o.component_id).join(", ")}`,
-      "",
-      `Template: ${request.input.targetModel ? "model-specific" : "default"}`,
-      "",
-      `Target Model: ${request.input.targetModel}`,
-      "",
-      `Interface: ${request.input.interfaceConfig?.interface || "cli"}`,
-      "",
-      ...sections,
-    ].join("\n\n");
-  } else {
-    content = "# No Context Generated\n\nAll components failed to generate content.";
-  }
-
-  return {
-    content,
-    components: outputs,
-    metadata: {
-      generationTime,
-      totalTokens,
-      skipped,
-      errors,
-    },
-  };
-}
-
-async function displayModelComparison(models: string[], options: GenerateOptions) {
-  log.cli("\n🔄 Cross-Model Comparison");
-  log.cli("━".repeat(80));
-
-  const requestedComponents = options.components
-    ? options.components.split(",").map((c) => c.trim())
-    : getDefaultComponents();
-
-  const comparisons: Array<{ model: string; result: any }> = [];
-
-  for (const model of models) {
-    try {
-      const request: GenerateRequest = {
-        components: requestedComponents,
-        input: {
-          environment: {
-            os: `${process.platform} ${process.arch}`,
-            shell: process.env.SHELL || "unknown",
-          },
-          workspacePath: process.cwd(),
-          task: {
-            id: "mt#461",
-            title: "Context Visualization Redesign",
-            status: TaskStatus.IN_PROGRESS,
-            description: "Implementing context visualization using new component architecture",
-          },
-          userQuery: options.prompt || "Generating context visualization analysis",
-          userPrompt: options.prompt,
-          targetModel: model.trim(),
-          interfaceConfig: {
-            interface: options.interface || "cli",
-            mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
-            preferMcp: options.interface === "mcp",
-          },
-        },
-      };
-
-      const result = await generateContext(request);
-      const analysisResult = await analyzeGeneratedContext(result, {
-        ...options,
-        model: model.trim(),
-      });
-      comparisons.push({ model: model.trim(), result: analysisResult });
-    } catch (error) {
-      log.cli(`❌ Failed to analyze for ${model}: ${error}`);
-    }
-  }
-
-  if (comparisons.length > 1) {
-    log.cli(
-      "Model".padEnd(25) +
-        "Tokens".padStart(10) +
-        "Components".padStart(12) +
-        "Utilization".padStart(12)
-    );
-    log.cli("-".repeat(59));
-
-    comparisons.forEach(({ model, result }) => {
-      const utilization = result.summary.contextWindowUtilization.toFixed(1);
-      log.cli(
-        model.padEnd(25) +
-          result.summary.totalTokens.toLocaleString().padStart(10) +
-          result.summary.totalComponents.toString().padStart(12) +
-          `${utilization}%`.padStart(12)
-      );
-    });
-
-    log.cli("\n📊 Component Comparison");
-    log.cli("━".repeat(80));
-
-    const allComponents = new Set();
-    comparisons.forEach(({ result }) => {
-      result.componentBreakdown.forEach((comp: any) => allComponents.add(comp.component));
-    });
-
-    Array.from(allComponents).forEach((componentName) => {
-      log.cli(`\n${componentName}:`);
-      comparisons.forEach(({ model, result }) => {
-        const comp = result.componentBreakdown.find((c: any) => c.component === componentName);
-        if (comp) {
-          log.cli(
-            `  ${model.padEnd(20)} ${comp.tokens.toLocaleString().padStart(8)} tokens (${comp.percentage}%)`
-          );
-        } else {
-          log.cli(`  ${model.padEnd(20)}        0 tokens (0.0%)`);
-        }
-      });
-    });
-
-    if (options.visualize && comparisons.length > 0) {
-      log.cli(`\n📊 Visualization for ${comparisons[0]!.model}`);
-      displayContextVisualization(comparisons[0]!.result, options);
     }
   }
 }
