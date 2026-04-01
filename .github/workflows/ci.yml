@@ -31,8 +31,6 @@ jobs:
 
       - name: Test
         run: bun run test
-        continue-on-error: true
 
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
-        continue-on-error: true

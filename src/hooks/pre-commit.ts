@@ -197,7 +197,9 @@ export class PreCommitHook {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
         log.cli("");
-        log.cli(`🚫 Found ${summary.warningCount} warnings. Maximum allowed: ${MAX_LINT_WARNINGS}.`);
+        log.cli(
+          `🚫 Found ${summary.warningCount} warnings. Maximum allowed: ${MAX_LINT_WARNINGS}.`
+        );
         log.cli("💡 Please address warnings to improve code quality.");
         log.cli(`🎯 Target: Reduce warnings below ${MAX_LINT_WARNINGS} threshold.`);
         log.cli("");
@@ -213,7 +215,9 @@ export class PreCommitHook {
       if (summary.warningCount === 0) {
         log.cli("✅ Perfect! Zero errors and zero warnings detected.");
       } else {
-        log.cli(`✅ Quality gate passed: ${summary.warningCount} warnings (under ${MAX_LINT_WARNINGS} threshold).`);
+        log.cli(
+          `✅ Quality gate passed: ${summary.warningCount} warnings (under ${MAX_LINT_WARNINGS} threshold).`
+        );
       }
 
       return {

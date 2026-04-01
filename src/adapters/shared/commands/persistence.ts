@@ -7,7 +7,8 @@
  */
 
 import { z } from "zod";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import { readTextFileSync } from "../../../utils/fs";
 import { dirname, join } from "path";
 import { getErrorMessage, ensureError } from "../../../errors/index";
 import {
@@ -1000,7 +1001,7 @@ sharedCommandRegistry.registerCommand({
 
       if (from && existsSync(from)) {
         // Read from specific file
-        const fileContent = readFileSync(from, "utf8").toString();
+        const fileContent = readTextFileSync(from);
         sourceData = JSON.parse(fileContent);
         sourceCount = Object.keys(sourceData).length;
         sourceDescription = `backup file: ${from}`;

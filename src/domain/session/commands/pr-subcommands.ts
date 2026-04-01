@@ -17,6 +17,7 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "../../../utils/logger";
+import { readTextFile } from "../../../utils/fs";
 
 /**
  * Session PR Create implementation
@@ -172,9 +173,8 @@ export async function sessionPrEdit(
   // Read body from file if bodyPath is provided but body is not
   let finalBody = params.body;
   if (params.bodyPath && !params.body) {
-    const fs = await import("fs/promises");
     try {
-      finalBody = (await fs.readFile(params.bodyPath, "utf-8")).toString();
+      finalBody = await readTextFile(params.bodyPath);
     } catch (error) {
       throw new ValidationError(`Failed to read PR body from file: ${params.bodyPath}`);
     }

@@ -12,6 +12,7 @@ import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
 import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
+import { readTextFile } from "../../../../utils/fs";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
@@ -133,7 +134,7 @@ export class TasksEditCommand extends BaseTaskCommand {
       } else if (params.specFile) {
         // Read from file
         try {
-          newSpecContent = (await fs.readFile(params.specFile, "utf-8")).toString();
+          newSpecContent = await readTextFile(params.specFile);
           this.debug(`Read spec content from file: ${params.specFile}`);
         } catch (error) {
           throw new ValidationError(
@@ -325,7 +326,7 @@ export class TasksEditCommand extends BaseTaskCommand {
       });
 
       // Read the edited content
-      const editedContent = (await fs.readFile(tempFile, "utf-8")).toString();
+      const editedContent = await readTextFile(tempFile);
 
       // Clean up temp file
       try {

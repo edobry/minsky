@@ -9,6 +9,7 @@ import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import * as fs from "fs/promises";
+import { readTextFile } from "../../../../utils/fs";
 
 /**
  * Session Edit File Command
@@ -89,8 +90,8 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     if (params.patternFile) {
       // Read from pattern file
       try {
-        const content = await fs.readFile(params.patternFile, "utf8");
-        return content.toString();
+        const content = await readTextFile(params.patternFile);
+        return content;
       } catch (error) {
         throw new MinskyError(
           `Failed to read pattern file '${params.patternFile}': ${getErrorMessage(error)}`
@@ -152,7 +153,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     createDirs: boolean;
   }): Promise<any> {
     // Import the required modules for session edit functionality
-    const { readFile, writeFile, stat } = await import("fs/promises");
+    const { writeFile, stat } = await import("fs/promises");
     const { dirname } = await import("path");
     const { mkdir } = await import("fs/promises");
     const { SessionPathResolver } = await import("../../../../adapters/mcp/session-files");
@@ -170,7 +171,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     try {
       await stat(resolvedPath);
       fileExists = true;
-      originalContent = (await readFile(resolvedPath, "utf8")).toString();
+      originalContent = await readTextFile(resolvedPath);
     } catch (error) {
       // File doesn't exist - that's ok for new files
       fileExists = false;

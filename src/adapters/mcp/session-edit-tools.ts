@@ -3,7 +3,8 @@
  * Provides session-scoped edit_file and search_replace tools that match Cursor's interface
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { readFile, writeFile, stat } from "fs/promises";
+import { writeFile, stat } from "fs/promises";
+import { readTextFile } from "../../utils/fs";
 import { dirname } from "path";
 import { SessionPathResolver } from "./session-files";
 import { log } from "../../utils/logger";
@@ -80,7 +81,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         try {
           await stat(resolvedPath);
           fileExists = true;
-          originalContent = (await readFile(resolvedPath, "utf8")).toString();
+          originalContent = await readTextFile(resolvedPath);
         } catch (error) {
           // File doesn't exist - that's ok for new files
           fileExists = false;
@@ -201,7 +202,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         await pathResolver.validatePathExists(resolvedPath);
 
         // Read file content
-        const content = (await readFile(resolvedPath, "utf8")).toString();
+        const content = await readTextFile(resolvedPath);
 
         // Count occurrences
         const occurrences = countOccurrences(content, args.search);

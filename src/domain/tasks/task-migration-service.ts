@@ -6,6 +6,7 @@
  */
 
 import { promises as fs } from "fs";
+import { readTextFile } from "../../utils/fs";
 import { join, dirname } from "path";
 import { log } from "../../utils/logger";
 import { validateQualifiedTaskId, getTaskIdNumber } from "./task-id-utils";
@@ -92,7 +93,7 @@ export class TaskMigrationService {
     };
 
     // 1) Read and backup central tasks file
-    const tasksContent = (await fs.readFile(this.tasksFilePath, "utf-8")).toString();
+    const tasksContent = await readTextFile(this.tasksFilePath);
     if (createBackup && !dryRun) {
       result.backupPath = await this.createBackup(tasksContent);
       log.info("Created backup", { backupPath: result.backupPath });
@@ -324,7 +325,7 @@ export class TaskMigrationService {
     const errors: string[] = [];
 
     try {
-      const content = (await fs.readFile(this.tasksFilePath, "utf-8")).toString();
+      const content = await readTextFile(this.tasksFilePath);
       const lines = content.split("\n");
 
       for (const [index, line] of lines.entries()) {

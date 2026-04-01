@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import { readTextFile } from "../../utils/fs";
 import { join } from "path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { log } from "../../utils/logger";
@@ -61,7 +62,7 @@ export class TasksImporterService {
 
     // 1) Read tasks markdown
     const tasksPath = getTasksFilePath(this.workspacePath);
-    const tasksContent = (await fs.readFile(tasksPath, "utf-8")).toString();
+    const tasksContent = await readTextFile(tasksPath);
     const parsed = parseTasksFromMarkdown(tasksContent);
 
     // Optional status filter and limit
@@ -126,7 +127,7 @@ export class TasksImporterService {
       const specPath = getTaskSpecFilePath(id, t.title || "", this.workspacePath);
       let specContent = "";
       try {
-        specContent = (await fs.readFile(specPath, "utf-8")).toString();
+        specContent = await readTextFile(specPath);
       } catch {
         // spec may not exist; proceed with empty content
       }

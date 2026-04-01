@@ -12,7 +12,7 @@ import {
 } from "../../errors/index";
 import { log } from "../../../utils/logger";
 import { extractPrDescription } from "../session-update-operations";
-import { readFile } from "fs/promises";
+import { readTextFile } from "../../../utils/fs";
 
 /**
  * Prepares a PR for a session based on parameters
@@ -84,7 +84,7 @@ export async function sessionPr(
     let bodyContent = body;
     if (!bodyContent && bodyPath) {
       try {
-        bodyContent = (await readFile(bodyPath, "utf-8")).toString();
+        bodyContent = await readTextFile(bodyPath);
         if (debug) {
           log.debug("Read body content from file", {
             bodyPath,
