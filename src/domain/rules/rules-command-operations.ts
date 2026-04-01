@@ -13,6 +13,9 @@ import { log } from "../../utils/logger";
 import { RuleService, type RuleFormat } from "../rules";
 import { resolveActiveRules } from "./rule-selection";
 import { RULE_PRESETS } from "../configuration/schemas/rules";
+import { createRuleTemplateService } from "./rule-template-service";
+import { type RuleGenerationConfig } from "./template-system";
+import { readContentFromFileIfExists, parseGlobs } from "../../utils/rules-helpers";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -507,6 +510,176 @@ export async function compileRules(options: CompileRulesOptions): Promise<Compil
     rulesIncluded: result.rulesIncluded,
     rulesSkipped: result.rulesSkipped,
   };
+}
+
+// ─── Get Rule ────────────────────────────────────────────────────────────────
+
+export interface GetRuleOptions {
+  workspacePath: string;
+  id: string;
+  format?: RuleFormat;
+  debug?: boolean;
+}
+
+export interface GetRuleResult {
+  success: boolean;
+  rule: Record<string, unknown>;
+}
+
+/**
+ * Get a specific rule by ID.
+ */
+export async function getRule(options: GetRuleOptions): Promise<GetRuleResult> {
+  const ruleService = new RuleService(options.workspacePath);
+  const rule = await ruleService.getRule(options.id, {
+    format: options.format,
+    debug: options.debug,
+  });
+  return { success: true, rule: rule as unknown as Record<string, unknown> };
+}
+
+// ─── Generate Rules ──────────────────────────────────────────────────────────
+
+export interface GenerateRulesOptions {
+  workspacePath: string;
+  interface?: "cli" | "mcp" | "hybrid";
+  rules?: string;
+  outputDir?: string;
+  dryRun?: boolean;
+  overwrite?: boolean;
+  format?: RuleFormat;
+  preferMcp?: boolean;
+  mcpTransport?: "stdio" | "http";
+}
+
+export interface GenerateRulesResult {
+  success: boolean;
+  rules: unknown[];
+  errors: unknown[];
+  generated: number;
+}
+
+/**
+ * Generate rules from templates.
+ */
+export async function generateRules(options: GenerateRulesOptions): Promise<GenerateRulesResult> {
+  const ruleTemplateService = createRuleTemplateService(options.workspacePath);
+  await ruleTemplateService.registerDefaultTemplates();
+
+  const config: RuleGenerationConfig = {
+    interface: (options.interface || "cli") as "cli" | "mcp" | "hybrid",
+    mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
+    mcpTransport: (options.mcpTransport || "stdio") as "stdio" | "http",
+    preferMcp: options.preferMcp || false,
+    ruleFormat: (options.format || "cursor") as RuleFormat,
+    outputDir: options.outputDir || (options.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
+  };
+
+  const selectedRules = options.rules ? options.rules.split(",").map((t) => t.trim()) : undefined;
+  const dryRun = options.dryRun || false;
+  const overwrite = options.overwrite || false;
+
+  const result = await ruleTemplateService.generateRules({
+    config,
+    selectedRules,
+    dryRun,
+    overwrite,
+  });
+  return {
+    success: result.success,
+    rules: result.rules,
+    errors: result.errors,
+    generated: result.rules.length,
+  };
+}
+
+// ─── Create Rule ─────────────────────────────────────────────────────────────
+
+export interface CreateRuleOptions {
+  workspacePath: string;
+  id: string;
+  content: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: RuleFormat;
+  overwrite?: boolean;
+}
+
+export interface CreateRuleResult {
+  success: boolean;
+  rule: Record<string, unknown>;
+}
+
+/**
+ * Create a new rule.
+ */
+export async function createRule(options: CreateRuleOptions): Promise<CreateRuleResult> {
+  const ruleService = new RuleService(options.workspacePath);
+  const content = await readContentFromFileIfExists(options.content);
+  const globs = parseGlobs(options.globs);
+  const tags = options.tags ? options.tags.split(",").map((tag: string) => tag.trim()) : undefined;
+
+  const meta = {
+    name: options.name || options.id,
+    description: options.description,
+    globs,
+    tags,
+  };
+
+  const rule = await ruleService.createRule(options.id, content, meta, {
+    format: options.format,
+    overwrite: options.overwrite,
+  });
+
+  return { success: true, rule: rule as unknown as Record<string, unknown> };
+}
+
+// ─── Update Rule ─────────────────────────────────────────────────────────────
+
+export interface UpdateRuleOptions {
+  workspacePath: string;
+  id: string;
+  content?: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: RuleFormat;
+  debug?: boolean;
+}
+
+export interface UpdateRuleResult {
+  success: boolean;
+  rule: Record<string, unknown>;
+}
+
+/**
+ * Update an existing rule.
+ */
+export async function updateRule(options: UpdateRuleOptions): Promise<UpdateRuleResult> {
+  const ruleService = new RuleService(options.workspacePath);
+  const content = options.content ? await readContentFromFileIfExists(options.content) : undefined;
+  const globs = options.globs ? parseGlobs(options.globs) : undefined;
+  const tags = options.tags ? options.tags.split(",").map((tag: string) => tag.trim()) : undefined;
+
+  const meta: Record<string, unknown> = {};
+  if (options.name !== undefined) meta.name = options.name;
+  if (options.description !== undefined) meta.description = options.description;
+  if (globs !== undefined) meta.globs = globs;
+  if (tags !== undefined) meta.tags = tags;
+
+  const rule = await ruleService.updateRule(
+    options.id,
+    {
+      content,
+      meta: Object.keys(meta).length > 0 ? meta : undefined,
+    },
+    { format: options.format, debug: options.debug }
+  );
+
+  return { success: true, rule: rule as unknown as Record<string, unknown> };
 }
 
 export async function searchRulesEnhanced(
