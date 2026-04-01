@@ -692,7 +692,7 @@ export function createMockPersistenceProvider(
     initialize: options.initialize || (() => Promise.resolve()),
     getDatabaseConnection:
       options.getDatabaseConnection ||
-      (() => {
+      ((() => {
         // Create a comprehensive mock query builder that always returns empty arrays
         const createQueryChain = (): any => ({
           from: () => createQueryChain(),
@@ -724,7 +724,7 @@ export function createMockPersistenceProvider(
             returning: () => Promise.resolve([]),
           }),
         });
-      }) as any,
+      }) as any),
     getStorage: options.getStorage || (() => ({}) as any),
     close: options.close || (() => Promise.resolve()),
     getCapabilities:

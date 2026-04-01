@@ -53,7 +53,7 @@ export function createTasksDepsAddCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
 
@@ -75,7 +75,7 @@ export function createTasksDepsRmCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -97,7 +97,7 @@ export function createTasksDepsListCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);
       const dependents = await service.listDependents(params.task);

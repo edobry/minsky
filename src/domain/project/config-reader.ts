@@ -147,7 +147,9 @@ export class ProjectConfigReader {
     }
 
     try {
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8" as BufferEncoding) as string);
+      const packageJson = JSON.parse(
+        readFileSync(packageJsonPath, "utf8" as BufferEncoding) as string
+      );
       const scripts = packageJson.scripts || {};
 
       const packageManager = this.detectPackageManager();

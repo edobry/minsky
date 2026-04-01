@@ -280,8 +280,12 @@ export default [
         },
       ],
 
-      // === STYLE RULES (DISABLED FOR NOW) ===
-      "@typescript-eslint/no-explicit-any": "off", // Disabled - style preference
+      // === TYPE SAFETY RATCHET ===
+      // Baseline: ~851 production warnings (2026-04-01). Goal: ratchet to 0, then promote to "error".
+      // Test files are exempt (see test override below).
+      // New `as any` or `: any` in production code will show as warnings in lint output
+      // and will be caught by CI once we add a "max warnings" threshold.
+      "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": "off", // Disabled - too noisy
       "no-unused-vars": "off", // Disabled - duplicate of above + too noisy
       "no-magic-numbers": "off", // Disabled - style preference

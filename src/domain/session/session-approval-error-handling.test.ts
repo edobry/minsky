@@ -13,7 +13,7 @@ import { PersistenceService } from "../persistence/service";
 import type { PersistenceProvider } from "../persistence/types";
 
 // Create mock persistence provider for testing that returns empty sessions
-const mockPersistenceProvider: PersistenceProvider = ({
+const mockPersistenceProvider: PersistenceProvider = {
   capabilities: {
     sql: true,
     transactions: true,
@@ -36,8 +36,14 @@ const mockPersistenceProvider: PersistenceProvider = ({
   initialize: async () => {},
   close: async () => {},
   getConnectionInfo: () => "Mock provider",
-  getCapabilities: () => ({ sql: true, transactions: true, jsonb: false, vectorStorage: false, migrations: true }),
-}) as any;
+  getCapabilities: () => ({
+    sql: true,
+    transactions: true,
+    jsonb: false,
+    vectorStorage: false,
+    migrations: true,
+  }),
+} as any;
 
 describe("Session Approval Error Handling (Task #358 Updated)", () => {
   beforeEach(async () => {

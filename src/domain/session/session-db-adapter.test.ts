@@ -38,7 +38,7 @@ const mockStorage = {
   ),
 };
 
-const mockPersistenceProvider: PersistenceProvider = ({
+const mockPersistenceProvider: PersistenceProvider = {
   initialize: mock(() => Promise.resolve()),
   getStorage: mock(() => mockStorage),
   getRawSqlConnection: mock(() => Promise.resolve({})),
@@ -48,7 +48,7 @@ const mockPersistenceProvider: PersistenceProvider = ({
     supportsFullTextSearch: true,
   })),
   isInitialized: true,
-}) as any;
+} as any;
 
 // Mock both PersistenceService and createSessionProvider at module level
 mock.module("../../persistence/service", () => ({

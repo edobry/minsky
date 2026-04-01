@@ -105,7 +105,7 @@ export function createTasksDepsTreeCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -135,7 +135,7 @@ export function createTasksDepsGraphCommand() {
     execute: async (params: any) => {
       // PersistenceService should already be initialized at application startup
       const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await (persistence as any).getDatabaseConnection();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),

@@ -90,7 +90,7 @@ export async function createConfiguredTaskService(options: {
 
           // PersistenceService should already be initialized at application startup
           const persistence = PersistenceService.getProvider();
-          const db = await (persistence as any).getDatabaseConnection();
+          const db = await persistence.getDatabaseConnection?.();
 
           const minskyBackend = createMinskyTaskBackend({
             name: TaskBackend.MINSKY,

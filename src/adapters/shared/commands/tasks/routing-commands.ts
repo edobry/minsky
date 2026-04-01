@@ -89,7 +89,7 @@ export function createTasksAvailableCommand() {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = await (provider as any).getDatabaseConnection?.();
+      const db = await provider.getDatabaseConnection?.();
 
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");
@@ -211,7 +211,7 @@ export function createTasksRouteCommand() {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = await (provider as any).getDatabaseConnection?.();
+      const db = await provider.getDatabaseConnection?.();
 
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");

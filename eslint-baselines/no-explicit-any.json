@@ -1,0 +1,17 @@
+{
+  "$comment": "Baseline for @typescript-eslint/no-explicit-any ratchet. Do not increase these numbers.",
+  "measured": "2026-04-01",
+  "production": {
+    "warnings": 2142,
+    "note": "Includes both `as any` casts (~851) and `: any` annotations (~665). Multiple per line possible."
+  },
+  "test": {
+    "warnings": 0,
+    "note": "Rule is disabled for test files (**/test/**, **/*.test.ts, **/tests/**)"
+  },
+  "ratchetPlan": {
+    "phase1": "warn — current. Prevents new any from sneaking in via code review awareness.",
+    "phase2": "CI max-warnings threshold — set --max-warnings=2142, ratchet down as fixes land.",
+    "phase3": "error — once production count reaches 0, promote to error."
+  }
+}

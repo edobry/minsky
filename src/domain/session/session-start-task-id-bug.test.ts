@@ -89,8 +89,20 @@ describe("Task ID Generation Bug Reproduction", () => {
     // Mix of qualified and unqualified IDs (real-world scenario)
     const mixedTasks: TaskData[] = [
       { id: "md#300", title: "Task 300", description: "", status: "TODO" as any, specPath: "" },
-      { id: "gh#45", title: "GitHub Task 45", description: "", status: "TODO" as any, specPath: "" },
-      { id: "md#371", title: "Qualified Task 371", description: "", status: "TODO" as any, specPath: "" },
+      {
+        id: "gh#45",
+        title: "GitHub Task 45",
+        description: "",
+        status: "TODO" as any,
+        specPath: "",
+      },
+      {
+        id: "md#371",
+        title: "Qualified Task 371",
+        description: "",
+        status: "TODO" as any,
+        specPath: "",
+      },
     ];
 
     const nextId = getNextTaskId(mixedTasks);

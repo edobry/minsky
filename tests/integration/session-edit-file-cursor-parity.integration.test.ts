@@ -222,7 +222,10 @@ async function loggingApplyEditPattern(
             capturedResponseBody = await responseClone.json();
             console.log("\n📥 INTERCEPTED HTTP RESPONSE FROM MORPH:");
             console.log("   Status:", response.status, response.statusText);
-            console.log("   Headers:", JSON.stringify([...(response.headers as any).entries()], null, 2));
+            console.log(
+              "   Headers:",
+              JSON.stringify([...(response.headers as any).entries()], null, 2)
+            );
             console.log("   RESPONSE BODY:", JSON.stringify(capturedResponseBody, null, 2));
           } catch (e) {
             console.log("   Response body could not be parsed as JSON");

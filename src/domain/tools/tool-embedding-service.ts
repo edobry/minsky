@@ -142,7 +142,10 @@ export class ToolEmbeddingService {
       }
       return null;
     } catch (error) {
-      log.error(`Failed to get tool metadata for ${toolId}:`, error instanceof Error ? error : new Error(String(error)));
+      log.error(
+        `Failed to get tool metadata for ${toolId}:`,
+        error instanceof Error ? error : new Error(String(error))
+      );
       return null;
     }
   }

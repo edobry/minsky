@@ -49,7 +49,9 @@ export class CommitMsgHook {
 
     try {
       // Load and parse commit message
-      const commitMessage = (readFileSync(this.commitMsgFile, "utf-8" as BufferEncoding) as string).trim();
+      const commitMessage = (
+        readFileSync(this.commitMsgFile, "utf-8" as BufferEncoding) as string
+      ).trim();
 
       if (!commitMessage) {
         log.cli("✅ Empty commit message, validation skipped");

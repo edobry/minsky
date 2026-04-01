@@ -84,7 +84,8 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
         encoding: "utf8",
       });
 
-      const prBranches = branchesOutput.toString()
+      const prBranches = branchesOutput
+        .toString()
         .split("\n")
         .map((line) => line.trim().replace(/^\*\s*/, ""))
         .filter((branch) => branch.startsWith("pr/"))
@@ -277,9 +278,9 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       });
 
       // Parse stats (simple parsing)
-      const statsMatch = diffStats.toString().match(
-        /(\d+) files? changed(?:, (\d+) insertions?)?(?:, (\d+) deletions?)?/
-      );
+      const statsMatch = diffStats
+        .toString()
+        .match(/(\d+) files? changed(?:, (\d+) insertions?)?(?:, (\d+) deletions?)?/);
       const filesChanged = statsMatch ? parseInt(statsMatch[1] || "0") : 0;
       const additions = statsMatch && statsMatch[2] ? parseInt(statsMatch[2]) : 0;
       const deletions = statsMatch && statsMatch[3] ? parseInt(statsMatch[3]) : 0;

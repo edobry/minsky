@@ -89,6 +89,11 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract initialize(): Promise<void>;
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
+
+  // Optional capability methods — implemented by SQL/vector-capable subclasses
+  getDatabaseConnection?(): Promise<any>;
+  getRawSqlConnection?(): Promise<any>;
+  getVectorStorage?(dimension: number): any;
 }
 
 /**

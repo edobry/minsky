@@ -149,11 +149,14 @@ Return the complete merged code:`;
 
     // Make the actual API call
     console.log("\n🌐 CALLING MORPH API...");
-    const response = await (completionService as any).createCompletion([{ role: "user", content: prompt }], {
-      provider,
-      model,
-      temperature: 0.1, // Lower temperature for more consistent edits
-    });
+    const response = await (completionService as any).createCompletion(
+      [{ role: "user", content: prompt }],
+      {
+        provider,
+        model,
+        temperature: 0.1, // Lower temperature for more consistent edits
+      }
+    );
 
     const duration = 200; // Mock timing
     const result = response.content;
@@ -262,7 +265,7 @@ require("fs/promises").writeFile = async (
 
   // Extract session name from path
   const sessionMatch = path.match(/^([^/]+)\//);
-  const sessionName = sessionMatch ? sessionMatch[1] ?? "" : "";
+  const sessionName = sessionMatch ? (sessionMatch[1] ?? "") : "";
   const filePath = sessionMatch ? path.substring(sessionMatch[1]!.length + 1) : path;
 
   createMockFile(sessionName, filePath, content);

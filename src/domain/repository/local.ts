@@ -581,10 +581,14 @@ export class LocalGitBackend implements RepositoryBackend {
       log.info(`Local session has associated PR, auto-updating PR branch '${prBranch}'`);
 
       // Check if we're currently on the PR branch
-      const { stdout: currentBranchOutput } = await execGitWithTimeout("branch-show-current", "branch --show-current", {
-        workdir,
-        timeout: 10000,
-      });
+      const { stdout: currentBranchOutput } = await execGitWithTimeout(
+        "branch-show-current",
+        "branch --show-current",
+        {
+          workdir,
+          timeout: 10000,
+        }
+      );
       const currentBranchName = currentBranchOutput.trim();
 
       if (currentBranchName === prBranch) {
@@ -605,15 +609,27 @@ export class LocalGitBackend implements RepositoryBackend {
           });
           // PR branch exists locally, merge current changes into it
           await execGitWithTimeout("checkout", `checkout ${prBranch}`, { workdir, timeout: 10000 });
-          await execGitWithTimeout("merge", `merge ${currentBranchName}`, { workdir, timeout: 30000 });
+          await execGitWithTimeout("merge", `merge ${currentBranchName}`, {
+            workdir,
+            timeout: 30000,
+          });
           await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
-          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, { workdir, timeout: 10000 });
+          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, {
+            workdir,
+            timeout: 10000,
+          });
           log.info(`PR branch '${prBranch}' updated with latest changes`);
         } catch {
           // PR branch doesn't exist locally, create it from current branch
-          await execGitWithTimeout("checkout-b", `checkout -b ${prBranch}`, { workdir, timeout: 10000 });
+          await execGitWithTimeout("checkout-b", `checkout -b ${prBranch}`, {
+            workdir,
+            timeout: 10000,
+          });
           await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
-          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, { workdir, timeout: 10000 });
+          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, {
+            workdir,
+            timeout: 10000,
+          });
           log.info(`PR branch '${prBranch}' created and pushed`);
         }
       }

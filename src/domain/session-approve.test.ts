@@ -60,7 +60,8 @@ describe("Session Approve", () => {
 
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
+      getBackendForTask: (() =>
+        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
       getTask: () =>
         Promise.resolve({
           id: TEST_TASK_ID,
@@ -123,7 +124,8 @@ describe("Session Approve", () => {
 
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
+      getBackendForTask: (() =>
+        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
       getTask: () =>
         Promise.resolve({
           id: TEST_TASK_ID,
@@ -191,7 +193,8 @@ describe("Session Approve", () => {
       }),
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
+        getBackendForTask: (() =>
+          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
         getTask: () =>
           Promise.resolve({
             id: "md#456",

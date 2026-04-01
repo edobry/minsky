@@ -189,19 +189,22 @@ export class PreCommitHook {
         };
       }
 
-      // WARNING THRESHOLD: Block if over 100 warnings
-      if (summary.warningCount > 100) {
+      // WARNING THRESHOLD: Block if warnings exceed baseline.
+      // Baseline is high due to @typescript-eslint/no-explicit-any ratchet (2,217 on 2026-04-01).
+      // Ratchet this number DOWN as `as any` casts are eliminated.
+      const MAX_LINT_WARNINGS = 2300;
+      if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
         log.cli("");
-        log.cli(`🚫 Found ${summary.warningCount} warnings. Maximum allowed: 100.`);
+        log.cli(`🚫 Found ${summary.warningCount} warnings. Maximum allowed: ${MAX_LINT_WARNINGS}.`);
         log.cli("💡 Please address warnings to improve code quality.");
-        log.cli("🎯 Target: Reduce warnings below 100 threshold.");
+        log.cli(`🎯 Target: Reduce warnings below ${MAX_LINT_WARNINGS} threshold.`);
         log.cli("");
         log.cli("Run 'bun run lint' to see detailed warning information.");
         return {
           success: false,
-          message: `ESLint found ${summary.warningCount} warnings (over 100 threshold)`,
+          message: `ESLint found ${summary.warningCount} warnings (over ${MAX_LINT_WARNINGS} threshold)`,
           exitCode: 1,
         };
       }
@@ -210,7 +213,7 @@ export class PreCommitHook {
       if (summary.warningCount === 0) {
         log.cli("✅ Perfect! Zero errors and zero warnings detected.");
       } else {
-        log.cli(`✅ Quality gate passed: ${summary.warningCount} warnings (under 100 threshold).`);
+        log.cli(`✅ Quality gate passed: ${summary.warningCount} warnings (under ${MAX_LINT_WARNINGS} threshold).`);
       }
 
       return {

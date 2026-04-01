@@ -1475,7 +1475,7 @@ async function validatePostgresBackend(): Promise<{
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
-      const rawConnection = await (provider as any).getRawSqlConnection();
+      const rawConnection = await provider.getRawSqlConnection?.();
       if (rawConnection) {
         // Test SQL query
         await rawConnection`SELECT 1 as test`;
@@ -1517,7 +1517,7 @@ async function validatePostgresBackend(): Promise<{
         // Test vector storage if supported
         if (provider.getCapabilities().vectorStorage) {
           try {
-            const vectorStorage = await (provider as any).getVectorStorage!(1536); // OpenAI embedding dimension
+            const vectorStorage = await provider.getVectorStorage?.(1536); // OpenAI embedding dimension
             if (vectorStorage) {
               // Try a simple vector operation with a dummy vector (all zeros)
               const dummyVector = new Array(1536).fill(0);

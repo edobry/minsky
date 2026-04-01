@@ -326,20 +326,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
       },
     ],
   },
-
-  // ── Import validation ─────────────────────────────────────────────────────
-  {
-    ruleId: "domain-oriented-modules",
-    mechanisms: [
-      {
-        type: "script",
-        name: "validate-imports",
-        description:
-          "scripts/validate-imports.ts detects missing imports and undefined references; run as part of validate-all",
-        configPath: "scripts/validate-imports.ts",
-      },
-    ],
-  },
 ];
 
 /**

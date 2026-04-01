@@ -81,8 +81,10 @@ export class ConfigWriter {
 
     this.configDir = this.options.configDir || getUserConfigDir();
     this.fs = (deps?.fs || {
-      readFileSync: (path: string, encoding: string) => nodeFs.readFileSync(path, encoding as BufferEncoding) as string,
-      writeFileSync: (path: string, data: string, encoding: string) => nodeFs.writeFileSync(path, data, encoding as BufferEncoding),
+      readFileSync: (path: string, encoding: string) =>
+        nodeFs.readFileSync(path, encoding as BufferEncoding) as string,
+      writeFileSync: (path: string, data: string, encoding: string) =>
+        nodeFs.writeFileSync(path, data, encoding as BufferEncoding),
       existsSync: nodeFs.existsSync,
       mkdirSync: nodeFs.mkdirSync,
       copyFileSync: nodeFs.copyFileSync,

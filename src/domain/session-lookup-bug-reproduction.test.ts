@@ -129,13 +129,16 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // Act: Attempt to start session (should fail due to git error)
       let errorThrown = false;
       try {
-        await startSessionFromParams(sessionParams as any, {
-          sessionDB: mockSessionDB,
-          gitService: mockGitService,
-          taskService: mockTaskService,
-          workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
-        } as any);
+        await startSessionFromParams(
+          sessionParams as any,
+          {
+            sessionDB: mockSessionDB,
+            gitService: mockGitService,
+            taskService: mockTaskService,
+            workspaceUtils: mockWorkspaceUtils,
+            resolveRepoPath: mockResolveRepoPath,
+          } as any
+        );
       } catch (error) {
         errorThrown = true;
       }

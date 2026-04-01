@@ -820,7 +820,7 @@ ${description}
         const provider = PersistenceService.getProvider();
 
         if (provider.capabilities.sql) {
-          const db = await (provider as any).getDatabaseConnection?.();
+          const db = await provider.getDatabaseConnection?.();
 
           if (db) {
             const { tasksTable } = await import("../storage/schemas/task-embeddings");

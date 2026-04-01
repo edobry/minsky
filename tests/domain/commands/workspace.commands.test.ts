@@ -202,7 +202,11 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result1 = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
+        const result1 = await getSessionFromWorkspace(
+          repoPath,
+          execAsyncMock,
+          sessionDbMock as any
+        );
         const result2 = await getSessionFromRepo(repoPath, execAsyncMock, sessionDbMock as any);
 
         // Assert
