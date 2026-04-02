@@ -6,7 +6,12 @@
 
 import { log } from "../../utils/logger";
 import { TaskStatus } from "../../domain/tasks/taskConstants";
-import type { GenerateRequest, GenerateOptions, AnalysisResult, ComponentBreakdown } from "./generate-types";
+import type {
+  GenerateRequest,
+  GenerateOptions,
+  AnalysisResult,
+  ComponentBreakdown,
+} from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayContextVisualization } from "./generate-visualization";
@@ -83,13 +88,17 @@ export async function displayModelComparison(models: string[], options: Generate
 
     const allComponents = new Set();
     comparisons.forEach(({ result }) => {
-      result.componentBreakdown.forEach((comp: ComponentBreakdown) => allComponents.add(comp.component));
+      result.componentBreakdown.forEach((comp: ComponentBreakdown) =>
+        allComponents.add(comp.component)
+      );
     });
 
     Array.from(allComponents).forEach((componentName) => {
       log.cli(`\n${componentName}:`);
       comparisons.forEach(({ model, result }) => {
-        const comp = result.componentBreakdown.find((c: ComponentBreakdown) => c.component === componentName);
+        const comp = result.componentBreakdown.find(
+          (c: ComponentBreakdown) => c.component === componentName
+        );
         if (comp) {
           log.cli(
             `  ${model.padEnd(20)} ${comp.tokens.toLocaleString().padStart(8)} tokens (${comp.percentage}%)`

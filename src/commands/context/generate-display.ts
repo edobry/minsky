@@ -5,7 +5,12 @@
  */
 
 import { log } from "../../utils/logger";
-import type { GenerateOptions, AnalysisResult, ComponentBreakdown, OptimizationSuggestion } from "./generate-types";
+import type {
+  GenerateOptions,
+  AnalysisResult,
+  ComponentBreakdown,
+  OptimizationSuggestion,
+} from "./generate-types";
 
 /**
  * Display analysis results in human-readable format

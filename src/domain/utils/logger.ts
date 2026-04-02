@@ -246,7 +246,10 @@ export function createLogger(configOverride?: LoggerConfig) {
     },
     error: (
       message: string,
-      context?: LogContext | Error | { originalError?: unknown; stack?: string; [key: string]: unknown }
+      context?:
+        | LogContext
+        | Error
+        | { originalError?: unknown; stack?: string; [key: string]: unknown }
     ) => {
       // For errors, in HUMAN mode route to programLogger.error instead of suppressing
       if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {

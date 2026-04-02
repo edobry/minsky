@@ -32,8 +32,7 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
   const legacy = (config as any).sessiondb as Record<string, any> | undefined;
 
   // ── backend ──────────────────────────────────────────────────────────────
-  const backend: string =
-    config.persistence?.backend ?? legacy?.backend ?? "sqlite";
+  const backend: string = config.persistence?.backend ?? legacy?.backend ?? "sqlite";
 
   // ── connectionString (postgres) ───────────────────────────────────────────
   const connectionString: string | undefined =

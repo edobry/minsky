@@ -225,8 +225,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
     if ((params as any).details) {
       try {
         const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
-        const provider =
-          cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
+        const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
         const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold =
           threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";

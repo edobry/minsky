@@ -28,10 +28,7 @@ export class OpenAIEmbeddingService implements EmbeddingService {
     }
 
     const baseURL = providerCfg?.baseUrl;
-    const model =
-      config.embeddings?.model ||
-      providerCfg?.model ||
-      "text-embedding-3-small";
+    const model = config.embeddings?.model || providerCfg?.model || "text-embedding-3-small";
 
     return new OpenAIEmbeddingService(apiKey, baseURL, model);
   }

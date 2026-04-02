@@ -17,7 +17,10 @@ import type {
 /**
  * Generate visualization data structure for JSON output
  */
-export function generateVisualizationData(analysisResult: AnalysisResult, options: GenerateOptions) {
+export function generateVisualizationData(
+  analysisResult: AnalysisResult,
+  options: GenerateOptions
+) {
   const { chartType, maxWidth } = options;
 
   return {
@@ -41,7 +44,10 @@ export function generateVisualizationData(analysisResult: AnalysisResult, option
 /**
  * Display context visualization to the console
  */
-export function displayContextVisualization(analysisResult: AnalysisResult, options: GenerateOptions) {
+export function displayContextVisualization(
+  analysisResult: AnalysisResult,
+  options: GenerateOptions
+) {
   const { chartType, maxWidth, showDetails } = options;
   const width = parseInt(maxWidth || "80");
 
@@ -169,7 +175,10 @@ function displayTreeView(analysisResult: AnalysisResult, width: number) {
   });
 }
 
-function parseComponentContent(componentId: string, analysisResult?: AnalysisResult): SubComponent[] {
+function parseComponentContent(
+  componentId: string,
+  analysisResult?: AnalysisResult
+): SubComponent[] {
   if (!analysisResult?.fullResult?.components) {
     return [];
   }

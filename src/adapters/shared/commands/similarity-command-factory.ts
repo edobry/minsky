@@ -162,8 +162,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
           try {
             const { getConfiguration } = await import("../../../domain/configuration");
             const cfg = await getConfiguration();
-            const provider =
-              cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
+            const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
             const model = cfg.embeddings?.model || "text-embedding-3-small";
             const effThreshold = threshold ?? "(default)";
 

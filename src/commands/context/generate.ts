@@ -14,7 +14,12 @@ import {
   getComponentHelp,
 } from "../../domain/context/components/index";
 
-import type { GenerateRequest, GenerateResult, GenerateOptions, AnalysisResult } from "./generate-types";
+import type {
+  GenerateRequest,
+  GenerateResult,
+  GenerateOptions,
+  AnalysisResult,
+} from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayAnalysisResults, outputCSV } from "./generate-display";
