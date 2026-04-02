@@ -8,27 +8,26 @@ import { log } from "../../utils/logger";
 /**
  * Registers git tools with the MCP command mapper
  *
- * Note: All git commands are hidden from MCP to maintain proper separation
- * of concerns. Use session-scoped commands instead:
- * - Use session.commit instead of git.commit
- * - Use session.push instead of git.push
- * - Use session.pr for pull request workflow
- * - Use session.start to create sessions with proper git setup
+ * Exposes git commands for main workspace git operations:
+ * - git.commit: Commit changes to the repository
+ * - git.push: Push changes to the remote repository
+ * - git.conflicts: Detect and report merge conflicts
+ *
+ * Commands that are session-scoped or less relevant for main workspace
+ * work are hidden:
+ * - git.clone: Use session.start instead
+ * - git.checkout: Use session commands for branch switching
+ * - git.merge: Use session commands for merging
+ * - git.rebase: Use session commands for rebasing
+ * - git.branch: Use session commands for branch creation
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   log.debug("Registering git commands via shared command integration");
 
-  // Hide all git commands from MCP - use session commands instead
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // Hide all git operations from MCP
-      "git.commit": {
-        hidden: true,
-      },
-      "git.push": {
-        hidden: true,
-      },
+      // Hide session-scoped or less useful git operations from main workspace MCP
       "git.clone": {
         hidden: true,
       },
