@@ -10,6 +10,7 @@ import { existsSync } from "fs";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
+import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import { PersistenceService } from "./service";
 import { getPostgresMigrationsStatus } from "./migration-operations";
 
@@ -37,11 +38,8 @@ export async function validateSqliteBackend(filePath: string | undefined): Promi
       log.cli(`Using specified file: ${dbPath}`);
     } else {
       // Use configured path or default
-      dbPath =
-        config.persistence?.sqlite?.dbPath ||
-        (config as any).sessiondb?.sqlite?.path ||
-        (config as any).sessiondb?.dbPath ||
-        getDefaultSqliteDbPath();
+      const effectiveConfig = getEffectivePersistenceConfig(config);
+      dbPath = effectiveConfig.dbPath ?? getDefaultSqliteDbPath();
       log.cli(`Using configured/default file: ${dbPath}`);
     }
 
@@ -110,11 +108,7 @@ export async function validatePostgresBackend(): Promise<{
     const config = getConfiguration();
 
     // Get PostgreSQL connection string
-    const connectionString =
-      config.persistence?.postgres?.connectionString ||
-      (config as any).sessiondb?.postgres?.connectionString ||
-      (config as any).sessiondb?.connectionString ||
-      process.env.MINSKY_POSTGRES_URL;
+    const connectionString = getEffectivePersistenceConfig(config).connectionString;
 
     if (!connectionString) {
       issues.push("No PostgreSQL connection string configured");
@@ -158,14 +152,11 @@ export async function validatePostgresBackend(): Promise<{
         // Check schema is up to date (no pending migrations)
         const { getConfiguration } = await import("../configuration/index");
         const config = getConfiguration();
-        const backend =
-          config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite";
+        const effectiveInner = getEffectivePersistenceConfig(config);
+        const backend = effectiveInner.backend;
 
         if (backend === "postgres") {
-          const connectionString =
-            config.persistence?.postgres?.connectionString ||
-            (config as any).sessiondb?.postgres?.connectionString ||
-            (process.env as any).MINSKY_POSTGRES_URL;
+          const connectionString = effectiveInner.connectionString;
 
           if (connectionString) {
             const status = await getPostgresMigrationsStatus(connectionString);

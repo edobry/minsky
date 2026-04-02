@@ -13,6 +13,7 @@
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
+import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import {
   runSqliteSchemaMigrations,
   runSqliteSchemaMigrationsForBackend,
@@ -43,18 +44,15 @@ export async function runMigrationsWithDrizzleKit(options: {
       const config = configResult.config;
 
       // Prepare database configuration for drizzle-kit
+      const effectiveConfig = getEffectivePersistenceConfig(config);
       const dbConfig = {
         postgres: {
-          connectionString:
-            config.persistence?.postgres?.connectionString ||
-            (config as any).sessiondb?.postgres?.connectionString ||
-            null,
+          connectionString: effectiveConfig.connectionString ?? null,
         },
         sqlite: {
-          path:
-            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
+          path: effectiveConfig.dbPath ?? null,
         },
-        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
+        backend: effectiveConfig.backend,
       };
 
       // Set environment variable that drizzle config will read
@@ -83,11 +81,7 @@ export async function runMigrationsWithDrizzleKit(options: {
     try {
       const rawConfig = await loadConfiguration();
       const conf = rawConfig.config;
-      const connectionString =
-        conf.persistence?.postgres?.connectionString ||
-        (conf as any).sessiondb?.postgres?.connectionString ||
-        (conf as any).sessiondb?.connectionString ||
-        (process.env as any).MINSKY_POSTGRES_URL;
+      const connectionString = getEffectivePersistenceConfig(conf).connectionString;
 
       if (connectionString) {
         const status = await getPostgresMigrationsStatus(connectionString);
@@ -195,18 +189,15 @@ export async function checkAndGenerateMigrations(): Promise<{
       const config = configResult.config;
 
       // Prepare database configuration for drizzle-kit
+      const effectiveConfig = getEffectivePersistenceConfig(config);
       const dbConfig = {
         postgres: {
-          connectionString:
-            config.persistence?.postgres?.connectionString ||
-            (config as any).sessiondb?.postgres?.connectionString ||
-            null,
+          connectionString: effectiveConfig.connectionString ?? null,
         },
         sqlite: {
-          path:
-            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
+          path: effectiveConfig.dbPath ?? null,
         },
-        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
+        backend: effectiveConfig.backend,
       };
 
       // Set environment variable that drizzle config will read
@@ -294,26 +285,14 @@ export async function runSchemaMigrationsForConfiguredBackend(
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../configuration/index");
   const config = getConfiguration();
-  const backend = (config.persistence?.backend ||
-    (config as any).sessiondb?.backend ||
-    "sqlite") as "sqlite" | "postgres";
+  const { backend, dbPath, connectionString } = getEffectivePersistenceConfig(config);
 
   if (backend === "sqlite") {
-    const dbPath =
-      config.persistence?.sqlite?.dbPath ||
-      (config as any).sessiondb?.sqlite?.path ||
-      (config as any).sessiondb?.dbPath ||
-      getDefaultSqliteDbPath();
-    return runSqliteSchemaMigrations(dbPath, { dryRun });
+    const resolvedDbPath = dbPath ?? getDefaultSqliteDbPath();
+    return runSqliteSchemaMigrations(resolvedDbPath, { dryRun });
   }
 
   if (backend === "postgres") {
-    const connectionString =
-      config.persistence?.postgres?.connectionString ||
-      (config as any).sessiondb?.postgres?.connectionString ||
-      (config as any).sessiondb?.connectionString ||
-      (process.env as any).MINSKY_POSTGRES_URL;
-
     if (!connectionString) {
       throw new Error(
         "PostgreSQL connection string not found. Configure " +
