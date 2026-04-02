@@ -48,41 +48,41 @@ export function getSessionCustomizations(): {
           },
           outputFormatter: (result: any) => {
             // Check if JSON output was requested
-            if ((result as any).json) {
-              log.cli(JSON.stringify(result as any, null, 2));
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
               return;
             }
 
             // Check if quiet mode was requested
-            if ((result as any).quiet) {
+            if (result.quiet) {
               // In quiet mode, only output session directory path
-              if ((result as any).session) {
-                const sessionDir = `${getMinskyStateDir()}/sessions/${(result as any).session.session}`;
+              if (result.session) {
+                const sessionDir = `${getMinskyStateDir()}/sessions/${result.session.session}`;
                 log.cli(sessionDir);
               }
               return;
             }
 
             // Format the session start success message
-            if ((result as any).success && (result as any).session) {
+            if (result.success && result.session) {
               // Display a user-friendly success message for session creation
               log.cli("✅ Session started successfully!");
               log.cli("");
 
-              if ((result as any).session.session) {
-                log.cli(`📁 Session: ${(result as any).session.session}`);
+              if (result.session.session) {
+                log.cli(`📁 Session: ${result.session.session}`);
               }
 
-              if ((result as any).session.taskId) {
-                log.cli(`🎯 Task: ${(result as any).session.taskId}`);
+              if (result.session.taskId) {
+                log.cli(`🎯 Task: ${result.session.taskId}`);
               }
 
-              if ((result as any).session.repoName) {
-                log.cli(`📦 Repository: ${(result as any).session.repoName}`);
+              if (result.session.repoName) {
+                log.cli(`📦 Repository: ${result.session.repoName}`);
               }
 
-              if ((result as any).session.branch) {
-                log.cli(`🌿 Branch: ${(result as any).session.branch}`);
+              if (result.session.branch) {
+                log.cli(`🌿 Branch: ${result.session.branch}`);
               }
 
               log.cli("");
@@ -94,7 +94,7 @@ export function getSessionCustomizations(): {
               log.cli('   • Run "minsky session pr" when ready to create a pull request');
             } else {
               // Fallback to JSON output if result structure is unexpected
-              log.cli(JSON.stringify(result as any, null, 2));
+              log.cli(JSON.stringify(result, null, 2));
             }
           },
         },
@@ -159,14 +159,14 @@ export function getSessionCustomizations(): {
           },
           outputFormatter: (result: any) => {
             // Check if JSON output was requested
-            if ((result as any).json) {
-              log.cli(JSON.stringify(result as any, null, 2));
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
               return;
             }
 
             // Format the session approval result
-            if ((result as any).success) {
-              const data = (result as any).data;
+            if (result.success) {
+              const data = result.data;
 
               if (data && data.isNewlyApproved) {
                 log.cli("✅ Session approved and merged successfully!");
@@ -174,7 +174,7 @@ export function getSessionCustomizations(): {
                 log.cli("ℹ️  Session was already approved and merged");
               } else {
                 log.cli("⚠️  Session approval completed but result structure unexpected");
-                log.cli(JSON.stringify(result as any, null, 2));
+                log.cli(JSON.stringify(result, null, 2));
                 return;
               }
 
@@ -203,7 +203,7 @@ export function getSessionCustomizations(): {
               }
             } else {
               // Fallback to JSON output if result structure is unexpected
-              log.cli(JSON.stringify(result as any, null, 2));
+              log.cli(JSON.stringify(result, null, 2));
             }
           },
         },

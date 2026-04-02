@@ -151,8 +151,8 @@ export class RemoteGitBackend implements RepositoryBackend {
       cacheKey,
       async () => {
         try {
-          const statusOutput = await this.execGit(["status", "--porcelain"] as any[]);
-          const branchOutput = await this.execGit(["_branch", "--show-current"] as any[]);
+          const statusOutput = await this.execGit(["status", "--porcelain"]);
+          const branchOutput = await this.execGit(["_branch", "--show-current"]);
           let trackingOutput = "";
 
           try {
@@ -160,7 +160,7 @@ export class RemoteGitBackend implements RepositoryBackend {
               "rev-parse",
               "--abbrev-ref",
               "@{upstream}",
-            ] as any[]);
+            ]);
           } catch (error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
@@ -249,7 +249,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     const branchToPush = branch || "HEAD";
 
     try {
-      await this.execGit(["push", "origin", branchToPush] as any[]);
+      await this.execGit(["push", "origin", branchToPush]);
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
@@ -274,7 +274,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     const branchToPull = branch || "HEAD";
 
     try {
-      await this.execGit(["pull", "origin", branchToPull] as any[]);
+      await this.execGit(["pull", "origin", branchToPull]);
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
@@ -299,7 +299,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     try {
-      await this.execGit(["checkout", "-b", name] as any[]);
+      await this.execGit(["checkout", "-b", name]);
 
       // Invalidate status cache after branch creation
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
@@ -327,7 +327,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     try {
-      await this.execGit(["checkout", branch] as any[]);
+      await this.execGit(["checkout", branch]);
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
