@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { setupTestMocks, createPartialMock } from "../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
+import type { SessionProviderInterface } from "../../../src/domain/session";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   isSessionWorkspace,
@@ -30,7 +31,7 @@ const mockGitRootExecAsync = (stdout: string): any => {
 describe("Workspace Domain Methods", () => {
   beforeEach(() => {
     // Mock process.cwd() to return consistent mock directory
-    (process as any).cwd = mock(() => "/mock/projects/minsky");
+    (process as unknown as Record<string, unknown>).cwd = mock(() => "/mock/projects/minsky");
   });
 
   describe("isSessionRepository (async workspace checking)", () => {
@@ -115,7 +116,7 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       // Create mock sessionDB
-      const sessionDbMock = {
+      const sessionDbMock = createPartialMock<SessionProviderInterface>({
         getSession: async (sessionName: string) => ({
           session: sessionName,
           repoName: "repo-name",
@@ -124,11 +125,11 @@ describe("Workspace Domain Methods", () => {
           taskId: TEST_VALUE.toString(),
           createdAt: new Date().toISOString(),
         }),
-      };
+      });
 
       try {
         // Act
-        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
 
         // Assert
         expect(result).toEqual({
@@ -164,13 +165,13 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       // Create mock sessionDB that returns null
-      const sessionDbMock = {
+      const sessionDbMock = createPartialMock<SessionProviderInterface>({
         getSession: async () => null,
-      };
+      });
 
       try {
         // Act
-        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
 
         // Assert
         expect(result).toBeNull();
@@ -189,7 +190,7 @@ describe("Workspace Domain Methods", () => {
       const originalHome = process.env.HOME;
       process.env.HOME = "/Users/test";
 
-      const sessionDbMock = {
+      const sessionDbMock = createPartialMock<SessionProviderInterface>({
         getSession: async (sessionName: string) => ({
           session: sessionName,
           repoName: "repo-name",
@@ -198,16 +199,12 @@ describe("Workspace Domain Methods", () => {
           taskId: TEST_VALUE.toString(),
           createdAt: new Date().toISOString(),
         }),
-      };
+      });
 
       try {
         // Act
-        const result1 = await getSessionFromWorkspace(
-          repoPath,
-          execAsyncMock,
-          sessionDbMock as any
-        );
-        const result2 = await getSessionFromRepo(repoPath, execAsyncMock, sessionDbMock as any);
+        const result1 = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+        const result2 = await getSessionFromRepo(repoPath, execAsyncMock, sessionDbMock);
 
         // Assert
         expect(result1).toEqual(result2);
@@ -229,7 +226,7 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       // Create mock sessionDB
-      const sessionDbMock = {
+      const sessionDbMock = createPartialMock<SessionProviderInterface>({
         getSession: async (sessionName: string) => ({
           session: sessionName,
           repoName: "repo-name",
@@ -238,11 +235,11 @@ describe("Workspace Domain Methods", () => {
           taskId: TEST_VALUE.toString(),
           createdAt: new Date().toISOString(),
         }),
-      };
+      });
 
       try {
         // Act
-        const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock as any);
+        const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock);
 
         // Assert
         expect(result).toBe("session-name");

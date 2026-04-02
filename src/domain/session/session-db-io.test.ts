@@ -7,6 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import type { SessionRecord } from "./types";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("Session DB I/O Functions", () => {
@@ -101,7 +102,7 @@ describe("Session DB I/O Functions", () => {
       ];
 
       // Write the data
-      writeSessionDbFile(mockTestDbPath, testData as any);
+      writeSessionDbFile(mockTestDbPath, testData as unknown as SessionRecord[]);
 
       // Verify the file was written correctly
       expect(mockFs.exists(mockTestDbPath)).toBe(true);
@@ -124,7 +125,7 @@ describe("Session DB I/O Functions", () => {
       ];
 
       // Write to a deep path
-      writeSessionDbFile(deepPath, testData as any);
+      writeSessionDbFile(deepPath, testData as unknown as SessionRecord[]);
 
       // Verify directory was created and file written
       expect(mockFs.exists("/mock/deep/nested/path")).toBe(true);
@@ -155,14 +156,14 @@ describe("Session DB I/O Functions", () => {
       ];
 
       // Write initial data
-      writeSessionDbFile(mockTestDbPath, initialData as any);
+      writeSessionDbFile(mockTestDbPath, initialData as unknown as SessionRecord[]);
 
       // Verify initial write
       let content = mockFs.readFile(mockTestDbPath);
       expect(JSON.parse(content)).toEqual(initialData);
 
       // Overwrite with updated data
-      writeSessionDbFile(mockTestDbPath, updatedData as any);
+      writeSessionDbFile(mockTestDbPath, updatedData as unknown as SessionRecord[]);
 
       // Verify overwrite
       content = mockFs.readFile(mockTestDbPath);

@@ -42,7 +42,7 @@ describe("Session Approval Display Bug Fix", () => {
     const fixedSessionName = correctResult.data?.session || "Unknown";
 
     // Simulate the BUGGY logic: accessing .result (incorrect path)
-    const buggyResult = correctResult as any;
+    const buggyResult = correctResult as unknown as Record<string, Record<string, unknown>>;
     const buggySessionName = buggyResult.result?.session || "Unknown";
 
     // Assert: The fix should extract the correct session name
@@ -62,7 +62,8 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Test the data extraction logic
-    const sessionName = (resultWithoutData.data as any)?.session || "Unknown";
+    const sessionName =
+      (resultWithoutData.data as unknown as Record<string, unknown>)?.session || "Unknown";
 
     // Should gracefully fallback to "Unknown" when data is null
     expect(sessionName).toBe("Unknown");
@@ -89,8 +90,12 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Test both approaches
-    const correctAccess = (resultWithOldStructure as any).data?.session || "Unknown"; // Fixed approach
-    const buggyAccess = (resultWithOldStructure as any).result?.session || "Unknown"; // Old approach
+    const correctAccess =
+      (resultWithOldStructure as unknown as Record<string, Record<string, unknown>>).data
+        ?.session || "Unknown"; // Fixed approach
+    const buggyAccess =
+      (resultWithOldStructure as unknown as Record<string, Record<string, unknown>>).result
+        ?.session || "Unknown"; // Old approach
 
     // The fix correctly identifies missing data and falls back to "Unknown"
     expect(correctAccess).toBe("Unknown");

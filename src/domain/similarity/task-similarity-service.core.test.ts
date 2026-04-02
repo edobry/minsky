@@ -17,12 +17,12 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
   // Minimal dummy embedding service and vector storage (not used when embeddings is disabled)
   const dummyEmbedding: EmbeddingService = {
     generateEmbedding: async () => new Array(3).fill(0),
-  } as any;
+  } as unknown as EmbeddingService;
   const dummyVector: VectorStorage = {
     initialize: async () => void 0,
     store: async () => void 0,
     search: async () => [],
-  } as any;
+  } as unknown as VectorStorage;
 
   const tasks = [
     { id: "md#101", title: "Fix login bug", status: "TODO" },
@@ -40,7 +40,9 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
 
   beforeEach(() => {
     // Force embeddings backend to be unavailable so core uses lexical backend
-    (EmbeddingsSimilarityBackend as any).prototype.isAvailable = async () => false;
+    (
+      EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: () => Promise<boolean> }
+    ).isAvailable = async () => false;
 
     service = new TaskSimilarityService(
       dummyEmbedding,

@@ -31,6 +31,8 @@ import {
   createRandomId,
 } from "./factories";
 import { TaskStatus } from "../../domain/tasks/taskConstants";
+import type { SessionProviderInterface } from "../../domain/session";
+import type { TaskServiceInterface } from "../../domain/tasks/taskService";
 
 // Create a test suite for managed setup/teardown
 const { beforeEachTest, afterEachTest } = createTestSuite();
@@ -62,7 +64,7 @@ describe("Enhanced Test Utilities", () => {
       let mockFn = mockFunction<(n: unknown) => number>();
 
       // Set implementation
-      mockFn = mock((n) => (n as number) * 2) as any;
+      mockFn = mockFunction<(n: unknown) => number>((n) => (n as number) * 2);
 
       // Use the mock
       const result = mockFn(TEST_ARRAY_SIZE);
@@ -130,7 +132,7 @@ describe("Enhanced Test Utilities", () => {
 
     test("should allow overriding specific methods", () => {
       const deps = createTestDeps({
-        sessionDB: {
+        sessionDB: createPartialMock<SessionProviderInterface>({
           getSession: mock(() =>
             Promise.resolve({
               session: "custom-session",
@@ -142,7 +144,7 @@ describe("Enhanced Test Utilities", () => {
               branch: "main",
             })
           ),
-        } as any,
+        }),
       });
 
       // Test the overridden method
@@ -162,7 +164,7 @@ describe("Enhanced Test Utilities", () => {
       const result = withMockedDeps(
         originalDeps,
         {
-          sessionDB: {
+          sessionDB: createPartialMock<SessionProviderInterface>({
             getSession: mock(() =>
               Promise.resolve({
                 session: "temp-session",
@@ -174,7 +176,7 @@ describe("Enhanced Test Utilities", () => {
                 branch: "main",
               })
             ),
-          } as any,
+          }),
         },
         async (mockDeps) => {
           const deps = mockDeps as DomainDependencies;
@@ -184,7 +186,7 @@ describe("Enhanced Test Utilities", () => {
       );
 
       // Verify the result matches our temporary override
-      return result.then((_sessionName: any) => {
+      return result.then((_sessionName: unknown) => {
         expect(_sessionName).toBe("temp-session");
       });
     });
@@ -246,7 +248,7 @@ describe("Enhanced Test Utilities", () => {
       const result = await withMockedDeps(
         originalDeps,
         {
-          taskService: {
+          taskService: createPartialMock<TaskServiceInterface>({
             getTask: async (id: unknown) => {
               // Return different tasks based on ID
               if (id === "#TEST_VALUE") {
@@ -254,15 +256,15 @@ describe("Enhanced Test Utilities", () => {
               }
               return null;
             },
-          } as any,
-          sessionDB: {
+          }),
+          sessionDB: createPartialMock<SessionProviderInterface>({
             getSession: async (name: unknown) => {
               if (name === "task#TEST_VALUE") {
                 return createSessionData({ taskId: "TEST_VALUE", session: name as string });
               }
               return null;
             },
-          } as any,
+          }),
         },
         async (deps) => {
           const typedDeps = deps as DomainDependencies;
@@ -279,7 +281,10 @@ describe("Enhanced Test Utilities", () => {
       );
 
       // 4. Verify results
-      const typedResult = result as any;
+      const typedResult = result as unknown as {
+        task: { id: string; title: string } | null;
+        session: { taskId: string } | null;
+      };
       expect(typedResult.task).toBeDefined();
       expect(typedResult.task?.title).toBe("Important Task");
       expect(typedResult.session).toBeDefined();

@@ -160,7 +160,7 @@ async function loggingApplyEditPattern(
     // Create completion service with the same configuration pattern
     const completionService = new DefaultAICompletionService({
       loadConfiguration: () => Promise.resolve({ resolved: config }),
-    } as any);
+    } as unknown as ConstructorParameters<typeof DefaultAICompletionService>[0]);
 
     // Create the correct Morph Fast Apply API format using utilities
     const morphRequest: any = {
@@ -224,7 +224,11 @@ async function loggingApplyEditPattern(
             console.log("   Status:", response.status, response.statusText);
             console.log(
               "   Headers:",
-              JSON.stringify([...(response.headers as any).entries()], null, 2)
+              JSON.stringify(
+                [...(response.headers as unknown as Iterable<[string, string]>)],
+                null,
+                2
+              )
             );
             console.log("   RESPONSE BODY:", JSON.stringify(capturedResponseBody, null, 2));
           } catch (e) {
@@ -353,7 +357,7 @@ describe.if(!!process.env.RUN_INTEGRATION_TESTS)(
         console.log("✅ Morph provider configured successfully");
         console.log("   API Key:", `${morphConfig.apiKey?.substring(0, 20)}...`);
         console.log("   Base URL:", baseURL);
-        console.log("   Model:", (morphConfig as any).default_model);
+        console.log("   Model:", (morphConfig as unknown as Record<string, unknown>).default_model);
       } else {
         console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
         console.log("   Enabled:", morphConfig?.enabled);

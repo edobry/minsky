@@ -58,9 +58,9 @@ describe("PostgresPersistenceProvider", () => {
 
     // Should return real PostgresStorage instance, not stub
     expect(storage).toBeInstanceOf(PostgresStorage);
-    expect((storage as any).readState).toBeDefined();
-    expect((storage as any).getEntities).toBeDefined();
-    expect((storage as any).initialize).toBeDefined();
+    expect((storage as unknown as PostgresStorage).readState).toBeDefined();
+    expect((storage as unknown as PostgresStorage).getEntities).toBeDefined();
+    expect((storage as unknown as PostgresStorage).initialize).toBeDefined();
   });
 
   test("getStorage() throws error when not initialized", () => {
@@ -68,14 +68,14 @@ describe("PostgresPersistenceProvider", () => {
   });
 
   test("initialize() sets up provider correctly", async () => {
-    expect((provider as any).isInitialized).toBe(false);
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
 
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
 
     await provider.initialize();
 
-    expect((provider as any).isInitialized).toBe(true);
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
   test("getRawSqlConnection() returns connection when initialized", async () => {

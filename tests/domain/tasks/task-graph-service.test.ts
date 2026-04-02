@@ -52,7 +52,9 @@ function createInMemoryRepo(initial: Array<[string, string]> = []) {
 
 describe("TaskGraphService (in-memory)", () => {
   it("adds dependency idempotently and lists dependencies", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo() as any);
+    const svc = new TaskGraphService(
+      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+    );
     const r1 = await svc.addDependency("md#1", "db#2");
     const r2 = await svc.addDependency("md#1", "db#2");
     expect(r1.created).toBe(true);
@@ -61,12 +63,16 @@ describe("TaskGraphService (in-memory)", () => {
   });
 
   it("prevents self-edge", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo() as any);
+    const svc = new TaskGraphService(
+      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+    );
     await expect(svc.addDependency("md#1", "md#1")).rejects.toThrow();
   });
 
   it("validates qualified IDs", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo() as any);
+    const svc = new TaskGraphService(
+      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+    );
     await expect(svc.addDependency("1", "db#2")).rejects.toThrow();
     await expect(svc.addDependency("md#1", "2")).rejects.toThrow();
   });
@@ -76,7 +82,9 @@ describe("TaskGraphService (in-memory)", () => {
       ["md#1", "db#2"],
       ["md#3", "db#2"],
     ]);
-    const svc = new TaskGraphService(repo as any);
+    const svc = new TaskGraphService(
+      repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+    );
     expect(await svc.listDependents("db#2")).toEqual(["md#1", "md#3"]);
     const r = await svc.removeDependency("md#1", "db#2");
     expect(r.removed).toBe(true);
@@ -90,7 +98,9 @@ describe("TaskGraphService (in-memory)", () => {
         ["mt#3", "gh#4"],
         ["db#2", "mt#5"],
       ]);
-      const svc = new TaskGraphService(repo as any);
+      const svc = new TaskGraphService(
+        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+      );
 
       const relationships = await svc.getAllRelationships();
       expect(relationships).toHaveLength(3);
@@ -106,7 +116,9 @@ describe("TaskGraphService (in-memory)", () => {
         ["db#2", "mt#5"],
         ["gh#6", "mt#7"], // Should not be included
       ]);
-      const svc = new TaskGraphService(repo as any);
+      const svc = new TaskGraphService(
+        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+      );
 
       // Get relationships involving md#1 or mt#3
       const relationships = await svc.getRelationshipsForTasks(["md#1", "mt#3"]);
@@ -121,7 +133,9 @@ describe("TaskGraphService (in-memory)", () => {
         ["md#1", "db#2"],
         ["mt#3", "db#2"], // db#2 is dependency of both md#1 and mt#3
       ]);
-      const svc = new TaskGraphService(repo as any);
+      const svc = new TaskGraphService(
+        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+      );
 
       // Get relationships involving db#2 (as dependency)
       const relationships = await svc.getRelationshipsForTasks(["db#2"]);
@@ -132,7 +146,9 @@ describe("TaskGraphService (in-memory)", () => {
 
     it("getRelationshipsForTasks returns empty array for unknown task IDs", async () => {
       const repo = createInMemoryRepo([["md#1", "db#2"]]);
-      const svc = new TaskGraphService(repo as any);
+      const svc = new TaskGraphService(
+        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+      );
 
       const relationships = await svc.getRelationshipsForTasks(["unknown#1", "unknown#2"]);
       expect(relationships).toHaveLength(0);
@@ -140,7 +156,9 @@ describe("TaskGraphService (in-memory)", () => {
 
     it("getRelationshipsForTasks handles empty task ID array", async () => {
       const repo = createInMemoryRepo([["md#1", "db#2"]]);
-      const svc = new TaskGraphService(repo as any);
+      const svc = new TaskGraphService(
+        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
+      );
 
       const relationships = await svc.getRelationshipsForTasks([]);
       expect(relationships).toHaveLength(0);

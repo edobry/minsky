@@ -77,7 +77,9 @@ describe("SessionDB Functional Implementation", () => {
     it("should handle null options parameter without throwing runtime error", () => {
       // Additional edge case to ensure robustness
       expect(() => {
-        const state = initializeSessionDbState(null as any);
+        const state = initializeSessionDbState(
+          null as unknown as Parameters<typeof initializeSessionDbState>[0]
+        );
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -195,7 +197,7 @@ describe("SessionDB Functional Implementation", () => {
       const updates = {
         session: "attempted-rename",
         branch: "updated-branch",
-      } as any;
+      } as unknown as Partial<SessionRecord>;
 
       const newState = updateSessionFn(state, "test-session-1", updates);
       expect(getSessionFn(newState, "test-session-1")).not.toBeNull();
@@ -238,7 +240,9 @@ describe("SessionDB Functional Implementation", () => {
 
     it("should throw error for invalid input", () => {
       const state = createTestState();
-      expect(() => getRepoPathFn(state, null as any)).toThrow("Session record is required");
+      expect(() => getRepoPathFn(state, null as unknown as SessionRecord)).toThrow(
+        "Session record is required"
+      );
     });
   });
 

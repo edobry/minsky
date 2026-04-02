@@ -133,7 +133,7 @@ describe("Session Merge Security Validation", () => {
         taskId: "task-123",
         repoUrl: "/test/repo",
         prBranch: "pr/test-session",
-        prApproved: "yes" as any, // Truthy but not boolean true!
+        prApproved: "yes" as unknown as boolean, // Truthy but not boolean true!
       };
 
       expect(() => {
@@ -286,7 +286,7 @@ describe("Session Merge Security Validation", () => {
         repoUrl: "/test/repo",
         prBranch: "pr/malicious-session",
         prApproved: { valueOf: () => true }, // Object that's truthy but not boolean true
-      } as any;
+      } as unknown as SessionRecord;
 
       expect(() => {
         validateSessionApprovedForMerge(maliciousSession, "malicious-session");
@@ -301,7 +301,7 @@ describe("Session Merge Security Validation", () => {
         repoUrl: "/test/repo",
         prBranch: null,
         prApproved: null,
-      } as any;
+      } as unknown as SessionRecord;
 
       expect(() => {
         validateSessionApprovedForMerge(edgeCaseSession, "edge-case-session");

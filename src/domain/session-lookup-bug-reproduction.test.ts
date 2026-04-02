@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
-import { createMock } from "../utils/test-utils/mocking";
+import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import { SESSION_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 import { log } from "../utils/logger";
 import {
@@ -30,6 +30,8 @@ import {
 } from "../utils/test-utils/dependencies";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 import type { SessionProviderInterface } from "./session";
+import type { SessionStartParams } from "../schemas/session";
+import type { WorkspaceUtilsInterface } from "./workspace";
 
 describe("Session Lookup Bug Reproduction (Task #168)", () => {
   // Static mock path to prevent environment dependencies
@@ -78,7 +80,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
     mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy as any,
+      addSession: addSessionSpy,
       deleteSession: () => Promise.resolve(true),
       getRepoPath: () => Promise.resolve("/mock/repo/path"),
       getSessionWorkdir: () => Promise.resolve("/mock/session/workdir"),
@@ -96,15 +98,15 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
     mockTaskService = createMockTaskService({
       getTask: () => Promise.resolve(null),
       listTasks: () => Promise.resolve([]),
-      createTask: (() => Promise.resolve()) as any,
       deleteTask: () => Promise.resolve(true),
-    } as any);
+    });
 
     // Mock workspace utilities
-    mockWorkspaceUtils = {
-      createWorkspaceStructure: mock(() => Promise.resolve()),
-      validateWorkspace: mock(() => Promise.resolve(true)),
-    };
+    mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isSessionWorkspace: () => false,
+      getCurrentSession: mock(async () => undefined),
+      getSessionFromWorkspace: mock(async () => undefined),
+    });
 
     mockResolveRepoPath = mock(() => Promise.resolve("/mock/repo/path"));
   });
@@ -129,16 +131,13 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // Act: Attempt to start session (should fail due to git error)
       let errorThrown = false;
       try {
-        await startSessionFromParams(
-          sessionParams as any,
-          {
-            sessionDB: mockSessionDB,
-            gitService: mockGitService,
-            taskService: mockTaskService,
-            workspaceUtils: mockWorkspaceUtils,
-            resolveRepoPath: mockResolveRepoPath,
-          } as any
-        );
+        await startSessionFromParams(sessionParams as unknown as SessionStartParams, {
+          sessionDB: mockSessionDB,
+          gitService: mockGitService,
+          taskService: mockTaskService,
+          workspaceUtils: mockWorkspaceUtils,
+          resolveRepoPath: mockResolveRepoPath,
+        });
       } catch (error) {
         errorThrown = true;
       }
@@ -153,9 +152,12 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       expect(mockFs.existsSync("/mock/sessions/test-bug-session")).toBe(true);
 
       // Assert: listSessions should return empty array (session not registered)
-      const sessions = await listSessionsFromParams({}, {
-        sessionDB: mockSessionDB,
-      } as any);
+      const sessions = await listSessionsFromParams(
+        {},
+        {
+          sessionDB: mockSessionDB,
+        }
+      );
       expect(sessions).toEqual([]);
     });
 
@@ -179,9 +181,12 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       expect(session).toBeNull();
 
       // And session doesn't appear in list
-      const sessions = await listSessionsFromParams({}, {
-        sessionDB: mockSessionDB,
-      } as any);
+      const sessions = await listSessionsFromParams(
+        {},
+        {
+          sessionDB: mockSessionDB,
+        }
+      );
       expect(sessions).toEqual([]);
     });
   });

@@ -14,14 +14,15 @@ const execInRepositoryMock = async () => {
 const hasUncommittedChangesMock = async () => hasUncommitted;
 const stashChangesMock = async (_workdir: string) => {
   stashCount++;
-  return { workdir: _workdir, stashed: true } as any;
+  return { workdir: _workdir, stashed: true };
 };
 const popStashMock = async (_workdir: string) => {
   popCount++;
-  return { workdir: _workdir, stashed: false } as any;
+  return { workdir: _workdir, stashed: false };
 };
 
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import type { TaskBackend, TaskBackendConfig } from "./types";
 
 const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/task-md#423";
 
@@ -58,7 +59,8 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
   });
 
   it("commits and pushes after creating a task from object (title/description)", async () => {
-    const backend: any = createMarkdownTaskBackend({
+    const backend: TaskBackend = createMarkdownTaskBackend({
+      name: "markdown",
       workspacePath: testWorkspace,
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),
@@ -66,12 +68,12 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
         stashChanges: async (wd: string) => stashChangesMock(wd),
         popStash: async (wd: string) => popStashMock(wd),
       },
-    } as any);
+    });
 
     const title = "Auto-commit test task";
     const description = "Ensure commit and push occur after creation";
 
-    const task = await (backend as any).createTask({ title, description });
+    const task = await backend.createTask!({ title, description });
 
     expect(task).toBeDefined();
     // Stash and restore should both have occurred
@@ -84,7 +86,8 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
   it("does not commit when there are no changes to commit", async () => {
     hasUncommitted = false;
 
-    const backend: any = createMarkdownTaskBackend({
+    const backend: TaskBackend = createMarkdownTaskBackend({
+      name: "markdown",
       workspacePath: testWorkspace,
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),
@@ -92,13 +95,13 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
         stashChanges: async (wd: string) => stashChangesMock(wd),
         popStash: async (wd: string) => popStashMock(wd),
       },
-    } as any);
+    });
 
     const title = "No-change commit suppression";
     const description = "No git commit should occur";
 
     execCount = 0;
-    await (backend as any).createTask({ title, description });
+    await backend.createTask!({ title, description });
 
     // No commit path implies at most staging attempts; allow <=1 exec (defensive), but ensure not >=3
     expect(execCount).toBeLessThan(3);

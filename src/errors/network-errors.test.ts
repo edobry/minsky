@@ -73,10 +73,10 @@ describe("Network Error handling", () => {
   describe("isNetworkError function", () => {
     test("should identify common network errors", () => {
       const eaddrinuseError = new Error("Address in use");
-      (eaddrinuseError as any).code = "EADDRINUSE";
+      (eaddrinuseError as NodeJS.ErrnoException).code = "EADDRINUSE";
 
       const eaccessError = new Error(GIT_TEST_PATTERNS.PERMISSION_DENIED);
-      (eaccessError as any).code = "EACCES";
+      (eaccessError as NodeJS.ErrnoException).code = "EACCES";
 
       const regularError = new Error("Regular error");
 
@@ -90,7 +90,7 @@ describe("Network Error handling", () => {
   describe("createNetworkError function", () => {
     test("should create a PortInUseError for EADDRINUSE errors", () => {
       const originalError = new Error("Address in use");
-      (originalError as any).code = "EADDRINUSE";
+      (originalError as NodeJS.ErrnoException).code = "EADDRINUSE";
 
       const networkError = createNetworkError(originalError, TEST_PORT);
 
@@ -100,7 +100,7 @@ describe("Network Error handling", () => {
 
     test("should create a NetworkPermissionError for EACCES errors", () => {
       const originalError = new Error(GIT_TEST_PATTERNS.PERMISSION_DENIED);
-      (originalError as any).code = "EACCES";
+      (originalError as NodeJS.ErrnoException).code = "EACCES";
 
       const networkError = createNetworkError(originalError, PRIVILEGED_PORT);
 
@@ -110,7 +110,7 @@ describe("Network Error handling", () => {
 
     test("should create a generic NetworkError for other errors", () => {
       const originalError = new Error("Some other error");
-      (originalError as any).code = "SOMETHING_ELSE";
+      (originalError as NodeJS.ErrnoException).code = "SOMETHING_ELSE";
 
       const networkError = createNetworkError(originalError, TEST_PORT);
 

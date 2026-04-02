@@ -24,11 +24,11 @@ describe("PostgresStorage Interface Completeness", () => {
 
     // Verify both methods exist on the interface
     expect(typeof storage.getEntity).toBe("function");
-    expect(typeof (storage as any).get).toBe("function"); // get() should exist
+    expect(typeof storage.get).toBe("function"); // get() should exist
 
     // Verify get() method signature matches expected interface
     expect(storage.getEntity.length).toBe(2); // (id, options?)
-    expect((storage as any).get.length).toBe(1); // (id)
+    expect(storage.get.length).toBe(1); // (id)
   });
 
   test("storage.get() returns DatabaseReadResult format expected by SessionDbAdapter", () => {
@@ -73,7 +73,7 @@ describe("PostgresStorage Interface Completeness", () => {
 
     // Verify all expected methods exist
     for (const method of expectedMethods) {
-      expect(typeof (mockStorage as any)[method]).toBe("function");
+      expect(typeof (mockStorage as Record<string, unknown>)[method]).toBe("function");
     }
   });
 });

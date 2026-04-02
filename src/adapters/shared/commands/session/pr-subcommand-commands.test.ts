@@ -98,16 +98,25 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const sessionImportSpy = spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"
-      ).mockImplementation(() => mockSessionProvider as any);
+      ).mockImplementation(
+        () =>
+          mockSessionProvider as unknown as ReturnType<
+            (typeof import("../../../../domain/session"))["createSessionProvider"]
+          >
+      );
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
         "resolveSessionContextWithFeedback"
-      ).mockImplementation(mockSessionResolver as any);
+      ).mockImplementation(
+        mockSessionResolver as unknown as (typeof import("../../../../domain/session/session-context-resolver"))["resolveSessionContextWithFeedback"]
+      );
 
       try {
         // Test the specific method that was fixed
-        const canRefresh = await (command as any).checkIfPrCanBeRefreshed({
+        const canRefresh = await (
+          command as unknown as { checkIfPrCanBeRefreshed: (params: unknown) => Promise<boolean> }
+        ).checkIfPrCanBeRefreshed({
           task: taskId,
           title: "fix: Test PR",
         });
@@ -135,12 +144,19 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const sessionImportSpy = spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"
-      ).mockImplementation(() => mockSessionProvider as any);
+      ).mockImplementation(
+        () =>
+          mockSessionProvider as unknown as ReturnType<
+            (typeof import("../../../../domain/session"))["createSessionProvider"]
+          >
+      );
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
         "resolveSessionContextWithFeedback"
-      ).mockImplementation(mockSessionResolver as any);
+      ).mockImplementation(
+        mockSessionResolver as unknown as (typeof import("../../../../domain/session/session-context-resolver"))["resolveSessionContextWithFeedback"]
+      );
 
       try {
         await expect(async () => {
@@ -173,7 +189,9 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const mockCurrentDir = mockWorkingDirectory;
 
       // Call the private method to test its current behavior
-      const canRefresh = await (command as any).checkIfPrCanBeRefreshed(params);
+      const canRefresh = await (
+        command as unknown as { checkIfPrCanBeRefreshed: (params: unknown) => Promise<boolean> }
+      ).checkIfPrCanBeRefreshed(params);
 
       // Currently this returns false because:
       // 1. params.name is undefined

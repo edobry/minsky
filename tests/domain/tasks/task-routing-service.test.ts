@@ -31,7 +31,7 @@ const mockTaskGraphService: TaskGraphService = {
   addDependency: async () => {},
   removeDependency: async () => {},
   getAllRelationships: async () => [],
-} as any;
+} as unknown as TaskGraphService;
 
 const mockTaskService: TaskServiceInterface = {
   listTasks: async (params?: any) => {
@@ -55,7 +55,7 @@ const mockTaskService: TaskServiceInterface = {
     const tasks = await mockTaskService.listTasks();
     return tasks.find((task) => task.id === taskId) || null;
   },
-} as any;
+} as unknown as TaskServiceInterface;
 
 describe("TaskRoutingService", () => {
   let routingService: TaskRoutingService;
@@ -171,7 +171,7 @@ describe("TaskRoutingService", () => {
 
           return allTasks;
         },
-      } as any;
+      } as unknown as TaskServiceInterface;
 
       const mtRoutingService = new TaskRoutingService(mockTaskGraphService, mockWithMtTasks);
 
@@ -276,7 +276,7 @@ describe("TaskRoutingService", () => {
           listDependenciesCallCount++;
           return mockTaskGraphService.listDependencies(taskId);
         },
-      } as any;
+      } as unknown as TaskGraphService;
 
       const perfRoutingService = new TaskRoutingService(mockGraphService, mockTaskService);
 
@@ -297,7 +297,7 @@ describe("TaskRoutingService", () => {
       const emptyTaskService = {
         listTasks: async () => [],
         getTask: async () => null,
-      } as any;
+      } as unknown as TaskServiceInterface;
 
       const emptyRoutingService = new TaskRoutingService(mockTaskGraphService, emptyTaskService);
       const availableTasks = await emptyRoutingService.findAvailableTasks();
@@ -311,7 +311,7 @@ describe("TaskRoutingService", () => {
         getRelationshipsForTasks: async () => [
           { fromTaskId: "task-x", toTaskId: "non-existent-task" },
         ],
-      } as any;
+      } as unknown as TaskGraphService;
 
       const mockServiceWithX = {
         ...mockTaskService,
@@ -321,7 +321,7 @@ describe("TaskRoutingService", () => {
             return { id: "task-x", title: "Task with missing dep", status: "TODO" };
           return null; // non-existent-task returns null
         },
-      } as any;
+      } as unknown as TaskServiceInterface;
 
       const routingService = new TaskRoutingService(mockWithMissingDeps, mockServiceWithX);
       const availableTasks = await routingService.findAvailableTasks();
@@ -341,7 +341,7 @@ describe("TaskRoutingService", () => {
           if (taskId === "task-y") return ["task-x"];
           return [];
         },
-      } as any;
+      } as unknown as TaskGraphService;
 
       const circularTaskService = {
         ...mockTaskService,
@@ -350,7 +350,7 @@ describe("TaskRoutingService", () => {
           if (id === "task-y") return { id: "task-y", title: "Circular Task Y", status: "TODO" };
           return null;
         },
-      } as any;
+      } as unknown as TaskServiceInterface;
 
       const circularRoutingService = new TaskRoutingService(
         circularGraphService,

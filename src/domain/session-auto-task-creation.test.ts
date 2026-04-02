@@ -6,6 +6,7 @@
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams, type SessionProviderInterface } from "./session";
+import type { SessionStartParams } from "../schemas/session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
@@ -53,8 +54,8 @@ describe("Session Auto-Task Creation", () => {
       deleteSession: () => Promise.resolve(true),
     });
 
-    // Mock git service using centralized factory
-    mockGitService = createMockGitService({
+    // Mock git service using createPartialMock for full control
+    mockGitService = createPartialMock<GitServiceInterface>({
       clone: () =>
         Promise.resolve({
           session: "test-session",
@@ -63,14 +64,12 @@ describe("Session Auto-Task Creation", () => {
           branch: "test-session",
           workdir: "/test/workdir",
         }),
+      branchWithoutSession: () =>
+        Promise.resolve({
+          branch: "test-session",
+          workdir: "/test/workdir",
+        }),
     });
-
-    // Add the branchWithoutSession method that's not in our centralized factory
-    (mockGitService as any).branchWithoutSession = () =>
-      Promise.resolve({
-        branch: "test-session",
-        workdir: "/test/workdir",
-      });
 
     // Mock task service using centralized factory with proper task creation mock
     mockTaskService = createMockTaskService({
@@ -87,15 +86,13 @@ describe("Session Auto-Task Creation", () => {
         }),
       deleteTask: () => Promise.resolve(true),
       getBackendForTask: () => Promise.resolve("markdown"),
+      getTask: () =>
+        Promise.resolve({
+          id: "md#001", // Use qualified format to match expectations
+          title: "Test Task",
+          status: "TODO",
+        }),
     });
-
-    // Add the getTask method that's not in our centralized factory
-    (mockTaskService as any).getTask = () =>
-      Promise.resolve({
-        id: "md#001", // Use qualified format to match expectations
-        title: "Test Task",
-        status: "TODO",
-      });
 
     // Mock workspace utils using createPartialMock since we don't have a centralized factory for this
     mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
@@ -120,7 +117,7 @@ describe("Session Auto-Task Creation", () => {
       // No taskId or sessionName provided - both should be auto-generated
     };
 
-    const result = await startSessionFromParams(params as any, {
+    const result = await startSessionFromParams(params as unknown as SessionStartParams, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
@@ -140,7 +137,7 @@ describe("Session Auto-Task Creation", () => {
       // sessionName will be auto-generated from taskId
     };
 
-    await startSessionFromParams(params as any, {
+    await startSessionFromParams(params as unknown as SessionStartParams, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
@@ -160,7 +157,7 @@ describe("Session Auto-Task Creation", () => {
       // No task provided - should auto-create from description
     };
 
-    const result = await startSessionFromParams(params as any, {
+    const result = await startSessionFromParams(params as unknown as SessionStartParams, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,

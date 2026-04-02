@@ -71,13 +71,16 @@ describe("RuleTemplateService", () => {
       description: "List all tasks",
       parameters: {
         status: {
-          schema: { type: "string", enum: ["TODO", "IN_PROGRESS", "DONE"] } as any,
+          schema: {
+            type: "string",
+            enum: ["TODO", "IN_PROGRESS", "DONE"],
+          } as unknown as import("zod").ZodTypeAny,
           description: "Filter by task status",
           required: false,
           defaultValue: undefined,
         },
         all: {
-          schema: { type: "boolean" } as any,
+          schema: { type: "boolean" } as unknown as import("zod").ZodTypeAny,
           description: "Include all tasks (including completed)",
           required: false,
           defaultValue: false,
@@ -469,7 +472,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(cliResult.success).toBe(true);
-      const cliRule = cliResult.rules[0] as any;
+      const cliRule = cliResult.rules[0] as unknown as Record<string, unknown>;
       expect(cliRule!.globs).toEqual(["**/*.cli.ts"]);
       expect(cliRule!.alwaysApply).toBe(true);
       expect(cliRule!.tags).toContain("cli");
@@ -483,7 +486,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(mcpResult.success).toBe(true);
-      const mcpRule = mcpResult.rules[0] as any;
+      const mcpRule = mcpResult.rules[0] as unknown as Record<string, unknown>;
       expect(mcpRule!.globs).toEqual(["**/*.mcp.ts"]);
       expect(mcpRule!.alwaysApply).toBe(false);
       expect(mcpRule!.tags).toContain("mcp");

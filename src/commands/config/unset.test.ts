@@ -6,6 +6,7 @@
 
 import { describe, test, expect, mock } from "bun:test";
 import { executeConfigUnset, type ConfigUnsetDependencies } from "./unset";
+import { createConfigWriter } from "../../domain/configuration/config-writer";
 import { TEST_PATHS, ERROR_MESSAGES } from "../../utils/test-utils/test-constants";
 
 describe("config unset command", () => {
@@ -26,7 +27,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -60,7 +61,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -90,7 +91,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -117,7 +118,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -150,7 +151,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -191,7 +192,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -223,7 +224,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -248,7 +249,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },
@@ -277,7 +278,7 @@ describe("config unset command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigUnsetDependencies = {
-      createConfigWriter: mockCreateConfigWriter as any,
+      createConfigWriter: mockCreateConfigWriter as unknown as typeof createConfigWriter,
       console: {
         log: mockConsoleLog,
       },

@@ -78,15 +78,15 @@ const mockTaskService = {
     return Promise.resolve(null);
   }),
   setTaskStatus: mock(() => Promise.resolve()),
-  backends: [] as any,
-  currentBackend: {} as any,
+  backends: [] as unknown[],
+  currentBackend: {} as Record<string, unknown>,
   getWorkspacePath: mock(() => "/mock/workspace/path"),
   createTask: mock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "md#new" })),
 };
 
 const mockResolveRepoPath = mock(() => Promise.resolve("/mock/repo/path"));
 const mockResolveWorkspacePath = mock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = mock((options: any) => Promise.resolve(mockTaskService as any));
+const mockCreateTaskService = mock((_options: unknown) => Promise.resolve(mockTaskService));
 
 // Type assertion for mock dependencies
 const mockDeps = {
@@ -95,7 +95,7 @@ const mockDeps = {
   createConfiguredTaskService: mockCreateTaskService,
   resolveMainWorkspacePath: mock(() => Promise.resolve("/test/workspace/path")),
   resolveTaskWorkspacePath: mock(() => Promise.resolve("/mock/task/workspace/path")),
-} as any; // Cast to any to avoid TypeScript errors with the deps parameter
+} as unknown as Record<string, unknown>;
 
 describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRITE", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
@@ -127,7 +127,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
 
       // Mock should implement the same filtering logic as the real TaskService
       mockTaskService.listTasks = mock((options = {}) => {
-        if (!(options as any).all) {
+        if (!(options as Record<string, unknown>).all) {
           return Promise.resolve(
             allTasks.filter(
               (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
@@ -247,7 +247,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
     test("should throw ValidationError when status is invalid", async () => {
       const params = {
         taskId: "123",
-        status: "INVALID-STATUS" as any,
+        status: "INVALID-STATUS" as unknown as string,
         backend: "markdown",
       };
 

@@ -4,39 +4,39 @@
  * prevents the "status is not defined" error from recurring.
  */
 
-import { TASK_PARSING_UTILS } from "./tasks/taskConstants";
+import { TASK_PARSING_UTILS, TaskStatus } from "./tasks/taskConstants";
 
 describe("Task Status Bug Regression Tests", () => {
   describe("TASK_PARSING_UTILS.getCheckboxFromStatus", () => {
     test("should return correct checkbox for TODO status", () => {
-      const result = TASK_PARSING_UTILS.getCheckboxFromStatus("TODO" as any);
+      const result = TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.TODO);
       expect(result)!.toBe(" ");
     });
 
     test("should return correct checkbox for IN-PROGRESS status", () => {
-      const result = TASK_PARSING_UTILS.getCheckboxFromStatus("IN-PROGRESS" as any);
+      const result = TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.IN_PROGRESS);
       expect(result)!.toBe("+");
     });
 
     test("should return correct checkbox for IN-REVIEW status", () => {
-      const result = TASK_PARSING_UTILS.getCheckboxFromStatus("IN-REVIEW" as any);
+      const result = TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.IN_REVIEW);
       expect(result)!.toBe("-");
     });
 
     test("should return correct checkbox for DONE status", () => {
-      const result = TASK_PARSING_UTILS.getCheckboxFromStatus("DONE" as any);
+      const result = TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.DONE);
       expect(result)!.toBe("x");
     });
 
     test("should return correct checkbox for BLOCKED status", () => {
-      const result = TASK_PARSING_UTILS.getCheckboxFromStatus("BLOCKED" as any);
+      const result = TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.BLOCKED);
       expect(result)!.toBe("~");
     });
 
     test("should not throw 'status is not defined' error", () => {
       // This test ensures the parameter naming issue is fixed
       expect(() => {
-        TASK_PARSING_UTILS.getCheckboxFromStatus("TODO" as any);
+        TASK_PARSING_UTILS.getCheckboxFromStatus(TaskStatus.TODO);
       }).not.toThrow("status is not defined");
     });
   });
@@ -48,7 +48,7 @@ describe("Task Status Bug Regression Tests", () => {
       // This should not throw any "status is not defined" errors
       expect(() => {
         for (const status of statuses) {
-          const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(status as any);
+          const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(status as TaskStatus);
           expect(typeof checkbox).toBe("string");
           expect(checkbox.length).toBe(1);
         }

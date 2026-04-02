@@ -1,12 +1,13 @@
 import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createPartialMock } from "../utils/test-utils/mocking";
 import {
   createMockSessionProvider,
   createMockGitService,
   createMockTaskService,
 } from "../utils/test-utils/dependencies";
+import type { TaskServiceInterface } from "./tasks/taskService";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 const TEST_VALUE = 123;
@@ -15,8 +16,7 @@ const TEST_ARRAY_SIZE = 3;
 describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
-    let getSessionSpy = mock();
-    getSessionSpy = mock((name: unknown) =>
+    const getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "123",
@@ -27,13 +27,11 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionWorkdirSpy = mock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    const getSessionWorkdirSpy = mock((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
-    let execInRepositorySpy = mock();
-    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
+    const execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/testSession");
@@ -50,32 +48,32 @@ describe("sessionReviewFromParams", () => {
       return Promise.resolve("");
     });
 
-    let getTaskSpecDataSpy = mock();
-    getTaskSpecDataSpy = mock(() =>
+    const getTaskSpecDataSpy = mock(() =>
       Promise.resolve({ title: "Test Task", description: "Test description" })
     );
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy as any,
+      getSession: getSessionSpy,
       getSessionWorkdir: getSessionWorkdirSpy as any,
     });
 
     const mockGitService = createMockGitService({
-      execInRepository: execInRepositorySpy as any,
+      execInRepository: execInRepositorySpy,
     });
 
-    const mockTaskService = createMockTaskService({});
-
-    // Add getTaskSpecData method not covered by centralized factory
-    (mockTaskService as any).getTaskSpecData = getTaskSpecDataSpy;
+    const mockTaskService = createPartialMock<
+      TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
+    >({
+      ...createMockTaskService({}),
+      getTaskSpecData: getTaskSpecDataSpy,
+    });
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = mock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
+    const getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -86,7 +84,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test the sessionReview functionality
-    const result = await sessionReviewFromParams({ session: "testSession" }, deps);
+    const result = await sessionReviewFromParams({ session: "testSession" }, deps as any);
 
     // Verify calls with individual spies
     expect(getSessionSpy).toHaveBeenCalledWith("testSession");
@@ -100,8 +98,7 @@ describe("sessionReviewFromParams", () => {
 
   test("reviews session by task ID", async () => {
     // Create trackable spies for methods we need to verify
-    let getSessionByTaskIdSpy = mock();
-    getSessionByTaskIdSpy = mock((taskId: unknown) =>
+    const getSessionByTaskIdSpy = mock((taskId: unknown) =>
       Promise.resolve({
         session: "task123",
         taskId: taskId as string,
@@ -112,8 +109,7 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionSpy = mock();
-    getSessionSpy = mock((name: unknown) =>
+    const getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "123",
@@ -124,13 +120,11 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionWorkdirSpy = mock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    const getSessionWorkdirSpy = mock((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
-    let execInRepositorySpy = mock();
-    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
+    const execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/task123");
@@ -149,28 +143,29 @@ describe("sessionReviewFromParams", () => {
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy as any,
-      getSessionByTaskId: getSessionByTaskIdSpy as any,
+      getSession: getSessionSpy,
+      getSessionByTaskId: getSessionByTaskIdSpy,
       getSessionWorkdir: getSessionWorkdirSpy as any,
     });
 
     const mockGitService = createMockGitService({
-      execInRepository: execInRepositorySpy as any,
+      execInRepository: execInRepositorySpy,
     });
 
-    const mockTaskService = createMockTaskService({});
-
-    // Add getTaskSpecData method not covered by centralized factory
-    (mockTaskService as any).getTaskSpecData = mock(() =>
-      Promise.resolve({ title: "Test Task", description: "Test description" })
-    );
+    const mockTaskService = createPartialMock<
+      TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
+    >({
+      ...createMockTaskService({}),
+      getTaskSpecData: mock(() =>
+        Promise.resolve({ title: "Test Task", description: "Test description" })
+      ),
+    });
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = mock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
+    const getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -181,7 +176,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test by task ID
-    const result = await sessionReviewFromParams({ task: "md#123" }, deps);
+    const result = await sessionReviewFromParams({ task: "md#123" }, deps as any);
 
     // Verify calls with individual spies
     expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("md#123");
@@ -206,8 +201,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = mock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
+    const getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -219,7 +213,7 @@ describe("sessionReviewFromParams", () => {
 
     // Test error case
     try {
-      await sessionReviewFromParams({ repo: "/test/repo/path" }, deps);
+      await sessionReviewFromParams({ repo: "/test/repo/path" }, deps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
@@ -246,12 +240,12 @@ describe("sessionReviewFromParams", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      getCurrentSession: mock(() => Promise.resolve("testSession")) as any,
+      getCurrentSession: mock(() => Promise.resolve("testSession")),
     };
 
     // Test with non-existent session
     try {
-      await sessionReviewFromParams({ session: "non-existent-session" }, deps);
+      await sessionReviewFromParams({ session: "non-existent-session" }, deps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {

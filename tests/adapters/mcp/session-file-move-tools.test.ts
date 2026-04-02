@@ -7,6 +7,7 @@ import {
   registerSessionFileTools,
   SessionPathResolver,
 } from "../../../src/adapters/mcp/session-files";
+import type { CommandMapper } from "../../../src/mcp/command-mapper";
 
 describe("Session File Move Tools Integration", () => {
   beforeEach(() => {
@@ -27,13 +28,13 @@ describe("Session File Move Tools Integration", () => {
   test("registerSessionFileTools registers move and rename commands", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
     // Register the tools
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Check that our new commands were registered
     const commandNames = registeredCommands.map((cmd) => cmd.name);
@@ -58,12 +59,12 @@ describe("Session File Move Tools Integration", () => {
   test("command parameters validation works correctly", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Test session_move_file parameters
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -98,12 +99,12 @@ describe("Session File Move Tools Integration", () => {
   test("parameter validation rejects invalid data", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Test invalid move command parameters (missing required fields)
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -133,12 +134,12 @@ describe("Session File Move Tools Integration", () => {
   test("default parameter values are set correctly", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Test session_move_file default values
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -188,12 +189,12 @@ describe("Session File Move Tools Integration", () => {
   test("move file command handler calls correct operations", async () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Get the move command handler
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -222,12 +223,12 @@ describe("Session File Move Tools Integration", () => {
   test("rename file command handler calls correct operations", async () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
-      addCommand: mock((command: any) => {
+      addCommand: mock((command: unknown) => {
         registeredCommands.push(command);
       }),
     };
 
-    registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as unknown as CommandMapper);
 
     // Get the rename command handler
     const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");

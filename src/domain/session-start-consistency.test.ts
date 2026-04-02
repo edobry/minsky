@@ -24,12 +24,12 @@ describe("Session Start Consistency Tests", () => {
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
-  let mockResolveRepoPath: any;
+  let mockResolveRepoPath: ReturnType<typeof mock>;
 
   // Create individual spies for call tracking
-  let gitCloneSpy: any;
-  let gitBranchWithoutSessionSpy: any;
-  let sessionAddSpy: any;
+  let gitCloneSpy: ReturnType<typeof mock>;
+  let gitBranchWithoutSessionSpy: ReturnType<typeof mock>;
+  let sessionAddSpy: ReturnType<typeof mock>;
 
   beforeEach(() => {
     // Create centralized mocks with default successful responses
@@ -100,7 +100,7 @@ describe("Session Start Consistency Tests", () => {
           rm: async () => {
             /* no-op */
           },
-        } as any,
+        },
       });
 
       // Assert - verify call order by checking that git operations were called first
@@ -137,7 +137,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("destination path already exists");
 
@@ -166,7 +166,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("failed to create branch");
 
@@ -195,7 +195,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("git operation failed");
 
@@ -235,7 +235,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("Session 'task-md#160' already exists");
 
@@ -276,7 +276,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("A session for task md#160 already exists");
 
@@ -306,7 +306,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow(ResourceNotFoundError);
 
@@ -340,7 +340,7 @@ describe("Session Start Consistency Tests", () => {
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         })
       ).rejects.toThrow("fatal: destination path");
 
@@ -371,7 +371,7 @@ describe("Session Start Consistency Tests", () => {
         fs: {
           exists: () => false,
           rm: async () => {},
-        } as any,
+        },
       });
 
       // Assert - verify session was properly added to database

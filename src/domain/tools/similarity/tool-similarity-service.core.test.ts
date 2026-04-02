@@ -18,7 +18,9 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
 
   beforeEach(() => {
     // Force embeddings backend to be unavailable so core uses lexical backend
-    (EmbeddingsSimilarityBackend as any).prototype.isAvailable = async () => false;
+    (
+      EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: () => Promise<boolean> }
+    ).isAvailable = async () => false;
   });
 
   it("searchByText returns top-k ordered results via core", async () => {

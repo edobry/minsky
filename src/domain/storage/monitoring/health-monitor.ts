@@ -312,23 +312,24 @@ export class SessionDbHealthMonitor {
       try {
         // Check server version
         const versionResult = await sql`SELECT version()`;
-        status.details!.serverVersion = versionResult[0].version;
+        // These are single-row aggregate queries — [0]! is safe
+        status.details!.serverVersion = versionResult[0]!.version;
 
         // Check connection count
         const connectionsResult = await sql`
           SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'
         `;
-        status.details!.activeConnections = parseInt(connectionsResult[0].active_connections);
+        status.details!.activeConnections = parseInt(connectionsResult[0]!.active_connections);
 
         // Check database size
         const sizeResult = await sql`
           SELECT pg_size_pretty(pg_database_size(current_database())) as size
         `;
-        status.details!.databaseSize = sizeResult[0].size;
+        status.details!.databaseSize = sizeResult[0]!.size;
 
         // Check for locks
         const locksResult = await sql`SELECT count(*) as locks FROM pg_locks WHERE NOT granted`;
-        const lockCount = parseInt(locksResult[0].locks);
+        const lockCount = parseInt(locksResult[0]!.locks);
         status.details!.blockedQueries = lockCount;
 
         if (lockCount > 0) {

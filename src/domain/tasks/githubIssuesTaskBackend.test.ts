@@ -5,6 +5,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { TaskStatus } from "./taskConstants";
 
 // Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
@@ -110,7 +111,7 @@ describe("GitHubIssuesTaskBackend", () => {
       expect(tasks[0]?.id).toBe("gh#001");
       expect(tasks[0]?.title).toBe("Test Issue #001");
       expect(tasks[0]?.description).toBe("Test description");
-      expect(tasks[0]?.status).toBe("TODO" as any);
+      expect(tasks[0]?.status).toBe(TaskStatus.TODO);
     });
 
     test("should handle invalid JSON gracefully", () => {
@@ -154,8 +155,8 @@ describe("GitHubIssuesTaskBackend", () => {
       const tasks = backend.parseTasks(issuesJson);
 
       expect(tasks).toHaveLength(2);
-      expect(tasks[0]?.status).toBe("TODO" as any);
-      expect(tasks[1]?.status).toBe("DONE" as any);
+      expect(tasks[0]?.status).toBe(TaskStatus.TODO);
+      expect(tasks[1]?.status).toBe(TaskStatus.DONE);
     });
   });
 
@@ -166,7 +167,7 @@ describe("GitHubIssuesTaskBackend", () => {
           id: "#001",
           title: "Test Task",
           description: "Test description",
-          status: "TODO" as any,
+          status: TaskStatus.TODO,
           specPath: PATH_TEST_PATTERNS.TASK_MD_001,
         },
       ];

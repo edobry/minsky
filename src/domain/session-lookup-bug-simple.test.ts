@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { startSessionFromParams } from "./session";
+import type { SessionStartParams } from "../schemas/session";
 import { getSessionDir } from "../utils/paths";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
@@ -84,11 +85,11 @@ describe("Session Creation Bug Fix (TDD)", () => {
           name: "test-session",
           repo: "https://github.com/test/repo.git",
           branch: "main",
-        } as any,
+        } as unknown as SessionStartParams,
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
-        } as any
+        } as unknown as Parameters<typeof startSessionFromParams>[1]
       );
     } catch (error) {
       errorThrown = true;
@@ -135,11 +136,11 @@ describe("Session Creation Bug Fix (TDD)", () => {
           name: "test-partial-session",
           repo: "https://github.com/test/repo.git",
           branch: "main",
-        } as any,
+        } as unknown as SessionStartParams,
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
-        } as any
+        } as unknown as Parameters<typeof startSessionFromParams>[1]
       );
     } catch (error) {
       errorThrown = true;

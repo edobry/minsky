@@ -2,19 +2,27 @@ import { describe, it, expect, beforeEach, mock } from "bun:test";
 const vi = { fn: mock };
 import { startSessionImpl, type StartSessionDependencies } from "./start-session-operations";
 import type { SessionStartParameters } from "../../domain/schemas";
+import { createPartialMock } from "../../utils/test-utils/mocking";
+import type { SessionProviderInterface, SessionRecord } from "../session";
+import type { GitServiceInterface } from "../git";
+import type { TaskServiceInterface } from "../tasks/taskService";
+import type { WorkspaceUtilsInterface } from "../workspace";
 
-function createDeps(repoUrl: string): StartSessionDependencies {
-  const sessionDB = {
-    addSession: vi.fn(async () => {}),
-    deleteSession: vi.fn(async () => {}),
+function createDeps(repoUrl: string): StartSessionDependencies & {
+  addSessionSpy: ReturnType<typeof mock>;
+} {
+  const addSessionSpy = vi.fn(async (_record: SessionRecord) => {});
+  const sessionDB = createPartialMock<SessionProviderInterface>({
+    addSession: addSessionSpy,
+    deleteSession: vi.fn(async () => true),
     getSession: vi.fn(async () => null),
     listSessions: vi.fn(async () => []),
-  } as any;
-  const gitService = {
+  });
+  const gitService = createPartialMock<GitServiceInterface>({
     clone: vi.fn(async () => ({ workdir: "/tmp/work", session: "task-md#x" })),
     branchWithoutSession: vi.fn(async () => ({ workdir: "/tmp/work", branch: "task-md#x" })),
-  } as any;
-  const taskService = {
+  });
+  const taskService = createPartialMock<TaskServiceInterface>({
     getTaskStatus: vi.fn(async () => "TODO"),
     setTaskStatus: vi.fn(async () => {}),
     createTaskFromTitleAndSpec: vi.fn(async (t: string, d: string) => ({
@@ -23,10 +31,10 @@ function createDeps(repoUrl: string): StartSessionDependencies {
       description: d,
     })),
     getTask: vi.fn(async () => ({ id: "md#999" })),
-  } as any;
-  const workspaceUtils = {
-    isSessionWorkspace: vi.fn(async () => false),
-  } as any;
+  });
+  const workspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+    isSessionWorkspace: () => false,
+  });
   const resolveRepositoryAndBackend = vi.fn(
     async (options?: { repoParam?: string; cwd?: string }) => {
       const backendType =
@@ -44,23 +52,24 @@ function createDeps(repoUrl: string): StartSessionDependencies {
     taskService,
     workspaceUtils,
     resolveRepositoryAndBackend,
-  } as StartSessionDependencies;
+    addSessionSpy,
+  } as unknown as StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> };
 }
 
 describe("startSessionImpl - backendType", () => {
   it("sets backendType=github for GitHub URLs", async () => {
     const deps = createDeps("https://github.com/owner/repo.git");
-    const params: SessionStartParameters = { task: "md#999" } as any;
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
     await startSessionImpl(params, deps);
-    const added = (deps.sessionDB.addSession as any).mock.calls[0][0];
+    const added = deps.addSessionSpy.mock.calls[0]![0] as SessionRecord;
     expect(added.backendType).toBe("github");
   });
 
   it("sets backendType=local for local paths", async () => {
     const deps = createDeps("/Users/test/Projects/repo");
-    const params: SessionStartParameters = { task: "md#999" } as any;
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
     await startSessionImpl(params, deps);
-    const added = (deps.sessionDB.addSession as any).mock.calls[0][0];
+    const added = deps.addSessionSpy.mock.calls[0]![0] as SessionRecord;
     expect(added.backendType).toBe("local");
   });
 });

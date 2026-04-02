@@ -10,6 +10,20 @@ import {
 import type { SessionRecord } from "../../domain/session";
 import { TEST_DESC_PATTERNS } from "./test-constants";
 import type { Task } from "../../domain/tasks";
+import type { GitServiceInterface } from "../../domain/git";
+import type { TaskServiceInterface } from "../../domain/tasks/taskService";
+
+// Extended types for internal mock properties
+type MockGitServiceWithCallCount = GitServiceInterface & {
+  getGitCallCount: () => number;
+  resetGitCallCount: () => void;
+};
+
+type MockTaskServiceWithInternals = TaskServiceInterface & {
+  backends: string[];
+  currentBackend: string;
+  getWorkspacePath: () => string;
+};
 
 describe("Individual Service Mock Factories", () => {
   describe("createMockSessionProvider", () => {
@@ -129,16 +143,16 @@ describe("Individual Service Mock Factories", () => {
     test("tracks git call count", async () => {
       const mockService = createMockGitService();
 
-      expect((mockService as any).getGitCallCount()).toBe(0);
+      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
 
       await mockService.execInRepository("/test", "status");
-      expect((mockService as any).getGitCallCount()).toBe(1);
+      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(1);
 
       await mockService.execInRepository("/test", "log");
-      expect((mockService as any).getGitCallCount()).toBe(2);
+      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(2);
 
-      (mockService as any).resetGitCallCount();
-      expect((mockService as any).getGitCallCount()).toBe(0);
+      (mockService as MockGitServiceWithCallCount).resetGitCallCount();
+      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
@@ -213,9 +227,11 @@ describe("Individual Service Mock Factories", () => {
         getWorkspacePath: () => "/custom/workspace",
       });
 
-      expect((mockService as any).backends).toEqual(["markdown", "json"]);
-      expect((mockService as any).currentBackend).toBe("json");
-      expect((mockService as any).getWorkspacePath()).toBe("/custom/workspace");
+      expect((mockService as MockTaskServiceWithInternals).backends).toEqual(["markdown", "json"]);
+      expect((mockService as MockTaskServiceWithInternals).currentBackend).toBe("json");
+      expect((mockService as MockTaskServiceWithInternals).getWorkspacePath()).toBe(
+        "/custom/workspace"
+      );
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
@@ -261,8 +277,8 @@ describe("Individual Service Mock Factories", () => {
     test("handles empty options", async () => {
       const mockService = createMockTaskService({});
       expect(await mockService.listTasks()).toEqual([]);
-      expect((mockService as any).backends).toEqual([]);
-      expect((mockService as any).currentBackend).toBe("test");
+      expect((mockService as MockTaskServiceWithInternals).backends).toEqual([]);
+      expect((mockService as MockTaskServiceWithInternals).currentBackend).toBe("test");
     });
   });
 

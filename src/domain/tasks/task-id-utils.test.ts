@@ -28,9 +28,9 @@ describe("Task ID Utilities - STRICT QUALIFIED IDs ONLY", () => {
     });
 
     test("should handle invalid input", () => {
-      expect(validateQualifiedTaskId(null as any)).toBeNull();
-      expect(validateQualifiedTaskId(undefined as any)).toBeNull();
-      expect(validateQualifiedTaskId(123 as any)).toBeNull();
+      expect(validateQualifiedTaskId(null as unknown as string)).toBeNull();
+      expect(validateQualifiedTaskId(undefined as unknown as string)).toBeNull();
+      expect(validateQualifiedTaskId(123 as unknown as string)).toBeNull();
     });
   });
 
@@ -50,8 +50,8 @@ describe("Task ID Utilities - STRICT QUALIFIED IDs ONLY", () => {
 
     test("should handle invalid input", () => {
       expect(formatTaskIdForDisplay("")).toBe("");
-      expect(formatTaskIdForDisplay(null as any)).toBe("");
-      expect(formatTaskIdForDisplay(undefined as any)).toBe("");
+      expect(formatTaskIdForDisplay(null as unknown as string)).toBe("");
+      expect(formatTaskIdForDisplay(undefined as unknown as string)).toBe("");
     });
   });
 
@@ -92,8 +92,8 @@ describe("Task ID Utilities - STRICT QUALIFIED IDs ONLY", () => {
     });
 
     test("should handle invalid input", () => {
-      expect(getTaskIdNumber(null as any)).toBeNull();
-      expect(getTaskIdNumber(undefined as any)).toBeNull();
+      expect(getTaskIdNumber(null as unknown as string)).toBeNull();
+      expect(getTaskIdNumber(undefined as unknown as string)).toBeNull();
     });
   });
 

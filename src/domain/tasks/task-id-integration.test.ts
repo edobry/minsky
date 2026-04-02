@@ -5,7 +5,7 @@
  * instead of executing CLI commands, following proper testing architecture.
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { setupTestMocks } from "../../utils/test-utils/mocking";
+import { setupTestMocks, createPartialMock } from "../../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 import {
   createMockTaskService,
@@ -17,7 +17,9 @@ import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
 import { startSessionFromParams } from "../session";
-import { createConfiguredTaskService } from "./taskService";
+import { createConfiguredTaskService, type TaskServiceInterface } from "./taskService";
+import type { SessionProviderInterface } from "../session";
+import type { WorkspaceUtilsInterface } from "../workspace";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -74,7 +76,8 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       const tasks = await listTasksFromParams(
         { all: true },
         {
-          createConfiguredTaskService: async () => mockTaskService as any,
+          createConfiguredTaskService: async () =>
+            mockTaskService as unknown as TaskServiceInterface,
           resolveMainWorkspacePath: async () => "/test/workspace",
         }
       );
@@ -122,25 +125,25 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
 
   describe("Session Operations with Qualified Task IDs", () => {
     test("should start session with qualified task ID", async () => {
-      const mockSessionDB = {
+      const addSessionSpy = mock(async (record: unknown) => record);
+
+      const mockSessionDB = createPartialMock<SessionProviderInterface>({
         getSession: mock(async () => null), // No existing session
-        addSession: mock(async (record: any) => record),
+        addSession: addSessionSpy as any,
         updateSession: mock(async () => {}),
         deleteSession: mock(async () => true),
         listSessions: mock(async () => []),
-        getRepoPath: mock(() => "/test/sessions"),
-      };
+      });
 
       const mockGitService = createMockGitService();
       const mockTaskService = createMockTaskService();
 
-      const mockWorkspaceUtils = {
-        isSessionWorkspace: mock(async () => false),
-        getCurrentSession: mock(async () => null),
-        resolveWorkspacePath: mock(() => "/test/workspace"),
-        getSessionFromWorkspace: mock(async () => null),
-        isSessionRepository: mock(async () => false),
-      };
+      const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+        isSessionWorkspace: () => false,
+        getCurrentSession: mock(async () => undefined),
+        resolveWorkspacePath: mock(async () => "/test/workspace"),
+        getSessionFromWorkspace: mock(async () => undefined),
+      });
 
       // Test session start with qualified task ID
       const session = await startSessionFromParams(
@@ -150,16 +153,16 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           repo: "test-repo",
         } as any,
         {
-          sessionDB: mockSessionDB as any,
-          gitService: mockGitService as any,
-          taskService: mockTaskService as any,
-          workspaceUtils: mockWorkspaceUtils as any,
+          sessionDB: mockSessionDB,
+          gitService: mockGitService,
+          taskService: mockTaskService,
+          workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: (async () => "/test/repo") as any,
           // Inject fs adapter to avoid real fs ops
           fs: {
             exists: () => false,
             rm: async () => {},
-          } as any,
+          },
         }
       );
 
@@ -167,10 +170,10 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       expect(session).toBeDefined();
       expect(session.session).toBe("test-md999-integration");
       expect(session.taskId).toBe("md#999");
-      expect(mockSessionDB.addSession).toHaveBeenCalled();
+      expect(addSessionSpy).toHaveBeenCalled();
 
       // Verify the session record contains the qualified task ID
-      const addSessionCall = (mockSessionDB.addSession as any).mock.calls[0][0];
+      const addSessionCall = addSessionSpy.mock.calls[0]![0] as { taskId: string };
       expect(addSessionCall.taskId).toBe("md#999");
     });
   });

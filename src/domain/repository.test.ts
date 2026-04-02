@@ -13,9 +13,9 @@ describe("Repository backends", () => {
 
   test("RepositoryBackendType enum has all three backend types", () => {
     const values = Object.values(RepositoryBackendType);
-    expect(values).toContain("local" as any);
-    expect(values).toContain("remote" as any);
-    expect(values).toContain("github" as any);
+    expect(values).toContain("local");
+    expect(values).toContain("remote");
+    expect(values).toContain("github");
     expect(values.length).toBe(3);
   });
 

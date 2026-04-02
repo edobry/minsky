@@ -9,13 +9,10 @@
 
 import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createPartialMock } from "../utils/test-utils/mocking";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../utils/test-utils/dependencies";
+import { createMockSessionProvider, createMockTaskService } from "../utils/test-utils/dependencies";
+import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 describe("Session Git Clone Bug Regression Test", () => {
@@ -23,11 +20,9 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Arrange - Simulate the exact error scenario that caused the bug using centralized factories
 
     // Create trackable spies for methods we need to verify
-    let addSessionSpy = createMock();
-    addSessionSpy = mock(() => Promise.resolve(undefined));
+    const addSessionSpy = mock(() => Promise.resolve());
 
-    let cloneSpy = createMock();
-    cloneSpy = mock(() =>
+    const cloneSpy = mock(() =>
       Promise.reject(
         new Error(
           "fatal: destination path 'task-md#160' already exists and is not an empty directory"
@@ -35,32 +30,30 @@ describe("Session Git Clone Bug Regression Test", () => {
       )
     );
 
-    let branchSpy = createMock();
-    branchSpy = mock(() =>
+    const branchSpy = mock(() =>
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy as any,
+      addSession: addSessionSpy,
       deleteSession: () => Promise.resolve(true),
     });
 
-    // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
-
-    const mockGitService = createMockGitService({
-      clone: cloneSpy as any,
+    const mockGitService = createPartialMock<GitServiceInterface>({
+      clone: cloneSpy,
+      branchWithoutSession: branchSpy,
+      branch: mock(() =>
+        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+      ),
+      execInRepository: mock(() => Promise.resolve("")),
+      getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),
     });
 
-    // Add branchWithoutSession method not covered by centralized factory
-    (mockGitService as any).branchWithoutSession = branchSpy;
-
-    const mockTaskService = createMockTaskService();
-
-    // Add getTask method not covered by centralized factory
-    (mockTaskService as any).getTask = () => Promise.resolve({ id: "md#160", title: "Test Task" });
+    const mockTaskService = createMockTaskService({
+      getTask: () => Promise.resolve({ id: "md#160", title: "Test Task", status: "TODO" }),
+    });
 
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
@@ -102,42 +95,38 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Arrange - Now simulate successful scenario after cleanup
 
     // Create trackable spies for methods we need to verify
-    let addSessionSpy = createMock();
-    addSessionSpy = mock(() => Promise.resolve(undefined));
+    const addSessionSpy = mock(() => Promise.resolve());
 
-    let cloneSpy = createMock();
-    cloneSpy = mock(() =>
+    const cloneSpy = mock(() =>
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" })
     );
 
-    let branchSpy = createMock();
-    branchSpy = mock(() =>
+    const branchSpy = mock(() =>
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy as any,
+      addSession: addSessionSpy,
       deleteSession: () => Promise.resolve(true),
     });
 
-    // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
-
-    const mockGitService = createMockGitService({
-      clone: cloneSpy as any,
+    const mockGitService = createPartialMock<GitServiceInterface>({
+      clone: cloneSpy,
+      branchWithoutSession: branchSpy,
+      branch: mock(() =>
+        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+      ),
+      execInRepository: mock(() => Promise.resolve("")),
+      getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),
     });
 
-    // Add branchWithoutSession method not covered by centralized factory
-    (mockGitService as any).branchWithoutSession = branchSpy;
-
-    const mockTaskService = createMockTaskService();
-
-    // Add methods not covered by centralized factory
-    (mockTaskService as any).getTask = () => Promise.resolve({ id: "md#160", title: "Test Task" });
-    (mockTaskService as any).getTaskStatus = () => Promise.resolve("TODO");
-    (mockTaskService as any).setTaskStatus = () => Promise.resolve(undefined);
+    const mockTaskService = createMockTaskService({
+      getTask: () => Promise.resolve({ id: "md#160", title: "Test Task", status: "TODO" }),
+      getTaskStatus: () => Promise.resolve("TODO"),
+      setTaskStatus: () => Promise.resolve(),
+    });
 
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({

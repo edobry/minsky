@@ -115,10 +115,10 @@ mockModule("../../../src/utils/logger", () => ({
 }));
 
 // CRITICAL: Mock SessionPathResolver at module level to control its behavior
-let mockResolvePath = createMock() as any;
-let mockValidatePath = createMock() as any;
-let mockValidatePathExists = createMock() as any;
-let mockGetSessionWorkspacePath = createMock() as any;
+let mockResolvePath = createMock();
+let mockValidatePath = createMock();
+let mockValidatePathExists = createMock();
+let mockGetSessionWorkspacePath = createMock();
 
 mockModule("../../../src/adapters/mcp/session-files", () => ({
   SessionPathResolver: class MockSessionPathResolver {

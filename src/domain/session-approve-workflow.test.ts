@@ -97,10 +97,8 @@ describe("Session Approve Workflow", () => {
     mockSessionDB = createMockSessionProvider({
       getSession: getSessionSpy,
       getSessionByTaskId: getSessionByTaskIdSpy,
+      getSessionWorkdir: getSessionWorkdirSpy,
     });
-
-    // Add getSessionWorkdir method not covered by centralized factory
-    (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
 
     mockGitService = createMockGitService({
       execInRepository: execInRepositorySpy,
@@ -108,10 +106,8 @@ describe("Session Approve Workflow", () => {
 
     mockTaskService = createMockTaskService({
       setTaskStatus: setTaskStatusSpy,
+      getTask: getTaskSpy,
     });
-
-    // Add getTask method not covered by centralized factory
-    (mockTaskService as any).getTask = getTaskSpy;
 
     mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isWorkspace: () => Promise.resolve(true),

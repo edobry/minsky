@@ -16,7 +16,7 @@ describe("Dynamic Backend Selection", () => {
     const mockCreateTaskService = mock(
       async (options: { workspacePath: string; backend?: string }) => {
         capturedBackend = options.backend;
-        return {} as any;
+        return {};
       }
     );
 
@@ -38,7 +38,7 @@ describe("Dynamic Backend Selection", () => {
     const mockCreateTaskService = mock(
       async (options: { workspacePath: string; backend?: string }) => {
         capturedBackends.push(options.backend);
-        return {} as any;
+        return {};
       }
     );
 

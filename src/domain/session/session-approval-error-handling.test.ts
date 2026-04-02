@@ -11,9 +11,11 @@ import { ResourceNotFoundError } from "../../errors/index";
 import { initializeConfiguration, CustomConfigFactory } from "../../domain/configuration";
 import { PersistenceService } from "../persistence/service";
 import type { PersistenceProvider } from "../persistence/types";
+import type { SessionProviderInterface } from "./types";
+import { createPartialMock } from "../../utils/test-utils/mocking";
 
 // Create mock persistence provider for testing that returns empty sessions
-const mockPersistenceProvider: PersistenceProvider = {
+const mockPersistenceProvider = {
   capabilities: {
     sql: true,
     transactions: true,
@@ -21,7 +23,7 @@ const mockPersistenceProvider: PersistenceProvider = {
     vectorStorage: false,
     migrations: true,
   },
-  getStorage: (() => ({
+  getStorage: () => ({
     get: async () => ({ success: false }),
     save: async () => ({ success: true }),
     update: async () => ({ success: true }),
@@ -32,7 +34,7 @@ const mockPersistenceProvider: PersistenceProvider = {
     getStorageLocation: () => "/mock/db",
     initialize: async () => true,
     close: async () => {},
-  })) as any,
+  }),
   initialize: async () => {},
   close: async () => {},
   getConnectionInfo: () => "Mock provider",
@@ -43,7 +45,7 @@ const mockPersistenceProvider: PersistenceProvider = {
     vectorStorage: false,
     migrations: true,
   }),
-} as any;
+} as unknown as PersistenceProvider;
 
 describe("Session Approval Error Handling (Task #358 Updated)", () => {
   beforeEach(async () => {
@@ -53,8 +55,9 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     });
 
     // Mock PersistenceService for session adapter requirements
-    (PersistenceService as any).isInitialized = () => true;
-    (PersistenceService as any).getProvider = () => mockPersistenceProvider;
+    (PersistenceService as unknown as Record<string, unknown>).isInitialized = () => true;
+    (PersistenceService as unknown as Record<string, unknown>).getProvider = () =>
+      mockPersistenceProvider;
   });
 
   test.skip("should handle missing session for task", async () => {
@@ -118,7 +121,10 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
           json: false,
         },
         {
-          sessionDB: mockSessionDB as any,
+          sessionDB: createPartialMock<SessionProviderInterface>({
+            getSessionByTaskId: mockSessionDB.getSessionByTaskId,
+            getSession: mockSessionDB.getSession,
+          }),
         }
       );
     } catch (error) {

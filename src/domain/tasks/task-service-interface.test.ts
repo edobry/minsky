@@ -4,7 +4,7 @@
 // Solution: Added missing interface methods for backward compatibility
 
 import { describe, test, expect } from "bun:test";
-import { createConfiguredTaskService } from "./taskService";
+import { createConfiguredTaskService, type TaskServiceInterface } from "./taskService";
 import { TASK_STATUS } from "./taskConstants";
 
 describe("TaskService Interface Compatibility", () => {
@@ -19,11 +19,13 @@ describe("TaskService Interface Compatibility", () => {
 
     // Both methods should exist
     expect(typeof taskService.setTaskStatus).toBe("function");
-    expect(typeof (taskService as any).setTaskStatus).toBe("function");
+    expect(typeof (taskService as TaskServiceInterface).setTaskStatus).toBe("function");
 
     // setTaskStatus should be an async function
-    expect((taskService as any).setTaskStatus).toBeInstanceOf(Function);
-    expect((taskService as any).setTaskStatus.constructor.name).toBe("AsyncFunction");
+    expect((taskService as TaskServiceInterface).setTaskStatus).toBeInstanceOf(Function);
+    expect((taskService as TaskServiceInterface).setTaskStatus.constructor.name).toBe(
+      "AsyncFunction"
+    );
   });
 
   test("should have getTaskStatus method (ensures interface completeness)", async () => {
@@ -35,9 +37,11 @@ describe("TaskService Interface Compatibility", () => {
     });
 
     // getTaskStatus should exist
-    expect(typeof (taskService as any).getTaskStatus).toBe("function");
-    expect((taskService as any).getTaskStatus).toBeInstanceOf(Function);
-    expect((taskService as any).getTaskStatus.constructor.name).toBe("AsyncFunction");
+    expect(typeof (taskService as TaskServiceInterface).getTaskStatus).toBe("function");
+    expect((taskService as TaskServiceInterface).getTaskStatus).toBeInstanceOf(Function);
+    expect((taskService as TaskServiceInterface).getTaskStatus.constructor.name).toBe(
+      "AsyncFunction"
+    );
   });
 
   test("should validate task status in setTaskStatus method", async () => {
@@ -49,12 +53,12 @@ describe("TaskService Interface Compatibility", () => {
     });
 
     // Should reject invalid status
-    await expect((taskService as any).setTaskStatus("test", "INVALID_STATUS")).rejects.toThrow(
-      /Failed to read tasks data/
-    );
+    await expect(
+      (taskService as TaskServiceInterface).setTaskStatus("test", "INVALID_STATUS")
+    ).rejects.toThrow(/Failed to read tasks data/);
 
     // Should accept valid status (even though it may fail on missing file, that's expected)
-    const validCall = (taskService as any).setTaskStatus("test", TASK_STATUS.TODO);
+    const validCall = (taskService as TaskServiceInterface).setTaskStatus("test", TASK_STATUS.TODO);
     expect(validCall).toBeInstanceOf(Promise);
 
     // Clean up the promise to avoid unhandled rejection
@@ -81,7 +85,9 @@ describe("TaskService Interface Compatibility", () => {
     ];
 
     for (const methodName of requiredMethods) {
-      expect(typeof (taskService as any)[methodName]).toBe("function");
+      expect(typeof (taskService as unknown as Record<string, unknown>)[methodName]).toBe(
+        "function"
+      );
     }
   });
 });

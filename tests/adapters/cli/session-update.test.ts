@@ -14,15 +14,13 @@ import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/m
 import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
-import type { SessionRecord } from "../../../src/domain/session";
-import type { SessionProviderInterface } from "../../../src/domain/session";
-import type { GitServiceInterface } from "../../../src/domain/git";
+import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
-import { createPartialMock } from "../../../src/utils/test-utils/typed-mocks";
+import { createPartialMock } from "../../../src/utils/test-utils/mocking";
 
 describe("session update command", () => {
   let testData: SessionTestData;
-  let mockGitService: GitServiceInterface;
+  let mockGitService: ReturnType<typeof createMockGitService>;
   let mockFs: ReturnType<typeof createMockFilesystem>;
 
   beforeEach(() => {
@@ -93,9 +91,9 @@ describe("session update command", () => {
 
     // Mock the session database to return our test session
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(sessionRecord)),
-      updateSession: createMock(),
-      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+      getSession: (() => sessionRecord) as any,
+      updateSession: createMock() as any,
+      getSessionWorkdir: createMock(() => sessionPath) as any,
     });
 
     const result = await updateSessionFromParams(
@@ -112,8 +110,8 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as any).name).toBe("test-session");
-    expect((result as any).branch).toBe("new-branch");
+    expect((result as SessionRecord).name).toBe("test-session");
+    expect((result as SessionRecord).branch).toBe("new-branch");
     expect(mockSessionDB.updateSession).toHaveBeenCalled();
   });
 
@@ -137,9 +135,9 @@ describe("session update command", () => {
     };
 
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(sessionRecord)),
-      updateSession: createMock(),
-      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+      getSession: (() => sessionRecord) as any,
+      updateSession: createMock() as any,
+      getSessionWorkdir: createMock(() => sessionPath) as any,
     });
 
     const result = await updateSessionFromParams(
@@ -155,7 +153,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as any).name).toBeTruthy();
+    expect((result as SessionRecord).name).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -185,9 +183,9 @@ describe("session update command", () => {
     const dirIsolation = withDirectoryIsolation();
 
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(sessionRecord)),
-      updateSession: createMock(),
-      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+      getSession: (() => sessionRecord) as any,
+      updateSession: createMock() as any,
+      getSessionWorkdir: createMock(() => sessionPath) as any,
     });
 
     const result = await updateSessionFromParams(
@@ -203,7 +201,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as any).name).toBeTruthy();
+    expect((result as SessionRecord).name).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -227,9 +225,9 @@ describe("session update command", () => {
     };
 
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(sessionRecord)),
-      updateSession: createMock(),
-      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+      getSession: (() => sessionRecord) as any,
+      updateSession: createMock() as any,
+      getSessionWorkdir: createMock(() => sessionPath) as any,
     });
 
     const result = await updateSessionFromParams(
@@ -245,7 +243,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as any).name).toBeTruthy();
+    expect((result as SessionRecord).name).toBeTruthy();
   });
 
   test("should handle dry run mode", async () => {
@@ -267,9 +265,9 @@ describe("session update command", () => {
     };
 
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(sessionRecord)),
-      updateSession: createMock(),
-      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+      getSession: (() => sessionRecord) as any,
+      updateSession: createMock() as any,
+      getSessionWorkdir: createMock(() => sessionPath) as any,
     });
 
     const result = await updateSessionFromParams(
@@ -285,7 +283,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as any).name).toBeTruthy();
+    expect((result as SessionRecord).name).toBeTruthy();
     // In dry run mode, updateSession should not be called
     expect(mockSessionDB.updateSession).not.toHaveBeenCalled();
   });

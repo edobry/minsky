@@ -9,6 +9,8 @@ import {
   createMockTaskService,
 } from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
+import type { TaskServiceInterface } from "./tasks/taskService";
+import type { SessionProviderInterface } from "./session";
 
 // Mock logger
 // Remove global module mock - use dependency injection instead
@@ -58,7 +60,7 @@ describe("Session Approve", () => {
       execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
     });
 
-    const mockTaskService = createMockTaskService({
+    const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),
       getBackendForTask: (() =>
         Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
@@ -122,7 +124,7 @@ describe("Session Approve", () => {
       execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
     });
 
-    const mockTaskService = createMockTaskService({
+    const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),
       getBackendForTask: (() =>
         Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
@@ -191,7 +193,7 @@ describe("Session Approve", () => {
       gitService: createMockGitService({
         execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
       }),
-      taskService: createMockTaskService({
+      taskService: createPartialMock<TaskServiceInterface>({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: (() =>
           Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
@@ -230,18 +232,17 @@ describe("Session Approve", () => {
 
   test("throws error when session is not found", async () => {
     // Create mocks using centralized factories
-    const mockSessionDB = createMockSessionProvider({
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSession: () => Promise.resolve(null),
       getSessionByTaskId: () => Promise.resolve(null),
+      getSessionWorkdir: mock(() => Promise.resolve("")),
     });
-
-    (mockSessionDB as any).getSessionWorkdir = mock(() => Promise.resolve(""));
 
     const mockGitService = createMockGitService({
       execInRepository: () => Promise.resolve(""),
     });
 
-    const mockTaskService = createMockTaskService({
+    const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),
       getBackendForTask: (() => Promise.resolve({})) as any,
     });
@@ -258,7 +259,10 @@ describe("Session Approve", () => {
 
     // Test with non-existent session
     try {
-      await approveSessionFromParams({ session: "non-existent" }, testDeps as any);
+      await approveSessionFromParams(
+        { session: "non-existent" },
+        testDeps as unknown as Parameters<typeof approveSessionFromParams>[1]
+      );
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {

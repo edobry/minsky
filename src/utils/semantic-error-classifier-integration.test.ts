@@ -22,7 +22,7 @@ describe("SemanticErrorClassifier Integration Tests", () => {
       const fileError = new Error(
         `ENOENT: no such file or directory, open '${join(testDir, "existing-dir", "missing-file.txt")}'`
       );
-      (fileError as any).code = "ENOENT";
+      (fileError as NodeJS.ErrnoException).code = "ENOENT";
 
       const fileContext: ErrorContext = {
         operation: "read_file",
@@ -36,7 +36,7 @@ describe("SemanticErrorClassifier Integration Tests", () => {
       const dirError = new Error(
         `ENOENT: no such file or directory, open '${join(testDir, "missing-dir", "file.txt")}'`
       );
-      (dirError as any).code = "ENOENT";
+      (dirError as NodeJS.ErrnoException).code = "ENOENT";
 
       const dirContext: ErrorContext = {
         operation: "write_file",
@@ -59,7 +59,7 @@ describe("SemanticErrorClassifier Integration Tests", () => {
 
       for (const errorMsg of errorFormats) {
         const error = new Error(errorMsg);
-        (error as any).code = "ENOENT";
+        (error as NodeJS.ErrnoException).code = "ENOENT";
 
         const context: ErrorContext = {
           operation: errorMsg.includes("mkdir") ? "write_file" : "read_file",
@@ -78,7 +78,7 @@ describe("SemanticErrorClassifier Integration Tests", () => {
       const error = new Error(
         `ENOENT: no such file or directory, open '${join(testDir, "deep", "nested", "file.txt")}'`
       );
-      (error as any).code = "ENOENT";
+      (error as NodeJS.ErrnoException).code = "ENOENT";
 
       const context: ErrorContext = {
         operation: "write_file",

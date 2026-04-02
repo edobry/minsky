@@ -4,23 +4,25 @@ import type { SessionProviderInterface } from "./session-db-adapter";
 import type { GitServiceInterface } from "../git";
 import type { SessionRecord } from "./types";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
+import type { TaskServiceInterface } from "../tasks/taskService";
+import { createPartialMock } from "../../utils/test-utils/mocking";
 
 describe("Session Approval Repository Backend Bug", () => {
   let mockSessionDB: SessionProviderInterface;
   let mockGitService: GitServiceInterface;
   let mockRepositoryBackend: RepositoryBackend;
-  let mockCreateRepositoryBackend: any;
-  let mockTaskService: any;
+  let mockCreateRepositoryBackend: ReturnType<typeof mock>;
+  let mockTaskService: TaskServiceInterface;
 
   beforeEach(() => {
-    mockSessionDB = {
+    mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSession: mock(() => Promise.resolve(null)),
       getSessionByTaskId: mock(() => Promise.resolve(null)),
-    } as any;
+    });
 
-    mockGitService = {
+    mockGitService = createPartialMock<GitServiceInterface>({
       execInRepository: mock(() => Promise.resolve("")),
-    } as any;
+    });
 
     mockRepositoryBackend = {
       getType: mock(() => "local"),
@@ -31,13 +33,13 @@ describe("Session Approval Repository Backend Bug", () => {
           mergedBy: "Test User",
         })
       ),
-    } as any;
+    } as unknown as RepositoryBackend;
 
-    mockTaskService = {
+    mockTaskService = createPartialMock<TaskServiceInterface>({
       getTask: mock(() => Promise.resolve({ id: "test", title: "Test Task" })),
       setTaskStatus: mock(() => Promise.resolve()),
       getTaskStatus: mock(() => Promise.resolve("TODO")),
-    };
+    });
 
     // Mock createRepositoryBackend to return our mock backend
     mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));

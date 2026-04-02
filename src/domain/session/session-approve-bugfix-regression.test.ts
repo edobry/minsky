@@ -107,7 +107,7 @@ describe("Session Approve - Bug Regression Tests", () => {
             prNumber: PR_BRANCH,
           })
         ),
-      } as any;
+      } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
@@ -205,7 +205,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         approvePullRequest: mock(() => {
           throw new Error("PR approval failed: insufficient permissions");
         }),
-      } as any;
+      } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
@@ -283,7 +283,7 @@ describe("Session Approve - Bug Regression Tests", () => {
             prNumber: PR_BRANCH,
           })
         ),
-      } as any;
+      } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
@@ -361,7 +361,7 @@ describe("Session Approve - Bug Regression Tests", () => {
             prNumber: "pr/test",
           })
         ),
-      } as any;
+      } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 

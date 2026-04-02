@@ -22,6 +22,7 @@ import {
   createMockGitService,
   createMockTaskService,
 } from "../../utils/test-utils/index";
+import { createPartialMock } from "../../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
 describe("Session Approve Task Status Commit", () => {
@@ -178,7 +179,7 @@ describe("Session Approve Task Status Commit", () => {
     });
 
     // Mock repository backend to avoid filesystem validation
-    const mockRepositoryBackend: RepositoryBackend = {
+    const mockRepositoryBackend = {
       getType: mock(() => "local"),
       mergePullRequest: mock(() =>
         Promise.resolve({
@@ -194,7 +195,7 @@ describe("Session Approve Task Status Commit", () => {
           approvedBy: "Test User",
         })
       ), // EXPLICIT MOCK: Add required approvePullRequest method
-    } as any;
+    } as unknown as RepositoryBackend;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
@@ -206,10 +207,10 @@ describe("Session Approve Task Status Commit", () => {
         repo: "/test/repo",
       },
       {
-        sessionDB: mockSessionDB as any,
-        gitService: mockGitService as any,
-        taskService: mockTaskService as any,
-        createRepositoryBackend: mockCreateRepositoryBackend as any,
+        sessionDB: mockSessionDB,
+        gitService: mockGitService,
+        taskService: mockTaskService,
+        createRepositoryBackend: mockCreateRepositoryBackend,
       }
     );
 
@@ -235,7 +236,7 @@ describe("Session Approve Task Status Commit", () => {
     const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`;
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createPartialMock<GitServiceInterface>({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -274,9 +275,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
           session: `task#${taskId}`,
@@ -295,7 +296,7 @@ describe("Session Approve Task Status Commit", () => {
           taskId: QUALIFIED_TASK_ID,
           prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
-    };
+    });
 
     const mockTaskService = {
       getTask: () =>
@@ -315,7 +316,7 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     // Mock repository backend to avoid filesystem validation
-    const mockRepositoryBackend: RepositoryBackend = {
+    const mockRepositoryBackend = {
       getType: mock(() => "local"),
       mergePullRequest: mock(() =>
         Promise.resolve({
@@ -331,7 +332,7 @@ describe("Session Approve Task Status Commit", () => {
           approvedBy: "Test User",
         })
       ), // EXPLICIT MOCK: Add required approvePullRequest method
-    } as any;
+    } as unknown as RepositoryBackend;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
@@ -343,10 +344,10 @@ describe("Session Approve Task Status Commit", () => {
         repo: "/test/repo",
       },
       {
-        sessionDB: mockSessionDB as any,
-        gitService: mockGitService as any,
-        taskService: mockTaskService as any,
-        createRepositoryBackend: mockCreateRepositoryBackend as any,
+        sessionDB: mockSessionDB,
+        gitService: mockGitService,
+        taskService: mockTaskService,
+        createRepositoryBackend: mockCreateRepositoryBackend,
       }
     );
 
@@ -369,7 +370,7 @@ describe("Session Approve Task Status Commit", () => {
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createPartialMock<GitServiceInterface>({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -409,9 +410,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
           session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#125)
@@ -430,7 +431,7 @@ describe("Session Approve Task Status Commit", () => {
           taskId: QUALIFIED_TASK_ID,
           prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
-    };
+    });
 
     const mockTaskService = {
       getTask: () =>
@@ -457,9 +458,9 @@ describe("Session Approve Task Status Commit", () => {
         repo: "/test/repo",
       },
       {
-        sessionDB: mockSessionDB as any,
-        gitService: mockGitService as any,
-        taskService: mockTaskService as any,
+        sessionDB: mockSessionDB,
+        gitService: mockGitService,
+        taskService: mockTaskService,
         createRepositoryBackend: createMockRepositoryBackend() as any,
       }
     );
@@ -499,7 +500,7 @@ describe("Session Approve Task Status Commit", () => {
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createPartialMock<GitServiceInterface>({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -517,9 +518,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
           session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#266)
@@ -538,7 +539,7 @@ describe("Session Approve Task Status Commit", () => {
           taskId: QUALIFIED_TASK_ID,
           prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
-    };
+    });
 
     const mockTaskService = {
       getTask: () =>
@@ -567,9 +568,9 @@ describe("Session Approve Task Status Commit", () => {
         repo: "/test/repo",
       },
       {
-        sessionDB: mockSessionDB as any,
-        gitService: mockGitService as any,
-        taskService: mockTaskService as any,
+        sessionDB: mockSessionDB,
+        gitService: mockGitService,
+        taskService: mockTaskService,
         createRepositoryBackend: createMockRepositoryBackend() as any,
       }
     );

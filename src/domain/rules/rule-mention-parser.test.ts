@@ -48,8 +48,8 @@ describe("Rule Mention Parser", () => {
     it("should return empty array for empty or null query", () => {
       expect(extractRuleMentions("")).toEqual([]);
       expect(extractRuleMentions("   ")).toEqual([]);
-      expect(extractRuleMentions(null as any)).toEqual([]);
-      expect(extractRuleMentions(undefined as any)).toEqual([]);
+      expect(extractRuleMentions(null as unknown as string)).toEqual([]);
+      expect(extractRuleMentions(undefined as unknown as string)).toEqual([]);
     });
 
     it("should not match @ symbols that aren't rule mentions", () => {
@@ -113,8 +113,8 @@ describe("Rule Mention Parser", () => {
     it("should handle empty or null input", () => {
       expect(stripRuleMentions("")).toBe("");
       expect(stripRuleMentions("   ")).toBe("");
-      expect(stripRuleMentions(null as any)).toBe("");
-      expect(stripRuleMentions(undefined as any)).toBe("");
+      expect(stripRuleMentions(null as unknown as string)).toBe("");
+      expect(stripRuleMentions(undefined as unknown as string)).toBe("");
     });
   });
 });

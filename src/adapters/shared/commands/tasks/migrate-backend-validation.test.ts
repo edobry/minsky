@@ -17,10 +17,17 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { TasksMigrateBackendCommand } from "./migrate-backend-command";
+import { TasksMigrateBackendCommand, type MigrateBackendParams } from "./migrate-backend-command";
 import { mockModule, createMock } from "../../../../utils/test-utils/mocking";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { TaskServiceInterface } from "../../../../domain/tasks";
+import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+
+// Type helper for accessing private methods on TasksMigrateBackendCommand
+type CommandWithPrivates = {
+  validateMigration: (...args: unknown[]) => Promise<{ passed: unknown[]; failed: unknown[] }>;
+  migrateTasksBetweenBackends: (...args: unknown[]) => Promise<unknown>;
+};
 
 // Mock the logger module to prevent "log.cli is not a function" errors
 mock.module("../../../../utils/logger", () => ({
@@ -59,18 +66,19 @@ describe("Migration Backend Validation Bug Fix", () => {
       // SIMPLE TEST: Just verify that the command has a validation method
       // This should fail because currently there's no validation
 
-      expect(typeof (command as any).validateMigration).toBe("function");
+      expect(typeof (command as unknown as CommandWithPrivates).validateMigration).toBe("function");
     });
 
     it("should call validateMigration after migration is complete", async () => {
       // Mock the validateMigration method to verify it gets called
       const validateSpy = mock(() => Promise.resolve({ passed: [], failed: [] }));
-      const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = validateSpy;
+      const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
+      (command as unknown as CommandWithPrivates).validateMigration = validateSpy;
 
       // Mock the migrateTasksBetweenBackends method to avoid database calls
-      const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = mock(() =>
+      const originalMigrate = (command as unknown as CommandWithPrivates)
+        .migrateTasksBetweenBackends;
+      (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 0,
           migrated: 0,
@@ -83,10 +91,10 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         await command.execute(
           {
-            from: "markdown" as any,
-            to: "minsky" as any,
+            from: TaskBackend.MARKDOWN,
+            to: TaskBackend.MINSKY,
             execute: true,
-          } as any,
+          } as unknown as MigrateBackendParams,
           mockContext
         );
 
@@ -94,15 +102,16 @@ describe("Migration Backend Validation Bug Fix", () => {
         expect(validateSpy).toHaveBeenCalled();
       } finally {
         // Restore original methods
-        (command as any).validateMigration = originalValidate;
-        (command as any).migrateTasksBetweenBackends = originalMigrate;
+        (command as unknown as CommandWithPrivates).validateMigration = originalValidate;
+        (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = originalMigrate;
       }
     });
 
     it("should fail migration when validation detects missing tasks in target backend", async () => {
       // Mock migration to report successful migrations
-      const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = mock(() =>
+      const originalMigrate = (command as unknown as CommandWithPrivates)
+        .migrateTasksBetweenBackends;
+      (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -116,8 +125,8 @@ describe("Migration Backend Validation Bug Fix", () => {
       );
 
       // Mock validation to return failures
-      const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = mock(() =>
+      const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
+      (command as unknown as CommandWithPrivates).validateMigration = mock(() =>
         Promise.resolve({
           passed: [],
           failed: [
@@ -144,10 +153,10 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: "markdown" as any,
-              to: "minsky" as any,
+              from: TaskBackend.MARKDOWN,
+              to: TaskBackend.MINSKY,
               execute: true,
-            } as any,
+            } as unknown as MigrateBackendParams,
             mockContext
           );
         } catch (error) {
@@ -161,15 +170,16 @@ describe("Migration Backend Validation Bug Fix", () => {
         // Should either throw error or return failure result
         expect(threwError || (result && !result.success)).toBe(true);
       } finally {
-        (command as any).validateMigration = originalValidate;
-        (command as any).migrateTasksBetweenBackends = originalMigrate;
+        (command as unknown as CommandWithPrivates).validateMigration = originalValidate;
+        (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = originalMigrate;
       }
     });
 
     it("should fail migration when validation detects content mismatches", async () => {
       // Mock migration to report successful migrations
-      const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = mock(() =>
+      const originalMigrate = (command as unknown as CommandWithPrivates)
+        .migrateTasksBetweenBackends;
+      (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -183,8 +193,8 @@ describe("Migration Backend Validation Bug Fix", () => {
       );
 
       // Mock validation to return mixed results
-      const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = mock(() =>
+      const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
+      (command as unknown as CommandWithPrivates).validateMigration = mock(() =>
         Promise.resolve({
           passed: [{ taskId: "md#200", targetTaskId: "mt#200", status: "VALIDATED" }],
           failed: [
@@ -205,10 +215,10 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: "markdown" as any,
-              to: "minsky" as any,
+              from: TaskBackend.MARKDOWN,
+              to: TaskBackend.MINSKY,
               execute: true,
-            } as any,
+            } as unknown as MigrateBackendParams,
             mockContext
           );
         } catch (error) {
@@ -222,15 +232,16 @@ describe("Migration Backend Validation Bug Fix", () => {
         // Should either throw error or return failure result
         expect(threwError || (result && !result.success)).toBe(true);
       } finally {
-        (command as any).validateMigration = originalValidate;
-        (command as any).migrateTasksBetweenBackends = originalMigrate;
+        (command as unknown as CommandWithPrivates).validateMigration = originalValidate;
+        (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = originalMigrate;
       }
     });
 
     it("should succeed when all migrated tasks pass validation", async () => {
       // Mock migration to report successful migrations
-      const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = mock(() =>
+      const originalMigrate = (command as unknown as CommandWithPrivates)
+        .migrateTasksBetweenBackends;
+      (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -244,8 +255,8 @@ describe("Migration Backend Validation Bug Fix", () => {
       );
 
       // Mock validation to return all passed
-      const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = mock(() =>
+      const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
+      (command as unknown as CommandWithPrivates).validateMigration = mock(() =>
         Promise.resolve({
           passed: [
             { taskId: "md#300", targetTaskId: "mt#300", status: "VALIDATED" },
@@ -258,29 +269,34 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         const result = await command.execute(
           {
-            from: "markdown" as any,
-            to: "minsky" as any,
+            from: TaskBackend.MARKDOWN,
+            to: TaskBackend.MINSKY,
             execute: true,
             json: true, // Use JSON format to get flat result structure
-          } as any,
+          } as unknown as MigrateBackendParams,
           mockContext
         );
 
         // Should succeed when all validations pass
         expect(result.success).toBe(true);
-        expect((result as any).migrated).toBe(2);
-        expect((result as any).validation.passed).toHaveLength(2);
-        expect((result as any).validation.failed).toHaveLength(0);
+        expect((result as Record<string, unknown>).migrated).toBe(2);
+        expect(
+          ((result as Record<string, unknown>).validation as Record<string, unknown>).passed
+        ).toHaveLength(2);
+        expect(
+          ((result as Record<string, unknown>).validation as Record<string, unknown>).failed
+        ).toHaveLength(0);
       } finally {
-        (command as any).validateMigration = originalValidate;
-        (command as any).migrateTasksBetweenBackends = originalMigrate;
+        (command as unknown as CommandWithPrivates).validateMigration = originalValidate;
+        (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = originalMigrate;
       }
     });
 
     it("should skip validation in dry-run mode", async () => {
       // Mock migration for dry run
-      const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = mock(() =>
+      const originalMigrate = (command as unknown as CommandWithPrivates)
+        .migrateTasksBetweenBackends;
+      (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 1,
           migrated: 0,
@@ -292,16 +308,16 @@ describe("Migration Backend Validation Bug Fix", () => {
 
       // Mock validation (should not be called in dry run)
       const validateSpy = mock(() => Promise.resolve({ passed: [], failed: [] }));
-      const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = validateSpy;
+      const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
+      (command as unknown as CommandWithPrivates).validateMigration = validateSpy;
 
       try {
         const result = await command.execute(
           {
-            from: "markdown" as any,
-            to: "minsky" as any,
+            from: TaskBackend.MARKDOWN,
+            to: TaskBackend.MINSKY,
             execute: false, // dry run
-          } as any,
+          } as unknown as MigrateBackendParams,
           mockContext
         );
 
@@ -309,8 +325,8 @@ describe("Migration Backend Validation Bug Fix", () => {
         expect(result.success).toBe(true);
         expect(validateSpy).not.toHaveBeenCalled();
       } finally {
-        (command as any).validateMigration = originalValidate;
-        (command as any).migrateTasksBetweenBackends = originalMigrate;
+        (command as unknown as CommandWithPrivates).validateMigration = originalValidate;
+        (command as unknown as CommandWithPrivates).migrateTasksBetweenBackends = originalMigrate;
       }
     });
   });
