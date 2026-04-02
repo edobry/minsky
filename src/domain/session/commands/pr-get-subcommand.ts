@@ -4,6 +4,7 @@
 
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
+import type { PullRequestInfo } from "../session-db";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -11,6 +12,26 @@ import {
   getErrorMessage,
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
+
+/**
+ * Shape of the live PR data returned from GitHub Octokit pulls.get / pulls.list responses.
+ * Only the fields actually consumed in this file are listed.
+ */
+interface GitHubLivePr {
+  number: number;
+  html_url: string;
+  state: string;
+  title: string;
+  body: string | null;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+  head: { ref: string };
+  base: { ref: string };
+  user: { login: string } | null;
+  changed_files?: number;
+  commits?: number;
+}
 
 /**
  * Session PR Get implementation
@@ -124,10 +145,10 @@ export async function sessionPrGet(params: {
         if (pulls.length > 0) {
           // Found a PR! Repair the session record with essential workflow state only
           const githubPr = pulls[0]!; // Non-null assertion safe because we checked length > 0
-          const repairedPrData = {
+          const repairedPrData: PullRequestInfo = {
             number: githubPr.number,
             url: githubPr.html_url,
-            state: githubPr.state,
+            state: githubPr.state as PullRequestInfo["state"],
             createdAt: githubPr.created_at,
             mergedAt: githubPr.merged_at || undefined,
             headBranch: githubPr.head?.ref,
@@ -144,7 +165,7 @@ export async function sessionPrGet(params: {
           await sessionDB.updateSession(resolvedContext.sessionName, updatedSession);
 
           log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
-          finalPullRequest = repairedPrData as any;
+          finalPullRequest = repairedPrData;
         }
       } catch (repairError) {
         log.debug(`GitHub API repair failed: ${getErrorMessage(repairError)}`);
@@ -157,9 +178,9 @@ export async function sessionPrGet(params: {
       sessionRecord.backendType === "github" &&
       finalPullRequest &&
       // Missing any of these warrants an enrichment attempt
-      (!("createdAt" in (finalPullRequest as any)) ||
-        !("updatedAt" in (finalPullRequest as any)) ||
-        !(finalPullRequest as any).headBranch)
+      (!("createdAt" in finalPullRequest) ||
+        !("updatedAt" in finalPullRequest) ||
+        !finalPullRequest.headBranch)
     ) {
       try {
         const { getConfiguration } = require("../../configuration/index");
@@ -181,18 +202,18 @@ export async function sessionPrGet(params: {
         }
         const { owner, repo } = githubInfo;
 
-        if ((finalPullRequest as any).number) {
-          const pull_number = (finalPullRequest as any).number as number;
+        if (finalPullRequest.number) {
+          const pull_number = finalPullRequest.number;
           const { data: prDetails } = await octokit.rest.pulls.get({ owner, repo, pull_number });
 
-          const enriched = {
-            ...(finalPullRequest as any),
-            url: prDetails.html_url || (finalPullRequest as any).url,
-            state: (prDetails.state as any) || (finalPullRequest as any).state,
+          const enriched: PullRequestInfo = {
+            ...finalPullRequest,
+            url: prDetails.html_url || finalPullRequest.url,
+            state: (prDetails.state as PullRequestInfo["state"]) || finalPullRequest.state,
             createdAt: prDetails.created_at,
-            mergedAt: prDetails.merged_at || (finalPullRequest as any).mergedAt,
-            headBranch: prDetails.head?.ref || (finalPullRequest as any).headBranch,
-            baseBranch: prDetails.base?.ref || (finalPullRequest as any).baseBranch,
+            mergedAt: prDetails.merged_at || finalPullRequest.mergedAt,
+            headBranch: prDetails.head?.ref || finalPullRequest.headBranch,
+            baseBranch: prDetails.base?.ref || finalPullRequest.baseBranch,
             lastSynced: new Date().toISOString(),
             // REMOVED: title, body, updatedAt - fetched live from GitHub API
           };
@@ -202,7 +223,7 @@ export async function sessionPrGet(params: {
             pullRequest: enriched,
           });
 
-          finalPullRequest = enriched as any;
+          finalPullRequest = enriched;
         }
       } catch (enrichError) {
         log.debug(`GitHub PR enrichment skipped: ${getErrorMessage(enrichError)}`);
@@ -232,7 +253,7 @@ export async function sessionPrGet(params: {
     }
 
     // For GitHub backend, fetch live PR data from GitHub API
-    let livePrData: any = null;
+    let livePrData: GitHubLivePr | null = null;
     if (sessionRecord.backendType === "github" && finalPullRequest?.number) {
       try {
         const { getConfiguration } = require("../../configuration/index");
@@ -265,7 +286,7 @@ export async function sessionPrGet(params: {
     }
 
     // Build PR information using live data when available, fallback to cached
-    const fp = finalPullRequest as any;
+    const fp = finalPullRequest;
     const pullRequest = {
       number: fp?.number,
       title: livePrData?.title || fp?.title || `PR for ${sessionRecord.session}`,
@@ -284,7 +305,7 @@ export async function sessionPrGet(params: {
       author: livePrData?.user?.login || fp?.github?.author,
       filesChanged: fp?.filesChanged, // Keep from cache for performance
       commits: fp?.commits, // Keep from cache for performance
-      backendType: (sessionRecord.backendType as any) || undefined,
+      backendType: sessionRecord.backendType || undefined,
     };
 
     // Use shared utilities for backend/status/time constraints on single PR
