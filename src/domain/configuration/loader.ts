@@ -34,7 +34,7 @@ export interface ConfigurationSourceMetadata {
 export interface ConfigurationSourceResult {
   readonly source: ConfigurationSourceMetadata;
   readonly config: PartialConfiguration;
-  readonly metadata: Record<string, any>;
+  readonly metadata: Record<string, unknown>;
   readonly loadedAt: Date;
   readonly success: boolean;
   readonly error?: Error;
@@ -59,7 +59,7 @@ export interface ConfigurationLoadResult {
   readonly effectiveValues: Record<
     string,
     {
-      value: any;
+      value: unknown;
       source: string;
       path: string;
     }
@@ -121,8 +121,8 @@ export class ConfigurationLoader {
 
       // Validate final configuration with provenance information
       const validationResult = this.options.skipValidation
-        ? { success: true, data: mergedConfig as Configuration }
-        : this.validateConfiguration(mergedConfig, effectiveValues);
+        ? { success: true, data: mergedConfig as unknown as Configuration }
+        : this.validateConfiguration(mergedConfig as PartialConfiguration, effectiveValues);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
@@ -134,7 +134,7 @@ export class ConfigurationLoader {
 
       // Build result
       const result: ConfigurationLoadResult = {
-        config: validationResult.data || (mergedConfig as Configuration),
+        config: validationResult.data || (mergedConfig as unknown as Configuration),
         sources: sourceResults,
         validationResult,
         loadedAt: startTime,
@@ -250,16 +250,16 @@ export class ConfigurationLoader {
   /**
    * Merge configurations with hierarchical precedence
    */
-  private mergeConfigurations(sourceResults: ConfigurationSourceResult[]): PartialConfiguration {
+  private mergeConfigurations(sourceResults: ConfigurationSourceResult[]): Record<string, unknown> {
     // Sort by priority (lower priority = loaded first, higher priority overrides)
     const sortedSources = sourceResults
       .filter((result) => result.success)
       .sort((a, b) => a.source.priority - b.source.priority);
 
-    let mergedConfig: PartialConfiguration = {} as PartialConfiguration;
+    let mergedConfig: Record<string, unknown> = {};
 
     for (const sourceResult of sortedSources) {
-      mergedConfig = this.deepMerge(mergedConfig, sourceResult.config);
+      mergedConfig = this.deepMerge(mergedConfig, sourceResult.config as Record<string, unknown>);
 
       if (this.options.logDebugInfo) {
         log.debug(
@@ -274,7 +274,10 @@ export class ConfigurationLoader {
   /**
    * Deep merge two configuration objects
    */
-  private deepMerge(target: any, source: any): any {
+  private deepMerge(
+    target: Record<string, unknown>,
+    source: Record<string, unknown>
+  ): Record<string, unknown> {
     if (source === null || source === undefined) {
       return target;
     }
@@ -285,7 +288,7 @@ export class ConfigurationLoader {
 
     // For arrays, replace entirely (no concatenation)
     if (Array.isArray(source)) {
-      return [...source];
+      return [...source] as unknown as Record<string, unknown>;
     }
 
     // For primitive values, override
@@ -294,7 +297,7 @@ export class ConfigurationLoader {
     }
 
     // For objects, merge recursively
-    const result = { ...target };
+    const result: Record<string, unknown> = { ...target };
 
     for (const key in source) {
       if (Object.prototype.hasOwnProperty.call(source, key)) {
@@ -303,7 +306,10 @@ export class ConfigurationLoader {
           !Array.isArray(source[key]) &&
           source[key] !== null
         ) {
-          result[key] = this.deepMerge(result[key], source[key]);
+          result[key] = this.deepMerge(
+            (result[key] as Record<string, unknown>) || {},
+            source[key] as Record<string, unknown>
+          );
         } else {
           result[key] = source[key];
         }
@@ -318,7 +324,7 @@ export class ConfigurationLoader {
    */
   private validateConfiguration(
     config: PartialConfiguration,
-    effectiveValues?: Record<string, { value: any; source: string; path: string }>
+    effectiveValues?: Record<string, { value: unknown; source: string; path: string }>
   ): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);
 
@@ -413,13 +419,13 @@ export class ConfigurationLoader {
   /**
    * Extract readable validation errors from Zod error
    */
-  private extractValidationErrors(error: any): string[] {
+  private extractValidationErrors(error: { errors?: Array<{ path?: (string | number)[]; message?: string }>; message?: string }): string[] {
     if (!error.errors || !Array.isArray(error.errors)) {
       return [error.message || String(error)];
     }
 
-    return error.errors.map((err: any) => {
-      const path = err.path?.length > 0 ? err.path.join(".") : "root";
+    return error.errors.map((err) => {
+      const path = err.path && err.path.length > 0 ? err.path.join(".") : "root";
       return `${path}: ${err.message}`;
     });
   }
@@ -430,12 +436,12 @@ export class ConfigurationLoader {
   private buildEffectiveValues(sourceResults: ConfigurationSourceResult[]): Record<
     string,
     {
-      value: any;
+      value: unknown;
       source: string;
       path: string;
     }
   > {
-    const effectiveValues: Record<string, { value: any; source: string; path: string }> = {};
+    const effectiveValues: Record<string, { value: unknown; source: string; path: string }> = {};
 
     // Sort by priority to track which source wins for each value
     const sortedSources = sourceResults
@@ -443,7 +449,7 @@ export class ConfigurationLoader {
       .sort((a, b) => a.source.priority - b.source.priority);
 
     for (const sourceResult of sortedSources) {
-      this.collectConfigPaths(sourceResult.config, sourceResult.source.name, "", effectiveValues);
+      this.collectConfigPaths(sourceResult.config as Record<string, unknown>, sourceResult.source.name, "", effectiveValues);
     }
 
     return effectiveValues;
@@ -451,12 +457,13 @@ export class ConfigurationLoader {
 
   /**
    * Recursively collect configuration paths for tracking
+   * Uses Record<string, unknown> for deep config traversal across arbitrary nesting levels
    */
   private collectConfigPaths(
-    config: any,
+    config: Record<string, unknown>,
     sourceName: string,
     currentPath: string,
-    collector: Record<string, { value: any; source: string; path: string }>
+    collector: Record<string, { value: unknown; source: string; path: string }>
   ): void {
     if (config === null || config === undefined || typeof config !== "object") {
       return;
@@ -474,7 +481,7 @@ export class ConfigurationLoader {
 
         // For objects, recurse first to get leaf values
         if (typeof value === "object" && !Array.isArray(value) && value !== null) {
-          this.collectConfigPaths(value, sourceName, fullPath, collector);
+          this.collectConfigPaths(value as Record<string, unknown>, sourceName, fullPath, collector);
         } else {
           // Only store leaf values (non-objects), later sources will override earlier ones
           collector[fullPath] = {
