@@ -14,10 +14,11 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/task-
 1. **ALL work goes through sessions** — even small fixes. Never edit main workspace directly.
 2. **Main agent** orchestrates: create tasks, start sessions, launch subagents, review PRs, merge.
 3. **Subagents** do the full workflow in session directories: edit code → `mcp__minsky__session_commit` → `mcp__minsky__session_pr_create`. They do NOT merge — that happens after review.
-4. **Main agent reviews** the PR (or launches review agents that post on the PR via GitHub MCP), then merges with `mcp__minsky__session_pr_merge`.
-5. All file operations in sessions MUST use absolute paths.
-6. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
-7. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+4. **Before creating a PR**, always ensure the session is up-to-date with main. `mcp__minsky__session_pr_create` automatically calls `session_update` (which rebases the session on latest main) before creating the PR — this prevents merge-induced formatting drift and ensures clean fast-forward merges. You can also call `mcp__minsky__session_update` explicitly before committing if needed.
+5. **Main agent reviews** the PR (or launches review agents that post on the PR via GitHub MCP), then merges with `mcp__minsky__session_pr_merge`.
+6. All file operations in sessions MUST use absolute paths.
+7. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
+8. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
 
 ## Task Completion Protocol
 
