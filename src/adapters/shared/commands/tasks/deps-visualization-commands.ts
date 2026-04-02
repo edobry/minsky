@@ -86,6 +86,23 @@ const tasksDepsGraphParams: CommandParameterMap = {
   },
 };
 
+interface TasksDepsTreeParams {
+  task: string;
+  maxDepth: number;
+}
+
+interface TasksDepsGraphParams {
+  limit: number;
+  status: string;
+  format: "ascii" | "dot" | "svg" | "png" | "pdf";
+  output?: string;
+  layout: "dot" | "neato" | "fdp" | "circo" | "twopi";
+  direction: "TB" | "BT";
+  spacing: "compact" | "normal" | "wide";
+  style: "default" | "tech-tree" | "kanban" | "mobile" | "compact";
+  open: boolean;
+}
+
 async function createServices() {
   const persistence = PersistenceService.getProvider();
   const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
@@ -103,7 +120,7 @@ export function createTasksDepsTreeCommand() {
     name: "tree",
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
-    execute: async (params: any) => {
+    execute: async (params: TasksDepsTreeParams) => {
       const { graphService, taskService } = await createServices();
       const output = await generateDependencyTree(
         params.task,
@@ -125,7 +142,7 @@ export function createTasksDepsGraphCommand() {
     name: "graph",
     description: "Show ASCII graph of all task dependencies",
     parameters: tasksDepsGraphParams,
-    execute: async (params: any) => {
+    execute: async (params: TasksDepsGraphParams) => {
       const { graphService, taskService } = await createServices();
 
       if (params.format === "dot") {

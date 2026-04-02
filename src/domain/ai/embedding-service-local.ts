@@ -13,8 +13,8 @@ export class LocalEmbeddingService implements EmbeddingService {
 
   static async fromConfig(): Promise<LocalEmbeddingService> {
     const cfg = await getConfiguration();
-    const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
-    const normalize = Boolean((cfg as any).embeddings?.normalize);
+    const model = cfg.embeddings?.model || "text-embedding-3-small";
+    const normalize = Boolean(cfg.embeddings?.normalize);
     const dim = getEmbeddingDimension(model, 1536);
     return new LocalEmbeddingService(dim, normalize);
   }

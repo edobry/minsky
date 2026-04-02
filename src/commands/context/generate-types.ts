@@ -2,6 +2,69 @@
  * Types for the context generate command
  */
 
+export interface ComponentBreakdown {
+  component: string;
+  tokens: number;
+  percentage: string;
+  content_length: number;
+}
+
+export interface TokenizerInfo {
+  name: string;
+  encoding: string;
+  description: string;
+}
+
+export interface AnalysisMetadata {
+  model: string;
+  tokenizer: TokenizerInfo;
+  interface: string;
+  contextWindowSize: number;
+  analysisTimestamp: string;
+  generationTime: number;
+}
+
+export interface AnalysisSummary {
+  totalTokens: number;
+  totalComponents: number;
+  averageTokensPerComponent: number;
+  largestComponent: string;
+  contextWindowUtilization: number;
+}
+
+export interface OptimizationSuggestion {
+  type: string;
+  component: string;
+  currentTokens: number;
+  suggestion: string;
+  confidence: string;
+  potentialSavings: number;
+}
+
+export interface AnalysisResult {
+  metadata: AnalysisMetadata;
+  summary: AnalysisSummary;
+  componentBreakdown: ComponentBreakdown[];
+  optimizations: OptimizationSuggestion[];
+  fullResult: GenerateResult;
+}
+
+export interface ComponentGroup {
+  name: string;
+  totalTokens: number;
+  percentage: number;
+  components: EnrichedComponent[];
+}
+
+export interface SubComponent {
+  name: string;
+  description?: string;
+}
+
+export interface EnrichedComponent extends ComponentBreakdown {
+  subComponents: SubComponent[];
+}
+
 export interface GenerateRequest {
   components: string[];
   input: {

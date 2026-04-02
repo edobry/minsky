@@ -54,8 +54,13 @@ export interface PullRequestInfo {
   // Metadata
   lastSynced: string; // When this info was last updated from GitHub API
 
-  // REMOVED: title, body, updatedAt, commits, filesChanged
-  // These are now fetched live from GitHub API to avoid cache synchronization issues
+  // Live-fetch fields: not stored persistently but may appear on objects built at runtime
+  // (e.g. enrichment pass in pr-get-subcommand.ts)
+  updatedAt?: string; // ISO timestamp – populated from live GitHub API response
+  title?: string; // PR title – fetched live, not cached
+  body?: string; // PR description – fetched live, not cached
+  filesChanged?: number; // Count of changed files – fetched live, not cached
+  commits?: number; // Count of commits – fetched live, not cached
 }
 
 /**

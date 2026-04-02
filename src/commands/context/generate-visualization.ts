@@ -5,18 +5,25 @@
  */
 
 import { log } from "../../utils/logger";
-import type { GenerateOptions } from "./generate-types";
+import type {
+  GenerateOptions,
+  AnalysisResult,
+  ComponentBreakdown,
+  ComponentGroup,
+  EnrichedComponent,
+  SubComponent,
+} from "./generate-types";
 
 /**
  * Generate visualization data structure for JSON output
  */
-export function generateVisualizationData(analysisResult: any, options: GenerateOptions) {
+export function generateVisualizationData(analysisResult: AnalysisResult, options: GenerateOptions) {
   const { chartType, maxWidth } = options;
 
   return {
     chartType: chartType || "bar",
     maxWidth: parseInt(maxWidth || "80"),
-    elements: analysisResult.componentBreakdown.map((component: any) => ({
+    elements: analysisResult.componentBreakdown.map((component: ComponentBreakdown) => ({
       type: "component",
       name: component.component,
       tokens: component.tokens,
@@ -34,7 +41,7 @@ export function generateVisualizationData(analysisResult: any, options: Generate
 /**
  * Display context visualization to the console
  */
-export function displayContextVisualization(analysisResult: any, options: GenerateOptions) {
+export function displayContextVisualization(analysisResult: AnalysisResult, options: GenerateOptions) {
   const { chartType, maxWidth, showDetails } = options;
   const width = parseInt(maxWidth || "80");
 
@@ -66,15 +73,15 @@ export function displayContextVisualization(analysisResult: any, options: Genera
   }
 }
 
-function displayBarChart(analysisResult: any, width: number) {
+function displayBarChart(analysisResult: AnalysisResult, width: number) {
   log.cli("\n📊 Token Distribution (Bar Chart)");
   log.cli("━".repeat(Math.min(width, 80)));
 
   const components = analysisResult.componentBreakdown;
-  const maxTokens = Math.max(...components.map((c: any) => c.tokens));
+  const maxTokens = Math.max(...components.map((c: ComponentBreakdown) => c.tokens));
   const barWidth = Math.min(width - 30, 50);
 
-  components.forEach((component: any) => {
+  components.forEach((component: ComponentBreakdown) => {
     const percentage = component.percentage;
     const barLength = Math.round((component.tokens / maxTokens) * barWidth);
     const bar = "█".repeat(barLength) + "░".repeat(barWidth - barLength);
@@ -85,14 +92,14 @@ function displayBarChart(analysisResult: any, width: number) {
   });
 }
 
-function displayPieChart(analysisResult: any, width: number) {
+function displayPieChart(analysisResult: AnalysisResult, width: number) {
   log.cli("\n🥧 Token Distribution (Pie Chart)");
   log.cli("━".repeat(Math.min(width, 80)));
 
   const components = analysisResult.componentBreakdown;
 
   // Simple ASCII pie representation
-  components.forEach((component: any) => {
+  components.forEach((component: ComponentBreakdown) => {
     const percentage = parseFloat(component.percentage);
     const segmentSize = Math.round(percentage / 5); // Each ● represents ~5%
     const visual = "●".repeat(segmentSize) + "○".repeat(20 - segmentSize);
@@ -102,7 +109,7 @@ function displayPieChart(analysisResult: any, width: number) {
   });
 }
 
-function displayTreeView(analysisResult: any, width: number) {
+function displayTreeView(analysisResult: AnalysisResult, width: number) {
   log.cli("\n🌳 Context Component Hierarchy");
   log.cli("━".repeat(Math.min(width, 80)));
 
@@ -119,7 +126,7 @@ function displayTreeView(analysisResult: any, width: number) {
       `${groupConnector}${group.name} (${group.totalTokens.toLocaleString()} tokens, ${group.percentage.toFixed(1)}%)`
     );
 
-    group.components.forEach((component: any, compIndex: number) => {
+    group.components.forEach((component: EnrichedComponent, compIndex: number) => {
       const isLastComponent = compIndex === group.components.length - 1;
       const componentConnector = isLastGroup
         ? isLastComponent
@@ -135,7 +142,7 @@ function displayTreeView(analysisResult: any, width: number) {
 
       // Show sub-components if available
       if (component.subComponents && component.subComponents.length > 0) {
-        component.subComponents.forEach((subComp: any, subIndex: number) => {
+        component.subComponents.forEach((subComp: SubComponent, subIndex: number) => {
           const isLastSub = subIndex === component.subComponents.length - 1;
           const subConnector = isLastGroup
             ? isLastComponent
@@ -162,14 +169,14 @@ function displayTreeView(analysisResult: any, width: number) {
   });
 }
 
-function parseComponentContent(componentId: string, analysisResult?: any): any[] {
+function parseComponentContent(componentId: string, analysisResult?: AnalysisResult): SubComponent[] {
   if (!analysisResult?.fullResult?.components) {
     return [];
   }
 
   // Find the full component content
   const fullComponent = analysisResult.fullResult.components.find(
-    (comp: any) => comp.component_id === componentId
+    (comp) => comp.component_id === componentId
   );
 
   if (!fullComponent?.content) {
@@ -177,7 +184,7 @@ function parseComponentContent(componentId: string, analysisResult?: any): any[]
   }
 
   const content = fullComponent.content;
-  const subComponents: any[] = [];
+  const subComponents: SubComponent[] = [];
 
   try {
     switch (componentId) {
@@ -255,11 +262,14 @@ function parseComponentContent(componentId: string, analysisResult?: any): any[]
   return subComponents.slice(0, 8); // Limit to 8 sub-components
 }
 
-function groupComponentsByCategory(components: any[], analysisResult?: any) {
-  const totalTokens = components.reduce((sum: number, comp: any) => sum + comp.tokens, 0);
+function groupComponentsByCategory(
+  components: ComponentBreakdown[],
+  analysisResult?: AnalysisResult
+): ComponentGroup[] {
+  const totalTokens = components.reduce((sum, comp) => sum + comp.tokens, 0);
 
   // Parse component content to extract sub-components
-  const enrichedComponents = components.map((comp: any) => ({
+  const enrichedComponents: EnrichedComponent[] = components.map((comp) => ({
     ...comp,
     subComponents: parseComponentContent(comp.component, analysisResult),
   }));
@@ -307,63 +317,55 @@ function groupComponentsByCategory(components: any[], analysisResult?: any) {
     (c) => !categorizedComponents.includes(c.component)
   );
 
-  const groups: Array<{
-    name: string;
-    totalTokens: number;
-    percentage: number;
-    components: any[];
-  }> = [];
+  const groups: ComponentGroup[] = [];
 
   if (environmentComponents.length > 0) {
-    const groupTokens = environmentComponents.reduce(
-      (sum: number, comp: any) => sum + comp.tokens,
-      0
-    );
+    const groupTokens = environmentComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Environment & Context",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: environmentComponents.sort((a: any, b: any) => b.tokens - a.tokens),
+      components: environmentComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
 
   if (rulesComponents.length > 0) {
-    const groupTokens = rulesComponents.reduce((sum: number, comp: any) => sum + comp.tokens, 0);
+    const groupTokens = rulesComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Rules & Guidelines",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: rulesComponents.sort((a: any, b: any) => b.tokens - a.tokens),
+      components: rulesComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
 
   if (toolsComponents.length > 0) {
-    const groupTokens = toolsComponents.reduce((sum: number, comp: any) => sum + comp.tokens, 0);
+    const groupTokens = toolsComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Tools & Schemas",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: toolsComponents.sort((a: any, b: any) => b.tokens - a.tokens),
+      components: toolsComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
 
   if (dataComponents.length > 0) {
-    const groupTokens = dataComponents.reduce((sum: number, comp: any) => sum + comp.tokens, 0);
+    const groupTokens = dataComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Dynamic Data & Content",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: dataComponents.sort((a: any, b: any) => b.tokens - a.tokens),
+      components: dataComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
 
   if (otherComponents.length > 0) {
-    const groupTokens = otherComponents.reduce((sum: number, comp: any) => sum + comp.tokens, 0);
+    const groupTokens = otherComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Other Components",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: otherComponents.sort((a: any, b: any) => b.tokens - a.tokens),
+      components: otherComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
 
@@ -371,13 +373,13 @@ function groupComponentsByCategory(components: any[], analysisResult?: any) {
   return groups.sort((a, b) => b.totalTokens - a.totalTokens);
 }
 
-function displayDetailedBreakdown(analysisResult: any) {
+function displayDetailedBreakdown(analysisResult: AnalysisResult) {
   log.cli("\n📋 Detailed Component Breakdown");
   log.cli("━".repeat(80));
 
   const topComponents = analysisResult.componentBreakdown.slice(0, 10);
 
-  topComponents.forEach((component: any, index: number) => {
+  topComponents.forEach((component: ComponentBreakdown, index: number) => {
     log.cli(`${(index + 1).toString().padStart(2)}. ${component.component}`);
     log.cli(`    Tokens: ${component.tokens.toLocaleString()} (${component.percentage}%)`);
     log.cli(`    Characters: ${component.content_length.toLocaleString()}`);

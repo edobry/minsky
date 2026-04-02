@@ -14,7 +14,7 @@ import {
   getComponentHelp,
 } from "../../domain/context/components/index";
 
-import type { GenerateRequest, GenerateResult, GenerateOptions } from "./generate-types";
+import type { GenerateRequest, GenerateResult, GenerateOptions, AnalysisResult } from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayAnalysisResults, outputCSV } from "./generate-display";
@@ -124,7 +124,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   const result = await generateContext(request);
 
   // Perform analysis if requested or needed for visualization
-  let analysisResult: any = null;
+  let analysisResult: AnalysisResult | null = null;
   if (
     options.analyze ||
     options.analyzeOnly ||
@@ -178,7 +178,7 @@ function buildGenerateRequest(components: string[], options: GenerateOptions): G
 
 function outputResults(
   result: GenerateResult,
-  analysisResult: any,
+  analysisResult: AnalysisResult | null,
   options: GenerateOptions
 ): void {
   if (options.csv) {
@@ -196,7 +196,7 @@ function outputResults(
 
 function outputJsonResults(
   result: GenerateResult,
-  analysisResult: any,
+  analysisResult: AnalysisResult | null,
   options: GenerateOptions
 ): void {
   if (options.analyzeOnly && analysisResult) {
@@ -219,7 +219,7 @@ function outputJsonResults(
 
 function outputConsoleResults(
   result: GenerateResult,
-  analysisResult: any,
+  analysisResult: AnalysisResult | null,
   options: GenerateOptions
 ): void {
   if (options.visualizeOnly) {
