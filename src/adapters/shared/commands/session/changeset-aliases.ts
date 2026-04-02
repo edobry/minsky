@@ -275,154 +275,176 @@ async function executeSessionChangesetGet(
  */
 export function registerSessionChangesetCommands(): void {
   // Register session changeset list command
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.list",
-    name: "changeset list",
-    description: "List changesets for current session (alias for session pr list)",
-    category: CommandCategory.SESSION,
-    parameters: sessionChangesetListParams,
-    execute: executeSessionChangesetList,
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.list",
+      name: "changeset list",
+      description: "List changesets for current session (alias for session pr list)",
+      category: CommandCategory.SESSION,
+      parameters: sessionChangesetListParams,
+      execute: executeSessionChangesetList,
+    })
+  );
 
   // Register session changeset get command
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.get",
-    name: "changeset get",
-    description: "Get current session's changeset details (alias for session pr)",
-    category: CommandCategory.SESSION,
-    parameters: sessionChangesetGetParams,
-    execute: executeSessionChangesetGet,
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.get",
+      name: "changeset get",
+      description: "Get current session's changeset details (alias for session pr)",
+      category: CommandCategory.SESSION,
+      parameters: sessionChangesetGetParams,
+      execute: executeSessionChangesetGet,
+    })
+  );
 
   // Register short aliases
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.cs.list",
-    name: "cs list",
-    description: "List changesets for current session (short alias)",
-    category: CommandCategory.SESSION,
-    parameters: sessionChangesetListParams,
-    execute: executeSessionChangesetList,
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.cs.list",
+      name: "cs list",
+      description: "List changesets for current session (short alias)",
+      category: CommandCategory.SESSION,
+      parameters: sessionChangesetListParams,
+      execute: executeSessionChangesetList,
+    })
+  );
 
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.cs.get",
-    name: "cs get",
-    description: "Get current session's changeset details (short alias)",
-    category: CommandCategory.SESSION,
-    parameters: sessionChangesetGetParams,
-    execute: executeSessionChangesetGet,
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.cs.get",
+      name: "cs get",
+      description: "Get current session's changeset details (short alias)",
+      category: CommandCategory.SESSION,
+      parameters: sessionChangesetGetParams,
+      execute: executeSessionChangesetGet,
+    })
+  );
 
   // Delegation aliases for other session pr commands
 
   // session.changeset.create → session.pr.create
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.create",
-    name: "create",
-    description: "Create a changeset for current session (alias for session pr create)",
-    category: CommandCategory.SESSION,
-    parameters: sessionPrCreateCommandParams,
-    execute: async (params, ctx) => {
-      // Delegate to existing session.pr.create
-      const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
-      if (prCreateCommand) {
-        return await prCreateCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.create command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.create",
+      name: "create",
+      description: "Create a changeset for current session (alias for session pr create)",
+      category: CommandCategory.SESSION,
+      parameters: sessionPrCreateCommandParams,
+      execute: async (params, ctx) => {
+        // Delegate to existing session.pr.create
+        const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
+        if (prCreateCommand) {
+          return await prCreateCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.create command not available");
+      },
+    })
+  );
 
   // session.changeset.approve → session.pr.approve
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.approve",
-    name: "approve",
-    description: "Approve current session's changeset (alias for session pr approve)",
-    category: CommandCategory.SESSION,
-    parameters: sessionApproveCommandParams,
-    execute: async (params, ctx) => {
-      const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
-      if (prApproveCommand) {
-        return await prApproveCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.approve command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.approve",
+      name: "approve",
+      description: "Approve current session's changeset (alias for session pr approve)",
+      category: CommandCategory.SESSION,
+      parameters: sessionApproveCommandParams,
+      execute: async (params, ctx) => {
+        const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
+        if (prApproveCommand) {
+          return await prApproveCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.approve command not available");
+      },
+    })
+  );
 
   // session.changeset.merge → session.pr.merge
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.merge",
-    name: "merge",
-    description: "Merge current session's changeset (alias for session pr merge)",
-    category: CommandCategory.SESSION,
-    parameters: sessionApproveCommandParams,
-    execute: async (params, ctx) => {
-      const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
-      if (prMergeCommand) {
-        return await prMergeCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.merge command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.merge",
+      name: "merge",
+      description: "Merge current session's changeset (alias for session pr merge)",
+      category: CommandCategory.SESSION,
+      parameters: sessionApproveCommandParams,
+      execute: async (params, ctx) => {
+        const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
+        if (prMergeCommand) {
+          return await prMergeCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.merge command not available");
+      },
+    })
+  );
 
   // session.changeset.edit → session.pr.edit
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.changeset.edit",
-    name: "edit",
-    description: "Edit current session's changeset (alias for session pr edit)",
-    category: CommandCategory.SESSION,
-    parameters: sessionPrEditCommandParams,
-    execute: async (params, ctx) => {
-      const prEditCommand = sharedCommandRegistry.getCommand("session.pr.edit");
-      if (prEditCommand) {
-        return await prEditCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.edit command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.changeset.edit",
+      name: "edit",
+      description: "Edit current session's changeset (alias for session pr edit)",
+      category: CommandCategory.SESSION,
+      parameters: sessionPrEditCommandParams,
+      execute: async (params, ctx) => {
+        const prEditCommand = sharedCommandRegistry.getCommand("session.pr.edit");
+        if (prEditCommand) {
+          return await prEditCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.edit command not available");
+      },
+    })
+  );
 
   // Short aliases for create/approve/merge
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.cs.create",
-    name: "create",
-    description: "Create changeset for current session (short alias)",
-    category: CommandCategory.SESSION,
-    parameters: sessionPrCreateCommandParams,
-    execute: async (params, ctx) => {
-      const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
-      if (prCreateCommand) {
-        return await prCreateCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.create command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.cs.create",
+      name: "create",
+      description: "Create changeset for current session (short alias)",
+      category: CommandCategory.SESSION,
+      parameters: sessionPrCreateCommandParams,
+      execute: async (params, ctx) => {
+        const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
+        if (prCreateCommand) {
+          return await prCreateCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.create command not available");
+      },
+    })
+  );
 
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.cs.approve",
-    name: "approve",
-    description: "Approve current session's changeset (short alias)",
-    category: CommandCategory.SESSION,
-    parameters: sessionApproveCommandParams,
-    execute: async (params, ctx) => {
-      const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
-      if (prApproveCommand) {
-        return await prApproveCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.approve command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.cs.approve",
+      name: "approve",
+      description: "Approve current session's changeset (short alias)",
+      category: CommandCategory.SESSION,
+      parameters: sessionApproveCommandParams,
+      execute: async (params, ctx) => {
+        const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
+        if (prApproveCommand) {
+          return await prApproveCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.approve command not available");
+      },
+    })
+  );
 
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "session.cs.merge",
-    name: "merge",
-    description: "Merge current session's changeset (short alias)",
-    category: CommandCategory.SESSION,
-    parameters: sessionApproveCommandParams,
-    execute: async (params, ctx) => {
-      const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
-      if (prMergeCommand) {
-        return await prMergeCommand.execute(params, ctx!);
-      }
-      throw new Error("session.pr.merge command not available");
-    },
-  }));
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "session.cs.merge",
+      name: "merge",
+      description: "Merge current session's changeset (short alias)",
+      category: CommandCategory.SESSION,
+      parameters: sessionApproveCommandParams,
+      execute: async (params, ctx) => {
+        const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
+        if (prMergeCommand) {
+          return await prMergeCommand.execute(params, ctx!);
+        }
+        throw new Error("session.pr.merge command not available");
+      },
+    })
+  );
 }
