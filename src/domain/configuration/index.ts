@@ -7,6 +7,7 @@
  */
 
 import type { Configuration, PartialConfiguration } from "./schemas";
+import type { ConfigurationLoadResult, ConfigurationLoaderOptions } from "./loader";
 import { log } from "../../utils/logger";
 export type { Configuration, PartialConfiguration } from "./schemas";
 export { configurationSchema } from "./schemas";
@@ -26,7 +27,7 @@ export interface ConfigurationProvider {
   /**
    * Get a configuration value by path
    */
-  get<T = any>(path: string): T;
+  get<T = unknown>(path: string): T;
 
   /**
    * Check if a configuration path exists
@@ -41,7 +42,7 @@ export interface ConfigurationProvider {
   /**
    * Get effective values with source information
    */
-  getEffectiveValues(): Record<string, { value: any; source: string; path: string }>;
+  getEffectiveValues(): Record<string, { value: unknown; source: string; path: string }>;
 
   /**
    * Validate current configuration
@@ -79,9 +80,7 @@ export interface ValidationResult {
 /**
  * Configuration override options for testing
  */
-export interface ConfigurationOverrides {
-  [key: string]: any;
-}
+export type ConfigurationOverrides = Record<string, unknown>;
 
 /**
  * Configuration factory for creating providers
@@ -101,15 +100,22 @@ export interface ConfigurationFactory {
 // NodeConfigProvider removed - node-config has been fully replaced by custom configuration system
 
 /**
+ * Options for CustomConfigurationProvider, extending loader options with override support
+ */
+interface CustomConfigurationProviderOptions extends ConfigurationLoaderOptions {
+  overrideSource?: PartialConfiguration;
+}
+
+/**
  * Custom configuration provider implementing the ConfigurationProvider interface
  *
  * This is the new implementation using our custom configuration system.
  */
 export class CustomConfigurationProvider implements ConfigurationProvider {
-  private configResult: any | null = null;
-  private readonly options: any;
+  private configResult: ConfigurationLoadResult | null = null;
+  private readonly options: CustomConfigurationProviderOptions;
 
-  constructor(options: any = {}) {
+  constructor(options: CustomConfigurationProviderOptions = {}) {
     this.options = options;
   }
 
@@ -124,20 +130,26 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
       // Apply overrides if provided
       if (this.options.overrideSource) {
-        this.configResult.config = this.deepMerge(
-          this.configResult.config,
-          this.options.overrideSource
-        );
+        this.configResult = {
+          ...this.configResult,
+          config: this.deepMerge(
+            this.configResult.config as unknown as Record<string, unknown>,
+            this.options.overrideSource as unknown as Record<string, unknown>
+          ) as unknown as Configuration,
+        };
       }
 
       // Provide stable defaults for tests and consumers
       // Ensure modern tasks backend property exists
-      const cfg: any = this.configResult.config || {};
+      // Deep config traversal requires flexible typing as config is partially validated at this stage
+      const cfg = (this.configResult.config || {}) as Record<string, unknown> & {
+        tasks?: { backend?: string };
+      };
       cfg.tasks = cfg.tasks || {};
       if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
         cfg.tasks.backend = "markdown";
       }
-      this.configResult.config = cfg;
+      this.configResult = { ...this.configResult, config: cfg as Configuration };
     } catch (error) {
       log.error("Configuration loading failed:", error);
       throw error;
@@ -151,9 +163,9 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     return this.configResult.config;
   }
 
-  get<T = any>(path: string): T {
+  get<T = unknown>(path: string): T {
     const config = this.getConfig();
-    const value = this.getNestedValue(config, path);
+    const value = this.getNestedValue(config as unknown as Record<string, unknown>, path);
 
     if (value === undefined) {
       throw new Error(`Configuration path '${path}' not found`);
@@ -165,7 +177,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
   has(path: string): boolean {
     try {
       const config = this.getConfig();
-      return this.getNestedValue(config, path) !== undefined;
+      return this.getNestedValue(config as unknown as Record<string, unknown>, path) !== undefined;
     } catch {
       return false;
     }
@@ -177,11 +189,11 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     }
 
     return {
-      sources: this.configResult.sources.map((source: any) => ({
+      sources: this.configResult.sources.map((source) => ({
         name: source.source.name,
         priority: source.source.priority,
         loaded: source.success,
-        path: source.metadata?.configFile,
+        path: (source.metadata as { configFile?: string })?.configFile,
         error: source.error?.message,
       })),
       loadedAt: this.configResult.loadedAt,
@@ -189,7 +201,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     };
   }
 
-  getEffectiveValues(): Record<string, { value: any; source: string; path: string }> {
+  getEffectiveValues(): Record<string, { value: unknown; source: string; path: string }> {
     if (!this.configResult) {
       throw new Error("Configuration not loaded. Call initialize() first.");
     }
@@ -214,24 +226,31 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     return {
       valid: this.configResult.validationResult.success,
       errors:
-        this.configResult.validationResult.issues?.map((issue: any) => ({
-          path: issue.path?.join?.(".") || "unknown",
+        this.configResult.validationResult.issues?.map((issue) => ({
+          path: issue.path?.join(".") || "unknown",
           message: issue.message,
           severity: "error" as const,
         })) || [],
     };
   }
 
-  private getNestedValue(obj: any, path: string): any {
-    return path.split(".").reduce((current, key) => {
-      return current?.[key];
+  private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+    // Dynamic path traversal requires index access on unknown-typed nested objects
+    return path.split(".").reduce<unknown>((current, key) => {
+      if (current !== null && typeof current === "object") {
+        return (current as Record<string, unknown>)[key];
+      }
+      return undefined;
     }, obj);
   }
 
   /**
    * Deep merge two configuration objects
    */
-  private deepMerge(target: any, source: any): any {
+  private deepMerge(
+    target: Record<string, unknown>,
+    source: Record<string, unknown>
+  ): Record<string, unknown> {
     if (source === null || source === undefined) {
       return target;
     }
@@ -242,7 +261,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
     // For arrays, replace entirely (no concatenation)
     if (Array.isArray(source)) {
-      return [...source];
+      return [...source] as unknown as Record<string, unknown>;
     }
 
     // For primitive values, override
@@ -251,7 +270,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     }
 
     // For objects, merge recursively
-    const result = { ...target };
+    const result: Record<string, unknown> = { ...target };
 
     for (const key in source) {
       if (Object.prototype.hasOwnProperty.call(source, key)) {
@@ -260,7 +279,10 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
           !Array.isArray(source[key]) &&
           source[key] !== null
         ) {
-          result[key] = this.deepMerge(result[key], source[key]);
+          result[key] = this.deepMerge(
+            (result[key] as Record<string, unknown>) || {},
+            source[key] as Record<string, unknown>
+          );
         } else {
           result[key] = source[key];
         }
@@ -353,7 +375,7 @@ export function getConfiguration(): Configuration {
  * @returns The configuration value
  * @throws Error if path doesn't exist
  */
-export function get<T = any>(path: string): T {
+export function get<T = unknown>(path: string): T {
   return getConfigurationProvider().get<T>(path);
 }
 

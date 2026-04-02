@@ -18,6 +18,36 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 
+// ── GitHub API shape interfaces ──────────────────────────────────────────
+
+/** Partial shape of a GitHub check run as returned by the Checks API. */
+interface GitHubCheckRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
+/** Partial shape of a GitHub commit status entry from the combined status API. */
+interface GitHubCommitStatus {
+  state: string;
+  context?: string;
+  description?: string;
+}
+
+/**
+ * Extended PR data shape that includes fields not present in the official
+ * Octokit TypeScript types (e.g. `mergeable_state`).
+ */
+interface GitHubPRExtended {
+  state: string;
+  merged: boolean;
+  mergeable: boolean | null;
+  mergeable_state: string;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+}
+
 // ── Approval operations ─────────────────────────────────────────────────
 
 /**
@@ -85,7 +115,8 @@ export async function approvePullRequest(
       metadata: {
         github: {
           reviewId: review.id,
-          reviewState: (review.state as any) || "APPROVED",
+          reviewState:
+            (review.state as "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED") || "APPROVED",
           reviewerLogin: approver,
           submittedAt: review.submitted_at || new Date().toISOString(),
         },
@@ -119,7 +150,7 @@ export async function getPullRequestApprovalStatus(
 
     const debugEnabled = (() => {
       try {
-        const level = (log as any)?.config?.level;
+        const level = (log as { config?: { level?: unknown } })?.config?.level;
         return (
           String(level).toLowerCase() === "debug" ||
           String(process.env.LOGLEVEL).toLowerCase() === "debug"
@@ -133,10 +164,10 @@ export async function getPullRequestApprovalStatus(
       auth: githubToken,
       log: debugEnabled
         ? {
-            debug: (msg: any) => log.systemDebug(String(msg)),
-            info: (msg: any) => log.systemDebug(String(msg)),
-            warn: (msg: any) => log.systemDebug(String(msg)),
-            error: (msg: any) => log.systemDebug(String(msg)),
+            debug: (msg: unknown) => log.systemDebug(String(msg)),
+            info: (msg: unknown) => log.systemDebug(String(msg)),
+            warn: (msg: unknown) => log.systemDebug(String(msg)),
+            error: (msg: unknown) => log.systemDebug(String(msg)),
           }
         : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     });
@@ -194,7 +225,7 @@ export async function getPullRequestApprovalStatus(
         prNumber,
       })),
       requiredApprovals,
-      prState: (pr.state as any) || "open",
+      prState: (pr.state as "open" | "closed" | "merged" | "draft") || "open",
       metadata: {
         github: {
           statusChecks: [],
@@ -232,7 +263,7 @@ export async function diagnoseMergeBlocker(
       repo: gh.repo,
       pull_number: prNumber,
     });
-    const pr = prResp.data as any;
+    const pr = prResp.data as unknown as GitHubPRExtended;
 
     const reasons: string[] = [];
 
@@ -282,14 +313,15 @@ export async function diagnoseMergeBlocker(
           ref: headSha,
           per_page: 100,
         });
-        const failingChecks = checks.data.check_runs.filter(
-          (r: any) => r.conclusion && r.conclusion !== "success"
+        const checkRuns = checks.data.check_runs as GitHubCheckRun[];
+        const failingChecks = checkRuns.filter(
+          (r) => r.conclusion && r.conclusion !== "success"
         );
-        const pendingChecks = checks.data.check_runs.filter((r: any) => r.status !== "completed");
+        const pendingChecks = checkRuns.filter((r) => r.status !== "completed");
         if (failingChecks.length > 0) {
           const list = failingChecks
             .slice(0, 5)
-            .map((r: any) => r.name)
+            .map((r) => r.name)
             .join(", ");
           reasons.push(
             `Failing checks: ${list}${
@@ -299,7 +331,7 @@ export async function diagnoseMergeBlocker(
         } else if (pendingChecks.length > 0) {
           const list = pendingChecks
             .slice(0, 5)
-            .map((r: any) => r.name)
+            .map((r) => r.name)
             .join(", ");
           reasons.push(`Pending checks: ${list}`);
         } else {
@@ -308,11 +340,12 @@ export async function diagnoseMergeBlocker(
             repo: gh.repo,
             ref: headSha,
           });
-          const failingStatuses = statuses.data.statuses.filter((s: any) => s.state !== "success");
+          const statusList = statuses.data.statuses as GitHubCommitStatus[];
+          const failingStatuses = statusList.filter((s) => s.state !== "success");
           if (failingStatuses.length > 0) {
             const list = failingStatuses
               .slice(0, 5)
-              .map((s: any) => s.context || s.description || "status")
+              .map((s) => s.context || s.description || "status")
               .join(", ");
             reasons.push(
               `Failing status checks: ${list}$${
