@@ -226,8 +226,8 @@ export class TasksSearchCommand extends BaseTaskCommand {
       try {
         const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
         const provider =
-          (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
-        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+          cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
+        const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold =
           threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
         // Print to CLI in human-friendly lines
@@ -293,7 +293,7 @@ import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
-  const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+  const model = cfg.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
