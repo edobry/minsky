@@ -46,8 +46,8 @@ export interface ConfigModificationResult {
   success: boolean;
   filePath: string;
   backupPath?: string;
-  previousValue?: any;
-  newValue?: any;
+  previousValue?: unknown;
+  newValue?: unknown;
   error?: string;
 }
 
@@ -94,7 +94,7 @@ export class ConfigWriter {
   /**
    * Set a configuration value by key path
    */
-  async setConfigValue(keyPath: string, value: any): Promise<ConfigModificationResult> {
+  async setConfigValue(keyPath: string, value: unknown): Promise<ConfigModificationResult> {
     try {
       // Ensure config directory exists
       if (this.options.createDir) {
@@ -333,7 +333,7 @@ export class ConfigWriter {
   /**
    * Load configuration from file
    */
-  private loadConfigFile(filePath: string): any {
+  private loadConfigFile(filePath: string): Record<string, unknown> {
     if (!this.fs.existsSync(filePath)) {
       return {};
     }
@@ -344,10 +344,10 @@ export class ConfigWriter {
 
       switch (extension) {
         case "json":
-          return JSON.parse(content);
+          return JSON.parse(content) as Record<string, unknown>;
         case "yaml":
         case "yml":
-          return parse(content) || {};
+          return (parse(content) as Record<string, unknown>) || {};
         default:
           throw new Error(`Unsupported file format: ${extension}`);
       }
@@ -359,7 +359,7 @@ export class ConfigWriter {
   /**
    * Write configuration to file
    */
-  private writeConfigFile(filePath: string, config: any): void {
+  private writeConfigFile(filePath: string, config: Record<string, unknown>): void {
     const extension = filePath.split(".").pop()?.toLowerCase();
     let content: string;
 
@@ -384,26 +384,31 @@ ${stringify(config, { indent: 2 })}`;
 
   /**
    * Get nested value from object using dot notation
+   * Dynamic path traversal requires index access on unknown-typed nested objects
    */
-  private getNestedValue(obj: any, path: string): any {
-    return path.split(".").reduce((current, key) => {
-      return current?.[key];
+  private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+    return path.split(".").reduce<unknown>((current, key) => {
+      if (current !== null && typeof current === "object") {
+        return (current as Record<string, unknown>)[key];
+      }
+      return undefined;
     }, obj);
   }
 
   /**
    * Set nested value in object using dot notation
+   * Dynamic path traversal requires index access on unknown-typed nested objects
    */
-  private setNestedValue(obj: any, path: string, value: any): void {
+  private setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const keys = path.split(".");
     const lastKey = keys.pop()!;
 
-    let current = obj;
+    let current: Record<string, unknown> = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
         current[key] = {};
       }
-      current = current[key];
+      current = current[key] as Record<string, unknown>;
     }
 
     current[lastKey] = value;
@@ -411,17 +416,18 @@ ${stringify(config, { indent: 2 })}`;
 
   /**
    * Unset nested value in object using dot notation
+   * Dynamic path traversal requires index access on unknown-typed nested objects
    */
-  private unsetNestedValue(obj: any, path: string): void {
+  private unsetNestedValue(obj: Record<string, unknown>, path: string): void {
     const keys = path.split(".");
     const lastKey = keys.pop()!;
 
-    let current = obj;
+    let current: Record<string, unknown> = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
         return; // Path doesn't exist
       }
-      current = current[key];
+      current = current[key] as Record<string, unknown>;
     }
 
     delete current[lastKey];
@@ -432,22 +438,23 @@ ${stringify(config, { indent: 2 })}`;
 
   /**
    * Remove empty parent objects after unsetting a value
+   * Dynamic path traversal requires index access on unknown-typed nested objects
    */
-  private cleanupEmptyObjects(obj: any, keys: string[]): void {
+  private cleanupEmptyObjects(obj: Record<string, unknown>, keys: string[]): void {
     if (keys.length === 0) return;
 
-    let current = obj;
+    let current: Record<string, unknown> = obj;
     const pathToCheck = [...keys];
 
     for (let i = 0; i < pathToCheck.length - 1; i++) {
-      current = current[pathToCheck[i]!];
+      current = current[pathToCheck[i]!] as Record<string, unknown>;
     }
 
     const lastKey = pathToCheck[pathToCheck.length - 1]!;
     if (
       current[lastKey] &&
       typeof current[lastKey] === "object" &&
-      Object.keys(current[lastKey]).length === 0
+      Object.keys(current[lastKey] as Record<string, unknown>).length === 0
     ) {
       delete current[lastKey];
       // Recursively clean up parent
