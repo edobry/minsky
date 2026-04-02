@@ -15,6 +15,7 @@ export interface TaskServiceInterface {
   getBackendForTask?(taskId: string): Promise<string>;
   listBackends?(): any[];
   updateTask?(taskId: string, updates: any): Promise<any>;
+  setDefaultBackend?(backendName: string): void;
 }
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
@@ -48,7 +49,7 @@ export async function createConfiguredTaskService(options: {
           name: TaskBackend.MARKDOWN,
           workspacePath: options.workspacePath,
         });
-        (markdownBackend as any).prefix = "md";
+        markdownBackend.prefix = "md";
         service.registerBackend(markdownBackend);
         break;
       }
@@ -58,7 +59,7 @@ export async function createConfiguredTaskService(options: {
           name: TaskBackend.JSON_FILE,
           workspacePath: options.workspacePath,
         });
-        (jsonBackend as any).prefix = "json";
+        jsonBackend.prefix = "json";
         service.registerBackend(jsonBackend);
         break;
       }
@@ -78,7 +79,7 @@ export async function createConfiguredTaskService(options: {
           repo: config.repo,
           statusLabels: config.statusLabels,
         });
-        (githubBackend as any).prefix = "gh";
+        githubBackend.prefix = "gh";
         service.registerBackend(githubBackend);
         log.debug("GitHub backend registered successfully");
         break;
@@ -97,7 +98,7 @@ export async function createConfiguredTaskService(options: {
             workspacePath: options.workspacePath,
             db,
           });
-          (minskyBackend as any).prefix = "mt";
+          minskyBackend.prefix = "mt";
           service.registerBackend(minskyBackend);
           log.debug("Minsky backend registered successfully");
         } catch (error) {
@@ -137,14 +138,14 @@ export async function createConfiguredTaskService(options: {
         workspacePath: options.workspacePath,
       });
       // Add prefix property for multi-backend routing
-      (markdownBackend as any).prefix = "md";
+      markdownBackend.prefix = "md";
       service.registerBackend(markdownBackend);
 
       const jsonBackend = createJsonFileTaskBackend({
         name: TaskBackend.JSON_FILE,
         workspacePath: options.workspacePath,
       });
-      (jsonBackend as any).prefix = "json";
+      jsonBackend.prefix = "json";
       service.registerBackend(jsonBackend);
 
       // Add GitHub backend (gh# prefix) - requires GitHub configuration
@@ -159,7 +160,7 @@ export async function createConfiguredTaskService(options: {
             repo: config.repo,
             statusLabels: config.statusLabels,
           });
-          (githubBackend as any).prefix = "gh";
+          githubBackend.prefix = "gh";
           service.registerBackend(githubBackend);
           log.debug("GitHub backend registered successfully");
         }
@@ -177,7 +178,7 @@ export async function createConfiguredTaskService(options: {
             workspacePath: options.workspacePath,
             db,
           });
-          (minskyBackend as any).prefix = "mt";
+          minskyBackend.prefix = "mt";
           service.registerBackend(minskyBackend);
           log.debug("Minsky backend registered successfully");
         } catch (error) {
@@ -194,14 +195,14 @@ export async function createConfiguredTaskService(options: {
         const { getConfiguration } = await import("../configuration");
         const config = getConfiguration();
         const configuredBackend = config.tasks.backend; // Config system handles default fallback
-        (service as any).setDefaultBackend(configuredBackend);
+        service.setDefaultBackend?.(configuredBackend);
         log.debug(`Set default backend to '${configuredBackend}' from configuration`);
       } catch (error) {
         log.debug("Could not read configuration for default backend", {
           error: getErrorMessage(error),
         });
         // Fallback to 'minsky' if config system fails
-        (service as any).setDefaultBackend(TaskBackend.MINSKY);
+        service.setDefaultBackend?.(TaskBackend.MINSKY);
       }
     } catch (error) {
       log.warn("Failed to register some backends", { error: getErrorMessage(error) });

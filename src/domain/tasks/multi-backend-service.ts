@@ -121,13 +121,13 @@ export class TaskServiceImpl implements TaskService {
 
   private getBackendByPrefix(prefix: string | null): TaskBackend | null {
     if (!prefix) return null;
-    const found = this.backends.find((b: any) => (b as any).prefix === prefix);
+    const found = this.backends.find((b) => b.prefix === prefix);
     return found || null;
   }
 
   private qualifyTaskFromBackend(task: Task | null, backend: TaskBackend | null): Task | null {
     if (!task || !backend) return task;
-    const prefix = (backend as any).prefix as string | undefined;
+    const prefix = backend.prefix;
     if (!prefix) return task;
     const id = task.id || "";
     if (id.includes("#")) {
