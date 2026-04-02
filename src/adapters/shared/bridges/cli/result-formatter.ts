@@ -23,22 +23,22 @@ export interface CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: any) => void;
+  getDefaultFormatter(commandDef: SharedCommand): (result: Record<string, unknown>) => void;
 
   /**
    * Format array results
    */
-  formatArrayResult(result: any[], commandDef: SharedCommand): void;
+  formatArrayResult(result: unknown[], commandDef: SharedCommand): void;
 
   /**
    * Format object results
    */
-  formatObjectResult(result: any, commandDef: SharedCommand): void;
+  formatObjectResult(result: Record<string, unknown>, commandDef: SharedCommand): void;
 
   /**
    * Format primitive results (string, number, boolean)
    */
-  formatPrimitiveResult(result: any): void;
+  formatPrimitiveResult(result: unknown): void;
 }
 
 /**
@@ -48,8 +48,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
-    return (result: any) => {
+  getDefaultFormatter(commandDef: SharedCommand): (result: Record<string, unknown>) => void {
+    return (result: Record<string, unknown>) => {
       if (Array.isArray(result)) {
         this.formatArrayResult(result, commandDef);
       } else if (typeof result === "object" && result !== null) {
@@ -63,7 +63,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format array results
    */
-  formatArrayResult(result: any[], commandDef: SharedCommand): void {
+  formatArrayResult(result: unknown[], commandDef: SharedCommand): void {
     if (result.length === 0) {
       log.cli("No results found.");
       return;
@@ -71,10 +71,11 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
     result.forEach((item, index) => {
       if (typeof item === "object" && item !== null) {
+        const obj = item as Record<string, unknown>;
         // For objects in arrays, try to display meaningful information
-        if (item.id && item.title) {
+        if (obj.id && obj.title) {
           // Looks like a task or similar entity
-          log.cli(`- ${item.id}: ${item.title}${item.status ? ` [${item.status}]` : ""}`);
+          log.cli(`- ${obj.id}: ${obj.title}${obj.status ? ` [${obj.status}]` : ""}`);
         } else {
           // Generic object display
           log.cli(`${index + 1}. ${JSON.stringify(item)}`);
@@ -88,7 +89,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format object results based on command type
    */
-  formatObjectResult(result: any, commandDef: SharedCommand): void {
+  formatObjectResult(result: Record<string, unknown>, commandDef: SharedCommand): void {
     // Handle specific command types with custom formatters
     switch (commandDef.id) {
       case "session.get":
@@ -109,7 +110,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "session.list":
         if ("sessions" in result) {
-          this.formatSessionListResult(result.sessions);
+          this.formatSessionListResult(result.sessions as unknown[]);
         } else {
           this.formatGenericObject(result);
         }
@@ -118,7 +119,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       // Updated to handle PR subcommands
       case "session.pr.create":
         if ("prBranch" in result) {
-          formatSessionPrDetails(result);
+          formatSessionPrDetails(result as Record<string, any>);
         } else {
           this.formatGenericObject(result);
         }
@@ -131,8 +132,9 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           typeof result === "object" &&
           "table" in result &&
           result.table &&
-          Array.isArray(result.table.headers) &&
-          Array.isArray(result.table.rows)
+          typeof result.table === "object" &&
+          Array.isArray((result.table as Record<string, unknown>).headers) &&
+          Array.isArray((result.table as Record<string, unknown>).rows)
         ) {
           const { headers, rows } = result.table as {
             headers: string[];
@@ -159,8 +161,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "session.approve":
-        if (result.result && "session" in result.result) {
-          formatSessionApprovalDetails(result.result);
+        if (result.result && "session" in (result.result as object)) {
+          formatSessionApprovalDetails(result.result as Record<string, any>);
         } else {
           this.formatGenericObject(result);
         }
@@ -168,7 +170,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "rules.list":
         if ("rules" in result) {
-          this.formatRulesListResult(result.rules);
+          this.formatRulesListResult(result.rules as unknown[]);
         } else {
           this.formatGenericObject(result);
         }
@@ -176,7 +178,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "rules.get":
         if ("content" in result || "id" in result) {
-          formatRuleDetails(result);
+          formatRuleDetails(result as Record<string, any>);
         } else {
           this.formatGenericObject(result);
         }
@@ -262,18 +264,24 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "debug.echo":
-        formatDebugEchoDetails(result);
+        formatDebugEchoDetails(result as Record<string, any>);
         break;
 
       case "session.commit": {
         const shortHash = (
-          result.shortHash || (result.commitHash ? String(result.commitHash).slice(0, 7) : "")
+          result.shortHash
+            ? String(result.shortHash)
+            : result.commitHash
+              ? String(result.commitHash).slice(0, 7)
+              : ""
         ).trim();
-        const subject = result.subject || result.message || "";
-        const branch = result.branch || "";
-        const filesChanged = Number.isFinite(result.filesChanged) ? result.filesChanged : 0;
-        const insertions = Number.isFinite(result.insertions) ? result.insertions : 0;
-        const deletions = Number.isFinite(result.deletions) ? result.deletions : 0;
+        const subject = String(result.subject || result.message || "");
+        const branch = String(result.branch || "");
+        const filesChanged = Number.isFinite(result.filesChanged)
+          ? (result.filesChanged as number)
+          : 0;
+        const insertions = Number.isFinite(result.insertions) ? (result.insertions as number) : 0;
+        const deletions = Number.isFinite(result.deletions) ? (result.deletions as number) : 0;
 
         if (result.oneline) {
           log.cli(
@@ -292,9 +300,10 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           );
 
           if (!result.noFiles && Array.isArray(result.files) && result.files.length > 0) {
-            result.files.forEach((f: any) => {
-              if (f && f.status && f.path) {
-                log.cli(`${f.status} ${f.path}`);
+            (result.files as unknown[]).forEach((f) => {
+              const file = f as Record<string, unknown>;
+              if (file && file.status && file.path) {
+                log.cli(`${file.status} ${file.path}`);
               }
             });
           }
@@ -311,9 +320,9 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format session list results
    */
-  private formatSessionListResult(sessions: any[]): void {
+  private formatSessionListResult(sessions: unknown[]): void {
     if (Array.isArray(sessions) && sessions.length > 0) {
-      sessions.forEach((session: any) => {
+      sessions.forEach((session) => {
         formatSessionSummary(session as Record<string, any>);
       });
     } else {
@@ -324,7 +333,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Check if details should be shown (scores, diagnostics, etc.)
    */
-  private shouldShowDetails(result: any): boolean {
+  private shouldShowDetails(result: Record<string, unknown>): boolean {
     // Check if details flag was passed to the command
     return Boolean(result?.showDetails || result?.details);
   }
@@ -332,7 +341,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format rules list results
    */
-  private formatRulesListResult(rules: any[]): void {
+  private formatRulesListResult(rules: unknown[]): void {
     if (!Array.isArray(rules) || rules.length === 0) {
       log.cli("No rules found.");
       return;
@@ -341,8 +350,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     // Align with tasks.search style: numbered items and trailing count
     // Visual separator after any header emitted by the command implementation
     log.cli("");
-    rules.forEach((rule: any, index: number) => {
-      const r = rule as Record<string, any>;
+    rules.forEach((rule, index: number) => {
+      const r = rule as Record<string, unknown>;
       const ruleId = r.id || "unknown";
       const fmt = r.format ? ` [${r.format}]` : "";
       const desc = r.description ? ` - ${r.description}` : "";
@@ -356,7 +365,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format generic object (fallback)
    */
-  private formatGenericObject(result: any): void {
+  private formatGenericObject(result: Record<string, unknown>): void {
     // Try to find meaningful fields to display
     if (result.printed) {
       // Command already printed a verbose report; avoid redundant summary
@@ -382,9 +391,13 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       // Handle error array (e.g., from rules generate command)
       if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
         log.cli("Errors:");
-        result.errors.forEach((error: any, index: number) => {
+        (result.errors as unknown[]).forEach((error: unknown, index: number) => {
           const errorMsg =
-            typeof error === "string" ? error : error.message || JSON.stringify(error);
+            typeof error === "string"
+              ? error
+              : (error as Record<string, unknown>).message
+                ? String((error as Record<string, unknown>).message)
+                : JSON.stringify(error);
           log.cli(`  ${index + 1}. ${errorMsg}`);
         });
       }
@@ -397,7 +410,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format primitive results (string, number, boolean)
    */
-  formatPrimitiveResult(result: any): void {
+  formatPrimitiveResult(result: unknown): void {
     if (typeof result === "boolean") {
       log.cli(result ? "✅ Success" : "❌ Failed");
     } else if (result === null || result === undefined) {
@@ -446,7 +459,7 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
   /**
    * Format array results with enhanced display options
    */
-  formatArrayResult(result: any[], commandDef: SharedCommand): void {
+  formatArrayResult(result: unknown[], commandDef: SharedCommand): void {
     if (result.length === 0) {
       log.cli("No results found.");
       return;
@@ -468,18 +481,18 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
   /**
    * Check if array can be formatted as a table
    */
-  private canUseTableFormat(result: any[]): boolean {
+  private canUseTableFormat(result: unknown[]): boolean {
     if (result.length === 0) return false;
 
     const firstItem = result[0];
     if (typeof firstItem !== "object" || firstItem === null) return false;
 
-    const firstKeys = Object.keys(firstItem).sort();
+    const firstKeys = Object.keys(firstItem as object).sort();
 
     // Check if all items have the same keys
     return result.every((item) => {
       if (typeof item !== "object" || item === null) return false;
-      const itemKeys = Object.keys(item).sort();
+      const itemKeys = Object.keys(item as object).sort();
       return (
         firstKeys.length === itemKeys.length &&
         firstKeys.every((key, index) => key === itemKeys[index])
@@ -490,10 +503,10 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
   /**
    * Format array as a simple table
    */
-  private formatAsTable(result: any[]): void {
+  private formatAsTable(result: unknown[]): void {
     if (result.length === 0) return;
 
-    const keys = Object.keys(result[0]);
+    const keys = Object.keys(result[0] as object);
 
     // Print header
     log.cli(keys.join("\t"));
@@ -501,8 +514,9 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
 
     // Print rows
     result.forEach((item) => {
+      const obj = item as Record<string, unknown>;
       const values = keys.map((key) => {
-        const value = item[key];
+        const value = obj[key];
         if (value === null || value === undefined) return "";
         return String(value);
       });

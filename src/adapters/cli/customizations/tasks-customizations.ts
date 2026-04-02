@@ -13,7 +13,7 @@ import { log } from "../../../utils/logger";
 export function getTasksCustomizations(): {
   category: CommandCategory;
   options: CategoryCommandOptions;
-  [key: string]: any;
+  [key: string]: unknown;
 } {
   return {
     category: CommandCategory.TASKS,
@@ -130,7 +130,7 @@ export function getTasksCustomizations(): {
               description: "Task that is the dependency",
             },
           },
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
               return;
@@ -153,7 +153,7 @@ export function getTasksCustomizations(): {
               description: "Task that is the dependency",
             },
           },
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
               return;
@@ -172,7 +172,7 @@ export function getTasksCustomizations(): {
               description: "ID of the task to list dependencies for",
             },
           },
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
               return;
@@ -193,7 +193,7 @@ export function getTasksCustomizations(): {
               description: "ID of the task to show dependency tree for",
             },
           },
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
               return;
@@ -240,7 +240,7 @@ export function getTasksCustomizations(): {
               description: "Automatically open the rendered file in the default application",
             },
           },
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
               return;
@@ -280,7 +280,7 @@ export function getTasksCustomizations(): {
           description: "Minimum readiness score (0.0-1.0) to include task",
         },
       },
-      outputFormatter: (result: any) => {
+      outputFormatter: (result: Record<string, unknown>) => {
         if (result.json) {
           log.cli(JSON.stringify(result, null, 2));
           return;
@@ -310,7 +310,7 @@ export function getTasksCustomizations(): {
           description: "Output in JSON format",
         },
       },
-      outputFormatter: (result: any) => {
+      outputFormatter: (result: Record<string, unknown>) => {
         if (result.json) {
           log.cli(JSON.stringify(result, null, 2));
           return;

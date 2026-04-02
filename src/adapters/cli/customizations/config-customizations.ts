@@ -16,19 +16,17 @@ import {
  * @param obj Object to flatten
  * @returns Flattened object
  */
-function flattenObjectToKeyValue(obj: any): any {
-  const flattened: any = {};
+function flattenObjectToKeyValue(obj: Record<string, unknown>): Record<string, unknown> {
+  const flattened: Record<string, unknown> = {};
 
-  function flatten(current: any, prefix = ""): void {
-    if (typeof current === "object" && current !== null) {
-      const keys = Object.keys(current);
-      for (const key of keys) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (typeof current[key] === "object" && current[key] !== null) {
-          flatten(current[key], fullKey);
-        } else {
-          flattened[fullKey] = current[key];
-        }
+  function flatten(current: Record<string, unknown>, prefix = ""): void {
+    const keys = Object.keys(current);
+    for (const key of keys) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      if (typeof current[key] === "object" && current[key] !== null) {
+        flatten(current[key] as Record<string, unknown>, fullKey);
+      } else {
+        flattened[fullKey] = current[key];
       }
     }
   }
@@ -57,25 +55,25 @@ function getConfigCategory(commandId: string): string {
  * @param prefix Prefix for keys
  * @returns Flattened key-value string
  */
-function formatFlattenedConfiguration(resolved: any): string {
-  const flatten = (obj: any, prefix = ""): string[] => {
+function formatFlattenedConfiguration(resolved: Record<string, unknown>): string {
+  const flatten = (obj: Record<string, unknown>, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of Object.entries(obj as any)) {
+    for (const [key, value] of Object.entries(obj)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {
         result.push(`${fullKey}=(null)`);
       } else if (typeof value === "object" && !Array.isArray(value)) {
         // Recursively flatten objects
-        result.push(...flatten(value, fullKey));
+        result.push(...flatten(value as Record<string, unknown>, fullKey));
       } else if (Array.isArray(value)) {
-        if ((value as any[]).length === 0) {
+        if ((value as unknown[]).length === 0) {
           result.push(`${fullKey}=(empty array)`);
         } else {
-          (value as any[]).forEach((item, index) => {
+          (value as unknown[]).forEach((item, index) => {
             if (typeof item === "object") {
-              result.push(...flatten(item, `${fullKey}[${index}]`));
+              result.push(...flatten(item as Record<string, unknown>, `${fullKey}[${index}]`));
             } else {
               result.push(`${fullKey}[${index}]=${item}`);
             }
@@ -118,11 +116,11 @@ export function getConfigCustomizations(): {
     options: {
       commandOptions: {
         "config.list": {
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             // Check if JSON output was requested
             if (result.json) {
               // For JSON output, return flattened key-value pairs (matching normal output)
-              const flattened = flattenObjectToKeyValue(result.resolved);
+              const flattened = flattenObjectToKeyValue(result.resolved as Record<string, unknown>);
               log.cli(JSON.stringify(flattened, null, 2));
               return;
             }
@@ -136,7 +134,7 @@ export function getConfigCustomizations(): {
                 output += "Configuration sources view not available in extracted module";
               } else {
                 // For config list, show flattened key=value pairs
-                output += formatFlattenedConfiguration(result.resolved);
+                output += formatFlattenedConfiguration(result.resolved as Record<string, unknown>);
               }
 
               // Add security notice if credentials are masked
@@ -154,7 +152,7 @@ export function getConfigCustomizations(): {
           },
         },
         "config.show": {
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             // Check if JSON output was requested
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
@@ -167,13 +165,17 @@ export function getConfigCustomizations(): {
               // Show sources if explicitly requested
               if (result.showSources && result.sources) {
                 output += formatConfigurationSources(
-                  result.configuration,
-                  result.sources,
-                  result.effectiveValues
+                  result.configuration as Record<string, unknown>,
+                  result.sources as Record<string, unknown>[],
+                  result.effectiveValues as
+                    | Record<string, { value: unknown; source: string; path: string }>
+                    | undefined
                 );
               } else {
                 // Default human-friendly structured view
-                output += formatResolvedConfiguration(result.configuration);
+                output += formatResolvedConfiguration(
+                  result.configuration as Record<string, unknown>
+                );
               }
 
               log.cli(output);

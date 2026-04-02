@@ -466,10 +466,7 @@ const persistenceCheckRegistration = defineCommand({
         log.cli(`Status: ${validationResult.success ? "✅ HEALTHY" : "❌ ISSUES FOUND"}`);
         log.cli(`Details: ${validationResult.details}`);
 
-        if (
-          Array.isArray(validationResult.issues) &&
-          validationResult.issues.length > 0
-        ) {
+        if (Array.isArray(validationResult.issues) && validationResult.issues.length > 0) {
           log.cli(`\n⚠️ Issues Found:`);
           validationResult.issues.forEach((issue: string, idx: number) => {
             log.cli(`  ${idx + 1}. ${issue}`);

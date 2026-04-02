@@ -87,7 +87,9 @@ export async function runSqliteSchemaMigrations(
           .all();
         metaExists = Array.isArray(tables) && tables.length > 0;
         if (metaExists) {
-          const cnt = db.query("SELECT COUNT(*) as count FROM __drizzle_migrations").get() as DrizzleMigrationCount | null;
+          const cnt = db
+            .query("SELECT COUNT(*) as count FROM __drizzle_migrations")
+            .get() as DrizzleMigrationCount | null;
           appliedCount = parseInt(String(cnt?.count || 0), 10);
           const last = db
             .query(

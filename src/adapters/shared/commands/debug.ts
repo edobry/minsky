@@ -62,90 +62,96 @@ const debugSystemInfoParams = {
  */
 export function registerDebugCommands(): void {
   // Register debug.listMethods command
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "debug.listMethods",
-    category: CommandCategory.DEBUG,
-    name: "listMethods",
-    description: "List all registered methods for debugging",
-    parameters: debugListMethodsParams,
-    execute: async (params, context) => {
-      log.debug("Executing debug.listMethods command", { params });
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "debug.listMethods",
+      category: CommandCategory.DEBUG,
+      name: "listMethods",
+      description: "List all registered methods for debugging",
+      parameters: debugListMethodsParams,
+      execute: async (params, context) => {
+        log.debug("Executing debug.listMethods command", { params });
 
-      // Get all commands from the registry
-      const allCommands = sharedCommandRegistry.getAllCommands();
-      const methodNames = allCommands.map((cmd) => cmd.id).sort();
+        // Get all commands from the registry
+        const allCommands = sharedCommandRegistry.getAllCommands();
+        const methodNames = allCommands.map((cmd) => cmd.id).sort();
 
-      log.debug("Listing all registered methods", {
-        count: methodNames.length,
-        methods: methodNames,
-      });
+        log.debug("Listing all registered methods", {
+          count: methodNames.length,
+          methods: methodNames,
+        });
 
-      return {
-        methods: methodNames,
-        count: methodNames.length,
-        interface: context.interface || "unknown",
-      };
-    },
-  }));
+        return {
+          methods: methodNames,
+          count: methodNames.length,
+          interface: context.interface || "unknown",
+        };
+      },
+    })
+  );
 
   // Register debug.echo command
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "debug.echo",
-    category: CommandCategory.DEBUG,
-    name: "echo",
-    description: "Echo back the provided parameters (for testing communication)",
-    parameters: debugEchoParams,
-    execute: async (params, context) => {
-      log.debug("Executing debug.echo command", { params });
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "debug.echo",
+      category: CommandCategory.DEBUG,
+      name: "echo",
+      description: "Echo back the provided parameters (for testing communication)",
+      parameters: debugEchoParams,
+      execute: async (params, context) => {
+        log.debug("Executing debug.echo command", { params });
 
-      log.debug("Debug echo request", {
-        params,
-        context,
-      });
+        log.debug("Debug echo request", {
+          params,
+          context,
+        });
 
-      return {
-        success: true,
-        timestamp: new Date().toISOString(),
-        echo: params,
-        interface: context.interface || "unknown",
-      };
-    },
-  }));
+        return {
+          success: true,
+          timestamp: new Date().toISOString(),
+          echo: params,
+          interface: context.interface || "unknown",
+        };
+      },
+    })
+  );
 
   // Register debug.systemInfo command
-  sharedCommandRegistry.registerCommand(defineCommand({
-    id: "debug.systemInfo",
-    category: CommandCategory.DEBUG,
-    name: "systemInfo",
-    description: "Get system information for diagnostics",
-    parameters: debugSystemInfoParams,
-    execute: async (params, context) => {
-      log.debug("Executing debug.systemInfo command", { params });
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "debug.systemInfo",
+      category: CommandCategory.DEBUG,
+      name: "systemInfo",
+      description: "Get system information for diagnostics",
+      parameters: debugSystemInfoParams,
+      execute: async (params, context) => {
+        log.debug("Executing debug.systemInfo command", { params });
 
-      // Get basic system info for diagnostics
-      const nodejsVersion = process.version;
-      const platform = process.platform;
-      const arch = process.arch;
-      const uptime = Math.round(process.uptime());
-      const memory = process.memoryUsage();
+        // Get basic system info for diagnostics
+        const nodejsVersion = process.version;
+        const platform = process.platform;
+        const arch = process.arch;
+        const uptime = Math.round(process.uptime());
+        const memory = process.memoryUsage();
 
-      // Return formatted system information
-      return {
-        nodejs: {
-          version: nodejsVersion,
-          platform,
-          arch,
-          uptime,
-        },
-        memory: {
-          rss: formatBytes(memory.rss),
-          heapTotal: formatBytes(memory.heapTotal),
-          heapUsed: formatBytes(memory.heapUsed),
-          external: formatBytes(memory.external),
-        },
-        timestamp: new Date().toISOString(),
-        interface: context.interface || "unknown",
-      };
-    },
-  }));
+        // Return formatted system information
+        return {
+          nodejs: {
+            version: nodejsVersion,
+            platform,
+            arch,
+            uptime,
+          },
+          memory: {
+            rss: formatBytes(memory.rss),
+            heapTotal: formatBytes(memory.heapTotal),
+            heapUsed: formatBytes(memory.heapUsed),
+            external: formatBytes(memory.external),
+          },
+          timestamp: new Date().toISOString(),
+          interface: context.interface || "unknown",
+        };
+      },
+    })
+  );
 }

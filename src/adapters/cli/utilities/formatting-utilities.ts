@@ -66,11 +66,7 @@ export function formatDetectionCondition(condition: string): string {
  * @param creds Credentials object
  * @returns Sanitized credentials object
  */
-export function sanitizeCredentials(creds: any): any {
-  if (!creds || typeof creds !== "object") {
-    return creds;
-  }
-
+export function sanitizeCredentials(creds: Record<string, unknown>): Record<string, unknown> {
   const sanitized = { ...creds };
   if (sanitized.token) {
     sanitized.token = `${"*".repeat(20)} (hidden)`;
@@ -84,16 +80,16 @@ export function sanitizeCredentials(creds: any): any {
  * @param config Configuration object
  * @returns Formatted configuration string
  */
-export function formatConfigSection(config: any): string {
-  if (!config || Object.keys(config as any).length === 0) {
+export function formatConfigSection(config: Record<string, unknown>): string {
+  if (!config || Object.keys(config).length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of Object.entries(config as any)) {
+  for (const [key, value] of Object.entries(config)) {
     if (Array.isArray(value)) {
-      output += `  ${key}: (${(value as any[]).length} items)\n`;
-      (value as any[]).forEach((item, index) => {
+      output += `  ${key}: (${(value as unknown[]).length} items)\n`;
+      (value as unknown[]).forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
           output += `    ${index}: ${JSON.stringify(item)}\n`;
         } else {
@@ -102,11 +98,11 @@ export function formatConfigSection(config: any): string {
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of Object.entries(value as any)) {
+      for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
-            const sanitized = sanitizeCredentials(subValue);
+            const sanitized = sanitizeCredentials(subValue as Record<string, unknown>);
             output += `    ${subKey}: ${JSON.stringify(sanitized)}\n`;
           } else {
             output += `    ${subKey}: ${JSON.stringify(subValue)}\n`;
@@ -131,9 +127,9 @@ export function formatConfigSection(config: any): string {
  * @returns Formatted sources string
  */
 export function formatConfigurationSources(
-  resolved: any,
-  sources: any[],
-  effectiveValues?: Record<string, { value: any; source: string; path: string }>
+  resolved: Record<string, unknown>,
+  sources: Record<string, unknown>[],
+  effectiveValues?: Record<string, { value: unknown; source: string; path: string }>
 ): string {
   let output = "📋 CONFIGURATION WITH SOURCES\n";
   output += "========================================\n";
@@ -141,9 +137,9 @@ export function formatConfigurationSources(
   // Show source precedence
   output += "Source Precedence (highest to lowest):\n";
   sources.forEach((source, index) => {
-    let sourceLine = `  ${index + 1}. ${source.name}`;
-    if (source.path) {
-      sourceLine += ` (${source.path})`;
+    let sourceLine = `  ${index + 1}. ${source["name"]}`;
+    if (source["path"]) {
+      sourceLine += ` (${source["path"]})`;
     }
     output += `${sourceLine}\n`;
   });
@@ -169,8 +165,8 @@ export function formatConfigurationSources(
  * @returns Formatted string showing each value with its source
  */
 export function formatEffectiveValueSources(
-  effectiveValues: Record<string, { value: any; source: string; path: string }>,
-  sources: any[]
+  effectiveValues: Record<string, { value: unknown; source: string; path: string }>,
+  sources: Record<string, unknown>[]
 ): string {
   let output = "📋 CONFIGURATION VALUES BY SOURCE\n";
   output += "========================================\n";
@@ -178,7 +174,7 @@ export function formatEffectiveValueSources(
   // Show source precedence first
   output += "Source Precedence (highest to lowest):\n";
   sources.forEach((source, index) => {
-    output += `  ${index + 1}. ${source.name}\n`;
+    output += `  ${index + 1}. ${source["name"]}\n`;
   });
   output += "\n";
 
@@ -186,7 +182,7 @@ export function formatEffectiveValueSources(
   const sortedPaths = Object.keys(effectiveValues).sort();
 
   // Group values by source for easier reading
-  const valuesBySource: Record<string, Array<{ path: string; value: any }>> = {};
+  const valuesBySource: Record<string, Array<{ path: string; value: unknown }>> = {};
 
   for (const path of sortedPaths) {
     const valueInfo = effectiveValues[path];
@@ -202,13 +198,13 @@ export function formatEffectiveValueSources(
 
   // Display values grouped by source
   for (const sourceObj of sources) {
-    const sourceName = sourceObj.name;
+    const sourceName = String(sourceObj["name"]);
     const values = valuesBySource[sourceName];
     if (values && values.length > 0) {
       // Show the source name and path if available
       let sourceHeader = `📂 FROM ${sourceName.toUpperCase()}`;
-      if (sourceObj.path) {
-        sourceHeader += ` (${sourceObj.path})`;
+      if (sourceObj["path"]) {
+        sourceHeader += ` (${sourceObj["path"]})`;
       }
       output += `${sourceHeader}:\n`;
 
@@ -229,7 +225,7 @@ export function formatEffectiveValueSources(
 /**
  * Format a configuration value for display
  */
-function formatValueForDisplay(value: any): string {
+function formatValueForDisplay(value: unknown): string {
   if (value === null) return "(null)";
   if (value === undefined) return "(undefined)";
   if (Array.isArray(value)) {
@@ -247,8 +243,8 @@ function formatValueForDisplay(value: any): string {
  * @returns Enhanced formatted configuration string with sources
  */
 export function formatResolvedConfigurationWithSources(
-  resolved: any,
-  effectiveValues: Record<string, { value: any; source: string; path: string }>
+  resolved: Record<string, unknown>,
+  effectiveValues: Record<string, { value: unknown; source: string; path: string }>
 ): string {
   // Helper to get source annotation for a config path
   const getSourceAnnotation = (path: string): string => {
@@ -259,11 +255,15 @@ export function formatResolvedConfigurationWithSources(
     return "";
   };
 
+  // Cast to any for deep config traversal — resolved is genuinely dynamic config shape
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = resolved as any;
+
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  const taskBackend = resolved.tasks?.backend || resolved.backend;
-  const persistenceConfig = resolved.persistence || resolved.sessiondb;
+  const taskBackend = r.tasks?.backend || r.backend;
+  const persistenceConfig = r.persistence || r.sessiondb;
   const persistenceBackend = persistenceConfig?.backend || "sqlite";
 
   // Don't show separate task storage if it's using the same database as persistence
@@ -273,8 +273,8 @@ export function formatResolvedConfigurationWithSources(
     const taskBackendSource =
       getSourceAnnotation("tasks.backend") || getSourceAnnotation("backend");
     output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}${taskBackendSource}`;
-    if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
-      const github = resolved.backendConfig["github-issues"];
+    if (taskBackend === "github-issues" && r.backendConfig?.["github-issues"]) {
+      const github = r.backendConfig["github-issues"];
       output += ` (${github.owner}/${github.repo})`;
     }
     output += "\n";
@@ -284,27 +284,26 @@ export function formatResolvedConfigurationWithSources(
 
   // Authentication & Credentials
   const hasAuth =
-    (resolved.credentials && Object.keys(resolved.credentials).length > 0) ||
-    resolved.github?.token ||
-    (resolved.ai?.providers &&
-      Object.keys(resolved.ai.providers).some((p) => resolved.ai.providers[p]?.apiKey));
+    (r.credentials && Object.keys(r.credentials).length > 0) ||
+    r.github?.token ||
+    (r.ai?.providers && Object.keys(r.ai.providers).some((p: string) => r.ai.providers[p]?.apiKey));
 
   if (hasAuth) {
     output += "🔐 Authentication:\n";
 
     // GitHub authentication
-    if (resolved.github?.token || resolved.credentials?.github) {
+    if (r.github?.token || r.credentials?.github) {
       const githubSource = getSourceAnnotation("github.token");
       output += `   • GitHub: ✓ configured${githubSource}\n`;
     }
 
     // AI provider authentication
-    if (resolved.ai?.providers) {
+    if (r.ai?.providers) {
       const configuredAI: string[] = [];
       const aiSources: string[] = [];
-      for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+      for (const [provider, config] of Object.entries(r.ai.providers)) {
         if (config && typeof config === "object") {
-          const providerConfig = config as any;
+          const providerConfig = config as Record<string, unknown>;
           if (providerConfig.apiKey) {
             configuredAI.push(provider);
             const source = getSourceAnnotation(`ai.providers.${provider}.apiKey`);
@@ -345,18 +344,18 @@ export function formatResolvedConfigurationWithSources(
   }
 
   // AI Configuration
-  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
+  if (r.ai?.providers && Object.keys(r.ai.providers).length > 0) {
     output += "🤖 AI Configuration:\n";
 
-    if (resolved.ai.defaultProvider) {
+    if (r.ai.defaultProvider) {
       const defaultSource = getSourceAnnotation("ai.defaultProvider");
-      output += `   • Default Provider: ${resolved.ai.defaultProvider}${defaultSource}\n`;
+      output += `   • Default Provider: ${r.ai.defaultProvider}${defaultSource}\n`;
     }
 
     output += "   • Configured Providers:\n";
-    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+    for (const [provider, config] of Object.entries(r.ai.providers)) {
       if (config && typeof config === "object") {
-        const providerConfig = config as any;
+        const providerConfig = config as Record<string, unknown>;
         output += `     ${provider}:`;
 
         const details: string[] = [];
@@ -382,20 +381,20 @@ export function formatResolvedConfigurationWithSources(
   }
 
   // GitHub Configuration
-  if (resolved.github && Object.keys(resolved.github).length > 0) {
+  if (r.github && Object.keys(r.github).length > 0) {
     output += "🐙 GitHub Configuration:\n";
 
-    if (resolved.github.token) {
+    if (r.github.token) {
       const tokenSource = getSourceAnnotation("github.token");
       output += `   • Token: configured${tokenSource}\n`;
     }
-    if (resolved.github.organization) {
+    if (r.github.organization) {
       const orgSource = getSourceAnnotation("github.organization");
-      output += `   • Organization: ${resolved.github.organization}${orgSource}\n`;
+      output += `   • Organization: ${r.github.organization}${orgSource}\n`;
     }
-    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
+    if (r.github.baseUrl && r.github.baseUrl !== "https://api.github.com") {
       const urlSource = getSourceAnnotation("github.baseUrl");
-      output += `   • Base URL: ${resolved.github.baseUrl}${urlSource}\n`;
+      output += `   • Base URL: ${r.github.baseUrl}${urlSource}\n`;
     }
   }
 
@@ -407,13 +406,17 @@ export function formatResolvedConfigurationWithSources(
  * @param resolved Resolved configuration object
  * @returns Formatted configuration string
  */
-export function formatResolvedConfiguration(resolved: any): string {
+export function formatResolvedConfiguration(resolved: Record<string, unknown>): string {
+  // Cast to any for deep config traversal — resolved is genuinely dynamic config shape
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = resolved as any;
+
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
-  const taskBackend = resolved.tasks?.backend || resolved.backend;
-  const persistenceConfig = resolved.persistence || resolved.sessiondb;
+  const taskBackend = r.tasks?.backend || r.backend;
+  const persistenceConfig = r.persistence || r.sessiondb;
   const persistenceBackend = persistenceConfig?.backend || "sqlite";
 
   // Don't show separate task storage if it's using the same database as persistence
@@ -421,8 +424,8 @@ export function formatResolvedConfiguration(resolved: any): string {
     // Will be shown in unified database section below
   } else if (taskBackend) {
     output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
-    if (taskBackend === TaskBackend.GITHUB_ISSUES && resolved.backendConfig?.["github-issues"]) {
-      const github = resolved.backendConfig["github-issues"];
+    if (taskBackend === TaskBackend.GITHUB_ISSUES && r.backendConfig?.["github-issues"]) {
+      const github = r.backendConfig["github-issues"];
       output += ` (${github.owner}/${github.repo})`;
     }
     output += "\n";
@@ -432,25 +435,24 @@ export function formatResolvedConfiguration(resolved: any): string {
 
   // Authentication & Credentials
   const hasAuth =
-    (resolved.credentials && Object.keys(resolved.credentials).length > 0) ||
-    resolved.github?.token ||
-    (resolved.ai?.providers &&
-      Object.keys(resolved.ai.providers).some((p) => resolved.ai.providers[p]?.apiKey));
+    (r.credentials && Object.keys(r.credentials).length > 0) ||
+    r.github?.token ||
+    (r.ai?.providers && Object.keys(r.ai.providers).some((p: string) => r.ai.providers[p]?.apiKey));
 
   if (hasAuth) {
     output += "🔐 Authentication:\n";
 
     // GitHub authentication
-    if (resolved.github?.token || resolved.credentials?.github) {
+    if (r.github?.token || r.credentials?.github) {
       output += "   • GitHub: ✓ configured\n";
     }
 
     // AI provider authentication
-    if (resolved.ai?.providers) {
+    if (r.ai?.providers) {
       const configuredAI: string[] = [];
-      for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+      for (const [provider, config] of Object.entries(r.ai.providers)) {
         if (config && typeof config === "object") {
-          const providerConfig = config as any;
+          const providerConfig = config as Record<string, unknown>;
           if (providerConfig.apiKey) {
             configuredAI.push(provider);
           }
@@ -466,43 +468,46 @@ export function formatResolvedConfiguration(resolved: any): string {
   // persistenceConfig already defined above
   if (persistenceConfig) {
     // Warn about legacy sessiondb usage
-    if (!resolved.persistence && resolved.sessiondb) {
+    if (!r.persistence && r.sessiondb) {
       output +=
         "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
       output += "   Run 'minsky config migrate' to automatically convert your configuration.\n\n";
     }
 
     // Only show separate persistence if tasks aren't using the same backend
-    const taskBackend = resolved.tasks?.backend || resolved.backend;
-    const persistenceBackend = persistenceConfig.backend || "sqlite";
+    const innerTaskBackend = r.tasks?.backend || r.backend;
+    const innerPersistenceBackend = persistenceConfig.backend || "sqlite";
 
-    if (taskBackend === "minsky" && persistenceBackend === "postgres") {
+    if (innerTaskBackend === "minsky" && innerPersistenceBackend === "postgres") {
       // Both using same database - don't duplicate
       output += "💾 Persistence:\n   • All data stored in PostgreSQL database\n";
     } else {
       output += "💾 Persistence:\n";
-      output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}\n`;
+      output += `   • Backend: ${getSessionBackendDisplayName(innerPersistenceBackend)}\n`;
     }
 
-    if (persistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
+    if (innerPersistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
       output += `   • Database: ${persistenceConfig.sqlite.dbPath}\n`;
-    } else if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
+    } else if (
+      innerPersistenceBackend === "postgres" &&
+      persistenceConfig.postgres?.connectionString
+    ) {
       output += "   • Connection: configured\n";
     }
   }
 
   // AI Configuration
-  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
+  if (r.ai?.providers && Object.keys(r.ai.providers).length > 0) {
     output += "🤖 AI Configuration:\n";
 
-    if (resolved.ai.defaultProvider) {
-      output += `   • Default Provider: ${resolved.ai.defaultProvider}\n`;
+    if (r.ai.defaultProvider) {
+      output += `   • Default Provider: ${r.ai.defaultProvider}\n`;
     }
 
     output += "   • Configured Providers:\n";
-    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+    for (const [provider, config] of Object.entries(r.ai.providers)) {
       if (config && typeof config === "object") {
-        const providerConfig = config as any;
+        const providerConfig = config as Record<string, unknown>;
         output += `     ${provider}:`;
 
         const details: string[] = [];
@@ -526,23 +531,23 @@ export function formatResolvedConfiguration(resolved: any): string {
   }
 
   // GitHub Configuration
-  if (resolved.github && Object.keys(resolved.github).length > 0) {
+  if (r.github && Object.keys(r.github).length > 0) {
     output += "🐙 GitHub Configuration:\n";
 
-    if (resolved.github.token) {
+    if (r.github.token) {
       output += "   • Token: configured\n";
     }
-    if (resolved.github.organization) {
-      output += `   • Organization: ${resolved.github.organization}\n`;
+    if (r.github.organization) {
+      output += `   • Organization: ${r.github.organization}\n`;
     }
-    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
-      output += `   • Base URL: ${resolved.github.baseUrl}\n`;
+    if (r.github.baseUrl && r.github.baseUrl !== "https://api.github.com") {
+      output += `   • Base URL: ${r.github.baseUrl}\n`;
     }
   }
 
   // Logger Configuration (show if non-default or has interesting settings)
-  if (resolved.logger) {
-    const logger = resolved.logger;
+  if (r.logger) {
+    const logger = r.logger;
     const hasNonDefaultSettings =
       logger.mode !== "auto" ||
       logger.level !== "info" ||
@@ -584,8 +589,8 @@ export function formatResolvedConfiguration(resolved: any): string {
   }
 
   // Backend-specific Configuration (only show if configured)
-  if (resolved.backendConfig && Object.keys(resolved.backendConfig).length > 0) {
-    const hasNonEmptyBackends = Object.entries(resolved.backendConfig).some(
+  if (r.backendConfig && Object.keys(r.backendConfig).length > 0) {
+    const hasNonEmptyBackends = Object.entries(r.backendConfig).some(
       ([, config]) =>
         config && typeof config === "object" && Object.keys(config as object).length > 0
     );
@@ -593,7 +598,7 @@ export function formatResolvedConfiguration(resolved: any): string {
     if (hasNonEmptyBackends) {
       output += "⚙️  Backend Configuration:\n";
 
-      for (const [backend, config] of Object.entries(resolved.backendConfig)) {
+      for (const [backend, config] of Object.entries(r.backendConfig)) {
         if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
           output += `   • ${backend}:\n`;
           for (const [key, value] of Object.entries(config as object)) {

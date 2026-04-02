@@ -156,11 +156,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           let trackingOutput = "";
 
           try {
-            trackingOutput = await this.execGit([
-              "rev-parse",
-              "--abbrev-ref",
-              "@{upstream}",
-            ]);
+            trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
           } catch (error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
