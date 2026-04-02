@@ -38,7 +38,7 @@ export async function runMigrationsWithDrizzleKit(options: {
     const { loadConfiguration } = await import("../configuration/loader.js");
 
     // Load Minsky configuration and prepare environment variables for drizzle-kit
-    let configuredEnv: Record<string, string> = {};
+    let configuredEnv: NodeJS.ProcessEnv = {};
     try {
       const configResult = await loadConfiguration();
       const config = configResult.config;
@@ -57,7 +57,7 @@ export async function runMigrationsWithDrizzleKit(options: {
 
       // Set environment variable that drizzle config will read
       configuredEnv = {
-        ...(process.env as Record<string, string>),
+        ...process.env,
         MINSKY_DB_CONFIG: JSON.stringify(dbConfig),
       };
 
@@ -67,7 +67,7 @@ export async function runMigrationsWithDrizzleKit(options: {
         "Failed to load Minsky configuration, using environment variables as fallback:",
         error
       );
-      configuredEnv = { ...process.env } as Record<string, string>;
+      configuredEnv = { ...process.env };
     }
 
     const args = ["drizzle-kit", "migrate", "--config", "./drizzle.pg.config.ts"];
@@ -183,7 +183,7 @@ export async function checkAndGenerateMigrations(): Promise<{
     log.cli("🔍 Checking migration status...");
 
     // Load Minsky configuration and prepare environment variables for drizzle-kit
-    let configuredEnv: Record<string, string> = {};
+    let configuredEnv: NodeJS.ProcessEnv = {};
     try {
       const configResult = await loadConfiguration();
       const config = configResult.config;
@@ -202,7 +202,7 @@ export async function checkAndGenerateMigrations(): Promise<{
 
       // Set environment variable that drizzle config will read
       configuredEnv = {
-        ...(process.env as Record<string, string>),
+        ...process.env,
         MINSKY_DB_CONFIG: JSON.stringify(dbConfig),
       };
 
@@ -212,7 +212,7 @@ export async function checkAndGenerateMigrations(): Promise<{
         "Failed to load Minsky configuration, using environment variables as fallback:",
         error
       );
-      configuredEnv = { ...process.env } as Record<string, string>;
+      configuredEnv = { ...process.env };
     }
 
     // Use drizzle-kit check to detect if migrations are up to date

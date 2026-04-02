@@ -7,6 +7,38 @@
 
 import { log } from "../../utils/logger";
 
+/** Typed result shape for dry-run migration plan */
+interface PostgresMigrationPlan {
+  success: boolean;
+  backend: string;
+  dryRun: boolean;
+  connection: string;
+  migrationsFolder: string;
+  status: {
+    schema: string;
+    metaTable: string;
+  };
+  plan: {
+    files: string[];
+    fileCount: number;
+    appliedCount: number;
+    pendingCount: number;
+    latestHash?: string;
+    latestAt?: string;
+  };
+  printed?: boolean;
+  nothingToDo?: boolean;
+}
+
+/** Typed result shape for executed migration */
+interface PostgresMigrationResult {
+  success: boolean;
+  applied: boolean;
+  backend: string;
+  migrationsFolder: string;
+  printed?: boolean;
+}
+
 /**
  * Compute Postgres migration status (reused by dry-run and execute paths)
  */
@@ -118,13 +150,12 @@ export async function runPostgresSchemaMigrations(
       `${status.appliedCount} applied, ` +
       `${Math.max(fileNames.length - status.appliedCount, 0)} pending`;
 
-    const plan: any = {
+    const plan: PostgresMigrationPlan = {
       success: true,
       backend,
       dryRun: true,
       connection: maskedConn,
       migrationsFolder,
-      message: `${summary}\n\n(use --execute to apply)`,
       status: {
         schema: status.schemaExists ? "present" : "missing",
         metaTable: status.metaExists ? "present" : "missing",
@@ -137,18 +168,17 @@ export async function runPostgresSchemaMigrations(
         latestHash: status.latestHash,
         latestAt: status.latestAt,
       },
-    } as const;
+    };
 
     {
-      (plan as any).printed = true;
-      delete (plan as any).message;
+      plan.printed = true;
     }
 
     {
       const pendingCount = Math.max(fileNames.length - status.appliedCount, 0);
 
       // Mark plan metadata
-      (plan as any).nothingToDo = pendingCount === 0;
+      plan.nothingToDo = pendingCount === 0;
 
       log.cli("=== Persistence Schema Migration (postgres) — DRY RUN ===");
       log.cli("");
@@ -180,7 +210,7 @@ export async function runPostgresSchemaMigrations(
       log.cli("");
     }
 
-    return plan as any;
+    return plan;
   }
 
   // Execute mode
@@ -312,17 +342,14 @@ export async function runPostgresSchemaMigrations(
     await sql.end();
   }
 
-  const appliedPg: any = {
+  const appliedPg: PostgresMigrationResult = {
     success: true,
     applied: true,
     backend,
     migrationsFolder: "./src/domain/storage/migrations/pg",
-    message:
-      `Schema migration applied for postgres ` + `(migrations: ./src/domain/storage/migrations/pg)`,
   };
   {
     appliedPg.printed = true;
-    delete appliedPg.message;
   }
   return appliedPg;
 }
