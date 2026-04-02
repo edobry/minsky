@@ -28,15 +28,41 @@ export interface ErrorContext {
 }
 
 /**
+ * Narrow an unknown error value to extract a string code/errno property.
+ */
+function getErrorCode(error: unknown): string | undefined {
+  if (error !== null && typeof error === "object") {
+    const e = error as Record<string, unknown>;
+    const code = e["code"] ?? e["errno"];
+    if (typeof code === "string") return code;
+    if (typeof code === "number") return String(code);
+  }
+  return undefined;
+}
+
+/**
+ * Narrow an unknown error value to extract the raw message string (before
+ * getErrorMessage processing), used for secondary pattern matching.
+ */
+function getRawMessage(error: unknown): string {
+  if (error !== null && typeof error === "object") {
+    const msg = (error as Record<string, unknown>)["message"];
+    if (typeof msg === "string") return msg;
+  }
+  if (typeof error === "string") return error;
+  return "";
+}
+
+/**
  * Classifies a filesystem error into a semantic error response
  */
 export class SemanticErrorClassifier {
   /**
    * Convert a filesystem error to a semantic error response
    */
-  static classifyError(error: any, context: ErrorContext): SemanticErrorResponse {
+  static classifyError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
-    const errorCode = error?.code || error?.errno;
+    const errorCode = getErrorCode(error);
 
     log.debug("Classifying error", {
       errorMessage,
@@ -62,7 +88,7 @@ export class SemanticErrorClassifier {
     }
 
     // Handle session-specific errors
-    const originalMessage = error?.message || error || "";
+    const originalMessage = getRawMessage(error);
     if (
       errorMessage.includes("Session not found") ||
       originalMessage.includes("Session not found") ||
@@ -100,9 +126,9 @@ export class SemanticErrorClassifier {
   /**
    * Handle ENOENT errors by determining if it's a file or directory issue
    */
-  private static handleENOENTError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handleENOENTError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
-    const rawMessage = error?.message || error || "";
+    const rawMessage = getRawMessage(error);
     const path =
       context.path ||
       this.extractPathFromError(errorMessage) ||
@@ -149,7 +175,7 @@ export class SemanticErrorClassifier {
   /**
    * Handle permission errors
    */
-  private static handlePermissionError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handlePermissionError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EACCES;
     if (!mapping) {
       return this.handleGenericError(error, context);
@@ -160,7 +186,7 @@ export class SemanticErrorClassifier {
   /**
    * Handle file/directory already exists errors
    */
-  private static handleExistsError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handleExistsError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EEXIST;
     if (!mapping) {
       return this.handleGenericError(error, context);
@@ -171,7 +197,7 @@ export class SemanticErrorClassifier {
   /**
    * Handle invalid path errors
    */
-  private static handleInvalidPathError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handleInvalidPathError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EINVAL;
     if (!mapping) {
       return this.handleGenericError(error, context);
@@ -183,7 +209,7 @@ export class SemanticErrorClassifier {
    * Handle session-related errors
    */
   private static handleSessionError(
-    error: any,
+    error: unknown,
     context: ErrorContext,
     sessionErrorType: keyof typeof SESSION_ERROR_MAPPINGS
   ): SemanticErrorResponse {
@@ -197,9 +223,9 @@ export class SemanticErrorClassifier {
   /**
    * Handle git-related errors
    */
-  private static handleGitError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handleGitError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
-    const originalMessage = error?.message || error || "";
+    const originalMessage = getRawMessage(error);
 
     // Determine specific git error type
     let gitErrorType: keyof typeof GIT_ERROR_MAPPINGS = "GIT_BRANCH_CONFLICT";
@@ -225,7 +251,7 @@ export class SemanticErrorClassifier {
   /**
    * Handle generic errors
    */
-  private static handleGenericError(error: any, context: ErrorContext): SemanticErrorResponse {
+  private static handleGenericError(error: unknown, context: ErrorContext): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
 
     return {
@@ -250,7 +276,7 @@ export class SemanticErrorClassifier {
    */
   private static createSemanticErrorResponse(
     mapping: ErrorMapping,
-    error: any,
+    error: unknown,
     context: ErrorContext,
     options: {
       customMessage?: string;
@@ -258,7 +284,7 @@ export class SemanticErrorClassifier {
     } = {}
   ): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
-    const rawMessage = error?.message || error || "";
+    const rawMessage = getRawMessage(error);
     const path =
       context.path ||
       this.extractPathFromError(errorMessage) ||
