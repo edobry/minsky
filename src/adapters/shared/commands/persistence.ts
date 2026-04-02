@@ -29,6 +29,7 @@ import {
   validateSqliteBackend,
   validatePostgresBackend,
 } from "../../../domain/persistence/validation-operations";
+import { getEffectivePersistenceConfig } from "../../../domain/configuration/persistence-config";
 // createSessionProvider is imported dynamically where needed
 
 /**
@@ -96,9 +97,7 @@ sharedCommandRegistry.registerCommand({
         // Auto-detect backend and run appropriate migration flow
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = (config.persistence?.backend ||
-          (config as any).sessiondb?.backend ||
-          "sqlite") as "sqlite" | "postgres";
+        const backend = getEffectivePersistenceConfig(config).backend as "sqlite" | "postgres";
 
         const shouldApply = Boolean(execute);
 
@@ -150,7 +149,7 @@ sharedCommandRegistry.registerCommand({
       const config = getConfiguration();
 
       // Check for drift in current configuration
-      const configuredBackend = config.persistence?.backend || (config as any).sessiondb?.backend;
+      const configuredBackend = getEffectivePersistenceConfig(config).backend;
       // JSON backend has been removed; retain guardrails without impossible comparisons
       // (no action needed here)
 
@@ -176,8 +175,8 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
-        const configuredBackend = (config.persistence?.backend ||
-          (config as any).sessiondb?.backend) as "sqlite" | "postgres";
+        const effectivePersistence = getEffectivePersistenceConfig(config);
+        const configuredBackend = effectivePersistence.backend as "sqlite" | "postgres";
         if (!configuredBackend) {
           throw new Error(
             "No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config."
@@ -187,20 +186,13 @@ sharedCommandRegistry.registerCommand({
         const sourceConfig: any = { backend: configuredBackend };
         if (configuredBackend === "sqlite") {
           // Use configured path or default
-          const dbPath =
-            config.persistence?.sqlite?.dbPath ||
-            (config as any).sessiondb?.sqlite?.path ||
-            (config as any).sessiondb?.dbPath ||
-            getDefaultSqliteDbPath();
+          const dbPath = effectivePersistence.dbPath ?? getDefaultSqliteDbPath();
           sourceConfig.sqlite = { dbPath };
           sourceDescription = `SQLite backend: ${dbPath}`;
           sourceBackendKind = "sqlite";
           sqliteSourcePath = dbPath;
         } else if (configuredBackend === "postgres") {
-          const connectionString =
-            (config as any).sessiondb?.postgres?.connectionString ||
-            (config as any).sessiondb?.connectionString ||
-            process.env.MINSKY_POSTGRES_URL;
+          const connectionString = effectivePersistence.connectionString;
           if (!connectionString) {
             throw new Error(
               "PostgreSQL connection string not found in configuration or MINSKY_POSTGRES_URL."
@@ -325,10 +317,7 @@ sharedCommandRegistry.registerCommand({
         };
       } else if (to === "postgres") {
         // Use config-driven PostgreSQL connection
-        const connectionString =
-          (config as any).sessiondb?.postgres?.connectionString ||
-          (config as any).sessiondb?.connectionString ||
-          process.env.MINSKY_POSTGRES_URL;
+        const connectionString = getEffectivePersistenceConfig(config).connectionString;
 
         if (!connectionString) {
           throw new Error(
@@ -429,7 +418,7 @@ sharedCommandRegistry.registerCommand({
       } else {
         // Auto-detect from configuration
         const config = getConfiguration();
-        const configuredBackend = config.persistence?.backend || (config as any).sessiondb?.backend;
+        const configuredBackend = getEffectivePersistenceConfig(config).backend;
 
         // Guard against unsupported historical backends
         if (configuredBackend && !["sqlite", "postgres"].includes(configuredBackend as string)) {
