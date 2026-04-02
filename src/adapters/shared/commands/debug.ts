@@ -12,7 +12,6 @@ import {
   CommandCategory,
   defineCommand,
   type CommandExecutionContext,
-  type CommandParameterMap,
 } from "../command-registry";
 import { log } from "../../../utils/logger";
 

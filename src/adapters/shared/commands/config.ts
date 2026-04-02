@@ -14,7 +14,6 @@ import {
   defineCommand,
   type CommandExecutionContext,
   type CommandParameterMap,
-  type InferParams,
 } from "../command-registry";
 import { has, get, getConfiguration } from "../../../domain/configuration/index";
 import { createConfigWriter } from "../../../domain/configuration/config-writer";

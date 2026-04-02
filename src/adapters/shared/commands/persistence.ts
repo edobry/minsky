@@ -15,9 +15,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   defineCommand,
-  type CommandParameterMap,
   type CommandExecutionContext,
-  type InferParams,
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
@@ -82,8 +80,8 @@ const persistenceMigrateCommandParams = {
   },
 };
 
-// Register persistence migrate command
-sharedCommandRegistry.registerCommand(defineCommand({
+// Persistence migrate command definition
+const persistenceMigrateRegistration = defineCommand({
   id: "persistence.migrate",
   category: CommandCategory.PERSISTENCE,
   name: "migrate",
@@ -367,7 +365,7 @@ sharedCommandRegistry.registerCommand(defineCommand({
       throw ensureError(error);
     }
   },
-}));
+});
 
 /**
  * Parameters for the persistence check command
@@ -395,8 +393,8 @@ const persistenceCheckCommandParams = {
   },
 };
 
-// Register persistence check command
-sharedCommandRegistry.registerCommand(defineCommand({
+// Persistence check command definition
+const persistenceCheckRegistration = defineCommand({
   id: "persistence.check",
   category: CommandCategory.PERSISTENCE,
   name: "check",
@@ -506,12 +504,13 @@ sharedCommandRegistry.registerCommand(defineCommand({
       throw error;
     }
   },
-}));
+});
 
 /**
  * Register all persistence commands
  */
 export function registerPersistenceCommands(): void {
-  // Commands are registered above when this module is imported
+  sharedCommandRegistry.registerCommand(persistenceMigrateRegistration);
+  sharedCommandRegistry.registerCommand(persistenceCheckRegistration);
   log.debug("Persistence commands registered");
 }
