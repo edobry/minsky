@@ -10,8 +10,8 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  defineCommand,
   type CommandExecutionContext,
-  type CommandParameterMap,
 } from "../command-registry";
 import { log } from "../../../utils/logger";
 
@@ -34,14 +34,14 @@ function formatBytes(bytes: number): string {
 /**
  * Parameters for debug.listMethods command
  */
-const debugListMethodsParams: CommandParameterMap = {
+const debugListMethodsParams = {
   // No parameters needed
 };
 
 /**
  * Parameters for debug.echo command
  */
-const debugEchoParams: CommandParameterMap = {
+const debugEchoParams = {
   message: {
     schema: z.string().optional(),
     description: "Message to echo back",
@@ -53,7 +53,7 @@ const debugEchoParams: CommandParameterMap = {
 /**
  * Parameters for debug.systemInfo command
  */
-const debugSystemInfoParams: CommandParameterMap = {
+const debugSystemInfoParams = {
   // No parameters needed
 };
 
@@ -62,7 +62,7 @@ const debugSystemInfoParams: CommandParameterMap = {
  */
 export function registerDebugCommands(): void {
   // Register debug.listMethods command
-  sharedCommandRegistry.registerCommand({
+  sharedCommandRegistry.registerCommand(defineCommand({
     id: "debug.listMethods",
     category: CommandCategory.DEBUG,
     name: "listMethods",
@@ -86,10 +86,10 @@ export function registerDebugCommands(): void {
         interface: context.interface || "unknown",
       };
     },
-  });
+  }));
 
   // Register debug.echo command
-  sharedCommandRegistry.registerCommand({
+  sharedCommandRegistry.registerCommand(defineCommand({
     id: "debug.echo",
     category: CommandCategory.DEBUG,
     name: "echo",
@@ -110,10 +110,10 @@ export function registerDebugCommands(): void {
         interface: context.interface || "unknown",
       };
     },
-  });
+  }));
 
   // Register debug.systemInfo command
-  sharedCommandRegistry.registerCommand({
+  sharedCommandRegistry.registerCommand(defineCommand({
     id: "debug.systemInfo",
     category: CommandCategory.DEBUG,
     name: "systemInfo",
@@ -123,11 +123,11 @@ export function registerDebugCommands(): void {
       log.debug("Executing debug.systemInfo command", { params });
 
       // Get basic system info for diagnostics
-      const nodejsVersion = (process as any).version;
-      const platform = (process as any).platform;
-      const arch = (process as any).arch;
-      const uptime = Math.round((process as any).uptime());
-      const memory = (process as any).memoryUsage();
+      const nodejsVersion = process.version;
+      const platform = process.platform;
+      const arch = process.arch;
+      const uptime = Math.round(process.uptime());
+      const memory = process.memoryUsage();
 
       // Return formatted system information
       return {
@@ -147,5 +147,5 @@ export function registerDebugCommands(): void {
         interface: context.interface || "unknown",
       };
     },
-  });
+  }));
 }

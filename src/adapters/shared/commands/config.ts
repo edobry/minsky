@@ -11,6 +11,7 @@ import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  defineCommand,
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
@@ -23,7 +24,7 @@ import { CommonParameters, ConfigParameters, composeParams } from "../common-par
 /**
  * Shared parameters for config commands (eliminates duplication)
  */
-const configCommandParams: CommandParameterMap = composeParams(
+const configCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
     workspace: CommonParameters.workspace,
@@ -37,11 +38,11 @@ const configCommandParams: CommandParameterMap = composeParams(
 /**
  * Parameters for config list command
  */
-const configListParams: CommandParameterMap = composeParams(configCommandParams, {
+const configListParams = composeParams(configCommandParams, {
   showSecrets: {
     schema: z.boolean(),
     description: "Show actual credential values (SECURITY RISK: use with caution)",
-    required: false,
+    required: false as const,
     defaultValue: false,
   },
 });
@@ -49,7 +50,7 @@ const configListParams: CommandParameterMap = composeParams(configCommandParams,
 /**
  * Parameters for config show command
  */
-const configShowParams: CommandParameterMap = configCommandParams;
+const configShowParams = configCommandParams;
 
 /**
  * Masks sensitive credential values in configuration
@@ -140,13 +141,13 @@ function maskCredentialsInEffectiveValues(
 /**
  * Config list command definition
  */
-const configListRegistration = {
+const configListRegistration = defineCommand({
   id: "config.list",
   category: CommandCategory.CONFIG,
   name: "list",
   description: "Show all configuration from all sources",
   parameters: configListParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx) => {
     try {
       // Use custom configuration system to get configuration
       const { getConfigurationProvider } = await import("../../../domain/configuration/index");
@@ -187,22 +188,22 @@ const configListRegistration = {
         success: false,
         json: params.json || false,
         error: getErrorMessage(error),
-        showSources: (params as any).sources || false,
+        showSources: params.sources || false,
       };
     }
   },
-} as any;
+});
 
 /**
  * Config show command definition
  */
-const configShowRegistration = {
+const configShowRegistration = defineCommand({
   id: "config.show",
   category: CommandCategory.CONFIG,
   name: "show",
   description: "Show the final resolved configuration",
   parameters: configShowParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx) => {
     try {
       // Use custom configuration system to get resolved configuration
       const { getConfigurationProvider } = await import("../../../domain/configuration/index");
@@ -233,10 +234,7 @@ const configShowRegistration = {
           path: source.path,
           error: source.error,
         })),
-        effectiveValues: maskCredentialsInEffectiveValues(
-          effectiveValues,
-          params.showSecrets || false
-        ),
+        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, false),
       };
     } catch (error) {
       log.error("Failed to load configuration", {
@@ -246,11 +244,11 @@ const configShowRegistration = {
         success: false,
         json: params.json || false,
         error: getErrorMessage(error),
-        showSources: (params as any).sources || false,
+        showSources: params.sources || false,
       };
     }
   },
-} as any;
+});
 
 /**
  * Safely gather credential information for display
@@ -336,15 +334,19 @@ function parseConfigValue(value: string): any {
 /**
  * Config get command
  */
-const configGetRegistration = {
+const configGetRegistration = defineCommand({
   id: "config.get",
   category: CommandCategory.CONFIG,
   name: "get",
   description: "Get a configuration value by key path",
   parameters: composeParams(configCommandParams, {
-    key: { schema: z.string(), description: "Configuration key path", required: true },
+    key: {
+      schema: z.string(),
+      description: "Configuration key path",
+      required: true as const,
+    },
   }),
-  execute: async (params: any) => {
+  execute: async (params, _ctx) => {
     try {
       const { getConfigurationProvider } = await import("../../../domain/configuration/index");
       const provider = getConfigurationProvider();
@@ -378,33 +380,37 @@ const configGetRegistration = {
       };
     }
   },
-} as any;
+});
 
 /**
  * Config set command
  */
-const configSetRegistration = {
+const configSetRegistration = defineCommand({
   id: "config.set",
   category: CommandCategory.CONFIG,
   name: "set",
   description: "Set a configuration value",
   parameters: composeParams(configCommandParams, {
-    key: { schema: z.string(), description: "Configuration key path", required: true },
-    value: { schema: z.string(), description: "Value to set", required: true },
+    key: {
+      schema: z.string(),
+      description: "Configuration key path",
+      required: true as const,
+    },
+    value: { schema: z.string(), description: "Value to set", required: true as const },
     noBackup: {
       schema: z.boolean(),
       description: "Skip creating backup before modification",
-      required: false,
+      required: false as const,
       defaultValue: false,
     },
     format: {
       schema: z.enum(["yaml", "json"]).default("yaml"),
       description: "File format to use",
-      required: false,
+      required: false as const,
       defaultValue: "yaml",
     },
   }),
-  execute: async (params: any) => {
+  execute: async (params, _ctx) => {
     const writer = createConfigWriter({
       createBackup: !params.noBackup,
       format: params.format === "json" ? "json" : "yaml",
@@ -432,32 +438,36 @@ const configSetRegistration = {
       backupPath: result.backupPath,
     };
   },
-} as any;
+});
 
 /**
  * Config unset command
  */
-const configUnsetRegistration = {
+const configUnsetRegistration = defineCommand({
   id: "config.unset",
   category: CommandCategory.CONFIG,
   name: "unset",
   description: "Remove a configuration value",
   parameters: composeParams(configCommandParams, {
-    key: { schema: z.string(), description: "Configuration key path", required: true },
+    key: {
+      schema: z.string(),
+      description: "Configuration key path",
+      required: true as const,
+    },
     noBackup: {
       schema: z.boolean(),
       description: "Skip creating backup before modification",
-      required: false,
+      required: false as const,
       defaultValue: false,
     },
     format: {
       schema: z.enum(["yaml", "json"]).default("yaml"),
       description: "File format to use",
-      required: false,
+      required: false as const,
       defaultValue: "yaml",
     },
   }),
-  execute: async (params: any) => {
+  execute: async (params, _ctx) => {
     const writer = createConfigWriter({
       createBackup: !params.noBackup,
       format: params.format === "json" ? "json" : "yaml",
@@ -483,12 +493,12 @@ const configUnsetRegistration = {
       backupPath: result.backupPath,
     };
   },
-} as any;
+});
 
 /**
  * Config validate command
  */
-const configValidateRegistration = {
+const configValidateRegistration = defineCommand({
   id: "config.validate",
   category: CommandCategory.CONFIG,
   name: "validate",
@@ -497,18 +507,22 @@ const configValidateRegistration = {
     verbose: {
       schema: z.boolean(),
       description: "Show detailed validation results",
-      required: false,
+      required: false as const,
       defaultValue: false,
     },
   }),
-  execute: async (params: any) => {
+  execute: async (params, _ctx) => {
     const { getConfigurationProvider, validateConfiguration } = await import(
       "../../../domain/configuration/index"
     );
     const provider = getConfigurationProvider();
     const validationResult = validateConfiguration();
-    const hasErrors = validationResult.errors.some((e: any) => e.severity === "error");
-    const hasWarnings = validationResult.errors.some((e: any) => e.severity === "warning");
+    const hasErrors = validationResult.errors.some(
+      (e: { severity?: string }) => e.severity === "error"
+    );
+    const hasWarnings = validationResult.errors.some(
+      (e: { severity?: string }) => e.severity === "warning"
+    );
 
     return {
       success: validationResult.valid && !hasErrors,
@@ -522,12 +536,12 @@ const configValidateRegistration = {
       verbose: params.verbose || false,
     };
   },
-} as any;
+});
 
 /**
  * Config doctor command
  */
-const configDoctorRegistration = {
+const configDoctorRegistration = defineCommand({
   id: "config.doctor",
   category: CommandCategory.CONFIG,
   name: "doctor",
@@ -536,13 +550,13 @@ const configDoctorRegistration = {
     verbose: {
       schema: z.boolean(),
       description: "Show detailed diagnostic results",
-      required: false,
+      required: false as const,
       defaultValue: false,
     },
   }),
-  execute: async (params: any) => {
+  execute: async (params, _ctx) => {
     // Perform lightweight diagnostics without external calls
-    const diagnostics: any[] = [];
+    const diagnostics: Array<{ check: string; status: string; message: string }> = [];
     const { getConfigurationProvider, validateConfiguration } = await import(
       "../../../domain/configuration/index"
     );
@@ -576,7 +590,9 @@ const configDoctorRegistration = {
 
     try {
       const validationResult = validateConfiguration();
-      const hasErrors = validationResult.errors.some((e: any) => e.severity === "error");
+      const hasErrors = validationResult.errors.some(
+        (e: { severity?: string }) => e.severity === "error"
+      );
       diagnostics.push({
         check: "Configuration Validation",
         status: hasErrors ? "error" : validationResult.errors.length > 0 ? "warning" : "pass",
@@ -651,4 +667,4 @@ const configDoctorRegistration = {
       verbose: params.verbose || false,
     };
   },
-} as any;
+});
