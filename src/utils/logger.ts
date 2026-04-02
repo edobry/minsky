@@ -13,9 +13,7 @@ export interface LoggerConfig {
 }
 
 // Log context interface
-export interface LogContext {
-  [key: string]: any;
-}
+export type LogContext = Record<string, unknown>;
 
 // Environment variable for log mode
 // STRUCTURED: Full JSON logs for machine consumption (for CI/CD, integrations)
@@ -88,9 +86,9 @@ export function createLogger(configOverride?: LoggerConfig) {
   // Common format for program/CLI logs (plain text)
   const programLogFormat = format.combine(
     format.colorize(),
-    format.printf((info: any) => {
+    format.printf((info: Record<string, unknown>) => {
       // Cast info to a proper type
-      const logInfo = info as { message?: any; stack?: string; [key: string]: any };
+      const logInfo = info as { message?: unknown; stack?: string; [key: string]: unknown };
       // Ensure message is a string
       const message =
         typeof logInfo.message === "string" ? logInfo.message : JSON.stringify(logInfo.message);
@@ -108,7 +106,7 @@ export function createLogger(configOverride?: LoggerConfig) {
           acc[key] = logInfo[key];
           return acc;
         },
-        {} as Record<string, any>
+        {} as Record<string, unknown>
       );
 
       if (Object.keys(metadata).length > 0) {
@@ -166,12 +164,12 @@ export function createLogger(configOverride?: LoggerConfig) {
   // Convenience wrapper
   const loggerInstance = {
     // Agent logs (structured JSON to stdout)
-    agent: (message: any) => {
+    agent: (message: unknown) => {
       // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
       if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
         return;
       }
-      agentLogger.info(message);
+      agentLogger.info(message as string);
     },
     debug: (message: string, context?: LogContext) => {
       // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
@@ -210,7 +208,7 @@ export function createLogger(configOverride?: LoggerConfig) {
     },
     error: (
       message: string,
-      context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
+      context?: LogContext | Error | { originalError?: unknown; stack?: string; [key: string]: unknown }
     ) => {
       // For errors, in HUMAN mode route to programLogger.error instead of suppressing
       if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
@@ -230,8 +228,8 @@ export function createLogger(configOverride?: LoggerConfig) {
           if (typeof anyCtx.name === "string" && anyCtx.name.trim().length > 0) {
             parts.push(`Session: ${anyCtx.name.trim()}`);
           }
-          if (typeof (anyCtx as any).stack === "string") {
-            parts.push((anyCtx as any).stack as string);
+          if (typeof anyCtx.stack === "string") {
+            parts.push(anyCtx.stack);
           }
           const suffix = parts.length > 0 ? `\n${parts.join("\n")}` : "";
           programLogger.error(`${message}${suffix}`);
@@ -259,19 +257,19 @@ export function createLogger(configOverride?: LoggerConfig) {
       }
     },
     // Program/CLI logs (plain text to stderr)
-    cli: (message: any) => programLogger.info(String(message)),
-    cliWarn: (message: any) => programLogger.warn(String(message)),
-    cliError: (message: any) => programLogger.error(String(message)),
+    cli: (message: unknown) => programLogger.info(String(message)),
+    cliWarn: (message: unknown) => programLogger.warn(String(message)),
+    cliError: (message: unknown) => programLogger.error(String(message)),
     // Add ability to set log level
     setLevel: (level: string) => {
       agentLogger.level = level;
       programLogger.level = level;
     },
     // Add additional CLI-oriented debug log
-    cliDebug: (message: any) => programLogger.debug(String(message)),
+    cliDebug: (message: unknown) => programLogger.debug(String(message)),
     // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
     // Use this for important system debugging that should always be visible when debug level is set
-    systemDebug: (message: any) => {
+    systemDebug: (message: unknown) => {
       // Always log to programLogger (stderr) regardless of mode
       programLogger.debug(String(message));
     },
@@ -293,7 +291,7 @@ export function createLogger(configOverride?: LoggerConfig) {
 }
 
 // Lazy default logger instance to avoid configuration access during module loading
-let defaultLogger: any = null;
+let defaultLogger: ReturnType<typeof createLogger> | null = null;
 
 function getDefaultLogger() {
   if (!defaultLogger) {
@@ -303,11 +301,11 @@ function getDefaultLogger() {
 }
 
 // Export the default logger for backward compatibility (lazy)
-export const log = new Proxy({} as any, {
-  get(target, prop) {
-    return getDefaultLogger()[prop];
+export const log = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_target, prop) {
+    return (getDefaultLogger() as Record<string | symbol, unknown>)[prop as string | symbol];
   },
-});
+}) as ReturnType<typeof createLogger>;
 
 export const isStructuredMode = () => getDefaultLogger().isStructuredMode();
 export const isHumanMode = () => getDefaultLogger().isHumanMode();

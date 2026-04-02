@@ -87,7 +87,7 @@ export async function stashChangesImpl(
     await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
     return { workdir, stashed: true };
   } catch (err) {
-    throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
   }
 }
 
@@ -103,7 +103,7 @@ export async function popStashImpl(execAsync: ExecAsyncFn, workdir: string): Pro
     await execAsync(`git -C ${workdir} stash pop`);
     return { workdir, stashed: true };
   } catch (err) {
-    throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
   }
 }
 
@@ -121,7 +121,7 @@ export async function fetchLatestImpl(
     const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
     return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
   } catch (err) {
-    throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err)}`);
   }
 }
 
@@ -161,7 +161,7 @@ export async function fetchDefaultBranchImpl(
     return result;
   } catch (error) {
     log.error("Could not determine default branch, falling back to 'main'", {
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
       repoPath,
     });
     return "main";
@@ -181,12 +181,12 @@ export async function execInRepositoryImpl(
     return stdout;
   } catch (error) {
     log.debug("Command execution failed", {
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
       command,
       workdir,
     });
 
-    const fullError = getErrorMessage(error as any);
+    const fullError = getErrorMessage(error);
     const cleanError = extractCleanGitError(fullError, command);
 
     throw new MinskyError(`Failed to execute command in repository: ${cleanError}`);

@@ -31,7 +31,8 @@ export interface OctokitErrorInfo {
  * or an unknown value.
  */
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
-  const anyErr: any = error as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyErr = error as any; // Octokit errors have dynamic shape not covered by standard types
   const message: string = error instanceof Error ? error.message : String(error);
   const status: number | undefined = (anyErr?.status ?? anyErr?.response?.status) as
     | number

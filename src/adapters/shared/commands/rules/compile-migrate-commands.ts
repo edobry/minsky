@@ -57,7 +57,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
           force: params.force || false,
         });
       } catch (error) {
-        log.error("Failed to migrate rules", { error: getErrorMessage(error as any) });
+        log.error("Failed to migrate rules", { error: getErrorMessage(error) });
         throw error;
       }
     },

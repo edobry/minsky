@@ -92,7 +92,7 @@ export async function createPullRequest(
       }
     } catch (err) {
       log.debug("Local backend: unable to record PR commit hash", {
-        error: getErrorMessage(err as any),
+        error: getErrorMessage(err),
         session,
       });
     }

@@ -57,7 +57,7 @@ export function registerListSearchCommands(targetRegistry: {
         );
         return { success: true };
       } catch (error) {
-        const message = getErrorMessage(error as any);
+        const message = getErrorMessage(error);
         if (Boolean(params.json) || ctx?.format === "json") {
           return { success: false, error: message };
         }
@@ -141,7 +141,7 @@ export function registerListSearchCommands(targetRegistry: {
         };
       } catch (error) {
         log.error("Failed to search rules", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
           query: params.query,
         });
         throw error;

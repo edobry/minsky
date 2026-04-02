@@ -88,7 +88,7 @@ function resolveProjectContext(
   } catch (error) {
     log.cliError(`Invalid repository path: ${repositoryPath}`);
     if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
-      log.cliError((error as any).message);
+      log.cliError(getErrorMessage(error));
     }
     exit(1);
   }
@@ -308,11 +308,11 @@ export function createStartCommand(): Command {
         log.error("Failed to start MCP server", {
           transportType: options.http ? "http" : "stdio",
           withInspector: options.withInspector || false,
-          error: getErrorMessage(error as any),
-          stack: error instanceof Error ? (error as any).stack : undefined,
+          error: getErrorMessage(error),
+          stack: error instanceof Error ? error.stack : undefined,
         });
 
-        log.cliError(`Failed to start MCP server: ${getErrorMessage(error as any)}`);
+        log.cliError(`Failed to start MCP server: ${getErrorMessage(error)}`);
         exit(1);
       }
     });
