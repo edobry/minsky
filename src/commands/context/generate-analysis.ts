@@ -5,7 +5,13 @@
  */
 
 import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
-import type { GenerateResult, GenerateOptions } from "./generate-types";
+import type {
+  GenerateResult,
+  GenerateOptions,
+  AnalysisResult,
+  ComponentBreakdown,
+  OptimizationSuggestion,
+} from "./generate-types";
 
 /**
  * Get context window size for different models
@@ -66,17 +72,15 @@ export function getModelContextWindow(model: string): number {
 /**
  * Analyze the generated context for token usage and optimization opportunities
  */
-export async function analyzeGeneratedContext(result: GenerateResult, options: GenerateOptions) {
+export async function analyzeGeneratedContext(
+  result: GenerateResult,
+  options: GenerateOptions
+): Promise<AnalysisResult> {
   const tokenizationService = new DefaultTokenizationService();
   const targetModel = options.model || "gpt-4o";
 
   // Analyze each component's token usage
-  const componentAnalysis: Array<{
-    component: string;
-    tokens: number;
-    percentage: string;
-    content_length: number;
-  }> = [];
+  const componentAnalysis: ComponentBreakdown[] = [];
   for (const component of result.components) {
     const tokens = await tokenizationService.countTokens(component.content, targetModel);
     const percentage = result.metadata.totalTokens
@@ -138,15 +142,11 @@ export async function analyzeGeneratedContext(result: GenerateResult, options: G
 /**
  * Generate optimization suggestions based on component analysis
  */
-export function generateContextOptimizations(componentAnalysis: any[], totalTokens: number) {
-  const optimizations: Array<{
-    type: string;
-    component: any;
-    currentTokens: any;
-    suggestion: string;
-    confidence: string;
-    potentialSavings: number;
-  }> = [];
+export function generateContextOptimizations(
+  componentAnalysis: ComponentBreakdown[],
+  totalTokens: number
+): OptimizationSuggestion[] {
+  const optimizations: OptimizationSuggestion[] = [];
 
   for (const component of componentAnalysis) {
     const percentage = parseFloat(component.percentage);

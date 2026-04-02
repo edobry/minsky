@@ -5,12 +5,12 @@
  */
 
 import { log } from "../../utils/logger";
-import type { GenerateOptions } from "./generate-types";
+import type { GenerateOptions, AnalysisResult, ComponentBreakdown, OptimizationSuggestion } from "./generate-types";
 
 /**
  * Display analysis results in human-readable format
  */
-export function displayAnalysisResults(analysis: any, options: GenerateOptions) {
+export function displayAnalysisResults(analysis: AnalysisResult, options: GenerateOptions) {
   log.cli("\n🔍 Context Analysis");
   log.cli("━".repeat(50));
 
@@ -39,7 +39,7 @@ export function displayAnalysisResults(analysis: any, options: GenerateOptions) 
     log.cli("\n📊 Component Breakdown");
     log.cli("━".repeat(50));
 
-    for (const component of analysis.componentBreakdown) {
+    for (const component of analysis.componentBreakdown as ComponentBreakdown[]) {
       log.cli(
         `${component.component.padEnd(20)} ${component.tokens.toLocaleString().padStart(8)} tokens (${component.percentage}%)`
       );
@@ -53,7 +53,7 @@ export function displayAnalysisResults(analysis: any, options: GenerateOptions) 
     log.cli("\n💡 Optimization Suggestions");
     log.cli("━".repeat(50));
 
-    for (const opt of analysis.optimizations) {
+    for (const opt of analysis.optimizations as OptimizationSuggestion[]) {
       const icon =
         opt.type === "reduce"
           ? "🔽"
@@ -73,9 +73,9 @@ export function displayAnalysisResults(analysis: any, options: GenerateOptions) 
 /**
  * Output analysis results in CSV format
  */
-export function outputCSV(analysisResult: any) {
+export function outputCSV(analysisResult: AnalysisResult) {
   log.cli("Component,Tokens,Percentage,ContentLength");
-  analysisResult.componentBreakdown.forEach((component: any) => {
+  analysisResult.componentBreakdown.forEach((component: ComponentBreakdown) => {
     log.cli(
       `${component.component},${component.tokens},${component.percentage},${component.content_length}`
     );
