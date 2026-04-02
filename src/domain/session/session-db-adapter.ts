@@ -38,10 +38,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
         await this.storage!.initialize();
         log.debug(`Successfully got storage: ${this.storage!.constructor.name}`);
       } catch (error) {
-        log.error(
-          "Failed to get storage from persistence provider:",
-          getErrorMessage(error)
-        );
+        log.error("Failed to get storage from persistence provider:", getErrorMessage(error));
         log.error("Full error details:", error);
         throw error;
       }
@@ -128,10 +125,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.entityExists(sessionName);
     } catch (error) {
-      log.error(
-        `Error checking if session exists '${sessionName}':`,
-        getErrorMessage(error)
-      );
+      log.error(`Error checking if session exists '${sessionName}':`, getErrorMessage(error));
       return false;
     }
   }
@@ -282,10 +276,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
       return workdir;
     } catch (error) {
-      log.error(
-        `Failed to get session workdir for '${sessionName}':`,
-        getErrorMessage(error)
-      );
+      log.error(`Failed to get session workdir for '${sessionName}':`, getErrorMessage(error));
       throw error;
     }
   }
@@ -296,10 +287,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       log.debug(`Task cleared from session: ${sessionName}`);
       return true;
     } catch (error) {
-      log.error(
-        `Failed to clear task from session '${sessionName}':`,
-        getErrorMessage(error)
-      );
+      log.error(`Failed to clear task from session '${sessionName}':`, getErrorMessage(error));
       return false;
     }
   }
@@ -319,10 +307,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
       return getRepoPathFn(state.data, record);
     } catch (error) {
-      log.error(
-        `Failed to get repo path for session '${record.session}':`,
-        getErrorMessage(error)
-      );
+      log.error(`Failed to get repo path for session '${record.session}':`, getErrorMessage(error));
       throw error;
     }
   }

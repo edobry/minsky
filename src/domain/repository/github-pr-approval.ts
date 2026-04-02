@@ -9,10 +9,7 @@ import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
-import {
-  handleOctokitError,
-  type ErrorContext,
-} from "./github-error-handler";
+import { handleOctokitError, type ErrorContext } from "./github-error-handler";
 import {
   type GitHubContext,
   requireGitHubToken,
@@ -29,17 +26,13 @@ import {
 export async function approvePullRequest(
   gh: GitHubContext,
   prIdentifier: string | number,
-  reviewComment?: string,
+  reviewComment?: string
 ): Promise<ApprovalInfo> {
-  const prNumber = await resolvePRNumber(
-    prIdentifier,
-    gh,
-    (branch) => {
-      const token = requireGitHubToken();
-      const ok = createOctokit(token);
-      return findPRNumberForBranch(branch, gh, ok);
-    },
-  );
+  const prNumber = await resolvePRNumber(prIdentifier, gh, (branch) => {
+    const token = requireGitHubToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
 
   try {
     const githubToken = requireGitHubToken();
@@ -56,8 +49,7 @@ export async function approvePullRequest(
 
     if (pr.state !== "open") {
       throw new MinskyError(
-        `Pull request #${prNumber} is not open ` +
-          `(current state: ${pr.state})`,
+        `Pull request #${prNumber} is not open ` + `(current state: ${pr.state})`
       );
     }
 
@@ -115,12 +107,9 @@ export async function approvePullRequest(
  */
 export async function getPullRequestApprovalStatus(
   gh: GitHubContext,
-  prIdentifier: string | number,
+  prIdentifier: string | number
 ): Promise<ApprovalStatus> {
-  const prNumber =
-    typeof prIdentifier === "string"
-      ? parseInt(prIdentifier, 10)
-      : prIdentifier;
+  const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
   if (isNaN(prNumber)) {
     throw new MinskyError(`Invalid PR number: ${prIdentifier}`);
   }
@@ -181,8 +170,7 @@ export async function getPullRequestApprovalStatus(
         branch: pr.base.ref,
       });
       const required =
-        protection.data.required_pull_request_reviews
-          ?.required_approving_review_count;
+        protection.data.required_pull_request_reviews?.required_approving_review_count;
       if (typeof required === "number" && required >= 0) {
         requiredApprovals = required;
       }
@@ -192,9 +180,7 @@ export async function getPullRequestApprovalStatus(
 
     const isApproved =
       (requiredApprovals === 0 && rejections.length === 0) ||
-      (requiredApprovals > 0 &&
-        approvals.length >= requiredApprovals &&
-        rejections.length === 0);
+      (requiredApprovals > 0 && approvals.length >= requiredApprovals && rejections.length === 0);
     const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
 
     return {
@@ -224,8 +210,7 @@ export async function getPullRequestApprovalStatus(
     };
   } catch (error) {
     throw new MinskyError(
-      `Failed to get GitHub PR approval status: ` +
-        `${getErrorMessage(error)}`,
+      `Failed to get GitHub PR approval status: ` + `${getErrorMessage(error)}`
     );
   }
 }
@@ -239,7 +224,7 @@ export async function getPullRequestApprovalStatus(
 export async function diagnoseMergeBlocker(
   gh: GitHubContext,
   prNumber: number,
-  octokit: Octokit,
+  octokit: Octokit
 ): Promise<string> {
   try {
     const prResp = await octokit.rest.pulls.get({
@@ -251,18 +236,15 @@ export async function diagnoseMergeBlocker(
 
     const reasons: string[] = [];
 
-    const mergeableState: string =
-      (pr.mergeable_state as string) || "unknown";
+    const mergeableState: string = (pr.mergeable_state as string) || "unknown";
     switch (mergeableState) {
       case "dirty":
-        reasons.push(
-          "Merge conflicts detected. Resolve conflicts between head and base.",
-        );
+        reasons.push("Merge conflicts detected. Resolve conflicts between head and base.");
         break;
       case "behind":
         reasons.push(
           `Head branch '${pr.head?.ref}' is behind '${pr.base?.ref}'. ` +
-            `Update the branch (merge or rebase).`,
+            `Update the branch (merge or rebase).`
         );
         break;
       case "blocked":
@@ -272,15 +254,10 @@ export async function diagnoseMergeBlocker(
         reasons.push("Required status checks are failing or pending.");
         break;
       case "draft":
-        reasons.push(
-          "PR is in draft state. Mark it ready for review to allow merging.",
-        );
+        reasons.push("PR is in draft state. Mark it ready for review to allow merging.");
         break;
       case "unknown":
-        reasons.push(
-          "Mergeability is being calculated by GitHub. " +
-            "Retry in a few seconds.",
-        );
+        reasons.push("Mergeability is being calculated by GitHub. " + "Retry in a few seconds.");
         break;
       case "clean":
         break;
@@ -292,10 +269,7 @@ export async function diagnoseMergeBlocker(
       repo: gh.repo,
     });
     if (repoInfo?.data?.allow_merge_commit === false) {
-      reasons.push(
-        "Merge commits are disabled in repository settings. " +
-          "Use squash or rebase.",
-      );
+      reasons.push("Merge commits are disabled in repository settings. " + "Use squash or rebase.");
     }
 
     // Inspect checks and combined statuses
@@ -309,11 +283,9 @@ export async function diagnoseMergeBlocker(
           per_page: 100,
         });
         const failingChecks = checks.data.check_runs.filter(
-          (r: any) => r.conclusion && r.conclusion !== "success",
+          (r: any) => r.conclusion && r.conclusion !== "success"
         );
-        const pendingChecks = checks.data.check_runs.filter(
-          (r: any) => r.status !== "completed",
-        );
+        const pendingChecks = checks.data.check_runs.filter((r: any) => r.status !== "completed");
         if (failingChecks.length > 0) {
           const list = failingChecks
             .slice(0, 5)
@@ -321,10 +293,8 @@ export async function diagnoseMergeBlocker(
             .join(", ");
           reasons.push(
             `Failing checks: ${list}${
-              failingChecks.length > 5
-                ? ` (+${failingChecks.length - 5} more)`
-                : ""
-            }`,
+              failingChecks.length > 5 ? ` (+${failingChecks.length - 5} more)` : ""
+            }`
           );
         } else if (pendingChecks.length > 0) {
           const list = pendingChecks
@@ -338,23 +308,16 @@ export async function diagnoseMergeBlocker(
             repo: gh.repo,
             ref: headSha,
           });
-          const failingStatuses = statuses.data.statuses.filter(
-            (s: any) => s.state !== "success",
-          );
+          const failingStatuses = statuses.data.statuses.filter((s: any) => s.state !== "success");
           if (failingStatuses.length > 0) {
             const list = failingStatuses
               .slice(0, 5)
-              .map(
-                (s: any) =>
-                  s.context || s.description || "status",
-              )
+              .map((s: any) => s.context || s.description || "status")
               .join(", ");
             reasons.push(
               `Failing status checks: ${list}$${
-                failingStatuses.length > 5
-                  ? ` (+${failingStatuses.length - 5} more)`
-                  : ""
-              }`,
+                failingStatuses.length > 5 ? ` (+${failingStatuses.length - 5} more)` : ""
+              }`
             );
           }
         }
@@ -364,17 +327,11 @@ export async function diagnoseMergeBlocker(
     }
 
     if (reasons.length === 0) {
-      reasons.push(
-        "GitHub did not provide a specific reason. " +
-          "Check the PR page for details.",
-      );
+      reasons.push("GitHub did not provide a specific reason. " + "Check the PR page for details.");
     }
 
     return reasons.map((r) => `  - ${r}`).join("\n");
   } catch (_e) {
-    return (
-      "  - Unable to diagnose blocker via GitHub API. " +
-      "Check the PR page for details."
-    );
+    return "  - Unable to diagnose blocker via GitHub API. " + "Check the PR page for details.";
   }
 }

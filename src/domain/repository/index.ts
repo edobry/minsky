@@ -405,9 +405,7 @@ export async function createRepositoryBackend(
             throw new Error(`Repository path does not exist: ${config.repoUrl}`);
           }
         } catch (error) {
-          throw new Error(
-            `Failed to validate local repository _path: ${getErrorMessage(error)}`
-          );
+          throw new Error(`Failed to validate local repository _path: ${getErrorMessage(error)}`);
         }
       }
 

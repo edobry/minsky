@@ -189,10 +189,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     return {
       success: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unknown error launching MCP Inspector",
+      error: error instanceof Error ? error.message : "Unknown error launching MCP Inspector",
     };
   }
 }

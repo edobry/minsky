@@ -44,6 +44,8 @@ export default [
       "backups/**",
       "*.backup",
       "*.tmp",
+      // Exclude Claude Code agent worktrees
+      ".claude/worktrees/**",
     ],
   },
   {

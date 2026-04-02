@@ -31,7 +31,10 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   });
 
   // Helper function to create mock backend with DI
-  function createMockMarkdownBackend(filesystem: any, workspacePath: string): TaskBackend & Record<string, any> {
+  function createMockMarkdownBackend(
+    filesystem: any,
+    workspacePath: string
+  ): TaskBackend & Record<string, any> {
     let taskCounter = 0;
 
     // Store task descriptions separately (simulates spec files)

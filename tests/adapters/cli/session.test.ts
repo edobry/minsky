@@ -26,7 +26,10 @@ import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-pa
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import type { GitServiceInterface } from "../../../src/domain/git";
-import { createSessionProviderMock, createPartialMock } from "../../../src/utils/test-utils/typed-mocks";
+import {
+  createSessionProviderMock,
+  createPartialMock,
+} from "../../../src/utils/test-utils/typed-mocks";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import { getSessionsDir } from "../../../src/utils/paths";
 

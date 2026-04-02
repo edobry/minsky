@@ -48,7 +48,7 @@ export function requireGitHubToken(): string {
 
     throw new MinskyError(
       `GitHub token not found. Set ${primaryEnvVar} environment variable ` +
-        `or add token to ${configFile}`,
+        `or add token to ${configFile}`
     );
   }
   return githubToken;
@@ -71,7 +71,7 @@ export function createOctokit(token: string): Octokit {
 export async function resolvePRNumber(
   prIdentifier: string | number,
   gh: GitHubContext,
-  findForBranch: (branch: string) => Promise<number>,
+  findForBranch: (branch: string) => Promise<number>
 ): Promise<number> {
   if (typeof prIdentifier === "number") return prIdentifier;
   const parsed = parseInt(prIdentifier, 10);
@@ -86,7 +86,7 @@ export async function resolvePRNumber(
 export async function findPRNumberForBranch(
   branchName: string,
   gh: GitHubContext,
-  octokit: Octokit,
+  octokit: Octokit
 ): Promise<number> {
   try {
     // Search with owner prefix first, then without (for forks)
@@ -117,8 +117,7 @@ export async function findPRNumberForBranch(
   } catch (error) {
     if (error instanceof MinskyError) throw error;
     throw new MinskyError(
-      `Failed to find PR number for branch ${branchName}: ` +
-        `${getErrorMessage(error)}`,
+      `Failed to find PR number for branch ${branchName}: ` + `${getErrorMessage(error)}`
     );
   }
 }
@@ -137,7 +136,7 @@ export async function createPullRequest(
   workdir: string,
   session: string | undefined,
   draft: boolean,
-  getSessionDB: () => Promise<SessionProviderInterface>,
+  getSessionDB: () => Promise<SessionProviderInterface>
 ): Promise<PRInfo> {
   try {
     // Ensure the source branch is pushed to the remote
@@ -208,9 +207,7 @@ export async function createPullRequest(
             },
           };
           await sessionDB.updateSession(session, updatedSession);
-          log.debug(
-            `Updated session record for ${session} with PR #${pr.number}`,
-          );
+          log.debug(`Updated session record for ${session} with PR #${pr.number}`);
         }
       } catch (error) {
         log.debug(`Failed to update session record with PR info: ${error}`);
@@ -250,7 +247,7 @@ export async function updatePullRequest(
     body?: string;
     session?: string;
   },
-  getSessionDB: () => Promise<SessionProviderInterface>,
+  getSessionDB: () => Promise<SessionProviderInterface>
 ): Promise<PRInfo> {
   // Resolve PR number
   let prNumber: number;
@@ -279,20 +276,13 @@ export async function updatePullRequest(
       try {
         const githubToken = requireGitHubToken();
         if (!options.session) {
-          throw new MinskyError(
-            "Session name is required to update PR without explicit PR number",
-          );
+          throw new MinskyError("Session name is required to update PR without explicit PR number");
         }
-        const sessionWorkdir = await sessionDB.getSessionWorkdir(
-          options.session,
-        );
+        const sessionWorkdir = await sessionDB.getSessionWorkdir(options.session);
         const { GitService } = require("../git");
         const gitService = new GitService(sessionDB);
         const currentBranch = (
-          await gitService.execInRepository(
-            sessionWorkdir,
-            "git branch --show-current",
-          )
+          await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
         ).trim();
 
         const octokit = createOctokit(githubToken);
@@ -305,16 +295,12 @@ export async function updatePullRequest(
 
         const first = pulls[0];
         if (!first) {
-          throw new MinskyError(
-            `No open PR found for branch '${currentBranch}'`,
-          );
+          throw new MinskyError(`No open PR found for branch '${currentBranch}'`);
         }
         prNumber = first.number;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        throw new MinskyError(
-          `No PR found for session '${options.session}': ${msg}`,
-        );
+        throw new MinskyError(`No PR found for session '${options.session}': ${msg}`);
       }
     }
   } else {
@@ -330,9 +316,7 @@ export async function updatePullRequest(
     if (options.body !== undefined) updateData.body = options.body;
 
     if (Object.keys(updateData).length === 0) {
-      throw new MinskyError(
-        "At least one field (title or body) must be provided for update",
-      );
+      throw new MinskyError("At least one field (title or body) must be provided for update");
     }
 
     const response = await octokit.rest.pulls.update({
@@ -345,8 +329,7 @@ export async function updatePullRequest(
     log.debug(`Updated GitHub PR #${prNumber}`, {
       title: updateData.title,
       body: updateData.body
-        ? updateData.body.substring(0, 100) +
-          (updateData.body.length > 100 ? "..." : "")
+        ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "")
         : undefined,
     });
 
@@ -379,15 +362,9 @@ export async function updatePullRequest(
 export async function mergePullRequest(
   gh: GitHubContext,
   prIdentifier: string | number,
-  diagnoseMergeBlockerFn: (
-    prNumber: number,
-    octokit: Octokit,
-  ) => Promise<string>,
+  diagnoseMergeBlockerFn: (prNumber: number, octokit: Octokit) => Promise<string>
 ): Promise<MergeInfo> {
-  const prNumber =
-    typeof prIdentifier === "string"
-      ? parseInt(prIdentifier, 10)
-      : prIdentifier;
+  const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
   if (isNaN(prNumber)) {
     throw new MinskyError(`Invalid PR number: ${prIdentifier}`);
   }
@@ -406,15 +383,12 @@ export async function mergePullRequest(
     const pr = prResponse.data;
 
     if (pr.state !== "open") {
-      throw new MinskyError(
-        `Pull request #${prNumber} is not open (current state: ${pr.state})`,
-      );
+      throw new MinskyError(`Pull request #${prNumber} is not open (current state: ${pr.state})`);
     }
 
     if (!pr.mergeable) {
       throw new MinskyError(
-        `Pull request #${prNumber} has merge conflicts that must be ` +
-          `resolved first`,
+        `Pull request #${prNumber} has merge conflicts that must be ` + `resolved first`
       );
     }
 
@@ -423,8 +397,7 @@ export async function mergePullRequest(
       repo: gh.repo,
       pull_number: prNumber,
       merge_method: "merge",
-      commit_title:
-        pr.title || `Merge pull request #${prNumber} from ${pr.head.ref}`,
+      commit_title: pr.title || `Merge pull request #${prNumber} from ${pr.head.ref}`,
       commit_message: pr.body || "",
     });
 
@@ -485,7 +458,7 @@ export async function getPullRequestDetails(
   gh: GitHubContext,
   options: { prIdentifier?: string | number; session?: string },
   getSessionDB: () => Promise<SessionProviderInterface>,
-  findForBranch: (branch: string) => Promise<number>,
+  findForBranch: (branch: string) => Promise<number>
 ): Promise<{
   number?: number | string;
   url?: string;
@@ -522,9 +495,7 @@ export async function getPullRequestDetails(
   }
 
   if (prNumber === undefined) {
-    throw new MinskyError(
-      "Unable to resolve GitHub PR number for details retrieval",
-    );
+    throw new MinskyError("Unable to resolve GitHub PR number for details retrieval");
   }
 
   const githubToken = requireGitHubToken();
@@ -558,7 +529,7 @@ export async function getPullRequestDiff(
   gh: GitHubContext,
   options: { prIdentifier?: string | number; session?: string },
   getSessionDB: () => Promise<SessionProviderInterface>,
-  findForBranch: (branch: string) => Promise<number>,
+  findForBranch: (branch: string) => Promise<number>
 ): Promise<{
   diff: string;
   stats?: { filesChanged: number; insertions: number; deletions: number };
@@ -586,9 +557,7 @@ export async function getPullRequestDiff(
   }
 
   if (prNumber === undefined) {
-    throw new MinskyError(
-      "Unable to resolve GitHub PR number for diff retrieval",
-    );
+    throw new MinskyError("Unable to resolve GitHub PR number for diff retrieval");
   }
 
   const githubToken = requireGitHubToken();
@@ -600,15 +569,12 @@ export async function getPullRequestDiff(
     },
   });
 
-  const diffResponse = await octokit.request(
-    "GET /repos/{owner}/{repo}/pulls/{pull_number}",
-    {
-      owner: gh.owner,
-      repo: gh.repo,
-      pull_number: prNumber,
-      headers: { accept: "application/vnd.github.v3.diff" },
-    },
-  );
+  const diffResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+    owner: gh.owner,
+    repo: gh.repo,
+    pull_number: prNumber,
+    headers: { accept: "application/vnd.github.v3.diff" },
+  });
   const diff = String((diffResponse as any).data || "");
 
   const filesResponse = await octokit.rest.pulls.listFiles({
@@ -619,16 +585,13 @@ export async function getPullRequestDiff(
   });
   const files = filesResponse.data;
   const stats = files.reduce(
-    (
-      acc: { filesChanged: number; insertions: number; deletions: number },
-      f: any,
-    ) => {
+    (acc: { filesChanged: number; insertions: number; deletions: number }, f: any) => {
       acc.filesChanged += 1;
       acc.insertions += f.additions || 0;
       acc.deletions += f.deletions || 0;
       return acc;
     },
-    { filesChanged: 0, insertions: 0, deletions: 0 },
+    { filesChanged: 0, insertions: 0, deletions: 0 }
   );
 
   return { diff, stats };

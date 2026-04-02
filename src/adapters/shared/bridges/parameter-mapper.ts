@@ -278,9 +278,7 @@ export function normalizeCliParameters(
           const userFriendlyMessage = formatZodError(error, paramName);
           throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
         } else {
-          throw new Error(
-            `Invalid value for parameter '${paramName}': ${getErrorMessage(error)}`
-          );
+          throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error)}`);
         }
       }
     }

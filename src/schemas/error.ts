@@ -166,7 +166,12 @@ export function getErrorCode(error: unknown): string | undefined {
  * Type guard to check if a value looks like an error with a message
  */
 export function isErrorLike(error: unknown): error is { message: string } {
-  return error !== null && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string";
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string"
+  );
 }
 
 /**

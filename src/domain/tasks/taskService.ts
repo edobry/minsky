@@ -102,9 +102,7 @@ export async function createConfiguredTaskService(options: {
           log.debug("Minsky backend registered successfully");
         } catch (error) {
           log.debug("Minsky backend not available", { error: getErrorMessage(error) });
-          throw new Error(
-            `Minsky backend requested but not available: ${getErrorMessage(error)}`
-          );
+          throw new Error(`Minsky backend requested but not available: ${getErrorMessage(error)}`);
         }
         break;
       }

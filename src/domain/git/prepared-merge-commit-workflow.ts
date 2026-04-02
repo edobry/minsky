@@ -248,9 +248,7 @@ export async function createPreparedMergeCommitPR(
       }
     }
 
-    throw new MinskyError(
-      `Failed to create prepared merge commit PR: ${getErrorMessage(error)}`
-    );
+    throw new MinskyError(`Failed to create prepared merge commit PR: ${getErrorMessage(error)}`);
   }
 }
 
@@ -324,9 +322,7 @@ export async function mergePreparedMergeCommitPR(
       },
     };
   } catch (error) {
-    throw new MinskyError(
-      `Failed to merge prepared merge commit PR: ${getErrorMessage(error)}`
-    );
+    throw new MinskyError(`Failed to merge prepared merge commit PR: ${getErrorMessage(error)}`);
   }
 }
 

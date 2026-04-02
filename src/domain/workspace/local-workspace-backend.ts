@@ -106,7 +106,11 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
 
@@ -209,7 +213,11 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
 
@@ -276,7 +284,11 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle directory not found
-      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
         throw new FileNotFoundError(workspaceDir, relativePath || ".", error);
       }
 
