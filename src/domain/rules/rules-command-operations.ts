@@ -345,7 +345,7 @@ export async function indexRuleEmbeddings(
     } catch (error) {
       skipped++;
       if (options.debug) {
-        log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error as any)}`);
+        log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error)}`);
       }
     }
   }

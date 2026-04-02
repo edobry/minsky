@@ -15,10 +15,11 @@ import type {
  * Returns true when a caught git exec error represents "nothing to commit".
  */
 export function classifyNothingToCommit(err: unknown): boolean {
+  const e = err !== null && typeof err === "object" ? (err as Record<string, unknown>) : null;
   const msg = (
-    (err as any)?.stderr ||
-    (err as any)?.stdout ||
-    (err as any)?.message ||
+    (typeof e?.stderr === "string" ? e.stderr : null) ||
+    (typeof e?.stdout === "string" ? e.stdout : null) ||
+    (typeof e?.message === "string" ? e.message : null) ||
     ""
   ).toString();
   return msg.includes("nothing to commit") || msg.includes("nothing added to commit");
@@ -100,7 +101,7 @@ export async function stashChangesWithDepsImpl(
     await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
     return { workdir, stashed: true };
   } catch (err) {
-    throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
   }
 }
 
@@ -119,7 +120,7 @@ export async function popStashWithDepsImpl(
     await deps.execAsync(`git -C ${workdir} stash pop`);
     return { workdir, stashed: true };
   } catch (err) {
-    throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
   }
 }
 
@@ -160,7 +161,7 @@ export async function mergeBranchWithDepsImpl(
       conflicts: false,
     };
   } catch (err) {
-    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
   }
 }
 
@@ -198,7 +199,7 @@ export async function pullLatestWithDepsImpl(
     const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
     return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
   } catch (err) {
-    throw new Error(`Failed to pull latest changes: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
   }
 }
 
@@ -238,7 +239,7 @@ export async function fetchDefaultBranchWithDepsImpl(
     return result;
   } catch (error) {
     log.error("Could not determine default branch, falling back to 'main'", {
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
       repoPath,
     });
     return "main";
