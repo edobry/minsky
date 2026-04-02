@@ -52,10 +52,7 @@ function registerAllTools(commandMapper: CommandMapper): void {
   log.debug("[MCP] About to register persistence tools");
   registerPersistenceTools(commandMapper);
 
-  // TEMPORARILY DISABLE git tools during MCP startup to fix hanging issue
-  // The git command registration causes circular dependency hangs during MCP startup
-  // TODO: Fix the circular dependency in createGitService and re-enable
-  // registerGitTools(commandMapper);
+  registerGitTools(commandMapper);
 
   registerInitTools(commandMapper);
   registerRulesTools(commandMapper);
