@@ -18,20 +18,19 @@ export class OpenAIEmbeddingService implements EmbeddingService {
 
   static async fromConfig(): Promise<OpenAIEmbeddingService> {
     const config = await getConfiguration();
-    const providerCfg = (config as any).ai?.providers?.openai || {};
+    const providerCfg = config.ai?.providers?.openai;
 
-    const apiKey = providerCfg.apiKey || providerCfg.api_key;
+    const apiKey = providerCfg?.apiKey;
     if (!apiKey) {
       throw new Error(
         "OpenAI provider not configured. Set ai.providers.openai.apiKey in configuration."
       );
     }
 
-    const baseURL = providerCfg.baseUrl || providerCfg.base_url;
+    const baseURL = providerCfg?.baseUrl;
     const model =
-      (config as any).embeddings?.model ||
-      providerCfg.model ||
-      providerCfg.default_model ||
+      config.embeddings?.model ||
+      providerCfg?.model ||
       "text-embedding-3-small";
 
     return new OpenAIEmbeddingService(apiKey, baseURL, model);
