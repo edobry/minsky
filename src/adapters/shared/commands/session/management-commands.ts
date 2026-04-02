@@ -4,7 +4,11 @@
  * Commands for session management operations (delete, update).
  * Extracted from session.ts as part of modularization effort.
  */
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import {
   sessionDeleteCommandParams,
@@ -13,9 +17,39 @@ import {
 } from "./session-parameters";
 
 /**
+ * Parameters for session delete command
+ */
+interface SessionDeleteParams extends BaseSessionCommandParams {
+  force?: boolean;
+}
+
+/**
+ * Parameters for session update command
+ */
+interface SessionUpdateParams extends BaseSessionCommandParams {
+  branch?: string;
+  noStash?: boolean;
+  noPush?: boolean;
+  force?: boolean;
+  skipConflictCheck?: boolean;
+  autoResolveDeleteConflicts?: boolean;
+  dryRun?: boolean;
+  skipIfAlreadyMerged?: boolean;
+}
+
+/**
+ * Parameters for session migrate-backend command
+ */
+interface SessionMigrateBackendParams extends BaseSessionCommandParams {
+  to?: string;
+  dryRun?: boolean;
+  updateRemote?: boolean;
+}
+
+/**
  * Session Delete Command
  */
-export class SessionDeleteCommand extends BaseSessionCommand<any, any> {
+export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams, any> {
   getCommandId(): string {
     return "session.delete";
   }
@@ -32,7 +66,7 @@ export class SessionDeleteCommand extends BaseSessionCommand<any, any> {
     return sessionDeleteCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionDeleteParams, context: CommandExecutionContext): Promise<any> {
     const { deleteSessionFromParams } = await import("../../../../domain/session");
 
     const deleted = await deleteSessionFromParams({
@@ -53,7 +87,7 @@ export class SessionDeleteCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Update Command
  */
-export class SessionUpdateCommand extends BaseSessionCommand<any, any> {
+export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams, any> {
   getCommandId(): string {
     return "session.update";
   }
@@ -70,7 +104,10 @@ export class SessionUpdateCommand extends BaseSessionCommand<any, any> {
     return sessionUpdateCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionUpdateParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { updateSessionFromParams } = await import("../../../../domain/session");
 
     await updateSessionFromParams({
@@ -100,7 +137,10 @@ export class SessionUpdateCommand extends BaseSessionCommand<any, any> {
  * Migrates a session's repository backend from local to GitHub by discovering the
  * upstream origin URL from the session workspace and updating the session DB record.
  */
-export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
+export class SessionMigrateBackendCommand extends BaseSessionCommand<
+  SessionMigrateBackendParams,
+  any
+> {
   getCommandId(): string {
     return "session.migrate-backend";
   }
@@ -117,7 +157,10 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
     return sessionMigrateBackendCommandParams;
   }
 
-  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionMigrateBackendParams,
+    _context: CommandExecutionContext
+  ): Promise<any> {
     const { resolveSessionContextWithFeedback } = await import(
       "../../../../domain/session/session-context-resolver"
     );

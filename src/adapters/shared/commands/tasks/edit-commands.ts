@@ -38,7 +38,7 @@ interface TasksEditParams extends BaseTaskParams {
  *
  * By default shows a preview of changes. Use --execute to apply the changes.
  */
-export class TasksEditCommand extends BaseTaskCommand {
+export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   readonly id = "tasks.edit";
   readonly name = "edit";
   readonly description =

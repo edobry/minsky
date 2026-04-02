@@ -3,7 +3,11 @@
  *
  * Command for detecting merge conflicts within session workspaces.
  */
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { z } from "zod";
 import {
@@ -45,9 +49,18 @@ export const sessionConflictsCommandParams = {
 };
 
 /**
+ * Parameters for session conflicts command
+ */
+interface SessionConflictsParams extends BaseSessionCommandParams {
+  format?: "json" | "text";
+  context?: number;
+  files?: string;
+}
+
+/**
  * Session Conflicts Command
  */
-export class SessionConflictsCommand extends BaseSessionCommand<any, any> {
+export class SessionConflictsCommand extends BaseSessionCommand<SessionConflictsParams, any> {
   getCommandId(): string {
     return "session.conflicts";
   }
@@ -64,7 +77,10 @@ export class SessionConflictsCommand extends BaseSessionCommand<any, any> {
     return sessionConflictsCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionConflictsParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const sessionParams = {
       name: params.name,
       task: params.task,

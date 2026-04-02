@@ -3,14 +3,30 @@
  * Lists PRs across sessions
  */
 
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrListCommandParams } from "./session-parameters";
 import { sessionPrList } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
 
-export class SessionPrListCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session PR list command
+ */
+interface SessionPrListParams extends BaseSessionCommandParams {
+  session?: string;
+  status?: string;
+  backend?: string;
+  since?: string;
+  until?: string;
+  verbose?: boolean;
+}
+
+export class SessionPrListCommand extends BaseSessionCommand<SessionPrListParams, any> {
   getCommandId(): string {
     return "session.pr.list";
   }
@@ -27,7 +43,10 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
     return sessionPrListCommandParams;
   }
 
-  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionPrListParams,
+    _context: CommandExecutionContext
+  ): Promise<any> {
     try {
       const result = await sessionPrList({
         session: params.session,

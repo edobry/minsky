@@ -1,7 +1,7 @@
 /**
  * Session Repair Command Implementation
  */
-import { BaseSessionCommand } from "./base-session-command";
+import { BaseSessionCommand, type BaseSessionCommandParams } from "./base-session-command";
 import { sessionRepairCommandParams } from "./session-parameters";
 import {
   sessionRepair,
@@ -10,7 +10,20 @@ import {
 import { type CommandExecutionContext } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 
-export class SessionRepairCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session repair command
+ */
+interface SessionRepairParams extends BaseSessionCommandParams {
+  dryRun?: boolean;
+  auto?: boolean;
+  interactive?: boolean;
+  prState?: boolean;
+  backendSync?: boolean;
+  force?: boolean;
+  debug?: boolean;
+}
+
+export class SessionRepairCommand extends BaseSessionCommand<SessionRepairParams, any> {
   getCommandId(): string {
     return "session.repair";
   }
@@ -27,7 +40,7 @@ export class SessionRepairCommand extends BaseSessionCommand<any, any> {
     return sessionRepairCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionRepairParams, context: CommandExecutionContext): Promise<any> {
     try {
       const repairParams: SessionRepairParameters = {
         name: params.name,

@@ -61,7 +61,7 @@ interface TasksDeleteParams extends BaseTaskParams {
 /**
  * Task list command implementation
  */
-export class TasksListCommand extends BaseTaskCommand {
+export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly id = "tasks.list";
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
@@ -112,7 +112,7 @@ export class TasksListCommand extends BaseTaskCommand {
 /**
  * Task get command implementation
  */
-export class TasksGetCommand extends BaseTaskCommand {
+export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   readonly id = "tasks.get";
   readonly name = "get";
   readonly description = "Get details of a specific task";
@@ -164,7 +164,7 @@ export class TasksGetCommand extends BaseTaskCommand {
 /**
  * Task create command implementation
  */
-export class TasksCreateCommand extends BaseTaskCommand {
+export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
   readonly id = "tasks.create";
   readonly name = "create";
   readonly description = "Create a new task";
@@ -254,7 +254,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
 /**
  * Task delete command implementation
  */
-export class TasksDeleteCommand extends BaseTaskCommand {
+export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly id = "tasks.delete";
   readonly name = "delete";
   readonly description = "Delete a task";
