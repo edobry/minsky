@@ -5,6 +5,7 @@
  * for all SessionDB storage backends.
  */
 
+import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { PersistenceService } from "../../persistence/service";
 import { SessionDbConfig } from "../../configuration/types";
@@ -306,46 +307,35 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     try {
-      const { Pool } = require("pg");
-      const pool = new Pool({ connectionString: config.connectionString });
+      const sql = postgres(config.connectionString!, { max: 1 });
 
       try {
-        const client = await pool.connect();
+        // Check server version
+        const versionResult = await sql`SELECT version()`;
+        status.details!.serverVersion = versionResult[0].version;
 
-        try {
-          // Check server version
-          const versionResult = await client.query("SELECT version()");
-          status.details!.serverVersion = versionResult.rows[0].version;
+        // Check connection count
+        const connectionsResult = await sql`
+          SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'
+        `;
+        status.details!.activeConnections = parseInt(connectionsResult[0].active_connections);
 
-          // Check connection count
-          const connectionsResult = await client.query(
-            "SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'"
-          );
-          status.details!.activeConnections = parseInt(
-            connectionsResult.rows[0].active_connections
-          );
+        // Check database size
+        const sizeResult = await sql`
+          SELECT pg_size_pretty(pg_database_size(current_database())) as size
+        `;
+        status.details!.databaseSize = sizeResult[0].size;
 
-          // Check database size
-          const sizeResult = await client.query(
-            "SELECT pg_size_pretty(pg_database_size(current_database())) as size"
-          );
-          status.details!.databaseSize = sizeResult.rows[0].size;
+        // Check for locks
+        const locksResult = await sql`SELECT count(*) as locks FROM pg_locks WHERE NOT granted`;
+        const lockCount = parseInt(locksResult[0].locks);
+        status.details!.blockedQueries = lockCount;
 
-          // Check for locks
-          const locksResult = await client.query(
-            "SELECT count(*) as locks FROM pg_locks WHERE NOT granted"
-          );
-          const lockCount = parseInt(locksResult.rows[0].locks);
-          status.details!.blockedQueries = lockCount;
-
-          if (lockCount > 0) {
-            status.warnings?.push(`${lockCount} blocked queries detected`);
-          }
-        } finally {
-          client.release();
+        if (lockCount > 0) {
+          status.warnings?.push(`${lockCount} blocked queries detected`);
         }
       } finally {
-        await pool.end();
+        await sql.end();
       }
     } catch (error) {
       status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error)}`);
