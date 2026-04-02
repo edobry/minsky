@@ -131,23 +131,23 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           typeof result === "object" &&
           "table" in result &&
           result.table &&
-          Array.isArray((result as any).table.headers) &&
-          Array.isArray((result as any).table.rows)
+          Array.isArray(result.table.headers) &&
+          Array.isArray(result.table.rows)
         ) {
-          const { headers, rows } = (result as any).table as {
+          const { headers, rows } = result.table as {
             headers: string[];
             rows: string[][];
           };
           this.formatTableResult(headers, rows);
 
-          if (typeof (result as any).count === "number") {
-            const count = (result as any).count as number;
+          if (typeof result.count === "number") {
+            const count = result.count as number;
             log.cli("");
             log.cli(`${count} pull request${count === 1 ? "" : "s"} found`);
           }
-        } else if ((result as any)?.message) {
+        } else if (result?.message) {
           // Prefer explicit message when provided (e.g., empty results)
-          log.cli((result as any).message);
+          log.cli(result.message);
         } else {
           this.formatGenericObject(result);
         }
@@ -184,8 +184,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "rules.search":
         // Now uses same format as tasks.search (results array)
-        if (result && typeof result === "object" && Array.isArray((result as any).results)) {
-          const results = (result as any).results as Array<{
+        if (result && typeof result === "object" && Array.isArray(result.results)) {
+          const results = result.results as Array<{
             id: string;
             score?: number;
             name?: string;
@@ -210,8 +210,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             });
             // Footer separator before count
             log.cli("");
-            if (typeof (result as any).count === "number") {
-              const count = (result as any).count as number;
+            if (typeof result.count === "number") {
+              const count = result.count as number;
               log.cli(`${count} result${count === 1 ? "" : "s"} found`);
             } else {
               log.cli(`${results.length} result${results.length === 1 ? "" : "s"} found`);
@@ -224,8 +224,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "tasks.search":
       case "tasks.similar":
-        if (result && typeof result === "object" && Array.isArray((result as any).results)) {
-          const results = (result as any).results as Array<{
+        if (result && typeof result === "object" && Array.isArray(result.results)) {
+          const results = result.results as Array<{
             id: string;
             score?: number;
             title?: string;
@@ -249,13 +249,13 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             });
             // Footer separator before count
             log.cli("");
-            if (typeof (result as any).count === "number") {
-              const count = (result as any).count as number;
+            if (typeof result.count === "number") {
+              const count = result.count as number;
               log.cli(`${count} result${count === 1 ? "" : "s"} found`);
             }
           }
-        } else if ((result as any)?.message) {
-          log.cli((result as any).message);
+        } else if (result?.message) {
+          log.cli(result.message);
         } else {
           this.formatGenericObject(result);
         }
@@ -326,7 +326,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
    */
   private shouldShowDetails(result: any): boolean {
     // Check if details flag was passed to the command
-    return Boolean((result as any)?.showDetails || (result as any)?.details);
+    return Boolean(result?.showDetails || result?.details);
   }
 
   /**
@@ -358,7 +358,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
    */
   private formatGenericObject(result: any): void {
     // Try to find meaningful fields to display
-    if ((result as any).printed) {
+    if (result.printed) {
       // Command already printed a verbose report; avoid redundant summary
       return;
     }

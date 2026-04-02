@@ -8,6 +8,45 @@
 import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
 
+/** Shape of rows returned by COUNT query against __drizzle_migrations */
+interface DrizzleMigrationCount {
+  count: number | string;
+}
+
+/** Shape of rows returned by hash/created_at query against __drizzle_migrations */
+interface DrizzleMigrationRow {
+  hash: string | null;
+  created_at: string | number | null;
+}
+
+/** Typed result shape for dry-run migration plan */
+interface SqliteMigrationPlan {
+  success: boolean;
+  backend: string;
+  dryRun: boolean;
+  sqlitePath: string;
+  migrationsFolder: string;
+  status: { metaTable: string };
+  plan: {
+    files: string[];
+    fileCount: number;
+    appliedCount: number;
+    pendingCount: number;
+    latestHash?: string;
+    latestAt?: string;
+  };
+  printed?: boolean;
+}
+
+/** Typed result shape for executed migration */
+interface SqliteMigrationResult {
+  success: boolean;
+  applied: boolean;
+  backend: string;
+  migrationsFolder: string;
+  printed?: boolean;
+}
+
 /**
  * Run SQLite schema migrations (dry-run or execute)
  */
@@ -48,13 +87,13 @@ export async function runSqliteSchemaMigrations(
           .all();
         metaExists = Array.isArray(tables) && tables.length > 0;
         if (metaExists) {
-          const cnt = db.query("SELECT COUNT(*) as count FROM __drizzle_migrations").get() as any;
+          const cnt = db.query("SELECT COUNT(*) as count FROM __drizzle_migrations").get() as DrizzleMigrationCount | null;
           appliedCount = parseInt(String(cnt?.count || 0), 10);
           const last = db
             .query(
               "SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1"
             )
-            .get() as any;
+            .get() as DrizzleMigrationRow | null;
           latestHash = last?.hash || undefined;
           latestAt = last?.created_at ? String(last.created_at) : undefined;
         }
@@ -65,18 +104,12 @@ export async function runSqliteSchemaMigrations(
       // Best effort
     }
 
-    const summary =
-      `Schema migration (dry run) for sqlite\nDatabase: ${dbPath}\n` +
-      `Migrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ` +
-      `${appliedCount} applied, ${Math.max(fileNames.length - appliedCount, 0)} pending`;
-
-    const plan: any = {
+    const plan: SqliteMigrationPlan = {
       success: true,
       backend,
       dryRun: true,
       sqlitePath: dbPath,
       migrationsFolder,
-      message: `${summary}\n\n(use --execute to apply)`,
       status: { metaTable: metaExists ? "present" : "missing" },
       plan: {
         files: fileNames,
@@ -86,11 +119,10 @@ export async function runSqliteSchemaMigrations(
         latestHash,
         latestAt,
       },
-    } as const;
+    };
 
     {
-      (plan as any).printed = true;
-      delete (plan as any).message;
+      plan.printed = true;
     }
 
     {
@@ -116,7 +148,7 @@ export async function runSqliteSchemaMigrations(
       log.cli("");
     }
 
-    return plan as any;
+    return plan;
   }
 
   // Execute mode
@@ -150,13 +182,13 @@ export async function runSqliteSchemaMigrations(
         if (metaExists) {
           const cnt = sqlite
             .query("SELECT COUNT(*) as count FROM __drizzle_migrations")
-            .get() as any;
+            .get() as DrizzleMigrationCount | null;
           appliedCount = parseInt(String(cnt?.count || 0), 10);
           const last = sqlite
             .query(
               "SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1"
             )
-            .get() as any;
+            .get() as DrizzleMigrationRow | null;
           latestHash = last?.hash || undefined;
           latestAt = last?.created_at ? String(last.created_at) : undefined;
         }
@@ -201,6 +233,7 @@ export async function runSqliteSchemaMigrations(
 
     const db = drizzle(sqlite, { logger: true });
     const start = Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await migrate(db as any, { migrationsFolder });
     {
       const ms = Date.now() - start;
@@ -210,16 +243,14 @@ export async function runSqliteSchemaMigrations(
     sqlite.close();
   }
 
-  const appliedRes: any = {
+  const appliedRes: SqliteMigrationResult = {
     success: true,
     applied: true,
     backend,
     migrationsFolder: "./src/domain/storage/migrations",
-    message: `Schema migration applied for sqlite (migrations: ./src/domain/storage/migrations)`,
   };
   {
     appliedRes.printed = true;
-    delete appliedRes.message;
   }
   return appliedRes;
 }
@@ -236,6 +267,7 @@ export async function runSqliteSchemaMigrationsForBackend(sqlitePath?: string): 
   const sqlite = new Database(dbPath);
   try {
     const db = drizzle(sqlite, { logger: false });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await migrate(db as any, {
       migrationsFolder: "./src/domain/storage/migrations",
     });
