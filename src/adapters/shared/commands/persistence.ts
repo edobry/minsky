@@ -14,8 +14,10 @@ import { getErrorMessage, ensureError } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  defineCommand,
   type CommandParameterMap,
   type CommandExecutionContext,
+  type InferParams,
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
@@ -35,7 +37,7 @@ import { getEffectivePersistenceConfig } from "../../../domain/configuration/per
 /**
  * Parameters for the persistence migrate command
  */
-const persistenceMigrateCommandParams: CommandParameterMap = {
+const persistenceMigrateCommandParams = {
   to: {
     schema: z.enum(["sqlite", "postgres"]).optional(),
     description: "Target backend type (if omitted, run schema migrations for current backend)",
@@ -81,14 +83,14 @@ const persistenceMigrateCommandParams: CommandParameterMap = {
 };
 
 // Register persistence migrate command
-sharedCommandRegistry.registerCommand({
+sharedCommandRegistry.registerCommand(defineCommand({
   id: "persistence.migrate",
   category: CommandCategory.PERSISTENCE,
   name: "migrate",
   description:
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: persistenceMigrateCommandParams,
-  async execute(params: any, context: CommandExecutionContext) {
+  async execute(params, context) {
     const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
 
     // If no target backend provided, run schema migrations for current backend
@@ -365,12 +367,12 @@ sharedCommandRegistry.registerCommand({
       throw ensureError(error);
     }
   },
-});
+}));
 
 /**
  * Parameters for the persistence check command
  */
-const persistenceCheckCommandParams: CommandParameterMap = {
+const persistenceCheckCommandParams = {
   file: {
     schema: z.string(),
     description: "Path to database file to check (SQLite only)",
@@ -394,13 +396,13 @@ const persistenceCheckCommandParams: CommandParameterMap = {
 };
 
 // Register persistence check command
-sharedCommandRegistry.registerCommand({
+sharedCommandRegistry.registerCommand(defineCommand({
   id: "persistence.check",
   category: CommandCategory.PERSISTENCE,
   name: "check",
   description: "Check database integrity and detect issues",
   parameters: persistenceCheckCommandParams,
-  async execute(params: any, _context: CommandExecutionContext) {
+  async execute(params, _context) {
     const { file, backend, fix, report } = params;
 
     try {
@@ -467,21 +469,21 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Details: ${validationResult.details}`);
 
         if (
-          Array.isArray((validationResult as any).issues) &&
-          (validationResult as any).issues.length > 0
+          Array.isArray(validationResult.issues) &&
+          validationResult.issues.length > 0
         ) {
           log.cli(`\n⚠️ Issues Found:`);
-          (validationResult as any).issues.forEach((issue: string, idx: number) => {
+          validationResult.issues.forEach((issue: string, idx: number) => {
             log.cli(`  ${idx + 1}. ${issue}`);
           });
         }
 
         if (
-          Array.isArray((validationResult as any).suggestions) &&
-          (validationResult as any).suggestions.length > 0
+          Array.isArray(validationResult.suggestions) &&
+          validationResult.suggestions.length > 0
         ) {
           log.cli(`\n💡 Suggestions:`);
-          (validationResult as any).suggestions.forEach((suggestion: string, idx: number) => {
+          validationResult.suggestions.forEach((suggestion: string, idx: number) => {
             log.cli(`  ${idx + 1}. ${suggestion}`);
           });
         }
@@ -504,7 +506,7 @@ sharedCommandRegistry.registerCommand({
       throw error;
     }
   },
-});
+}));
 
 /**
  * Register all persistence commands

@@ -109,6 +109,48 @@ export interface CommandDefinition<
 }
 
 /**
+ * Infers the params object type from a CommandParameterMap.
+ *
+ * Given a parameter map like `{ taskId: { schema: z.string(), ... }, force: { schema: z.boolean(), ... } }`,
+ * this produces the type `{ taskId: string; force: boolean }`.
+ */
+export type InferParams<T extends CommandParameterMap> = {
+  [K in keyof T]: z.infer<T[K]["schema"]>;
+};
+
+/**
+ * Helper to define a command with full type inference on parameters.
+ *
+ * This eliminates the need for `as any` casts on command registration objects
+ * by inferring the parameter map type from the literal and threading it through
+ * to the execute handler's `params` argument.
+ *
+ * @example
+ * ```ts
+ * const myCommand = defineCommand({
+ *   id: "tasks.list",
+ *   category: CommandCategory.TASKS,
+ *   name: "list",
+ *   description: "List tasks",
+ *   parameters: {
+ *     status: { schema: z.string(), description: "Filter by status", required: false },
+ *     limit: { schema: z.number(), description: "Max results", required: false },
+ *   },
+ *   // params is inferred as { status: string; limit: number }
+ *   execute: async (params, ctx) => {
+ *     const { status, limit } = params;
+ *     // ...
+ *   },
+ * });
+ * ```
+ */
+export function defineCommand<T extends CommandParameterMap, R = any>(
+  def: CommandDefinition<T, R>
+): CommandDefinition<T, R> {
+  return def;
+}
+
+/**
  * Shared command interface that preserves type information
  */
 export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> {
