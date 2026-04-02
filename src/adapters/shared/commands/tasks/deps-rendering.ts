@@ -3,6 +3,8 @@ import { execAsync } from "../../../../utils/exec";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import { type TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { type Task } from "../../../../domain/tasks/types";
 import { getErrorMessage } from "../../../../errors/index";
 
 export interface LayoutOptions {
@@ -26,7 +28,7 @@ export interface TaskNode {
 export async function generateDependencyTree(
   taskId: string,
   graphService: TaskGraphService,
-  taskService: any,
+  taskService: TaskServiceInterface,
   maxDepth: number
 ): Promise<string> {
   const lines: string[] = [];
@@ -119,11 +121,11 @@ export async function generateDependencyTree(
  * Build a dependency chain starting from a root task
  */
 export async function buildDependencyChain(
-  root: any,
-  allTasks: any[],
+  root: TaskNode,
+  allTasks: TaskNode[],
   graphService: TaskGraphService,
   processed: Set<string>
-): Promise<any[]> {
+): Promise<TaskNode[]> {
   const chain = [root];
   processed.add(root.id);
 
@@ -155,10 +157,10 @@ export async function buildDependencyChain(
  * Render a dependency chain using ASCII tree characters
  */
 export async function renderDependencyChain(
-  chain: any[],
+  chain: TaskNode[],
   lines: string[],
   graphService: TaskGraphService,
-  taskService: any,
+  taskService: TaskServiceInterface,
   isLastChain: boolean
 ) {
   // graphService and isLastChain are kept for API compatibility
@@ -216,7 +218,7 @@ export async function renderDependencyChain(
  */
 export async function generateDependencyGraph(
   graphService: TaskGraphService,
-  taskService: any,
+  taskService: TaskServiceInterface,
   limit: number,
   statusFilter?: string
 ): Promise<string> {
@@ -233,7 +235,7 @@ export async function generateDependencyGraph(
     lines.push(`━`.repeat(60));
     lines.push(`Showing ${statusFilter || "TODO"} tasks with dependencies\n`);
 
-    const tasksWithDeps: any[] = [];
+    const tasksWithDeps: TaskNode[] = [];
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
@@ -280,7 +282,7 @@ export async function generateDependencyGraph(
 
     // Group by dependency chains
     const processed = new Set<string>();
-    const chains: any[][] = [];
+    const chains: TaskNode[][] = [];
 
     // Find root tasks (tasks with no dependencies)
     const rootTasks = tasksWithDeps.filter((t) => t.dependencies.length === 0);
@@ -358,7 +360,7 @@ function getNodeStyleAttrs(status: string, style: string): { color: string; bord
  */
 export async function generateGraphvizDot(
   graphService: TaskGraphService,
-  taskService: any,
+  taskService: TaskServiceInterface,
   limit: number,
   statusFilter?: string,
   options: LayoutOptions = {}
@@ -433,7 +435,7 @@ export async function generateGraphvizDot(
 
     lines.push("");
 
-    const tasksWithDeps: any[] = [];
+    const tasksWithDeps: TaskNode[] = [];
     const allTaskIds = new Set<string>();
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
@@ -472,7 +474,7 @@ export async function generateGraphvizDot(
     }
 
     // PERFORMANCE FIX: Batch all task detail queries
-    const taskDetailsMap = new Map<string, any>();
+    const taskDetailsMap = new Map<string, Task | null>();
     const taskDetailsResults = await Promise.allSettled(
       Array.from(allTaskIds).map(async (taskId) => {
         const task = await taskService.getTask(taskId);
@@ -539,7 +541,7 @@ export async function generateGraphvizDot(
  */
 export async function renderGraphvizFormat(
   graphService: TaskGraphService,
-  taskService: any,
+  taskService: TaskServiceInterface,
   limit: number,
   statusFilter: string | undefined,
   format: "svg" | "png" | "pdf",

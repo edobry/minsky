@@ -63,6 +63,7 @@ export interface Task {
 export interface TaskBackend {
   // ---- Core Identity ----
   name: string;
+  prefix?: string;
 
   // ---- User-Facing Operations ----
   listTasks(options?: TaskListOptions): Promise<Task[]>;
