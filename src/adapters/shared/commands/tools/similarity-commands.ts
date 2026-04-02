@@ -275,8 +275,8 @@ export class ToolsSearchCommand {
       try {
         const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
         const provider =
-          (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
-        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+          cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
+        const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold = threshold ?? "(default)";
 
         // Print to CLI in human-friendly lines
