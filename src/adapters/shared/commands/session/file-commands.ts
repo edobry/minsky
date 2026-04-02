@@ -4,7 +4,11 @@
  * Commands for file operations within session workspaces.
  * Provides CLI wrappers for session-aware MCP file tools.
  */
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionEditFileCommandParams } from "./session-parameters";
@@ -19,7 +23,20 @@ import { readTextFile } from "../../../../utils/fs";
  * - Dry-run mode for previewing changes
  * - User-friendly output formatting
  */
-export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session edit-file command
+ */
+interface SessionEditFileParams extends BaseSessionCommandParams {
+  session?: string;
+  path?: string;
+  instruction?: string;
+  patternFile?: string;
+  dryRun?: boolean;
+  createDirs?: boolean;
+  debug?: boolean;
+}
+
+export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFileParams, any> {
   getCommandId(): string {
     return "session.edit-file";
   }
@@ -36,7 +53,10 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     return sessionEditFileCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionEditFileParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     try {
       // Resolve session name (auto-detect from workspace if not provided)
       const sessionName = await this.resolveSessionName(params);

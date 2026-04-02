@@ -3,13 +3,24 @@
  * Opens the pull request in the default web browser
  */
 
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrOpenCommandParams } from "./session-parameters";
 import { sessionPrOpen } from "../../../../domain/session/commands/pr-subcommands";
 
-export class SessionPrOpenCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session PR open command
+ */
+interface SessionPrOpenParams extends BaseSessionCommandParams {
+  sessionName?: string;
+}
+
+export class SessionPrOpenCommand extends BaseSessionCommand<SessionPrOpenParams, any> {
   getCommandId(): string {
     return "session.pr.open";
   }
@@ -26,7 +37,10 @@ export class SessionPrOpenCommand extends BaseSessionCommand<any, any> {
     return sessionPrOpenCommandParams;
   }
 
-  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionPrOpenParams,
+    _context: CommandExecutionContext
+  ): Promise<any> {
     try {
       const result = await sessionPrOpen({
         sessionName: params.sessionName,

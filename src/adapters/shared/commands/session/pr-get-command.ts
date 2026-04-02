@@ -3,14 +3,29 @@
  * Gets detailed PR information for a session
  */
 
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrGetCommandParams } from "./session-parameters";
 import { sessionPrGet } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
 
-export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session PR get command
+ */
+interface SessionPrGetParams extends BaseSessionCommandParams {
+  sessionName?: string;
+  status?: string;
+  since?: string;
+  until?: string;
+  content?: boolean;
+}
+
+export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, any> {
   getCommandId(): string {
     return "session.pr.get";
   }
@@ -27,7 +42,10 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
     return sessionPrGetCommandParams;
   }
 
-  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionPrGetParams,
+    _context: CommandExecutionContext
+  ): Promise<any> {
     try {
       const result = await sessionPrGet({
         sessionName: params.sessionName,

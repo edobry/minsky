@@ -9,7 +9,7 @@ interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   task?: string;
 }
 
-export class TasksIndexEmbeddingsCommand extends BaseTaskCommand {
+export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbeddingsParams> {
   readonly id = "tasks.index-embeddings";
   readonly name = "index-embeddings";
   readonly description = "Generate and store embeddings for tasks";

@@ -30,7 +30,7 @@ interface TasksStatusSetParams extends BaseTaskParams {
 /**
  * Task status get command implementation
  */
-export class TasksStatusGetCommand extends BaseTaskCommand {
+export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams> {
   readonly id = "tasks.status.get";
   readonly name = "status get";
   readonly description = "Get the status of a task";
@@ -63,7 +63,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand {
 /**
  * Task status set command implementation
  */
-export class TasksStatusSetCommand extends BaseTaskCommand {
+export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams> {
   readonly id = "tasks.status.set";
   readonly name = "status set";
   readonly description = "Set the status of a task";

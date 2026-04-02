@@ -40,7 +40,7 @@ const migrateBackendParamsSchema = z.object({
 
 export type MigrateBackendParams = z.infer<typeof migrateBackendParamsSchema>;
 
-export class TasksMigrateBackendCommand extends BaseTaskCommand {
+export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendParams> {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
   readonly description = `Migrate tasks between different backends (${MIGRATION_BACKENDS.join(", ")})`;

@@ -4,7 +4,11 @@
  * Commands for basic session operations (list, get, start, dir).
  * Extracted from session.ts as part of modularization effort.
  */
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import {
   sessionListCommandParams,
@@ -15,9 +19,51 @@ import {
 } from "./session-parameters";
 
 /**
+ * Parameters for session list command
+ */
+interface SessionListParams extends BaseSessionCommandParams {
+  since?: string;
+  until?: string;
+}
+
+/**
+ * Parameters for session get command
+ */
+interface SessionGetParams extends BaseSessionCommandParams {
+  since?: string;
+  until?: string;
+}
+
+/**
+ * Parameters for session start command
+ */
+interface SessionStartParams extends BaseSessionCommandParams {
+  description?: string;
+  branch?: string;
+  session?: string;
+  quiet?: boolean;
+  noStatusUpdate?: boolean;
+  skipInstall?: boolean;
+  packageManager?: string;
+}
+
+/**
+ * Parameters for session dir command
+ */
+interface SessionDirParams extends BaseSessionCommandParams {}
+
+/**
+ * Parameters for session search command
+ */
+interface SessionSearchParams extends BaseSessionCommandParams {
+  query: string;
+  limit?: number;
+}
+
+/**
  * Session List Command
  */
-export class SessionListCommand extends BaseSessionCommand<any, any> {
+export class SessionListCommand extends BaseSessionCommand<SessionListParams, any> {
   getCommandId(): string {
     return "session.list";
   }
@@ -34,7 +80,7 @@ export class SessionListCommand extends BaseSessionCommand<any, any> {
     return sessionListCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionListParams, context: CommandExecutionContext): Promise<any> {
     const { listSessionsFromParams } = await import("../../../../domain/session");
 
     let sessions = await listSessionsFromParams({
@@ -63,7 +109,7 @@ export class SessionListCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Get Command
  */
-export class SessionGetCommand extends BaseSessionCommand<any, any> {
+export class SessionGetCommand extends BaseSessionCommand<SessionGetParams, any> {
   getCommandId(): string {
     return "session.get";
   }
@@ -80,7 +126,7 @@ export class SessionGetCommand extends BaseSessionCommand<any, any> {
     return sessionGetCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionGetParams, context: CommandExecutionContext): Promise<any> {
     const { getSessionFromParams } = await import("../../../../domain/session");
 
     const session = await getSessionFromParams({
@@ -115,7 +161,7 @@ export class SessionGetCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Start Command
  */
-export class SessionStartCommand extends BaseSessionCommand<any, any> {
+export class SessionStartCommand extends BaseSessionCommand<SessionStartParams, any> {
   getCommandId(): string {
     return "session.start";
   }
@@ -132,7 +178,7 @@ export class SessionStartCommand extends BaseSessionCommand<any, any> {
     return sessionStartCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionStartParams, context: CommandExecutionContext): Promise<any> {
     // Validate that task association is provided
     if (!params.task && !params.description) {
       throw new Error(
@@ -167,7 +213,7 @@ export class SessionStartCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Directory Command
  */
-export class SessionDirCommand extends BaseSessionCommand<any, any> {
+export class SessionDirCommand extends BaseSessionCommand<SessionDirParams, any> {
   getCommandId(): string {
     return "session.dir";
   }
@@ -184,7 +230,7 @@ export class SessionDirCommand extends BaseSessionCommand<any, any> {
     return sessionDirCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionDirParams, context: CommandExecutionContext): Promise<any> {
     const { getSessionDirFromParams } = await import(
       "../../../../domain/session/commands/dir-command"
     );
@@ -218,7 +264,7 @@ export const createSessionDirCommand = (deps?: SessionCommandDependencies) =>
 /**
  * Session search command for finding sessions by query
  */
-export class SessionSearchCommand extends BaseSessionCommand<any, any> {
+export class SessionSearchCommand extends BaseSessionCommand<SessionSearchParams, any> {
   getCommandId(): string {
     return "session.search";
   }
@@ -235,7 +281,7 @@ export class SessionSearchCommand extends BaseSessionCommand<any, any> {
     return sessionSearchCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionSearchParams, context: CommandExecutionContext): Promise<any> {
     const { query, limit } = params;
 
     const { createSessionProvider } = await import("../../../../domain/session");

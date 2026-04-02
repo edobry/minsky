@@ -21,7 +21,7 @@ const migrateParamsSchema = z.object({
 
 export type MigrateParams = z.infer<typeof migrateParamsSchema>;
 
-export class MigrateTasksCommand extends BaseTaskCommand {
+export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams> {
   readonly id = "tasks.migrate";
   readonly name = "migrate";
   readonly description = "Import markdown task specs/metadata into DB (dry-run by default)";

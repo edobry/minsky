@@ -34,7 +34,7 @@ export interface TaskCommandResult {
 /**
  * Abstract base class for task commands
  */
-export abstract class BaseTaskCommand {
+export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
@@ -50,7 +50,7 @@ export abstract class BaseTaskCommand {
   /**
    * Execute the command (to be implemented by subclasses)
    */
-  abstract execute(params: any, context: CommandExecutionContext): Promise<any>;
+  abstract execute(params: TParams, context: CommandExecutionContext): Promise<TResult>;
 
   /**
    * Validate task ID for multi-backend support (qualified IDs only)
@@ -216,32 +216,32 @@ export abstract class BaseTaskCommand {
 /**
  * Factory function type for creating task commands
  */
-export type TaskCommandFactory = () => BaseTaskCommand;
+export type TaskCommandFactory = () => BaseTaskCommand<any, any>;
 
 /**
  * Task command registry for managing command instances
  */
 export class TaskCommandRegistry {
-  private commands = new Map<string, BaseTaskCommand>();
+  private commands = new Map<string, BaseTaskCommand<any, any>>();
 
   /**
    * Register a task command
    */
-  register(command: BaseTaskCommand): void {
+  register(command: BaseTaskCommand<any, any>): void {
     this.commands.set(command.id, command);
   }
 
   /**
    * Get a task command by ID
    */
-  get(commandId: string): BaseTaskCommand | undefined {
+  get(commandId: string): BaseTaskCommand<any, any> | undefined {
     return this.commands.get(commandId);
   }
 
   /**
    * Get all registered commands
    */
-  getAll(): BaseTaskCommand[] {
+  getAll(): BaseTaskCommand<any, any>[] {
     return Array.from(this.commands.values());
   }
 

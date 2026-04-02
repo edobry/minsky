@@ -12,7 +12,7 @@ import { TasksStatusGetCommand, TasksStatusSetCommand } from "./status-commands"
 /**
  * Hierarchical status command that manages get/set subcommands
  */
-export class TasksStatusCommand extends BaseTaskCommand {
+export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
   readonly id = "tasks.status";
   readonly name = "status";
   readonly description = "Task status operations";

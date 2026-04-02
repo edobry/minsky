@@ -3,7 +3,11 @@
  * Updates an existing PR for a session
  */
 
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import {
   MinskyError,
@@ -15,7 +19,18 @@ import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
 
-export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
+/**
+ * Parameters for session PR edit command
+ */
+interface SessionPrEditParams extends BaseSessionCommandParams {
+  title?: string;
+  body?: string;
+  bodyPath?: string;
+  type?: string;
+  debug?: boolean;
+}
+
+export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams, any> {
   getCommandId(): string {
     return "session.pr.edit";
   }
@@ -32,7 +47,10 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
     return sessionPrEditCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionPrEditParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     // Validate that at least one field is provided for updating
     if (!params.title && !params.body && !params.bodyPath) {
       throw new ValidationError(
@@ -185,7 +203,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
     }
   }
 
-  protected getAdditionalLogContext(params: any): Record<string, any> {
+  protected getAdditionalLogContext(params: SessionPrEditParams): Record<string, any> {
     return {
       title: params.title,
       hasBody: !!params.body,

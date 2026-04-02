@@ -7,7 +7,11 @@
  * Replaced single "session pr" with subcommands (create, list, get)
  */
 import { z } from "zod";
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import {
@@ -27,11 +31,64 @@ import {
 } from "./pr-subcommand-commands";
 
 /**
+ * Parameters for session commit command
+ */
+interface SessionCommitParams extends BaseSessionCommandParams {
+  sessionName?: string;
+  message?: string;
+  all?: boolean;
+  amend?: boolean;
+  noStage?: boolean;
+  oneline?: boolean;
+  noFiles?: boolean;
+}
+
+/**
+ * Parameters for session approve command
+ */
+interface SessionApproveParams extends BaseSessionCommandParams {
+  comment?: string;
+  reviewComment?: string;
+}
+
+/**
+ * Parameters for session inspect command
+ */
+interface SessionInspectParams extends BaseSessionCommandParams {}
+
+/**
+ * Parameters for session review command
+ */
+interface SessionReviewParams extends BaseSessionCommandParams {
+  session?: string;
+  output?: string;
+  prBranch?: string;
+  ai?: boolean;
+  model?: string;
+  provider?: string;
+  focus?: string;
+  detailed?: boolean;
+  includeTaskSpec?: boolean;
+  includeHistory?: boolean;
+  temperature?: number;
+  maxTokens?: number;
+  autoComment?: boolean;
+  autoApprove?: boolean;
+}
+
+/**
+ * Parameters for session PR merge command
+ */
+interface SessionPrMergeParams extends BaseSessionCommandParams {
+  skipCleanup?: boolean;
+}
+
+/**
  * Session Commit Command
  *
  * Commits and pushes changes within a session workspace
  */
-export class SessionCommitCommand extends BaseSessionCommand<any, any> {
+export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams, any> {
   getCommandId(): string {
     return "session.commit";
   }
@@ -48,7 +105,10 @@ export class SessionCommitCommand extends BaseSessionCommand<any, any> {
     return sessionCommitCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionCommitParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
     const result = await sessionCommit({
@@ -84,7 +144,7 @@ export class SessionCommitCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Approve Command
  */
-export class SessionApproveCommand extends BaseSessionCommand<any, any> {
+export class SessionApproveCommand extends BaseSessionCommand<SessionApproveParams, any> {
   getCommandId(): string {
     return "session.approve";
   }
@@ -101,7 +161,10 @@ export class SessionApproveCommand extends BaseSessionCommand<any, any> {
     return sessionApproveCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionApproveParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { approveSessionFromParams } = await import("../../../../domain/session");
 
     const result = await approveSessionFromParams({
@@ -118,7 +181,7 @@ export class SessionApproveCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Inspect Command
  */
-export class SessionInspectCommand extends BaseSessionCommand<any, any> {
+export class SessionInspectCommand extends BaseSessionCommand<SessionInspectParams, any> {
   getCommandId(): string {
     return "session.inspect";
   }
@@ -135,7 +198,10 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
     return sessionInspectCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionInspectParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { inspectSessionFromParams } = await import("../../../../domain/session");
 
     const result = await inspectSessionFromParams({
@@ -149,7 +215,7 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
 /**
  * Session Review Command
  */
-export class SessionReviewCommand extends BaseSessionCommand<any, any> {
+export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams, any> {
   getCommandId(): string {
     return "session.review";
   }
@@ -166,7 +232,10 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
     return sessionReviewCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionReviewParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { sessionReviewImpl } = await import(
       "../../../../domain/session/session-review-operations"
     );
@@ -343,7 +412,7 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
 /**
  * Session PR Approve Command (Task #358 - New Structure)
  */
-export class SessionPrApproveCommand extends BaseSessionCommand<any, any> {
+export class SessionPrApproveCommand extends BaseSessionCommand<SessionApproveParams, any> {
   getCommandId(): string {
     return "session.pr.approve";
   }
@@ -360,7 +429,10 @@ export class SessionPrApproveCommand extends BaseSessionCommand<any, any> {
     return sessionApproveCommandParams;
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionApproveParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { approveSessionFromParams } = await import("../../../../domain/session");
 
     const result = await approveSessionFromParams({
@@ -378,7 +450,7 @@ export class SessionPrApproveCommand extends BaseSessionCommand<any, any> {
 /**
  * Session PR Merge Command (Task #358 - New Structure)
  */
-export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
+export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergeParams, any> {
   getCommandId(): string {
     return "session.pr.merge";
   }
@@ -395,7 +467,10 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
     return sessionApproveCommandParams; // Reuse same params for now
   }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(
+    params: SessionPrMergeParams,
+    context: CommandExecutionContext
+  ): Promise<any> {
     const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
 
     // Cleanup is enabled by default, but can be disabled with --skip-cleanup

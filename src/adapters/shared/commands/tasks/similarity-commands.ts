@@ -36,7 +36,7 @@ interface TasksSearchParams extends BaseTaskParams {
   threshold?: number;
 }
 
-export class TasksSimilarCommand extends BaseTaskCommand {
+export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly id = "tasks.similar";
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
@@ -133,7 +133,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
   }
 }
 
-export class TasksSearchCommand extends BaseTaskCommand {
+export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly id = "tasks.search";
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
