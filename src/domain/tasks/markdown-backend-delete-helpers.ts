@@ -44,6 +44,6 @@ export async function deleteSpecFile(specPath: string, workspacePath: string): P
       log.debug(`Deleted spec file: ${fullSpecPath}`);
     }
   } catch (error) {
-    log.debug(`Could not delete spec file: ${getErrorMessage(error as any)}`);
+    log.debug(`Could not delete spec file: ${getErrorMessage(error)}`);
   }
 }
