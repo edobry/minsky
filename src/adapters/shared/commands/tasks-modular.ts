@@ -4,7 +4,7 @@
  * Lightweight replacement for the original tasks commands using the Command Pattern.
  * This reduces duplication and improves maintainability by creating commands on-demand.
  */
-import { sharedCommandRegistry } from "../command-registry";
+import { sharedCommandRegistry, defineCommand } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
 import {
@@ -73,85 +73,85 @@ export class ModularTasksCommandManager {
       const routeCommand = createTasksRouteCommand();
 
       // Register list command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.list",
         category: CommandCategory.TASKS,
         name: "list",
         description: "List tasks",
         parameters: listCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await listCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register get command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.get",
         category: CommandCategory.TASKS,
         name: "get",
         description: "Get task details",
         parameters: getCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await getCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register create command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.create",
         category: CommandCategory.TASKS,
         name: "create",
         description: "Create a new task",
         parameters: createCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await createCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register edit command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.edit",
         category: CommandCategory.TASKS,
         name: "edit",
         description: "Edit task title and/or specification content",
         parameters: editCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await editCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register delete command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.delete",
         category: CommandCategory.TASKS,
         name: "delete",
         description: "Delete a task",
         parameters: deleteCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await deleteCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register spec get command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.spec.get",
         category: CommandCategory.TASKS,
         name: "get",
         description: "Get task specification content",
         parameters: specCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await specCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register spec edit command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.spec.edit",
         category: CommandCategory.TASKS,
         name: "edit",
         description: "Edit task specification content",
         parameters: editCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           // For spec edit, we only allow spec-related parameters
           const specParams = {
             ...params,
@@ -159,85 +159,85 @@ export class ModularTasksCommandManager {
           };
           return await editCommand.execute(specParams, context);
         },
-      });
+      }));
 
       // Register status get command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.status.get",
         category: CommandCategory.TASKS,
         name: "get",
         description: "Get the status of a task",
         parameters: statusGetCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await statusGetCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register status set command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.status.set",
         category: CommandCategory.TASKS,
         name: "set",
         description: "Set the status of a task",
         parameters: statusSetCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await statusSetCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register migrate command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.migrate",
         category: CommandCategory.TASKS,
         name: "migrate",
         description: "Migrate legacy task IDs to qualified format",
         parameters: migrateCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await migrateCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register migrate-backend command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: "tasks.migrate-backend",
         category: CommandCategory.TASKS,
         name: "migrate-backend",
         description:
           "Migrate tasks between different backends (markdown, minsky, github, json-file)",
         parameters: migrateBackendCommand.parameters,
-        execute: async (params: any, context: any) => {
+        execute: async (params, context) => {
           return await migrateBackendCommand.execute(params, context);
         },
-      });
+      }));
 
       // Register similarity commands
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: similarCommand.id,
         category: CommandCategory.TASKS,
         name: similarCommand.name,
         description: similarCommand.description,
-        parameters: (similarCommand as any).parameters,
-        execute: similarCommand.execute.bind(similarCommand) as any,
-      });
+        parameters: similarCommand.parameters,
+        execute: similarCommand.execute.bind(similarCommand),
+      }));
 
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: searchCommand.id,
         category: CommandCategory.TASKS,
         name: searchCommand.name,
         description: searchCommand.description,
-        parameters: (searchCommand as any).parameters,
-        execute: searchCommand.execute.bind(searchCommand) as any,
-      });
+        parameters: searchCommand.parameters,
+        execute: searchCommand.execute.bind(searchCommand),
+      }));
 
       // Register index embeddings command
-      sharedCommandRegistry.registerCommand({
+      sharedCommandRegistry.registerCommand(defineCommand({
         id: indexEmbeddingsCommand.id,
         category: CommandCategory.TASKS,
         name: indexEmbeddingsCommand.name,
         description: indexEmbeddingsCommand.description,
-        parameters: (indexEmbeddingsCommand as any).parameters,
+        parameters: indexEmbeddingsCommand.parameters,
         execute: indexEmbeddingsCommand.execute.bind(indexEmbeddingsCommand),
-      });
+      }));
 
       // Register deps commands using the command objects directly
       sharedCommandRegistry.registerCommand({
