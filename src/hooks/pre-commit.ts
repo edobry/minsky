@@ -61,31 +61,37 @@ export class PreCommitHook {
         return testsResult;
       }
 
-      // Step 4: Test pattern validation
+      // Step 4: TypeScript type checking
+      const typeCheckResult = await this.runTypeCheck();
+      if (!typeCheckResult.success) {
+        return typeCheckResult;
+      }
+
+      // Step 5: Test pattern validation
       const patternsResult = await this.runTestPatternValidation();
       if (!patternsResult.success) {
         return patternsResult;
       }
 
-      // Step 5: Code formatting
+      // Step 6: Code formatting
       const formatResult = await this.runCodeFormatting();
       if (!formatResult.success) {
         return formatResult;
       }
 
-      // Step 6: Console usage validation
+      // Step 7: Console usage validation
       const consoleResult = await this.runConsoleValidation();
       if (!consoleResult.success) {
         return consoleResult;
       }
 
-      // Step 7: ESLint validation
+      // Step 8: ESLint validation
       const lintResult = await this.runESLintValidation();
       if (!lintResult.success) {
         return lintResult;
       }
 
-      // Step 8: ESLint rule tooling tests
+      // Step 9: ESLint rule tooling tests
       const ruleTestsResult = await this.runESLintRuleTests();
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
@@ -344,6 +350,27 @@ export class PreCommitHook {
       log.cli("   • Add missing mocks or dependencies");
       log.cli("   • Check for import/export issues");
       return { success: false, message: "Unit tests failed", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Run TypeScript type checking
+   */
+  private async runTypeCheck(): Promise<HookResult> {
+    log.cli("🔎 Running TypeScript type check...");
+
+    try {
+      await execAsync("bunx tsc --noEmit", {
+        cwd: this.projectRoot,
+        timeout: 60000,
+      });
+      log.cli("✅ TypeScript compilation passed — no type errors.");
+      return { success: true, message: "Type check passed", exitCode: 0 };
+    } catch (error: any) {
+      const output = error.stdout || error.message || String(error);
+      log.cli("❌ TypeScript type errors found! Commit blocked.");
+      log.cli(output);
+      return { success: false, message: "TypeScript type check failed", exitCode: 1 };
     }
   }
 
