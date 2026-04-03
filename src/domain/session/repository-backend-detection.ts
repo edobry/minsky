@@ -203,6 +203,55 @@ export async function createRepositoryBackendForSession(
 }
 
 /**
+ * Resolved repository configuration from git remote detection
+ */
+export interface ResolvedRepositoryConfig {
+  backend: "github" | "gitlab" | "local";
+  url?: string;
+  github?: { owner: string; repo: string };
+}
+
+/**
+ * Detects the repository backend by inspecting the git remote URL of the given directory.
+ * This is the ONE function for init-time detection — runs once at `minsky init`, not per-session.
+ *
+ * - If URL contains `github.com` → returns `{ backend: "github", url, github: { owner, repo } }`
+ * - If URL contains `gitlab.com` → returns `{ backend: "gitlab", url }`
+ * - If no remote or error → returns `{ backend: "local" }`
+ */
+export function resolveRepositoryFromGitRemote(cwd: string): ResolvedRepositoryConfig {
+  try {
+    const url = execSync("git remote get-url origin", {
+      cwd,
+      encoding: "utf8",
+    })
+      .toString()
+      .trim();
+
+    if (url.includes("github.com")) {
+      const githubInfo = extractGitHubInfoFromUrl(url);
+      const result: ResolvedRepositoryConfig = { backend: "github", url };
+      if (githubInfo) {
+        result.github = githubInfo;
+      }
+      return result;
+    }
+
+    if (url.includes("gitlab.com")) {
+      return { backend: "gitlab", url };
+    }
+
+    return { backend: "local" };
+  } catch (error) {
+    log.debug("Failed to resolve repository from git remote", {
+      cwd,
+      error: getErrorMessage(error),
+    });
+    return { backend: "local" };
+  }
+}
+
+/**
  * Extract GitHub owner and repo from URL
  */
 export function extractGitHubInfoFromUrl(

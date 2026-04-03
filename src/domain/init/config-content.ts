@@ -1,6 +1,7 @@
 import { DEFAULT_DEV_PORT } from "../../utils/constants";
 import { z } from "zod";
 import { enumSchemas } from "../configuration/schemas/base";
+import type { ResolvedRepositoryConfig } from "../session/repository-backend-detection";
 
 export interface McpOptions {
   enabled?: boolean;
@@ -12,25 +13,37 @@ export interface McpOptions {
 /**
  * Returns the content for the main Minsky config file
  */
-export function getMinskyConfigContent(backend: z.infer<typeof enumSchemas.backendType>): string {
-  return JSON.stringify(
-    {
-      tasks: {
-        backend: backend,
-        strictIds: false,
-      },
-      sessiondb: {
-        backend: "sqlite",
-      },
-      logger: {
-        mode: "auto",
-        level: "info",
-        enableAgentLogs: false,
-      },
+export function getMinskyConfigContent(
+  backend: z.infer<typeof enumSchemas.backendType>,
+  repository?: ResolvedRepositoryConfig
+): string {
+  const config: Record<string, unknown> = {
+    tasks: {
+      backend: backend,
+      strictIds: false,
     },
-    null,
-    2
-  );
+    sessiondb: {
+      backend: "sqlite",
+    },
+    logger: {
+      mode: "auto",
+      level: "info",
+      enableAgentLogs: false,
+    },
+  };
+
+  if (repository) {
+    const repoSection: Record<string, unknown> = { backend: repository.backend };
+    if (repository.url) {
+      repoSection.url = repository.url;
+    }
+    if (repository.github) {
+      repoSection.github = repository.github;
+    }
+    config.repository = repoSection;
+  }
+
+  return JSON.stringify(config, null, 2);
 }
 
 /**
