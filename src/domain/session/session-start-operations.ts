@@ -17,6 +17,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "./";
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import { taskIdToBranchName } from "../tasks/task-id";
 import {
   SessionMultiBackendIntegration,
   SessionBackwardCompatibility,
@@ -203,7 +204,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
-    const branchName = branch || sessionName;
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionName);
 
     try {
       // First clone the repo
