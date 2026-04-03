@@ -18,10 +18,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
-import {
-  detectRepositoryBackendTypeFromUrl,
-  resolveRepositoryAndBackend,
-} from "./repository-backend-detection";
+import { getRepositoryBackendFromConfig } from "./repository-backend-detection";
 import { RepositoryBackendType } from "../repository";
 import { taskIdToSessionName } from "../tasks/task-id";
 
@@ -30,10 +27,12 @@ export interface StartSessionDependencies {
   gitService: GitServiceInterface;
   taskService: TaskServiceInterface;
   workspaceUtils: WorkspaceUtilsInterface;
-  resolveRepositoryAndBackend: (options?: {
-    repoParam?: string;
-    cwd?: string;
-  }) => Promise<{ repoUrl: string; backendType: RepositoryBackendType }>;
+  /** Reads repository backend (URL + type) from project config written by `minsky init`. */
+  getRepositoryBackend: () => Promise<{
+    repoUrl: string;
+    backendType: RepositoryBackendType;
+    github?: { owner: string; repo: string };
+  }>;
   /** Optional filesystem adapter for testing to avoid real fs operations */
   fs?: {
     exists: (path: string) => boolean | Promise<boolean>;
@@ -115,13 +114,14 @@ Sessions are isolated workspaces for specific tasks. Creating nested sessions wo
 Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
-    // Determine repo URL or path first using unified resolver (defaults to GitHub)
-    const resolved = await deps.resolveRepositoryAndBackend({
-      repoParam: repo,
-      cwd: process.cwd(),
-    });
-    const repoUrl = resolved.repoUrl;
-    const backendType = resolved.backendType;
+    // Determine repo URL and backend type from project config (written by `minsky init`).
+    // Falls back to auto-detection for projects that haven't been initialised yet.
+    const configBackend = await deps.getRepositoryBackend();
+    const repoUrl = configBackend.repoUrl;
+    const backendType = configBackend.backendType;
+    // If the user explicitly passed --repo, use it as the clone source (speed optimisation
+    // for local clones) while keeping the canonical repoUrl / backendType from config.
+    const cloneSource = repo || repoUrl;
 
     // Determine the session name using task ID if provided
     let sessionName = name;
@@ -243,9 +243,11 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     const branchName = branch || sessionName;
 
     try {
-      // First clone the repo
+      // First clone the repo.  Use cloneSource so that an explicit --repo path can
+      // serve as a fast local clone source while the canonical repoUrl (from config)
+      // is still stored on the session record.
       const gitCloneResult = await deps.gitService.clone({
-        repoUrl,
+        repoUrl: cloneSource,
         session: sessionName,
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
       });

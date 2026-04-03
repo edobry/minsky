@@ -4,7 +4,7 @@ import * as WorkspaceUtils from "../../workspace";
 import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
 import { createConfiguredTaskService } from "../../tasks/taskService";
-import { resolveRepositoryAndBackend } from "../../session/repository-backend-detection";
+import { getRepositoryBackendFromConfig } from "../../session/repository-backend-detection";
 import type { Session } from "../types";
 
 /**
@@ -23,8 +23,7 @@ export async function sessionStart(
     gitService: depsInput?.gitService || createGitService(),
     taskService,
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
-    resolveRepositoryAndBackend:
-      depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,
+    getRepositoryBackend: depsInput?.getRepositoryBackend || getRepositoryBackendFromConfig,
   };
 
   return startSessionImpl(params, deps);
