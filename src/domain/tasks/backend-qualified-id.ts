@@ -87,7 +87,8 @@ export function extractLocalIdFromId(taskId: string): string | null {
 }
 
 // Unified format conversion functions
-// UNIFIED FORMAT: task-md#123 (used everywhere - tasks, sessions, branches)
+// BRANCH FORMAT: task/md-123 (used for git branches)
+// LEGACY FORMAT: task-md#123 (kept for backward compatibility)
 
 export function qualifiedIdToUnifiedFormat(qualifiedId: string): string {
   const parsed = parseTaskId(qualifiedId);
@@ -134,11 +135,12 @@ export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
   return unifiedFormat; // Return as-is if unparseable
 }
 
-// Git branch naming conversion functions
+// Git branch naming conversion functions (legacy)
 
 /** @deprecated Session names are now UUIDs; branch names come from taskIdToBranchName() in task-id.ts */
 export function sessionNameToBranchName(sessionName: string): string {
   // Convert colons to dashes for git branch compatibility
+  // task#md:123 → task#md-123
   return sessionName.replace(/:/g, "-");
 }
 
