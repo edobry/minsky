@@ -23,15 +23,15 @@ export interface ParameterMappingOptions {
   /** Human-readable description */
   description?: string;
   /** Override the default value */
-  defaultValue?: any;
+  defaultValue?: unknown;
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
-  validator?: (value: any) => boolean;
+  validator?: (value: unknown) => boolean;
   /** Custom error message for validation failures */
   errorMessage?: string;
   /** Custom parser for the value */
-  parser?: (value: any) => any;
+  parser?: (value: unknown) => unknown;
   /** Whether to handle this as a variadic parameter */
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
@@ -164,7 +164,7 @@ function formatArgumentName(name: string, required: boolean, variadic?: boolean)
 function addTypeHandlingToOption(
   option: Option,
   schemaType?: string,
-  customParser?: (value: any) => any
+  customParser?: (value: unknown) => unknown
 ): Option {
   // If a custom parser is provided, use it
   if (customParser) {
@@ -247,9 +247,9 @@ export function createParameterMappings(
  */
 export function normalizeCliParameters(
   parametersSchema: Record<string, CommandParameterDefinition>,
-  cliParameters: Record<string, any>
-): Record<string, any> {
-  const result: Record<string, any> = {};
+  cliParameters: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
 
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {

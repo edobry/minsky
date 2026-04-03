@@ -33,7 +33,7 @@ export interface CliOptionDetails {
   /** Option description */
   description: string;
   /** Default value if any */
-  defaultValue?: any;
+  defaultValue?: unknown;
 }
 
 /**
@@ -118,6 +118,7 @@ export function getSchemaDescription(
   if (
     "description" in schema &&
     typeof schema.description === "string" &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (schema as any).description.length > 0
   ) {
     description = schema.description;
@@ -230,11 +231,11 @@ export function addOptionsToCommand(
  * @returns Validated object with parsed parameters
  */
 export function parseOptionsToParameters<T extends CommandParameterMap>(
-  options: Record<string, any>,
+  options: Record<string, unknown>,
   parameters: T
 ): { [K in keyof T]: z.infer<T[K]["schema"]> } {
   // Create result object
-  const result: Record<string, any> = {};
+  const result: Record<string, unknown> = {};
 
   // For each parameter, validate and convert the option
   Object.entries(parameters).forEach(([name, param]) => {

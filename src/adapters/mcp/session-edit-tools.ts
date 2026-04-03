@@ -15,6 +15,7 @@ import { FileEditSchema } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 import type { MorphFastApplyRequest } from "../../domain/ai/edit-pattern-utils";
 import { generateUnifiedDiff, generateDiffSummary } from "../../utils/diff";
+import type { Configuration } from "../../domain/configuration/schemas/index";
 
 // Import schemas that haven't been migrated yet
 import {
@@ -70,7 +71,8 @@ Block 3
 Make sure it is clear what the edit should be, and where it should be applied.
 Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.`,
     parameters: SessionFileEditSchema,
-    handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
+    handler: async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const args = rawArgs as EditFileArgs;
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
@@ -178,7 +180,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
     name: "session.search_replace",
     description: "Replace a single occurrence of text in a file within a session workspace",
     parameters: SessionSearchReplaceSchema,
-    handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
+    handler: async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const args = rawArgs as SearchReplaceArgs;
       try {
         // Validate required parameters to catch parameter naming mismatches early
         if (args.search == null || typeof args.search !== "string") {
@@ -267,7 +270,7 @@ export async function applyEditPattern(
   editContent: string,
   instruction?: string,
   dependencies?: {
-    config?: any;
+    config?: Configuration;
   }
 ): Promise<string> {
   // Import required dependencies with enhanced error handling
@@ -307,7 +310,9 @@ export async function applyEditPattern(
   // Find fast-apply capable provider (currently Morph, extendable to others)
   const fastApplyProviders = Object.entries(aiConfig.providers)
     .filter(
-      ([name, providerConfig]) => (providerConfig as any)?.enabled && name === "morph" // Add other fast-apply providers here as needed
+      ([name, providerConfig]) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (providerConfig as any)?.enabled && name === "morph" // Add other fast-apply providers here as needed
     )
     .map(([name]) => name);
 
@@ -338,6 +343,7 @@ export async function applyEditPattern(
   // Create enhanced AI completion service with retry logic and circuit breaker
   const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
   const retryService = new IntelligentRetryService();
   const completionService = new EnhancedAICompletionService(defaultCompletionService, retryService);

@@ -142,7 +142,7 @@ export class CommandGeneratorCore {
         );
 
         // Propagate CLI flags to runtime toggles for better error reporting
-        if (rawParameters && (rawParameters as any).debug && !process.env.DEBUG) {
+        if (rawParameters && rawParameters["debug"] && !process.env.DEBUG) {
           process.env.DEBUG = "1";
         }
 
@@ -176,7 +176,7 @@ export class CommandGeneratorCore {
    * Handle command output using appropriate formatter
    */
   private handleCommandOutput(
-    result: any,
+    result: unknown,
     commandDef: SharedCommand,
     options: CliCommandOptions,
     context: CliExecutionContext

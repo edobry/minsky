@@ -93,9 +93,9 @@ export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, 
         output.push(`URL:         ${pullRequest.url}`);
       }
 
-      if ((pullRequest as any).description) {
+      if ((pullRequest as { description?: string }).description) {
         output.push("", "Description:");
-        output.push((pullRequest as any).description);
+        output.push((pullRequest as { description?: string }).description!);
       }
 
       if (pullRequest.filesChanged && pullRequest.filesChanged.length > 0) {

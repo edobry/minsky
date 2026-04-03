@@ -58,26 +58,27 @@ export class CommandMapper {
    * @param zodSchema The Zod schema to convert
    * @returns JSON Schema object
    */
-  public zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
+  public zodToJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
     try {
       const jsonSchema = zodToJsonSchema(zodSchema, {
         name: "ToolParameters",
         $refStrategy: "none", // Inline all definitions
-      });
+      }) as Record<string, unknown>;
 
       // If the schema has a $ref, extract the actual definition
       // This happens when zod-to-json-schema creates a wrapper with definitions
-      let flatSchema = jsonSchema;
-      if ((jsonSchema as any).$ref && (jsonSchema as any).definitions) {
-        const refKey = (jsonSchema as any).$ref.replace("#/definitions/", "");
-        flatSchema = (jsonSchema as any).definitions[refKey];
+      let flatSchema: Record<string, unknown> = jsonSchema;
+      const definitions = jsonSchema["definitions"] as Record<string, unknown> | undefined;
+      if (jsonSchema["$ref"] && definitions) {
+        const refKey = String(jsonSchema["$ref"]).replace("#/definitions/", "");
+        flatSchema = (definitions[refKey] as Record<string, unknown>) ?? jsonSchema;
       }
 
       log.debug("Converted Zod to JSON Schema", {
         zodType: zodSchema._def?.typeName,
         originalSchema: jsonSchema,
         flatSchema,
-        hasRef: !!(jsonSchema as any).$ref,
+        hasRef: !!jsonSchema["$ref"],
       });
 
       return flatSchema;
@@ -103,13 +104,16 @@ export class CommandMapper {
     name: string;
     description: string;
     parameters?: z.ZodTypeAny;
-    handler: (args: any, context?: ProjectContext) => Promise<string | Record<string, any>>;
+    handler: (
+      args: Record<string, unknown>,
+      context?: ProjectContext
+    ) => Promise<string | Record<string, unknown>>;
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
 
     // Convert Zod schema to JSON Schema if provided
-    let inputSchema: any = {
+    let inputSchema: Record<string, unknown> = {
       type: "object",
       properties: {},
       additionalProperties: true,
