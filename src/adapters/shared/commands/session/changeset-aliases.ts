@@ -16,7 +16,7 @@ import {
 import type { ChangesetStatus } from "../../../../domain/changeset/types";
 import { CommonParameters, composeParams } from "../../common-parameters";
 import { getCurrentSession } from "../../../../domain/workspace";
-import { resolveRepositoryAndBackend } from "../../../../domain/session/repository-backend-detection";
+import { getRepositoryBackendFromConfig } from "../../../../domain/session/repository-backend-detection";
 import { createChangesetService } from "../../../../domain/changeset/index";
 import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
@@ -84,9 +84,7 @@ async function executeSessionChangesetList(
 ): Promise<any> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Get current session if not showing all
     let sessionFilter: string | undefined;
@@ -187,9 +185,7 @@ async function executeSessionChangesetGet(
 ): Promise<any> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     let changesetId = params.id;
 

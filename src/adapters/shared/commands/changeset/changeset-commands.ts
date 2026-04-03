@@ -13,7 +13,7 @@ import type {
   ChangesetSearchOptions,
   ChangesetStatus,
 } from "../../../../domain/changeset/types";
-import { resolveRepositoryAndBackend } from "../../../../domain/session/repository-backend-detection";
+import { getRepositoryBackendFromConfig } from "../../../../domain/session/repository-backend-detection";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -157,9 +157,7 @@ async function executeChangesetList(
 ): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo as string | undefined,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service
     const changesetService = await createChangesetService(repoUrl);
@@ -245,9 +243,7 @@ async function executeChangesetSearch(
 ): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo as string | undefined,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service
     const changesetService = await createChangesetService(repoUrl);
@@ -335,9 +331,7 @@ async function executeChangesetGet(
 ): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo as string | undefined,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service
     const changesetService = await createChangesetService(repoUrl);
@@ -420,9 +414,7 @@ async function executeChangesetInfo(
 ): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
-    const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo as string | undefined,
-    });
+    const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service
     const changesetService = await createChangesetService(repoUrl);
