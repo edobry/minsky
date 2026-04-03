@@ -95,7 +95,9 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Arrange - Now simulate successful scenario after cleanup
 
     // Create trackable spies for methods we need to verify
-    const addSessionSpy = mock(() => Promise.resolve());
+    const addSessionSpy = mock(() => Promise.resolve()) as ReturnType<typeof mock> & {
+      mock: { calls: any[][] };
+    };
 
     const cloneSpy = mock(() =>
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" })

@@ -18,7 +18,8 @@ import {
   extractPrDescription,
 } from "./session-update-operations";
 import {
-  createRepositoryBackendForSession,
+  createRepositoryBackendFromSessionUrl,
+  getRepositoryBackendFromConfig,
   extractGitHubInfoFromUrl,
 } from "./repository-backend-detection";
 import {
@@ -318,12 +319,13 @@ Please provide a title for your pull request:
       log.cli("📋 Using session repository configuration...");
       repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
     } else {
-      // Fall back to auto-detection from git remote (deprecated path — session missing repoUrl)
+      // Fall back to config-based detection (session missing repoUrl)
       log.warn(
-        "Session record has no repoUrl; falling back to git remote auto-detection (deprecated). " +
+        "Session record has no repoUrl; falling back to config-based detection. " +
           "Re-run 'minsky init' to write repository config and avoid this warning."
       );
-      repositoryBackend = await createRepositoryBackendForSession(currentDir);
+      const { repoUrl: fallbackRepoUrl } = await getRepositoryBackendFromConfig();
+      repositoryBackend = await createRepositoryBackendFromSessionUrl(fallbackRepoUrl, currentDir);
     }
 
     // STEP 7.5: Validate and sanitize PR content for title duplication
