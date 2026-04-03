@@ -66,7 +66,10 @@ export const DependencyContextComponent: ContextComponent = {
         analysis,
       };
     } catch (error) {
-      log.error("Error gathering dependency context inputs:", error);
+      log.error(
+        "Error gathering dependency context inputs:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       return {
         analysis: {
           totalDependencies: 0,

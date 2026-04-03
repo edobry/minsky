@@ -169,7 +169,9 @@ export const ToolSchemasComponent: ContextComponent = {
               : 0;
           filteredBy = "user-query";
         } catch (error) {
-          log.warn("Failed to apply query-aware tool filtering, falling back to all tools:", error);
+          log.warn(
+            `Failed to apply query-aware tool filtering, falling back to all tools: ${error instanceof Error ? error.message : String(error)}`
+          );
           // Fall back to including all tools if filtering fails
           shouldFilterByQuery = false;
         }
@@ -236,7 +238,9 @@ export const ToolSchemasComponent: ContextComponent = {
         queryUsed: userQuery,
       };
     } catch (error) {
-      log.warn("Failed to load tool schemas via template system:", error);
+      log.warn(
+        `Failed to load tool schemas via template system: ${error instanceof Error ? error.message : String(error)}`
+      );
       return {
         toolSchemas: {},
         totalTools: 0,
@@ -281,10 +285,10 @@ Available tools could not be determined.`;
       content = `Here are the functions available in JSONSchema format:
 <functions>
 ${Object.entries(cleanToolSchemas)
-  .map(
-    ([name, schema]) =>
-      `<function>${JSON.stringify({ description: schema.description, name, parameters: schema.parameters }, null, 2)}</function>`
-  )
+  .map(([name, schema]) => {
+    const s = schema as Record<string, unknown>;
+    return `<function>${JSON.stringify({ description: s.description, name, parameters: s.parameters }, null, 2)}</function>`;
+  })
   .join("\n")}
 </functions>`;
     } else {

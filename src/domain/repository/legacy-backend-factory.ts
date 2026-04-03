@@ -134,7 +134,7 @@ export async function createRepositoryBackend(
           };
         },
 
-        push: async (_branch?: string): Promise<void> => {
+        push: async (_branch?: string): Promise<{ success: boolean; message: string }> => {
           // Find an existing session for this repository
           const sessionDb = await createSessionProvider();
           const sessions = await sessionDb.listSessions();
@@ -152,9 +152,10 @@ export async function createRepositoryBackend(
             session: sessionName,
             repoPath: workdir,
           });
+          return { success: true, message: "Successfully pushed to repository" };
         },
 
-        pull: async (_branch?: string): Promise<void> => {
+        pull: async (_branch?: string): Promise<{ success: boolean; message: string }> => {
           // Find an existing session for this repository
           const sessionDb = await createSessionProvider();
           const sessions = await sessionDb.listSessions();
@@ -167,6 +168,7 @@ export async function createRepositoryBackend(
 
           const workdir = gitService.getSessionWorkdir(repoSession.session);
           await gitService.fetchLatest(workdir);
+          return { success: true, message: "Successfully pulled from repository" };
         },
 
         branch: async (session: string, name: string): Promise<BranchResult> => {

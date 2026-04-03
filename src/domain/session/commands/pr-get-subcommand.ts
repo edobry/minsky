@@ -59,14 +59,12 @@ export async function sessionPrGet(params: {
     url?: string;
     createdAt?: string;
     updatedAt?: string;
+    description?: string | null;
     spec?: string;
     author?: string;
-    filesChanged?: string[];
-    commits?: Array<{
-      sha: string;
-      message: string;
-      date: string;
-    }>;
+    filesChanged?: number;
+    commits?: number;
+    backendType?: "github" | "remote" | "local";
   };
 }> {
   const sessionDB = await createSessionProvider();

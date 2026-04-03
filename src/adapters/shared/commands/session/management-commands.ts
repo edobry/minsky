@@ -78,9 +78,9 @@ export class SessionDeleteCommand extends BaseSessionCommand<
     const deleted = await deleteSessionFromParams({
       name: params.name,
       task: params.task,
-      force: params.force,
+      force: params.force ?? false,
       repo: params.repo,
-      json: params.json,
+      json: params.json ?? false,
     });
 
     return this.createSuccessResult({
@@ -124,14 +124,14 @@ export class SessionUpdateCommand extends BaseSessionCommand<
       task: params.task,
       repo: params.repo,
       branch: params.branch,
-      noStash: params.noStash,
-      noPush: params.noPush,
-      force: params.force,
-      json: params.json,
-      skipConflictCheck: params.skipConflictCheck,
-      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-      dryRun: params.dryRun,
-      skipIfAlreadyMerged: params.skipIfAlreadyMerged,
+      noStash: params.noStash ?? false,
+      noPush: params.noPush ?? false,
+      force: params.force ?? false,
+      json: params.json ?? false,
+      skipConflictCheck: params.skipConflictCheck ?? false,
+      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
+      dryRun: params.dryRun ?? false,
+      skipIfAlreadyMerged: params.skipIfAlreadyMerged ?? false,
     });
 
     return this.createSuccessResult({

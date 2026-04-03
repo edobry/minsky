@@ -18,7 +18,7 @@ export async function callMcpToolDirectly(
       serverArgs.push("--repo", options.repo);
     }
 
-    log.debug(`Spawning minsky with args:`, serverArgs);
+    log.debug(`Spawning minsky with args: ${JSON.stringify(serverArgs)}`);
     const child = spawn("minsky", serverArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: process.cwd(),
@@ -206,8 +206,8 @@ export async function callMcpToolDirectly(
           }
         }
 
-        log.debug("Raw server output:", stdout);
-        log.debug("Raw server stderr:", stderr);
+        log.debug(`Raw server output: ${stdout}`);
+        log.debug(`Raw server stderr: ${stderr}`);
         reject(new Error("No valid MCP response found in server output"));
       } catch (parseError) {
         reject(new Error(`Failed to parse MCP response: ${parseError}`));

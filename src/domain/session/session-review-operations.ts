@@ -13,7 +13,7 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
-import { createRepositoryBackend, RepositoryBackendType } from "../repository";
+import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
 import { TASK_STATUS, type TaskServiceInterface, createConfiguredTaskService } from "../tasks";
 import { execAsync } from "../../utils/exec";
 import {

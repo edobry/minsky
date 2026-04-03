@@ -13,18 +13,19 @@ describe("Enhanced JSON Backend", () => {
     mockFs = createMockFilesystem();
 
     // Use mock.module() to mock filesystem operations
+    const mockFsAny = mockFs as any;
     mock.module("fs", () => ({
       existsSync: mockFs.existsSync,
       mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFs.rmSync,
+      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
       readFileSync: mockFs.readFileSync,
       writeFileSync: mockFs.writeFileSync,
       promises: {
         mkdir: mockFs.mkdir,
         writeFile: mockFs.writeFile,
         readFile: mockFs.readFile,
-        readdir: mockFs.readdir,
-        rm: mockFs.rm,
+        readdir: mockFs.fsPromises.readdir,
+        rm: mockFs.fsPromises.rm,
         access: mockFs.access,
         mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
       },
@@ -35,8 +36,8 @@ describe("Enhanced JSON Backend", () => {
       mkdir: mockFs.mkdir,
       writeFile: mockFs.writeFile,
       readFile: mockFs.readFile,
-      readdir: mockFs.readdir,
-      rm: mockFs.rm,
+      readdir: mockFs.fsPromises.readdir,
+      rm: mockFs.fsPromises.rm,
       access: mockFs.access,
       mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
     }));

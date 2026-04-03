@@ -59,7 +59,10 @@ export class PostgresProviderFactory {
       }
     } catch (error) {
       await testSql.end(); // Clean up on error
-      log.error("Failed to test PostgreSQL capabilities:", error);
+      log.error(
+        "Failed to test PostgreSQL capabilities:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

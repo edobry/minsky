@@ -213,11 +213,11 @@ export class SessionStartCommand extends BaseSessionCommand<
       branch: params.branch,
       repo: params.repo,
       session: params.session,
-      json: params.json,
-      quiet: params.quiet,
-      noStatusUpdate: params.noStatusUpdate,
-      skipInstall: params.skipInstall,
-      packageManager: params.packageManager,
+      json: params.json ?? false,
+      quiet: params.quiet ?? false,
+      noStatusUpdate: params.noStatusUpdate ?? false,
+      skipInstall: params.skipInstall ?? false,
+      packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
     });
 
     return this.createSuccessResult({

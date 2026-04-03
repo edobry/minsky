@@ -23,7 +23,10 @@ export async function setupConfiguration(): Promise<void> {
       enableCache: true,
     });
   } catch (error) {
-    log.error("✗ Failed to initialize configuration system:", error);
+    log.error(
+      "✗ Failed to initialize configuration system:",
+      error instanceof Error ? error : { error: String(error) }
+    );
     throw error;
   }
 }

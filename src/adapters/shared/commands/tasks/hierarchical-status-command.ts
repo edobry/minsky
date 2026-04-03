@@ -21,7 +21,10 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
   private statusGetCommand = new TasksStatusGetCommand();
   private statusSetCommand = new TasksStatusSetCommand();
 
-  async execute(params: BaseTaskParams, ctx: CommandExecutionContext) {
+  async execute(
+    params: BaseTaskParams,
+    ctx: CommandExecutionContext
+  ): Promise<Record<string, unknown>> {
     // This method won't be called directly since we have subcommands
     // But we need it for the interface
     throw new Error("Use 'get' or 'set' subcommands");

@@ -29,8 +29,8 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
       id: "md#999",
       title: t,
       description: d,
-    })),
-    getTask: vi.fn(async () => ({ id: "md#999" })),
+    })) as any,
+    getTask: vi.fn(async () => ({ id: "md#999" })) as any,
   });
   const workspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
     isSessionWorkspace: () => false,

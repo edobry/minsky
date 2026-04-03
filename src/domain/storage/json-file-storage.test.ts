@@ -49,10 +49,11 @@ describe("JsonFileStorage Core Tests", () => {
     mockFs = createMockFilesystem();
 
     // Use mock.module() to mock filesystem operations
+    const mockFsAny = mockFs as any;
     mock.module("fs", () => ({
       existsSync: mockFs.existsSync,
       mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFs.rmSync,
+      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
       readFileSync: mockFs.readFileSync,
       writeFileSync: mockFs.writeFileSync,
     }));
@@ -94,7 +95,9 @@ describe("JsonFileStorage Core Tests", () => {
       mockFs.cleanup();
       log.debug("Test cleanup completed");
     } catch (error) {
-      log.debug("Error during test cleanup", error);
+      log.debug(
+        `Error during test cleanup: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   });
 

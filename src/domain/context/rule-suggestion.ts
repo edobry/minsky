@@ -100,14 +100,16 @@ export class DefaultRuleSuggestionService {
         temperature: 0.3,
       });
 
+      const typedResponse = response as { suggestions: any[]; queryAnalysis: any };
+
       // Filter suggestions based on configuration
-      const filteredSuggestions = response.suggestions
+      const filteredSuggestions = typedResponse.suggestions
         .filter((s: any) => s.relevanceScore >= (this.config.minRelevanceScore ?? 0.1))
         .slice(0, this.config.maxSuggestions ?? 5);
 
       return {
         suggestions: filteredSuggestions,
-        queryAnalysis: response.queryAnalysis,
+        queryAnalysis: typedResponse.queryAnalysis,
       };
     } catch (error) {
       // Fallback to keyword-based matching when AI is unavailable

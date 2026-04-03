@@ -197,7 +197,9 @@ export async function createConfiguredTaskService(options: {
         const { getConfiguration } = await import("../configuration");
         const config = getConfiguration();
         const configuredBackend = config.tasks.backend; // Config system handles default fallback
-        service.setDefaultBackend?.(configuredBackend);
+        if (configuredBackend) {
+          service.setDefaultBackend?.(configuredBackend);
+        }
         log.debug(`Set default backend to '${configuredBackend}' from configuration`);
       } catch (error) {
         log.debug("Could not read configuration for default backend", {

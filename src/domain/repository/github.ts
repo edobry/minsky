@@ -7,13 +7,15 @@ import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
 import { execGitWithTimeout } from "../../utils/git-exec";
 import { MinskyError } from "../../errors/index";
-import type { RepositoryStatus, ValidationResult } from "./legacy-types";
+import type { RepositoryStatus } from "./legacy-types";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
   CloneResult,
   BranchResult,
   Result,
+  ValidationResult,
+  RepoStatus,
   PRInfo,
   MergeInfo,
 } from "./index";
@@ -216,7 +218,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   /**
    * Get repository status
    */
-  async getStatus(): Promise<RepositoryStatus> {
+  async getStatus(): Promise<RepoStatus> {
     try {
       // Find a session for this repository
       const sessionDB = await this.getSessionDB();
@@ -410,7 +412,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
    * Push changes to GitHub repository
    * @returns Result of the push operation
    */
-  async push(): Promise<Result> {
+  async push(): Promise<{ success: boolean; message: string }> {
     try {
       // Find a session for this repository
       const sessionDB = await this.getSessionDB();
@@ -445,7 +447,6 @@ Repository: https://github.com/${this.owner}/${this.repo}
       return {
         success: false,
         message: `Failed to push to repository: ${normalizedError.message}`,
-        error: normalizedError,
       };
     }
   }
@@ -454,7 +455,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
    * Pull changes from GitHub repository
    * @returns Result of the pull operation
    */
-  async pull(): Promise<Result> {
+  async pull(): Promise<{ success: boolean; message: string }> {
     try {
       // Find a session for this repository
       const sessionDB = await this.getSessionDB();
@@ -485,7 +486,6 @@ Repository: https://github.com/${this.owner}/${this.repo}
       return {
         success: false,
         message: `Failed to pull from repository: ${normalizedError.message}`,
-        error: normalizedError,
       };
     }
   }

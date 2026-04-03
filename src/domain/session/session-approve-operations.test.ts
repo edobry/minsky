@@ -36,7 +36,7 @@ describe("Session Approval Repository Backend Bug", () => {
     } as unknown as RepositoryBackend;
 
     mockTaskService = createPartialMock<TaskServiceInterface>({
-      getTask: mock(() => Promise.resolve({ id: "test", title: "Test Task" })),
+      getTask: mock(() => Promise.resolve({ id: "test", title: "Test Task" })) as any,
       setTaskStatus: mock(() => Promise.resolve()),
       getTaskStatus: mock(() => Promise.resolve("TODO")),
     });

@@ -73,7 +73,10 @@ export const ConversationHistoryComponent: ContextComponent = {
         relevantEntries,
       };
     } catch (error) {
-      log.error("Error gathering conversation history inputs:", error);
+      log.error(
+        "Error gathering conversation history inputs:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       return {
         history: {
           entries: [],

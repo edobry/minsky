@@ -64,8 +64,7 @@ export async function runMigrationsWithDrizzleKit(options: {
       log.cli(`📋 Loaded database config for backend: ${dbConfig.backend}`);
     } catch (error) {
       log.warn(
-        "Failed to load Minsky configuration, using environment variables as fallback:",
-        error
+        `Failed to load Minsky configuration, using environment variables as fallback: ${error instanceof Error ? error.message : String(error)}`
       );
       configuredEnv = { ...process.env };
     }
@@ -165,7 +164,10 @@ export async function runMigrationsWithDrizzleKit(options: {
       throw new Error(`❌ ${cleanError}`);
     }
   } catch (error) {
-    log.error("Failed to execute migrations:", error);
+    log.error(
+      "Failed to execute migrations:",
+      error instanceof Error ? error : { error: String(error) }
+    );
     throw new Error(`Migration execution failed: ${getErrorMessage(error)}`);
   }
 }
@@ -209,8 +211,7 @@ export async function checkAndGenerateMigrations(): Promise<{
       log.cli(`📋 Loaded database config for backend: ${dbConfig.backend}`);
     } catch (error) {
       log.warn(
-        "Failed to load Minsky configuration, using environment variables as fallback:",
-        error
+        `Failed to load Minsky configuration, using environment variables as fallback: ${error instanceof Error ? error.message : String(error)}`
       );
       configuredEnv = { ...process.env };
     }
@@ -271,7 +272,10 @@ export async function checkAndGenerateMigrations(): Promise<{
     log.cli(""); // Add spacing after migration check
     return {};
   } catch (error) {
-    log.error("Failed to check/generate migrations:", error);
+    log.error(
+      "Failed to check/generate migrations:",
+      error instanceof Error ? error : { error: String(error) }
+    );
     throw new Error(`Migration check/generation failed: ${getErrorMessage(error)}`);
   }
 }

@@ -141,7 +141,9 @@ export class FileSystemTestCleanup {
           rmSync(file, { force: true });
         }
       } catch (error) {
-        log.warn(`Failed to clean up test file ${file}:`, error);
+        log.warn(
+          `Failed to clean up test file ${file}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -152,7 +154,9 @@ export class FileSystemTestCleanup {
           rmSync(dir, { recursive: true, force: true });
         }
       } catch (error) {
-        log.warn(`Failed to clean up test directory ${dir}:`, error);
+        log.warn(
+          `Failed to clean up test directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 

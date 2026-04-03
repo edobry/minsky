@@ -78,7 +78,7 @@ export async function executeCommitCommand(
   });
 
   if (context.debug) {
-    log("Commit command executed successfully", { result });
+    log.debug("Commit command executed successfully", { result });
   }
 
   return result;

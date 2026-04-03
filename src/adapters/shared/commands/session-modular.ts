@@ -11,7 +11,7 @@ import {
   createAllSessionCommands,
   type SessionCommandDependencies,
 } from "./session/";
-import { sharedCommandRegistry } from "../command-registry";
+import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
  * Default dependencies for session commands
@@ -52,7 +52,10 @@ export class ModularSessionCommandsManager {
       this.initialized = true;
     } catch (error) {
       // Log error but don't throw to avoid breaking the constructor
-      log.error("Failed to initialize session commands:", error);
+      log.error(
+        "Failed to initialize session commands:",
+        error instanceof Error ? error : { error: String(error) }
+      );
     }
   }
 
@@ -68,7 +71,7 @@ export class ModularSessionCommandsManager {
 
     // Register each command in the shared registry
     allCommands.forEach(({ id, registrationData }) => {
-      sharedCommandRegistry.registerCommand(registrationData);
+      sharedCommandRegistry.registerCommand(registrationData as unknown as CommandDefinition);
     });
   }
 

@@ -80,7 +80,10 @@ export class JsonPersistenceProvider extends PersistenceProvider {
       this.isInitialized = true;
       log.info(`JSON file storage initialized: ${filePath}`);
     } catch (error) {
-      log.error("Failed to initialize JSON provider:", error);
+      log.error(
+        "Failed to initialize JSON provider:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

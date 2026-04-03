@@ -19,6 +19,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
     mockFs = createMockFilesystem();
 
     // Mock filesystem operations
+    const mockFsAny = mockFs as any;
     mock.module("fs", () => ({
       existsSync: mockFs.existsSync,
       readFileSync: mockFs.readFileSync,
@@ -28,7 +29,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
         readFile: mockFs.readFile,
         writeFile: mockFs.writeFile,
         mkdir: mockFs.mkdir,
-        stat: mockFs.stat,
+        stat: mockFsAny.stat ?? mockFs.statSync,
       },
     }));
 

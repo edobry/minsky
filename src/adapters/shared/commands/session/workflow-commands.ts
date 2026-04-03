@@ -115,8 +115,8 @@ export class SessionCommitCommand extends BaseSessionCommand<
     const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
     const result = await sessionCommit({
-      session: params.sessionName,
-      message: params.message,
+      session: params.sessionName ?? "",
+      message: params.message ?? "",
       all: params.all,
       amend: params.amend,
       noStage: params.noStage,
@@ -217,7 +217,7 @@ export class SessionInspectCommand extends BaseSessionCommand<
       json: params.json,
     });
 
-    return this.createSuccessResult(result);
+    return this.createSuccessResult(result as unknown as Record<string, unknown>);
   }
 }
 
@@ -283,7 +283,13 @@ export class SessionReviewCommand extends BaseSessionCommand<
         const aiReviewResult = await reviewService.reviewChangeset(reviewResult.changeset, {
           model: params.model,
           provider: params.provider,
-          focus: params.focus || "general",
+          focus: (params.focus || "general") as
+            | "style"
+            | "security"
+            | "performance"
+            | "logic"
+            | "testing"
+            | "general",
           detailed: params.detailed || false,
           includeTaskSpec: params.includeTaskSpec || false,
           includeHistory: params.includeHistory || false,
@@ -319,7 +325,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
     }
 
     // Return basic review result
-    return this.createSuccessResult(reviewResult);
+    return this.createSuccessResult(reviewResult as unknown as Record<string, unknown>);
   }
 
   /**

@@ -443,7 +443,7 @@ export class SessionDbHealthMonitor {
     }
 
     // Backend-specific recommendations
-    if (backendHealth.backend === "json" && backendHealth.details?.fileSize > 5_000_000) {
+    if (backendHealth.backend === "json" && (backendHealth.details as any)?.fileSize > 5_000_000) {
       recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
     }
 
@@ -451,7 +451,10 @@ export class SessionDbHealthMonitor {
       recommendations.push("Enable WAL mode for better SQLite performance");
     }
 
-    if (backendHealth.backend === "postgres" && backendHealth.details?.activeConnections > 80) {
+    if (
+      backendHealth.backend === "postgres" &&
+      (backendHealth.details as any)?.activeConnections > 80
+    ) {
       recommendations.push("High connection count - consider connection pooling optimization");
     }
 

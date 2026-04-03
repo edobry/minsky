@@ -417,7 +417,10 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       // The PR workflow should handle git errors gracefully and still produce markdown
-      const result = await gitService.prWithDependencies({ session: "test-session" }, mockDeps);
+      const result = await gitService.prWithDependencies(
+        { session: "test-session" },
+        mockDeps as any
+      );
 
       expect(result.markdown).toContain("Pull Request for branch");
     });

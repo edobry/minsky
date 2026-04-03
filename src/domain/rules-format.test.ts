@@ -22,8 +22,8 @@ describe("RuleService Format Compatibility", () => {
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
     // Create directories in mock filesystem
-    mockFs.ensureDirectorySync(cursorRulesDir);
-    mockFs.ensureDirectorySync(genericRulesDir);
+    mockFs.ensureDirectoryExists(cursorRulesDir);
+    mockFs.ensureDirectoryExists(genericRulesDir);
 
     // Create a cursor rule
     const cursorRuleContent = `---
@@ -35,11 +35,7 @@ tags: ["test", "cursor"]
 # Test Cursor Rule
 This is a test rule in cursor format.
 `;
-    mockFs.writeFileSync(
-      path.join(cursorRulesDir, "cursor-only-rule.mdc"),
-      cursorRuleContent,
-      "utf8"
-    );
+    mockFs.writeFileSync(path.join(cursorRulesDir, "cursor-only-rule.mdc"), cursorRuleContent);
 
     // Create a generic rule
     const genericRuleContent = `---
@@ -51,11 +47,7 @@ tags: ["test", "generic"]
 # Test Generic Rule
 This is a test rule in generic format.
 `;
-    mockFs.writeFileSync(
-      path.join(genericRulesDir, "generic-only-rule.mdc"),
-      genericRuleContent,
-      "utf8"
-    );
+    mockFs.writeFileSync(path.join(genericRulesDir, "generic-only-rule.mdc"), genericRuleContent);
 
     // Create a rule that exists in both formats
     mockFs.writeFileSync(
@@ -67,8 +59,7 @@ tags: ["test", "cursor", "dual"]
 ---
 # Cursor Version
 This rule exists in both cursor and generic formats.
-`,
-      "utf8"
+`
     );
 
     mockFs.writeFileSync(
@@ -80,14 +71,13 @@ tags: ["test", "generic", "dual"]
 ---
 # Generic Version
 This rule exists in both cursor and generic formats.
-`,
-      "utf8"
+`
     );
 
     // Initialize rule service with injected fs
     ruleService = new RuleService(testDir, {
-      fsPromises: mockFs.fsPromises,
-      existsSyncFn: (p: string) => mockFs.existsSync(p),
+      fsPromises: mockFs.fsPromises as any,
+      existsSyncFn: (p: string) => Boolean(mockFs.existsSync(p)),
     });
   });
 

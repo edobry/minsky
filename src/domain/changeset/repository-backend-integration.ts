@@ -6,7 +6,7 @@
  */
 
 import { ChangesetService, createChangesetService } from "./changeset-service";
-import type { RepositoryBackend } from "../repository/index";
+import type { RepositoryBackend, RepositoryBackendConfig } from "../repository/index";
 import type { Changeset, CreateChangesetOptions } from "./types";
 import { detectRepositoryBackendType } from "../session/repository-backend-detection";
 import { MinskyError, getErrorMessage } from "../../errors/index";
@@ -92,12 +92,8 @@ export async function createChangesetAwareRepositoryBackend(
     // Use existing repository backend detection and creation
     const backendType = detectRepositoryBackendType(workdir || repositoryUrl);
 
-    const config: {
-      type: string;
-      repoUrl: string;
-      github?: { owner: string; repo: string };
-    } = {
-      type: backendType,
+    const config: RepositoryBackendConfig = {
+      type: backendType as "local" | "remote" | "github",
       repoUrl: repositoryUrl,
     };
 

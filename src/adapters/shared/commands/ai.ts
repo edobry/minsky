@@ -464,7 +464,6 @@ export function registerAiCommands(): void {
 
             for (const warning of result.warnings) {
               log.cliWarn(`  - ${warning.field}: ${warning.message}`);
-              log.cliWarning(`  - ${warning.field}: ${warning.message}`);
             }
             exit(1);
           }

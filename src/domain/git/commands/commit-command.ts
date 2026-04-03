@@ -45,7 +45,7 @@ export async function commitChangesFromParams(params: {
   // Commit changes
   const commitHash = await gitService.commit!(params.message, repoPath, params.amend);
 
-  log("Changes committed successfully", {
+  log.debug("Changes committed successfully", {
     commitHash,
     message: params.message,
     repoPath,

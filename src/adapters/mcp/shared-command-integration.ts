@@ -167,7 +167,7 @@ export function registerSharedCommandsWithMcp(
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
             log.debug(`[MCP] Parameters being passed:`, parameters);
-            log.debug(`[MCP] Context being passed:`, context);
+            log.debug(`[MCP] Context being passed:`, { context });
 
             const result = await command.execute(parameters, context);
 

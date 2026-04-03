@@ -151,7 +151,10 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       }
       this.configResult = { ...this.configResult, config: cfg as Configuration };
     } catch (error) {
-      log.error("Configuration loading failed:", error);
+      log.error(
+        "Configuration loading failed:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

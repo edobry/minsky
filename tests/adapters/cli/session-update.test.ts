@@ -28,18 +28,19 @@ describe("session update command", () => {
     mockFs = createMockFilesystem();
 
     // Use mock.module() to mock filesystem operations
+    const mockFsAny = mockFs as any;
     mock.module("fs", () => ({
       promises: {
         mkdir: mockFs.mkdir,
-        rm: mockFs.rm,
+        rm: mockFs.fsPromises.rm,
         readFile: mockFs.readFile,
         writeFile: mockFs.writeFile,
-        readdir: mockFs.readdir,
-        stat: mockFs.stat,
+        readdir: mockFs.fsPromises.readdir,
+        stat: mockFsAny.stat ?? mockFs.statSync,
       },
       existsSync: mockFs.existsSync,
       mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFs.rmSync,
+      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
       readFileSync: mockFs.readFileSync,
       writeFileSync: mockFs.writeFileSync,
     }));

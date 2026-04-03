@@ -15,6 +15,7 @@ import {
 import {
   createRepositoryBackend,
   RepositoryBackendType,
+  type RepositoryBackend,
   type RepositoryBackendConfig,
   type MergeInfo,
 } from "../repository/index";

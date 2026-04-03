@@ -25,6 +25,7 @@ export interface MinskyTaskBackendConfig extends TaskBackendConfig {
 
 export class MinskyTaskBackend implements TaskBackend {
   name = "minsky";
+  prefix?: string;
   private readonly db: PostgresJsDatabase;
   private readonly workspacePath: string;
 

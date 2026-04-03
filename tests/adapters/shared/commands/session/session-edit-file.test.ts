@@ -38,28 +38,28 @@ describe("SessionEditFileCommand", () => {
 
   describe("parameter validation", () => {
     test("should have required path parameter", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.path.required).toBe(true);
     });
 
     test("should have optional instruction parameter", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.instruction.required).toBe(false);
     });
 
     test("should have optional session parameter", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.session.required).toBe(false);
     });
 
     test("should have optional dryRun parameter with default false", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.dryRun.required).toBe(false);
       expect(schema.dryRun.defaultValue).toBe(false);
     });
 
     test("should have optional createDirs parameter with default true", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.createDirs.required).toBe(false);
       expect(schema.createDirs.defaultValue).toBe(true);
     });

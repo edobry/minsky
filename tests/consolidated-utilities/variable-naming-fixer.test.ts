@@ -21,7 +21,7 @@ describe.skip("Variable Naming Fixer Consolidated", () => {
     // Use mock.module() to mock filesystem operations
     mock.module("fs", () => ({
       mkdtempSync: () => mockTestDir,
-      rmSync: mockFs.rmSync,
+      rmSync: (mockFs as any).rmSync ?? mockFs.rmAsync,
       writeFileSync: mockFs.writeFileSync,
       readFileSync: mockFs.readFileSync,
       existsSync: mockFs.existsSync,
@@ -62,7 +62,7 @@ function test(param: string) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -83,7 +83,7 @@ console.log(value); // Fixed: removed underscore from declaration
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -106,7 +106,7 @@ if (data && status) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -127,7 +127,7 @@ return first + second;
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -152,7 +152,7 @@ function process(input: string, options: object) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -169,7 +169,7 @@ function handler(_event: Event, data: string) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       // Should remain unchanged since _event is truly unused
       expect(result.trim()).toBe(content.trim());
@@ -188,7 +188,7 @@ console.log(title, author);
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       // Should fix the nested destructuring patterns
       expect(result).toContain("title, author");
@@ -211,7 +211,7 @@ function typedFunction(param: { id: string; name: string }) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const result = mockFs.readFile(testFilePath);
+      const result = mockFs.readFile(testFilePath) as string;
 
       expect(result.trim()).toBe(expected.trim());
     });
@@ -237,7 +237,7 @@ function complexFunction(_input: string, _options: Options) {
       mockFs.writeFile(testFilePath, content);
 
       await fixer.processSingleFile(testFilePath);
-      const finalResult = mockFs.readFile(testFilePath);
+      const finalResult = mockFs.readFile(testFilePath) as string;
 
       // All underscores should be removed from definitions since variables are used
       expect(finalResult).toContain("function complexFunction(input: string, options: Options)");

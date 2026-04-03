@@ -78,7 +78,6 @@ export async function testProviderConnectivity(
     } else {
       if (!options.silent) {
         log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
-        log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
       }
     }
 

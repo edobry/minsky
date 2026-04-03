@@ -207,7 +207,9 @@ export class TaskSimilarityService {
       }
     } catch (error) {
       // If we can't get spec content, fall back to basic task info
-      log.debug(`Failed to get spec content for task ${task.id}:`, error);
+      log.debug(
+        `Failed to get spec content for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`
+      );
       if (task.description) {
         parts.push(task.description);
       }

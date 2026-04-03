@@ -82,7 +82,7 @@ describe("Session Approve", () => {
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () =>
+      createRepositoryBackendForSession: (() =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
           approvePullRequest: () =>
@@ -92,7 +92,7 @@ describe("Session Approve", () => {
               approvedAt: new Date().toISOString(),
               prNumber: TEST_PR_NUMBER,
             }),
-        }),
+        })) as any,
     };
 
     // This should work since we know the mock has the right session
@@ -100,7 +100,7 @@ describe("Session Approve", () => {
       const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, simpleDeps);
       expect(result.sessionName).toBe(TEST_SESSION_NAME);
     } catch (error) {
-      log.debug("Error details:", error);
+      log.debug(`Error details: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   });
@@ -162,13 +162,13 @@ describe("Session Approve", () => {
     // Test by session name
     const resultBySession = await approveSessionFromParams(
       { session: TEST_SESSION_NAME },
-      testDeps
+      testDeps as any
     );
     expect(resultBySession.sessionName).toBe(TEST_SESSION_NAME);
     expect(resultBySession.taskId).toBe(TEST_TASK_ID);
 
     // Test by task ID
-    const resultByTask = await approveSessionFromParams({ task: TEST_TASK_ID }, testDeps);
+    const resultByTask = await approveSessionFromParams({ task: TEST_TASK_ID }, testDeps as any);
     expect(resultByTask.sessionName).toBe(TEST_SESSION_NAME);
     expect(resultByTask.taskId).toBe(TEST_TASK_ID);
   });
@@ -225,7 +225,7 @@ describe("Session Approve", () => {
     };
 
     // Test session detection by repo path
-    const result = await approveSessionFromParams({ repo: TEST_REPO_PATH }, testDeps);
+    const result = await approveSessionFromParams({ repo: TEST_REPO_PATH }, testDeps as any);
     expect(result.sessionName).toBe("current-session");
     expect(result.taskId).toBe("md#456");
   });

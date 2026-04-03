@@ -27,8 +27,8 @@ describe("RuleService", () => {
     const fileContent = matter.stringify(content, meta);
 
     // Create directory structure in mock filesystem
-    mockFs.ensureDirectorySync(dir);
-    mockFs.writeFileSync(filePath, fileContent, "utf8");
+    mockFs.ensureDirectoryExists(dir);
+    mockFs.writeFileSync(filePath, fileContent);
     return filePath;
   }
 
@@ -42,13 +42,13 @@ describe("RuleService", () => {
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
     // Ensure base directories exist in mock filesystem
-    mockFs.ensureDirectorySync(cursorRulesDir);
-    mockFs.ensureDirectorySync(genericRulesDir);
+    mockFs.ensureDirectoryExists(cursorRulesDir);
+    mockFs.ensureDirectoryExists(genericRulesDir);
 
     // Initialize service with injected fs
     ruleService = new RuleService(testDir, {
-      fsPromises: mockFs.fsPromises,
-      existsSyncFn: (p: string) => mockFs.existsSync(p),
+      fsPromises: mockFs.fsPromises as any,
+      existsSyncFn: (p: string) => Boolean(mockFs.existsSync(p)),
     });
   });
 

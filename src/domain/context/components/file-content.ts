@@ -57,7 +57,10 @@ export const FileContentComponent: ContextComponent = {
         fileCount: filesWithContent.length,
       };
     } catch (error) {
-      log.error("Error gathering file content inputs:", error);
+      log.error(
+        "Error gathering file content inputs:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       return {
         relevantFiles: [],
         totalSize: 0,
@@ -173,7 +176,9 @@ async function discoverFiles(workspacePath: string, patterns: string[]): Promise
       const matchedFiles = await simpleGlob(workspacePath, pattern);
       matchedFiles.forEach((file) => files.add(file));
     } catch (error) {
-      log.warn(`Failed to match pattern ${pattern}:`, error);
+      log.warn(
+        `Failed to match pattern ${pattern}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -339,7 +344,9 @@ async function readFileContents(filePaths: string[]): Promise<
         type,
       });
     } catch (error) {
-      log.warn(`Failed to read file ${filePath}:`, error);
+      log.warn(
+        `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

@@ -20,6 +20,7 @@ import type {
   CloneResult,
   BranchResult,
   Result,
+  ValidationResult,
   RepoStatus,
   PRInfo,
   MergeInfo,
@@ -246,11 +247,12 @@ Repository: ${this.repoUrl}
    * Validate the repository configuration
    * @returns Promise that resolves with result if the repository is valid
    */
-  async validate(): Promise<Result> {
+  async validate(): Promise<ValidationResult> {
     try {
       // Basic validation - check if URL looks like a git repository
       if (!this.repoUrl) {
         return {
+          valid: false,
           success: false,
           message: "Repository URL is required for Remote Git backend",
         };
@@ -266,6 +268,7 @@ Repository: ${this.repoUrl}
 
       if (!isGitUrl) {
         return {
+          valid: false,
           success: false,
           message: `URL "${this.repoUrl}" doesn't appear to be a valid Git repository URL`,
         };
@@ -276,12 +279,14 @@ Repository: ${this.repoUrl}
       // This is a basic check only
 
       return {
+        valid: true,
         success: true,
         message: "Git repository URL validated successfully",
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
+        valid: false,
         success: false,
         message: `Failed to validate Git repository: ${normalizedError.message}`,
         error: normalizedError,

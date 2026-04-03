@@ -166,7 +166,7 @@ export class TaskRoutingService {
       Array.from(allDependencies).map(async (taskId) => {
         try {
           const task = await this.taskService.getTask(taskId);
-          return task ? { id: taskId, ...task } : null;
+          return task ? { ...task, id: taskId } : null;
         } catch {
           return null;
         }

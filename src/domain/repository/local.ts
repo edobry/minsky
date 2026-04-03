@@ -11,6 +11,7 @@ import type {
   CloneResult,
   BranchResult,
   Result,
+  ValidationResult,
   RepoStatus,
   PRInfo,
   MergeInfo,
@@ -165,7 +166,7 @@ export class LocalGitBackend implements RepositoryBackend {
     return this.getSessionWorkdir(session);
   }
 
-  async validate(): Promise<Result> {
+  async validate(): Promise<ValidationResult> {
     try {
       if (!this.repoUrl.includes("://") && !this.repoUrl.includes("@")) {
         const { stdout } = await execAsync(
@@ -177,9 +178,13 @@ export class LocalGitBackend implements RepositoryBackend {
       }
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error));
-      return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
+      return {
+        valid: false,
+        success: false,
+        message: `Invalid git repository: ${normalizedError.message}`,
+      };
     }
-    return { success: true, message: "Repository is valid" };
+    return { valid: true, success: true, message: "Repository is valid" };
   }
 
   async push(branch?: string): Promise<{ success: boolean; message: string }> {

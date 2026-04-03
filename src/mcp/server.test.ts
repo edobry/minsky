@@ -33,7 +33,7 @@ describe("MCP Server", () => {
       expect(typeof MinskyMCPServer).toBe("function");
       importSucceeded = true;
     } catch (error) {
-      log.error("Import failed:", error);
+      log.error("Import failed:", error as any);
       importSucceeded = false;
     }
     expect(importSucceeded).toBe(true);

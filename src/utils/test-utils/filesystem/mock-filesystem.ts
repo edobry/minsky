@@ -45,7 +45,7 @@ import { createMock } from "../core/mock-functions";
 export function createMockFilesystem(
   initialFiles: Record<string, string> = {},
   initialDirectories: Set<string> = new Set()
-): Record<string, unknown> {
+) {
   // Internal storage for files and directories
   const files = new Map<string, string>(Object.entries(initialFiles));
   const directories = new Set<string>(initialDirectories);

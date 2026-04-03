@@ -208,20 +208,20 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       this.debug("Task created successfully");
 
       // Build success message
-      let message = `Task ${result.taskId} created: "${result.title}"`;
+      let message = `Task ${result.id} created: "${result.title}"`;
       if (!params.json) {
         const { default: chalk } = await import("chalk");
         if (params.specPath) {
-          message = chalk.green(`✅ Task ${result.taskId} created successfully with specification`);
+          message = chalk.green(`✅ Task ${result.id} created successfully with specification`);
         } else {
-          message = chalk.green(`✅ Task ${result.taskId} created successfully`);
+          message = chalk.green(`✅ Task ${result.id} created successfully`);
         }
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
-        message += `\n${chalk.gray("  ID: ")}${result.taskId}`;
+        message += `\n${chalk.gray("  ID: ")}${result.id}`;
       }
 
       return this.formatResult(
-        this.createSuccessResult(result.taskId, message, {
+        this.createSuccessResult(result.id, message, {
           task: result,
         }),
         params.json

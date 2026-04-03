@@ -58,7 +58,7 @@ export async function generateDependencyTree(
         const connector = isLast ? "└── " : "├── ";
 
         try {
-          const depTask = await taskService.getTask(dep);
+          const depTask = await taskService.getTask(dep!);
           const title = depTask?.title || "Unknown";
           const status = depTask?.status || "Unknown";
           lines.push(`  ${connector}${dep}: ${title} (${status})`);
@@ -70,7 +70,7 @@ export async function generateDependencyTree(
               const subDep = subDeps[j];
               const subConnector = isLast ? "    └── " : "│   └── ";
               try {
-                const subDepTask = await taskService.getTask(subDep);
+                const subDepTask = await taskService.getTask(subDep!);
                 lines.push(`  ${subConnector}${subDep}: ${subDepTask?.title || "Unknown"}`);
               } catch {
                 lines.push(`  ${subConnector}${subDep}: [Task not found]`);
@@ -97,7 +97,7 @@ export async function generateDependencyTree(
         const connector = isLast ? "└── " : "├── ";
 
         try {
-          const depTask = await taskService.getTask(dependent);
+          const depTask = await taskService.getTask(dependent!);
           const title = depTask?.title || "Unknown";
           const status = depTask?.status || "Unknown";
           lines.push(`  ${connector}${dependent}: ${title} (${status})`);
@@ -168,7 +168,7 @@ export async function renderDependencyChain(
   void isLastChain;
 
   for (let i = 0; i < chain.length; i++) {
-    const task = chain[i];
+    const task = chain[i]!;
     const isLast = i === chain.length - 1;
     const isFirst = i === 0;
 
@@ -194,7 +194,7 @@ export async function renderDependencyChain(
       const otherDependents = task.dependents.filter((depId) => !chain.some((t) => t.id === depId));
 
       for (let j = 0; j < Math.min(otherDependents.length, 2); j++) {
-        const depId = otherDependents[j];
+        const depId = otherDependents[j]!;
         try {
           const depTask = await taskService.getTask(depId);
           const depTitle = depTask?.title?.substring(0, 40) || "Unknown";

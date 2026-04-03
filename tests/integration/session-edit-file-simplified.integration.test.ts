@@ -258,12 +258,13 @@ beforeEach(() => {
   mockFs = createMockFilesystem(mockFixtures);
 
   // Mock filesystem operations to prevent real file access
+  const mockFsAny = mockFs as any;
   mock.module("fs/promises", () => ({
     readFile: mockFs.readFile,
     writeFile: mockFs.writeFile,
-    stat: mockFs.stat,
+    stat: mockFsAny.stat ?? mockFs.statSync,
     mkdir: mockFs.mkdir,
-    rm: mockFs.rm,
+    rm: mockFs.fsPromises.rm,
     access: mockFs.access,
   }));
 
@@ -275,9 +276,9 @@ beforeEach(() => {
     promises: {
       readFile: mockFs.readFile,
       writeFile: mockFs.writeFile,
-      stat: mockFs.stat,
+      stat: mockFsAny.stat ?? mockFs.statSync,
       mkdir: mockFs.mkdir,
-      rm: mockFs.rm,
+      rm: mockFs.fsPromises.rm,
       access: mockFs.access,
     },
   }));

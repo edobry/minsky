@@ -70,8 +70,8 @@ export class SessionEditFileCommand extends BaseSessionCommand<
       // Call the MCP tool
       const mcpResult = await this.callSessionEditFileMcpTool({
         sessionName,
-        path: params.path,
-        instructions: params.instruction,
+        path: params.path ?? "",
+        instructions: params.instruction ?? "",
         content,
         dryRun: params.dryRun || false,
         createDirs: params.createDirs !== false, // Default to true
@@ -302,7 +302,9 @@ export class SessionEditFileCommand extends BaseSessionCommand<
    * Format dry-run output message
    */
   private formatDryRunMessage(result: Record<string, unknown>): string {
-    const { diffSummary } = result;
+    const diffSummary = result.diffSummary as
+      | { linesAdded: number; linesRemoved: number; linesChanged: number; totalLines: number }
+      | undefined;
     const action = result.created ? "create" : "edit";
 
     let message = `🔍 Dry-run: Would ${action} ${result.path}\n\n`;

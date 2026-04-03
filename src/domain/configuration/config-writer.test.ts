@@ -69,7 +69,7 @@ describe("ConfigWriter", () => {
 
       // Should create backup with timestamp
       expect(mockFs.copyFileSync).toHaveBeenCalled();
-      const copyCall = mockFs.copyFileSync.mock.calls[0];
+      const copyCall = mockFs.copyFileSync.mock.calls[0]!;
       expect(copyCall[0]).toBe(mockConfigFile);
       expect(copyCall[1]).toMatch(/config\.yaml\.backup\./);
       expect(result.success).toBe(true);
@@ -87,7 +87,7 @@ describe("ConfigWriter", () => {
 
       // Should have written the nested structure
       expect(mockFs.writeFileSync).toHaveBeenCalled();
-      const writeCall = mockFs.writeFileSync.mock.calls[0];
+      const writeCall = mockFs.writeFileSync.mock.calls[0]!;
       expect(writeCall[0]).toBe(mockConfigFile);
     });
 
@@ -334,7 +334,7 @@ describe("ConfigWriter", () => {
 
       // Debug the actual result if the test fails
       if (!result.success) {
-        log.debug("Test failure debug:", result);
+        log.debug("Test failure debug:", result as any);
       }
 
       expect(result.success).toBe(true);
