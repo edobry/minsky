@@ -15,7 +15,7 @@ import {
 export type { LayoutOptions, TaskNode } from "./deps-rendering";
 
 // Parameter definitions matching the CommandParameterMap interface
-const tasksDepsTreeParams: CommandParameterMap = {
+const tasksDepsTreeParams = {
   task: {
     schema: z.string(),
     description: "ID of the task to show dependency tree for",
@@ -26,9 +26,9 @@ const tasksDepsTreeParams: CommandParameterMap = {
     description: "Maximum depth to show in the tree",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
-const tasksDepsGraphParams: CommandParameterMap = {
+const tasksDepsGraphParams = {
   limit: {
     schema: z.number().default(20),
     description: "Maximum number of tasks to include",
@@ -84,7 +84,7 @@ const tasksDepsGraphParams: CommandParameterMap = {
     description: "Automatically open the rendered file in the default application",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 interface TasksDepsTreeParams {
   task: string;

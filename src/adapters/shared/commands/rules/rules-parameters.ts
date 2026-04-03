@@ -20,7 +20,7 @@ export type RulesListParams = {
   debug?: boolean;
 };
 
-export const rulesListCommandParams: CommandParameterMap = composeParams(
+export const rulesListCommandParams = composeParams(
   {
     format: RulesParameters.format,
     tag: RulesParameters.tag,
@@ -43,7 +43,7 @@ export const rulesListCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
 export type RulesIndexEmbeddingsParams = {
   limit?: number;
@@ -52,7 +52,7 @@ export type RulesIndexEmbeddingsParams = {
   force?: boolean;
 };
 
-export const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
+export const rulesIndexEmbeddingsParams = composeParams(
   {
     limit: {
       schema: z.number().int().positive().optional(),
@@ -70,7 +70,7 @@ export const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
 export type RulesGetParams = {
   id: string;
@@ -79,7 +79,7 @@ export type RulesGetParams = {
   debug?: boolean;
 };
 
-export const rulesGetCommandParams: CommandParameterMap = composeParams(
+export const rulesGetCommandParams = composeParams(
   {
     id: RulesParameters.id,
     format: RulesParameters.format,
@@ -88,7 +88,7 @@ export const rulesGetCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
 export type RulesGenerateParams = {
   interface?: "cli" | "mcp" | "hybrid";
@@ -103,7 +103,7 @@ export type RulesGenerateParams = {
   debug?: boolean;
 };
 
-export const rulesGenerateCommandParams: CommandParameterMap = composeParams(
+export const rulesGenerateCommandParams = composeParams(
   {
     interface: {
       schema: z.enum(["cli", "mcp", "hybrid"]),
@@ -160,7 +160,7 @@ export const rulesGenerateCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
 export type RulesCreateParams = {
   id: string;
@@ -174,7 +174,7 @@ export type RulesCreateParams = {
   json?: boolean;
 };
 
-export const rulesCreateCommandParams: CommandParameterMap = composeParams(
+export const rulesCreateCommandParams = composeParams(
   {
     id: RulesParameters.id,
     content: RulesParameters.content,
@@ -196,7 +196,7 @@ export const rulesCreateCommandParams: CommandParameterMap = composeParams(
     overwrite: CommonParameters.overwrite,
     json: CommonParameters.json,
   }
-);
+) satisfies CommandParameterMap;
 
 export type RulesUpdateParams = {
   id: string;
@@ -210,7 +210,7 @@ export type RulesUpdateParams = {
   debug?: boolean;
 };
 
-export const rulesUpdateCommandParams: CommandParameterMap = composeParams(
+export const rulesUpdateCommandParams = composeParams(
   {
     id: RulesParameters.id,
     content: {
@@ -236,9 +236,9 @@ export const rulesUpdateCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
-export const rulesCompileCommandParams: CommandParameterMap = {
+export const rulesCompileCommandParams = {
   target: {
     schema: z.string(),
     description:
@@ -264,9 +264,9 @@ export const rulesCompileCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
-export const rulesMigrateCommandParams: CommandParameterMap = {
+export const rulesMigrateCommandParams = {
   dryRun: {
     schema: z.boolean(),
     description: "Show what would be migrated without doing it",
@@ -279,7 +279,7 @@ export const rulesMigrateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 export type RulesSearchParams = {
   query?: string;
@@ -293,7 +293,7 @@ export type RulesSearchParams = {
   debug?: boolean;
 };
 
-export const rulesSearchCommandParams: CommandParameterMap = composeParams(
+export const rulesSearchCommandParams = composeParams(
   {
     query: RulesParameters.query,
     format: RulesParameters.format,
@@ -319,4 +319,4 @@ export const rulesSearchCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;

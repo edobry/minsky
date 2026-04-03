@@ -95,7 +95,7 @@ export class ModularTasksCommandManager {
           description: "Get task details",
           parameters: getCommand.parameters,
           execute: async (params, context) => {
-            return await getCommand.execute(params as any, context);
+            return await getCommand.execute(params, context);
           },
         })
       );
@@ -109,7 +109,7 @@ export class ModularTasksCommandManager {
           description: "Create a new task",
           parameters: createCommand.parameters,
           execute: async (params, context) => {
-            return await createCommand.execute(params as any, context);
+            return await createCommand.execute(params, context);
           },
         })
       );
@@ -123,7 +123,7 @@ export class ModularTasksCommandManager {
           description: "Edit task title and/or specification content",
           parameters: editCommand.parameters,
           execute: async (params, context) => {
-            return await editCommand.execute(params as any, context);
+            return await editCommand.execute(params, context);
           },
         })
       );
@@ -137,7 +137,7 @@ export class ModularTasksCommandManager {
           description: "Delete a task",
           parameters: deleteCommand.parameters,
           execute: async (params, context) => {
-            return await deleteCommand.execute(params as any, context);
+            return await deleteCommand.execute(params, context);
           },
         })
       );
@@ -151,7 +151,7 @@ export class ModularTasksCommandManager {
           description: "Get task specification content",
           parameters: specCommand.parameters,
           execute: async (params, context) => {
-            return await specCommand.execute(params as any, context);
+            return await specCommand.execute(params, context);
           },
         })
       );
@@ -170,7 +170,7 @@ export class ModularTasksCommandManager {
               ...params,
               title: undefined, // Don't allow title editing in spec edit
             };
-            return await editCommand.execute(specParams as any, context);
+            return await editCommand.execute(specParams, context);
           },
         })
       );
@@ -184,7 +184,7 @@ export class ModularTasksCommandManager {
           description: "Get the status of a task",
           parameters: statusGetCommand.parameters,
           execute: async (params, context) => {
-            return await statusGetCommand.execute(params as any, context);
+            return await statusGetCommand.execute(params, context);
           },
         })
       );
@@ -198,7 +198,7 @@ export class ModularTasksCommandManager {
           description: "Set the status of a task",
           parameters: statusSetCommand.parameters,
           execute: async (params, context) => {
-            return await statusSetCommand.execute(params as any, context);
+            return await statusSetCommand.execute(params, context);
           },
         })
       );
@@ -212,7 +212,7 @@ export class ModularTasksCommandManager {
           description: "Migrate legacy task IDs to qualified format",
           parameters: migrateCommand.parameters,
           execute: async (params, context) => {
-            return await migrateCommand.execute(params as any, context);
+            return await migrateCommand.execute(params, context);
           },
         })
       );

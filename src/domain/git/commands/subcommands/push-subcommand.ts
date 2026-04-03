@@ -16,7 +16,7 @@ import {
 /**
  * Parameters for the push command
  */
-export const pushCommandParams: CommandParameterMap = {
+export const pushCommandParams = {
   repo: {
     schema: z.string(),
     description: REPO_DESCRIPTION,
@@ -45,7 +45,7 @@ export const pushCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the push command

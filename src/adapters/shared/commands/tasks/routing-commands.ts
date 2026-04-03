@@ -6,7 +6,7 @@ import { createConfiguredTaskService } from "../../../../domain/tasks/taskServic
 import { type CommandParameterMap } from "../../command-registry";
 
 // Parameter definitions for available tasks command
-const tasksAvailableParams: CommandParameterMap = {
+const tasksAvailableParams = {
   status: {
     schema: z.string().optional(),
     description: "Filter by task status (default: TODO,IN-PROGRESS)",
@@ -42,10 +42,10 @@ const tasksAvailableParams: CommandParameterMap = {
     description: "Minimum readiness score (0.0-1.0) - use 1.0 for truly available tasks only",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 // Parameter definitions for route command
-const tasksRouteParams: CommandParameterMap = {
+const tasksRouteParams = {
   target: {
     schema: z.string(),
     description: "Target task ID to generate route for",
@@ -67,7 +67,7 @@ const tasksRouteParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Command to show all tasks currently available to work on (unblocked)

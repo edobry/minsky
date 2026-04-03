@@ -14,7 +14,7 @@ import {
 /**
  * Parameters for the checkout command
  */
-export const checkoutCommandParams: CommandParameterMap = {
+export const checkoutCommandParams = {
   branch: {
     schema: z.string(),
     description: GIT_BRANCH_DESCRIPTION,
@@ -47,7 +47,7 @@ export const checkoutCommandParams: CommandParameterMap = {
     description: "Strategy for handling checkout conflicts",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the checkout command

@@ -17,7 +17,7 @@ import {
 /**
  * Parameters for the pr command
  */
-export const prCommandParams: CommandParameterMap = {
+export const prCommandParams = {
   session: {
     schema: z.string(),
     description: SESSION_DESCRIPTION,
@@ -54,7 +54,7 @@ export const prCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the pr command

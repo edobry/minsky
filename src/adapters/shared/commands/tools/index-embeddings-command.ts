@@ -16,7 +16,7 @@ export interface ToolsIndexEmbeddingsParams {
   debug?: boolean;
 }
 
-export const toolsIndexEmbeddingsParams: CommandParameterMap = composeParams(
+export const toolsIndexEmbeddingsParams = composeParams(
   {
     limit: {
       schema: z.number().int().positive().optional(),
@@ -34,7 +34,7 @@ export const toolsIndexEmbeddingsParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
     debug: CommonParameters.debug,
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Tools Index Embeddings Command Implementation

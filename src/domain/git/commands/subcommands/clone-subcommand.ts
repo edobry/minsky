@@ -10,7 +10,7 @@ import { SESSION_DESCRIPTION, GIT_BRANCH_DESCRIPTION } from "../../../../utils/o
 /**
  * Parameters for the clone command
  */
-export const cloneCommandParams: CommandParameterMap = {
+export const cloneCommandParams = {
   url: {
     schema: z.string().url(),
     description: "URL of the Git repository to clone",
@@ -31,7 +31,7 @@ export const cloneCommandParams: CommandParameterMap = {
     description: GIT_BRANCH_DESCRIPTION,
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the clone command

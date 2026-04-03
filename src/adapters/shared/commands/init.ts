@@ -18,7 +18,7 @@ import { ValidationError } from "../../../errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
 // Removed unused initParamsSchema import
 
-const initParams: CommandParameterMap = composeParams(
+const initParams = composeParams(
   {
     // Use shared parameters where possible
     repo: {
@@ -74,7 +74,7 @@ const initParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand({
