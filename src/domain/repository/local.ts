@@ -182,7 +182,7 @@ export class LocalGitBackend implements RepositoryBackend {
     return { success: true, message: "Repository is valid" };
   }
 
-  async push(branch?: string): Promise<any> {
+  async push(branch?: string): Promise<{ success: boolean; message: string }> {
     try {
       const workdir = this.repoUrl;
       let pushCommand = "push";
@@ -197,7 +197,7 @@ export class LocalGitBackend implements RepositoryBackend {
     }
   }
 
-  async pull(branch?: string): Promise<any> {
+  async pull(branch?: string): Promise<{ success: boolean; message: string }> {
     try {
       const workdir = this.repoUrl;
       let pullCommand = "pull";
@@ -241,14 +241,29 @@ export class LocalGitBackend implements RepositoryBackend {
   async getPullRequestDetails(options: {
     prIdentifier?: string | number;
     session?: string;
-  }): Promise<any> {
+  }): Promise<{
+    number?: number | string;
+    url?: string;
+    state?: string;
+    title?: string;
+    body?: string;
+    headBranch?: string;
+    baseBranch?: string;
+    author?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    mergedAt?: string;
+  }> {
     return _getPRDetails(this.ctx, options);
   }
 
   async getPullRequestDiff(options: {
     prIdentifier?: string | number;
     session?: string;
-  }): Promise<any> {
+  }): Promise<{
+    diff: string;
+    stats?: { filesChanged: number; insertions: number; deletions: number };
+  }> {
     return _getPRDiff(this.ctx, options);
   }
 

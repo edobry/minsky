@@ -121,7 +121,7 @@ export async function getTaskFromParams(
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
-): Promise<any> {
+): Promise<Task> {
   const startTime = Date.now();
   log.debug("[getTaskFromParams] Starting execution", { params });
 
@@ -407,7 +407,7 @@ export async function createTaskFromParams(
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
-): Promise<any> {
+): Promise<Task> {
   try {
     // Validate params with Zod schema
     const validParams = taskCreateParamsSchema.parse(params);
@@ -457,7 +457,7 @@ export async function createTaskFromTitleAndDescription(
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
-): Promise<any> {
+): Promise<Task> {
   // Validate params
   const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
 

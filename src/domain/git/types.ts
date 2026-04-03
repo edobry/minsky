@@ -8,6 +8,14 @@ import {
 
 export type { EnhancedMergeResult } from "./conflict-detection";
 
+// Minimal session record shape used by git dependencies
+interface SessionRecord {
+  session: string;
+  repoUrl: string;
+  taskId?: string;
+  [key: string]: unknown;
+}
+
 /**
  * Interface for git service operations
  * This defines the contract for git-related functionality
@@ -171,9 +179,9 @@ export interface GitServiceInterface {
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<any>;
+  getSession: (name: string) => Promise<SessionRecord | null>;
   getSessionWorkdir: (session: string) => string;
-  getSessionByTaskId?: (taskId: string) => Promise<any>;
+  getSessionByTaskId?: (taskId: string) => Promise<SessionRecord | null>;
 }
 
 // PrDependencies now extends the proper interface
@@ -184,7 +192,7 @@ export interface BasicGitDependencies {
 }
 
 export interface ExtendedGitDependencies extends BasicGitDependencies {
-  getSession: (name: string) => Promise<any>;
+  getSession: (name: string) => Promise<SessionRecord | null>;
   getSessionWorkdir: (session: string) => string;
   mkdir: (path: string, options?: any) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;

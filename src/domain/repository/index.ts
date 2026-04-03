@@ -210,11 +210,11 @@ export interface RepositoryBackend {
   getType(): string;
   clone(session: string): Promise<CloneResult>;
   branch(session: string, branch: string): Promise<BranchResult>;
-  getStatus(session?: string): Promise<any>;
+  getStatus(session?: string): Promise<RepoStatus>;
   getPath(session?: string): string | Promise<string>;
-  validate(): Promise<any>;
-  push(branch?: string): Promise<any>;
-  pull(branch?: string): Promise<any>;
+  validate(): Promise<ValidationResult>;
+  push(branch?: string): Promise<{ success: boolean; message: string }>;
+  pull(branch?: string): Promise<{ success: boolean; message: string }>;
   checkout?(branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 

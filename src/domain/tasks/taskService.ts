@@ -1,20 +1,22 @@
+import type { Task } from "./types";
+
 // Define the base TaskService interface used across the domain
 export interface TaskServiceInterface {
-  listTasks(options?: any): Promise<any[]>;
-  getTask(taskId: string): Promise<any | null>;
+  listTasks(options?: any): Promise<Task[]>;
+  getTask(taskId: string): Promise<Task | null>;
   getTaskStatus(taskId: string): Promise<string | undefined>;
   setTaskStatus(taskId: string, status: string): Promise<void>;
-  createTask(specPath: string, options?: any): Promise<any>;
-  createTaskFromTitleAndSpec(title: string, spec: string, options?: any): Promise<any>;
+  createTask(specPath: string, options?: any): Promise<Task>;
+  createTaskFromTitleAndSpec(title: string, spec: string, options?: any): Promise<Task>;
   deleteTask(taskId: string, options?: any): Promise<boolean>;
   getTaskSpecContent(
     taskId: string,
     section?: string
-  ): Promise<{ task: any; specPath: string; content: string; section?: string }>;
+  ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
   getWorkspacePath(): string;
   getBackendForTask?(taskId: string): Promise<string>;
   listBackends?(): any[];
-  updateTask?(taskId: string, updates: any): Promise<any>;
+  updateTask?(taskId: string, updates: any): Promise<Task>;
   setDefaultBackend?(backendName: string): void;
 }
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";

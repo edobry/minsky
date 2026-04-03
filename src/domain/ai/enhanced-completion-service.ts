@@ -1,4 +1,4 @@
-import { AICompletionService, AICompletionRequest, AICompletionResponse } from "./types";
+import { AICompletionService, AICompletionRequest, AICompletionResponse, AIModel, ValidationResult } from "./types";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import {
@@ -61,15 +61,15 @@ export class EnhancedAICompletionService implements AICompletionService {
     yield* this.defaultCompletionService.stream(request);
   }
 
-  async generateObject(request: any): Promise<any> {
+  async generateObject(request: any): Promise<unknown> {
     return this.defaultCompletionService.generateObject(request);
   }
 
-  async getAvailableModels(provider?: string): Promise<any[]> {
+  async getAvailableModels(provider?: string): Promise<AIModel[]> {
     return this.defaultCompletionService.getAvailableModels(provider);
   }
 
-  async validateConfiguration(): Promise<any> {
+  async validateConfiguration(): Promise<ValidationResult> {
     return this.defaultCompletionService.validateConfiguration();
   }
 }

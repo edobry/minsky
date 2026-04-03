@@ -26,6 +26,7 @@ import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
+import type { Task } from "../tasks/types";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -112,13 +113,13 @@ export async function mergeSessionPr(
   deps?: {
     sessionDB?: SessionProviderInterface;
     taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      setTaskStatus?: (taskId: string, status: string) => Promise<void>;
       getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-      getBackendForTask?: (taskId: string) => Promise<any>;
-      getTask?: (taskId: string) => Promise<any>;
+      getBackendForTask?: (taskId: string) => Promise<string>;
+      getTask?: (taskId: string) => Promise<Task | null>;
     };
     gitService?: any;
-    createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<any>;
+    createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   }
 ): Promise<SessionMergeResult> {
   // Removed noise padding - operation speaks for itself

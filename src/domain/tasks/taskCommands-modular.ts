@@ -20,6 +20,7 @@ import {
   type TaskSpecContentParams,
   type TaskDeleteParams,
 } from "../../schemas/tasks";
+import type { Task } from "./types";
 
 /**
  * Modular Task Commands Manager
@@ -46,7 +47,7 @@ export class ModularTaskCommandsManager {
   /**
    * Get a task by ID using the provided parameters
    */
-  async getTaskFromParams(params: TaskGetParams): Promise<any> {
+  async getTaskFromParams(params: TaskGetParams): Promise<Task> {
     return await this.operations.getTask.execute(params as any);
   }
 
@@ -60,14 +61,14 @@ export class ModularTaskCommandsManager {
   /**
    * Set task status using the provided parameters
    */
-  async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<any> {
+  async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<void> {
     return await this.operations.setTaskStatus.execute(params as any);
   }
 
   /**
    * Create task using the provided parameters
    */
-  async createTaskFromParams(params: TaskCreateParams): Promise<any> {
+  async createTaskFromParams(params: TaskCreateParams): Promise<Task> {
     return await this.operations.createTask.execute(params as any);
   }
 
@@ -78,7 +79,7 @@ export class ModularTaskCommandsManager {
     title: string,
     spec?: string,
     options: Partial<TaskCreateFromTitleAndDescriptionParams> = {}
-  ): Promise<any> {
+  ): Promise<Task> {
     const params: TaskCreateFromTitleAndDescriptionParams = {
       title,
       spec,
@@ -98,7 +99,7 @@ export class ModularTaskCommandsManager {
   /**
    * Delete task using the provided parameters
    */
-  async deleteTaskFromParams(params: TaskDeleteParams): Promise<any> {
+  async deleteTaskFromParams(params: TaskDeleteParams): Promise<{ success: boolean; taskId: string; task: Task }> {
     return await this.operations.deleteTask.execute(params);
   }
 
@@ -156,7 +157,7 @@ export function createModularTaskCommandsManager(
 export async function listTasksFromParams(
   params: TaskListParams,
   deps?: TaskOperationDependencies
-): Promise<any[]> {
+): Promise<Task[]> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.listTasksFromParams(params);
 }
@@ -167,7 +168,7 @@ export async function listTasksFromParams(
 export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: TaskOperationDependencies
-): Promise<any> {
+): Promise<Task> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.getTaskFromParams(params);
 }
@@ -189,7 +190,7 @@ export async function getTaskStatusFromParams(
 export async function setTaskStatusFromParams(
   params: TaskStatusSetParams,
   deps?: TaskOperationDependencies
-): Promise<any> {
+): Promise<void> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.setTaskStatusFromParams(params);
 }
@@ -200,7 +201,7 @@ export async function setTaskStatusFromParams(
 export async function createTaskFromParams(
   params: TaskCreateParams,
   deps?: TaskOperationDependencies
-): Promise<any> {
+): Promise<Task> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.createTaskFromParams(params);
 }
@@ -213,7 +214,7 @@ export async function createTaskFromTitleAndSpec(
   spec?: string,
   options: Partial<TaskCreateFromTitleAndDescriptionParams> = {},
   deps?: TaskOperationDependencies
-): Promise<any> {
+): Promise<Task> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.createTaskFromTitleAndSpec(title, spec, options);
 }
@@ -235,7 +236,7 @@ export async function getTaskSpecContentFromParams(
 export async function deleteTaskFromParams(
   params: TaskDeleteParams,
   deps?: TaskOperationDependencies
-): Promise<any> {
+): Promise<{ success: boolean; taskId: string; task: Task }> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
   return await manager.deleteTaskFromParams(params);
 }

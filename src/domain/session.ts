@@ -32,6 +32,7 @@ import {
 } from "./session/session-lifecycle-operations";
 import { updateSessionImpl } from "./session/session-update-operations";
 import { startSessionImpl } from "./session/start-session-operations";
+import type { RepositoryBackend } from "./repository/index";
 
 import type {
   SessionGetParams,
@@ -251,8 +252,8 @@ export async function approveSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
-    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<any>;
-    createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
+    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<RepositoryBackend>;
+    createRepositoryBackend?: (sessionRecord: any) => Promise<RepositoryBackend>;
     /** @deprecated kept for backward-compat with older tests */
     resolveRepoPath?: (...args: any[]) => Promise<string>;
   }

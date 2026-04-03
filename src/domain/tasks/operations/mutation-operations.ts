@@ -21,11 +21,12 @@ import {
 } from "../../../schemas/tasks";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
 import { createFormattedValidationError } from "../../../utils/zod-error-formatter";
+import type { Task } from "../types";
 
 /**
  * Set task status operation
  */
-export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParams, any> {
+export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParams, void> {
   getSchema() {
     return taskStatusSetParamsSchema as any;
   }
@@ -34,7 +35,7 @@ export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParam
     return "set task status";
   }
 
-  async executeOperation(params: TaskStatusSetParams): Promise<any> {
+  async executeOperation(params: TaskStatusSetParams): Promise<void> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
@@ -42,16 +43,14 @@ export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParam
     await this.getTaskAndVerifyExists(taskService, params.taskId);
 
     // Set the task status
-    const result = await taskService.setTaskStatus(params.taskId, params.status);
-
-    return result;
+    await taskService.setTaskStatus(params.taskId, params.status);
   }
 }
 
 /**
  * Create task operation
  */
-export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any> {
+export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, Task> {
   getSchema() {
     return taskCreateParamsSchema as any;
   }
@@ -60,7 +59,7 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any
     return "create task";
   }
 
-  async executeOperation(params: TaskCreateParams): Promise<any> {
+  async executeOperation(params: TaskCreateParams): Promise<Task> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
@@ -90,7 +89,7 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any
  */
 export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperation<
   TaskCreateFromTitleAndDescriptionParams,
-  any
+  Task
 > {
   getSchema() {
     return taskCreateFromTitleAndDescriptionParamsSchema as any;
@@ -100,7 +99,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
     return "create task from title and description";
   }
 
-  async executeOperation(params: TaskCreateFromTitleAndDescriptionParams): Promise<any> {
+  async executeOperation(params: TaskCreateFromTitleAndDescriptionParams): Promise<Task> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
@@ -127,7 +126,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
 /**
  * Delete task operation
  */
-export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, any> {
+export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, { success: boolean; taskId: string; task: Task }> {
   getSchema() {
     return taskDeleteParamsSchema as any;
   }
@@ -136,7 +135,7 @@ export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, any
     return "delete task";
   }
 
-  async executeOperation(params: TaskDeleteParams): Promise<any> {
+  async executeOperation(params: TaskDeleteParams): Promise<{ success: boolean; taskId: string; task: Task }> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
