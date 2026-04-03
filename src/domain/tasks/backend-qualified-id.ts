@@ -144,7 +144,7 @@ export function sessionNameToBranchName(sessionName: string): string {
   return sessionName.replace(/:/g, "-");
 }
 
-/** @deprecated Session names are now UUIDs; use branchNameToTaskId() in task-id.ts instead */
+/** @deprecated Session names are now UUIDs; use SessionRecord.taskId from the database instead */
 export function branchNameToSessionName(branchName: string): string {
   const match = branchName.match(/^(.+#)([^#-]+)-(.+)$/);
   if (match) {
