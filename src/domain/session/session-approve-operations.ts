@@ -255,7 +255,7 @@ The task exists but has no associated session to approve.
   const workingDirectory = originalRepoPath;
 
   // Determine PR branch name (local/remote only). GitHub path will delegate to backend
-  const featureBranch = sessionNameToUse;
+  const featureBranch = sessionRecord.branch || sessionNameToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
