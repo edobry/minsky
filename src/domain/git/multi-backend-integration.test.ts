@@ -22,10 +22,9 @@ mockModule("node:child_process", () => ({
   }),
 }));
 
-// No longer need to mock prepared-merge-commit-workflow since we use dependency injection
-
 import { describe, it, expect } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
+import { MinskyError } from "../../errors/index";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
@@ -73,141 +72,23 @@ function createMockDependencies() {
 }
 
 describe("Git Operations Multi-Backend Integration", () => {
-  describe("Prepare PR with qualified session names", () => {
-    it("should handle qualified session names (task-md#123)", async () => {
+  describe("Prepare PR session lookup", () => {
+    it("should throw an error when session is not found (no self-repair)", async () => {
       const deps = createMockDependencies();
+      // sessionDb.getSession returns null by default
 
-      // Mock being in a session workspace directory
-      const originalCwd = process.cwd;
-      process.cwd = mock(() => `/mock/sessions/${TEST_UUID}`);
-
-      try {
-        await preparePrImpl(
+      await expect(
+        preparePrImpl(
           {
             session: TEST_UUID,
             baseBranch: "main",
           },
           deps
-        );
+        )
+      ).rejects.toThrow(MinskyError);
 
-        // Should have attempted session auto-repair with qualified ID extraction
-        expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            session: TEST_UUID,
-            taskId: "md#123", // Should extract qualified task ID
-            taskBackend: "md", // Should add backend information
-          })
-        );
-      } finally {
-        process.cwd = originalCwd;
-      }
-    });
-
-    it("should handle legacy session names (task123)", async () => {
-      const deps = createMockDependencies();
-
-      // Mock being in a legacy session workspace directory
-      const originalCwd = process.cwd;
-      process.cwd = mock(() => "/mock/sessions/task123");
-
-      try {
-        await preparePrImpl(
-          {
-            session: "task123",
-            baseBranch: "main",
-          },
-          deps
-        );
-
-        // Legacy format should create session with undefined taskId (no migration)
-        expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            session: "task123", // Original session name preserved
-            taskId: "md#123", // Extracted from mock git branch (task/md-123)
-          })
-        );
-      } finally {
-        process.cwd = originalCwd;
-      }
-    });
-
-    it("should handle legacy task# format (task#456)", async () => {
-      const deps = createMockDependencies();
-
-      const originalCwd = process.cwd;
-      process.cwd = mock(() => "/mock/sessions/task#456");
-
-      try {
-        await preparePrImpl(
-          {
-            session: "task#456",
-            baseBranch: "main",
-          },
-          deps
-        );
-
-        expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            session: "task#456",
-            taskId: "md#123", // Extracted from mock git branch (task/md-123)
-          })
-        );
-      } finally {
-        process.cwd = originalCwd;
-      }
-    });
-
-    it("should handle GitHub backend sessions (task-gh#789)", async () => {
-      const deps = createMockDependencies();
-
-      const originalCwd = process.cwd;
-      process.cwd = mock(() => "/mock/sessions/task-gh#789");
-
-      try {
-        await preparePrImpl(
-          {
-            session: "task-gh#789",
-            baseBranch: "main",
-          },
-          deps
-        );
-
-        expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            session: "task-gh#789",
-            taskId: "gh#789", // Should preserve GitHub backend
-            taskBackend: "gh", // Should detect GitHub backend
-          })
-        );
-      } finally {
-        process.cwd = originalCwd;
-      }
-    });
-
-    it("should handle custom sessions without task IDs", async () => {
-      const deps = createMockDependencies();
-
-      const originalCwd = process.cwd;
-      process.cwd = mock(() => "/mock/sessions/custom-session");
-
-      try {
-        await preparePrImpl(
-          {
-            session: "custom-session",
-            baseBranch: "main",
-          },
-          deps
-        );
-
-        expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            session: "custom-session",
-            taskId: "md#123", // Extracted from mock git branch (task/md-123)
-          })
-        );
-      } finally {
-        process.cwd = originalCwd;
-      }
+      // Should NOT try to register a session — auto-repair is handled at DB layer
+      expect(deps.sessionDb.addSession).not.toHaveBeenCalled();
     });
 
     it("should not modify existing qualified session records", async () => {
@@ -274,33 +155,38 @@ describe("Git Operations Multi-Backend Integration", () => {
     it("should handle mixed session database (legacy + modern)", async () => {
       const deps = createMockDependencies();
 
-      // Test both legacy and modern sessions work
-      const testCases = [
-        { session: "task123", shouldWork: true },
-        { session: "task-md#456", shouldWork: true },
-        { session: "task-gh#789", shouldWork: true },
-        { session: "custom-session", shouldWork: true },
+      const testSessions = [
+        { session: "task123", taskId: "123" },
+        { session: "task-md#456", taskId: "md#456" },
+        { session: "task-gh#789", taskId: "gh#789" },
+        { session: "custom-session", taskId: undefined },
       ];
 
-      for (const testCase of testCases) {
-        const originalCwd = process.cwd;
-        process.cwd = mock(() => `/mock/sessions/${testCase.session}`);
-
-        try {
-          const result = await preparePrImpl(
-            {
-              session: testCase.session,
-              baseBranch: "main",
-            },
-            deps
-          );
-
-          if (testCase.shouldWork) {
-            expect(result).toBeDefined();
+      for (const { session, taskId } of testSessions) {
+        const sessionDeps = createMockDependencies();
+        sessionDeps.sessionDb.getSession = mock(async (name: string) => {
+          if (name === session) {
+            return {
+              session,
+              repoName: "test/repo",
+              repoUrl: "https://github.com/test/repo.git",
+              createdAt: "2024-01-01T00:00:00Z",
+              taskId,
+            } as SessionRecord;
           }
-        } finally {
-          process.cwd = originalCwd;
-        }
+          return null;
+        });
+
+        const result = await preparePrImpl(
+          {
+            session,
+            baseBranch: "main",
+          },
+          sessionDeps
+        );
+
+        expect(result).toBeDefined();
+        expect(sessionDeps.sessionDb.addSession).not.toHaveBeenCalled();
       }
     });
   });

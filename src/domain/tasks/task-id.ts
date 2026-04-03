@@ -88,7 +88,7 @@ export function taskIdToSessionName(taskId: string): string {
   return taskId; // Return as-is if unparseable
 }
 
-/** @deprecated Use branchNameToTaskId() for new-format branches. Kept for legacy session name parsing. */
+/** @deprecated Use SessionRecord.taskId from the database instead. Kept for legacy session name parsing. */
 export function sessionNameToTaskId(sessionName: string): string | null {
   // UUID session names don't encode task IDs — use DB lookup instead
   if (isUuidSessionName(sessionName)) {
@@ -129,17 +129,4 @@ export function taskIdToBranchName(taskId: string): string {
     return taskId;
   }
   return `task/${parsed.backend}-${parsed.localId}`;
-}
-
-/**
- * Convert a task branch name back to a qualified task ID.
- * task/mt-638 → mt#638
- * Returns null if the branch name doesn't match the task branch format.
- */
-export function branchNameToTaskId(branchName: string): string | null {
-  const match = branchName.match(/^task\/([^-]+)-(.+)$/);
-  if (!match || !match[1] || !match[2]) {
-    return null;
-  }
-  return `${match[1]}#${match[2]}`;
 }

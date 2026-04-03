@@ -1,12 +1,7 @@
-import { join } from "node:path";
 import { log } from "../../utils/logger";
 import { MinskyError } from "../../errors";
 import { normalizeRepoName } from "../repo-utils";
-import type { SessionRecord, SessionProviderInterface } from "../session/types";
-import {
-  SessionMultiBackendIntegration,
-  SessionBackwardCompatibility,
-} from "../session/multi-backend-integration";
+import type { SessionProviderInterface } from "../session/types";
 
 export interface PreparePrOptions {
   session?: string;
@@ -53,208 +48,14 @@ export async function preparePr(
       `Session database lookup result: ${options.session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: record.repoName, repoUrl: record.repoUrl, taskId: record.taskId }) : "null"}`
     );
 
-    // TASK #168 FIX: Implement session self-repair for preparePr
     if (!record) {
-      log.debug("Session not found in database, attempting self-repair in preparePr", {
-        session: options.session,
-      });
-
-      // Check if we're currently in a session workspace directory
-      const currentDir = process.cwd();
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        const sessionNameFromPath = pathParts[sessionsIndex + 1];
-
-        // If the session name matches the one we're looking for, attempt self-repair
-        if (sessionNameFromPath === options.session) {
-          log.debug("Attempting to register orphaned session in preparePr", {
-            session: options.session,
-            currentDir,
-          });
-
-          try {
-            // Get the repository URL from git remote
-            const repoUrl = await deps.execInRepository(currentDir, "git remote get-url origin");
-            const repoName = normalizeRepoName(repoUrl.trim());
-
-            // Extract task ID from session name using multi-backend integration
-            const extractedTaskId = SessionMultiBackendIntegration.extractTaskIdFromSessionName(
-              options.session
-            );
-            const taskId = extractedTaskId
-              ? SessionBackwardCompatibility.toStorageFormat(extractedTaskId)
-              : undefined;
-
-            // Create session record
-            const newSessionRecord: SessionRecord = {
-              session: options.session,
-              repoUrl: repoUrl.trim(),
-              repoName,
-              createdAt: new Date().toISOString(),
-              taskId,
-              branch: await (async () => {
-                try {
-                  const b = await deps.execInRepository(currentDir, "git branch --show-current");
-                  return b.trim() || options.session;
-                } catch {
-                  return options.session;
-                }
-              })(),
-            };
-
-            // Enhance with backend information if task ID was extracted
-            const enhancedRecord = taskId
-              ? SessionMultiBackendIntegration.enhanceSessionRecord(newSessionRecord)
-              : newSessionRecord;
-
-            // Register the session
-            await deps.sessionDb.addSession(enhancedRecord);
-            record = enhancedRecord;
-
-            log.debug("Successfully registered orphaned session in preparePr", {
-              session: options.session,
-              repoUrl: repoUrl.trim(),
-              taskId,
-            });
-          } catch (selfRepairError) {
-            log.debug("Session self-repair failed in preparePr", {
-              session: options.session,
-              error: selfRepairError,
-            });
-
-            // Before throwing error, let's try to understand what sessions are in the database
-            try {
-              const allSessions = await deps.sessionDb.listSessions();
-              log.debug(
-                `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
-                  .map((s) => s.session)
-                  .slice(0, 10)
-                  .join(", ")}, searchedFor=${options.session}`
-              );
-            } catch (listError) {
-              log.error(`Failed to list sessions for debugging: ${listError}`);
-            }
-
-            throw new MinskyError(`
-🔍 Session "${options.session}" Not Found in Database
-
-The session exists in the file system but isn't registered in the session database.
-This can happen when sessions are created outside of Minsky or the database gets out of sync.
-
-💡 How to fix this:
-
-📋 Check if session exists on disk:
-   ls -la ~/.local/state/minsky/git/*/sessions/
-
-🔄 If session exists, re-register it:
-   cd /path/to/main/workspace
-   minsky sessions import "${options.session}"
-
-🆕 Or create a fresh session:
-   minsky session start ${options.session}
-
-📁 Alternative - use repository path directly:
-   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
-
-🗃️ Check registered sessions:
-   minsky sessions list
-
-⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
-
-Current directory: ${process.cwd()}
-Session requested: "${options.session}"
-`);
-          }
-        } else {
-          // Before throwing error, let's try to understand what sessions are in the database
-          try {
-            const allSessions = await deps.sessionDb.listSessions();
-            log.debug(
-              `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
-                .map((s) => s.session)
-                .slice(0, 10)
-                .join(", ")}, searchedFor=${options.session}`
-            );
-          } catch (listError) {
-            log.error(`Failed to list sessions for debugging: ${listError}`);
-          }
-
-          throw new MinskyError(`
-🔍 Session "${options.session}" Not Found in Database
-
-The session exists in the file system but isn't registered in the session database.
-This can happen when sessions are created outside of Minsky or the database gets out of sync.
-
-💡 How to fix this:
-
-📋 Check if session exists on disk:
-   ls -la ~/.local/state/minsky/git/*/sessions/
-
-🔄 If session exists, re-register it:
-   cd /path/to/main/workspace
-   minsky sessions import "${options.session}"
-
-🆕 Or create a fresh session:
-   minsky session start ${options.session}
-
-📁 Alternative - use repository path directly:
-   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
-
-🗃️ Check registered sessions:
-   minsky sessions list
-
-⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
-
-Current directory: ${process.cwd()}
-Session requested: "${options.session}"
-`);
-        }
-      } else {
-        // Before throwing error, let's try to understand what sessions are in the database
-        try {
-          const allSessions = await deps.sessionDb.listSessions();
-          log.debug(
-            `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
-              .map((s) => s.session)
-              .slice(0, 10)
-              .join(", ")}, searchedFor=${options.session}`
-          );
-        } catch (listError) {
-          log.error(`Failed to list sessions for debugging: ${listError}`);
-        }
-
-        throw new MinskyError(`
-🔍 Session "${options.session}" Not Found in Database
-
-The session exists in the file system but isn't registered in the session database.
-This can happen when sessions are created outside of Minsky or the database gets out of sync.
-
-💡 How to fix this:
-
-📋 Check if session exists on disk:
-   ls -la ~/.local/state/minsky/git/*/sessions/
-
-🔄 If session exists, re-register it:
-   cd /path/to/main/workspace
-   minsky sessions import "${options.session}"
-
-🆕 Or create a fresh session:
-   minsky session start ${options.session}
-
-📁 Alternative - use repository path directly:
-   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
-
-🗃️ Check registered sessions:
-   minsky sessions list
-
-⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
-
-Current directory: ${process.cwd()}
-Session requested: "${options.session}"
-`);
-      }
+      throw new MinskyError(
+        `Session "${options.session}" not found. ` +
+          `The session database (with auto-repair) could not locate this session.\n\n` +
+          `💡 Try:\n` +
+          `  minsky session list              (see registered sessions)\n` +
+          `  minsky session start --task ID   (create a new session)\n`
+      );
     }
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
