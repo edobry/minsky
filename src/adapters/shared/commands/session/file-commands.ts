@@ -36,7 +36,7 @@ interface SessionEditFileParams extends BaseSessionCommandParams {
   debug?: boolean;
 }
 
-export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFileParams, any> {
+export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFileParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.edit-file";
   }
@@ -49,14 +49,14 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
     return "Edit a file within a session workspace using AI-powered pattern application";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionEditFileCommandParams;
   }
 
   async executeCommand(
     params: SessionEditFileParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     try {
       // Resolve session name (auto-detect from workspace if not provided)
       const sessionName = await this.resolveSessionName(params);
@@ -84,7 +84,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
   /**
    * Resolve session name from parameter or auto-detect from workspace
    */
-  private async resolveSessionName(params: any): Promise<string> {
+  private async resolveSessionName(params: SessionEditFileParams): Promise<string> {
     if (params.session) {
       return params.session;
     }
@@ -106,7 +106,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
   /**
    * Get edit pattern from stdin or pattern file
    */
-  private async getEditPattern(params: any): Promise<string> {
+  private async getEditPattern(params: SessionEditFileParams): Promise<string> {
     if (params.patternFile) {
       // Read from pattern file
       try {
@@ -171,7 +171,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
     content: string;
     dryRun: boolean;
     createDirs: boolean;
-  }): Promise<any> {
+  }): Promise<Record<string, unknown>> {
     // Import the required modules for session edit functionality
     const { writeFile, stat } = await import("fs/promises");
     const { dirname } = await import("path");
@@ -262,7 +262,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
   /**
    * Format the result for CLI output
    */
-  private formatResult(mcpResult: any, params: any): any {
+  private formatResult(mcpResult: Record<string, unknown>, params: SessionEditFileParams): Record<string, unknown> {
     if (params.json) {
       return this.createSuccessResult(mcpResult);
     }
@@ -295,7 +295,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
   /**
    * Format dry-run output message
    */
-  private formatDryRunMessage(result: any): string {
+  private formatDryRunMessage(result: Record<string, unknown>): string {
     const { diffSummary } = result;
     const action = result.created ? "create" : "edit";
 

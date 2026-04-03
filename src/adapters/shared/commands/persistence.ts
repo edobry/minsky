@@ -159,7 +159,7 @@ const persistenceMigrateRegistration = defineCommand({
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
 
       // Read source data
-      let sourceData: Record<string, any> = {};
+      let sourceData: Record<string, unknown> = {};
       let sourceCount = 0;
       let sourceDescription = "configured session backend";
       let sourceBackendKind: "sqlite" | "postgres" | "file-json" | "unknown" = "unknown";
