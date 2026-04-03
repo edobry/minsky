@@ -25,10 +25,8 @@ import {
 // SESSION METADATA SCHEMAS
 // ========================
 
-/**
- * Session name schema - used across all interfaces
- */
-export const SessionNameSchema = z.string().min(1, "Session name cannot be empty");
+// SessionNameSchema is now an alias for SessionIdSchema (canonical schema in common-schemas.ts)
+export const SessionNameSchema = SessionIdSchema;
 
 /**
  * Session description schema - used across all interfaces
