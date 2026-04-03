@@ -236,7 +236,7 @@ function generateSimulatedHistory(context: ComponentInput): ConversationHistoryI
       "md#082 @Start Task, first review the task spec to ensure its still relevant in light of architectural changes and work done since it was first authored, then present your analysis, recommendation, and next steps",
     metadata: {
       task_id: "md#082",
-      session_id: "task-md#082",
+      session_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     },
   });
 

@@ -601,7 +601,9 @@ Repository: ${this.repoUrl}
       const prId = String(options.prIdentifier);
       const sessionDB = await this.getSessionDB();
       const sessions = await sessionDB.listSessions();
-      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      const record = sessions.find(
+        (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
+      );
       sessionName = record?.session;
       prBranch = prId;
     }
@@ -651,7 +653,7 @@ Repository: ${this.repoUrl}
     const sessionDB = await this.getSessionDB();
     const sessions = await sessionDB.listSessions();
     const sessionRecord = sessions.find(
-      (s) => s.prBranch === prId || `pr/${s.session}` === prId || s.session === prId
+      (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId || s.session === prId
     );
 
     if (!sessionRecord) {
@@ -686,7 +688,7 @@ Repository: ${this.repoUrl}
     const sessionDB = await this.getSessionDB();
     const sessions = await sessionDB.listSessions();
     const sessionRecord = sessions.find(
-      (s) => s.prBranch === prId || `pr/${s.session}` === prId || s.session === prId
+      (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId || s.session === prId
     );
 
     const isApproved = sessionRecord?.prApproved === true;
