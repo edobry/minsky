@@ -179,7 +179,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       })
     );
     // Verify the session name in the record is a UUID
-    const addedRecord = addSessionSpy.mock.calls[0]![0] as any;
+    const addedRecord = (addSessionSpy.mock.calls as any[][])[0]![0] as any;
     expect(addedRecord.session).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );

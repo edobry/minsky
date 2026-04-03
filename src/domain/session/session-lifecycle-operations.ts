@@ -12,6 +12,7 @@ import type { SessionProviderInterface, Session } from "./";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors";
 import { rmSync, existsSync } from "node:fs";
+import { getSessionsDir } from "../../utils/paths";
 
 /**
  * Gets session details based on parameters
@@ -286,18 +287,22 @@ async function getSessionDirectoriesToCleanup(
 ): Promise<string[]> {
   const directories: string[] = [];
 
-  // Standard session directory patterns
-  const baseSessionPath = `${process.env.HOME}/.local/state/minsky/sessions`;
+  // Use getSessionsDir() to respect XDG_STATE_HOME
+  const baseSessionPath = getSessionsDir();
 
-  // Try different naming patterns that might exist
+  // Try different naming patterns that might exist.
+  // The sessionName entry handles UUID session names directly.
+  // Legacy patterns use the taskId to find old-style directories.
   const possibleDirs = [
     `${baseSessionPath}/${sessionName}`,
     taskId ? `${baseSessionPath}/task-${taskId}` : null,
     taskId ? `${baseSessionPath}/task#${taskId}` : null,
-    taskId ? `${baseSessionPath}/task-md#${taskId}` : null,
   ].filter(Boolean) as string[];
 
-  for (const dir of possibleDirs) {
+  // Deduplicate
+  const uniqueDirs = [...new Set(possibleDirs)];
+
+  for (const dir of uniqueDirs) {
     if (existsSync(dir)) {
       directories.push(dir);
     }
