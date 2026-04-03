@@ -20,7 +20,7 @@ interface SessionPrOpenParams extends BaseSessionCommandParams {
   sessionName?: string;
 }
 
-export class SessionPrOpenCommand extends BaseSessionCommand<SessionPrOpenParams, any> {
+export class SessionPrOpenCommand extends BaseSessionCommand<SessionPrOpenParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.open";
   }
@@ -33,14 +33,14 @@ export class SessionPrOpenCommand extends BaseSessionCommand<SessionPrOpenParams
     return "Open the pull request in the default web browser";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionPrOpenCommandParams;
   }
 
   async executeCommand(
     params: SessionPrOpenParams,
     _context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     try {
       const result = await sessionPrOpen({
         sessionName: params.sessionName,

@@ -88,7 +88,7 @@ interface SessionPrMergeParams extends BaseSessionCommandParams {
  *
  * Commits and pushes changes within a session workspace
  */
-export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams, any> {
+export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.commit";
   }
@@ -101,14 +101,14 @@ export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams
     return "Commit and push changes within a session workspace";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionCommitCommandParams;
   }
 
   async executeCommand(
     params: SessionCommitParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
     const result = await sessionCommit({
@@ -144,7 +144,7 @@ export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams
 /**
  * Session Approve Command
  */
-export class SessionApproveCommand extends BaseSessionCommand<SessionApproveParams, any> {
+export class SessionApproveCommand extends BaseSessionCommand<SessionApproveParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.approve";
   }
@@ -157,14 +157,14 @@ export class SessionApproveCommand extends BaseSessionCommand<SessionApprovePara
     return "Approve a session pull request";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams;
   }
 
   async executeCommand(
     params: SessionApproveParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { approveSessionFromParams } = await import("../../../../domain/session");
 
     const result = await approveSessionFromParams({
@@ -181,7 +181,7 @@ export class SessionApproveCommand extends BaseSessionCommand<SessionApprovePara
 /**
  * Session Inspect Command
  */
-export class SessionInspectCommand extends BaseSessionCommand<SessionInspectParams, any> {
+export class SessionInspectCommand extends BaseSessionCommand<SessionInspectParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.inspect";
   }
@@ -194,14 +194,14 @@ export class SessionInspectCommand extends BaseSessionCommand<SessionInspectPara
     return "Inspect the current session (auto-detected from workspace)";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionInspectCommandParams;
   }
 
   async executeCommand(
     params: SessionInspectParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { inspectSessionFromParams } = await import("../../../../domain/session");
 
     const result = await inspectSessionFromParams({
@@ -215,7 +215,7 @@ export class SessionInspectCommand extends BaseSessionCommand<SessionInspectPara
 /**
  * Session Review Command
  */
-export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams, any> {
+export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.review";
   }
@@ -228,14 +228,14 @@ export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams
     return "Review a session PR by gathering and displaying relevant information";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionReviewCommandParams;
   }
 
   async executeCommand(
     params: SessionReviewParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { sessionReviewImpl } = await import(
       "../../../../domain/session/session-review-operations"
     );
@@ -412,7 +412,7 @@ export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams
 /**
  * Session PR Approve Command (Task #358 - New Structure)
  */
-export class SessionPrApproveCommand extends BaseSessionCommand<SessionApproveParams, any> {
+export class SessionPrApproveCommand extends BaseSessionCommand<SessionApproveParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.approve";
   }
@@ -425,14 +425,14 @@ export class SessionPrApproveCommand extends BaseSessionCommand<SessionApprovePa
     return "Approve a session pull request (does not merge)";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams;
   }
 
   async executeCommand(
     params: SessionApproveParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { approveSessionFromParams } = await import("../../../../domain/session");
 
     const result = await approveSessionFromParams({
@@ -450,7 +450,7 @@ export class SessionPrApproveCommand extends BaseSessionCommand<SessionApprovePa
 /**
  * Session PR Merge Command (Task #358 - New Structure)
  */
-export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergeParams, any> {
+export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergeParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.merge";
   }
@@ -463,14 +463,14 @@ export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergePara
     return "Merge an approved session pull request";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams; // Reuse same params for now
   }
 
   async executeCommand(
     params: SessionPrMergeParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
 
     // Cleanup is enabled by default, but can be disabled with --skip-cleanup

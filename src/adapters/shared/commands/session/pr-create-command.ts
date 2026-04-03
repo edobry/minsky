@@ -34,7 +34,7 @@ interface SessionPrCreateParams extends BaseSessionCommandParams {
   draft?: boolean;
 }
 
-export class SessionPrCreateCommand extends BaseSessionCommand<SessionPrCreateParams, any> {
+export class SessionPrCreateCommand extends BaseSessionCommand<SessionPrCreateParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.create";
   }
@@ -47,14 +47,14 @@ export class SessionPrCreateCommand extends BaseSessionCommand<SessionPrCreatePa
     return "Create a pull request for a session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionPrCreateCommandParams;
   }
 
   async executeCommand(
     params: SessionPrCreateParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     // Validation: require title and body/bodyPath for new PR creation
     if (!params.title) {
       throw new ValidationError(
@@ -299,7 +299,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<SessionPrCreatePa
     }
   }
 
-  protected getAdditionalLogContext(params: SessionPrCreateParams): Record<string, any> {
+  protected getAdditionalLogContext(params: SessionPrCreateParams): Record<string, unknown> {
     return {
       title: params.title,
       hasBody: !!params.body,

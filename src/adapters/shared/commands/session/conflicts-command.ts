@@ -60,7 +60,7 @@ interface SessionConflictsParams extends BaseSessionCommandParams {
 /**
  * Session Conflicts Command
  */
-export class SessionConflictsCommand extends BaseSessionCommand<SessionConflictsParams, any> {
+export class SessionConflictsCommand extends BaseSessionCommand<SessionConflictsParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.conflicts";
   }
@@ -73,14 +73,14 @@ export class SessionConflictsCommand extends BaseSessionCommand<SessionConflicts
     return "Detect and report merge conflicts in session workspace";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionConflictsCommandParams;
   }
 
   async executeCommand(
     params: SessionConflictsParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const sessionParams = {
       name: params.name,
       task: params.task,
