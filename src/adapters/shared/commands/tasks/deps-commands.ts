@@ -5,7 +5,7 @@ import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap } from "../../command-registry";
 
 // Parameter definitions matching the CommandParameterMap interface
-const tasksDepsAddParams: CommandParameterMap = {
+const tasksDepsAddParams = {
   task: {
     schema: z.string(),
     description: "Task that will depend on another task",
@@ -16,9 +16,9 @@ const tasksDepsAddParams: CommandParameterMap = {
     description: "Task that is the dependency",
     required: true,
   },
-};
+} satisfies CommandParameterMap;
 
-const tasksDepsRmParams: CommandParameterMap = {
+const tasksDepsRmParams = {
   task: {
     schema: z.string(),
     description: "Task that depends on another task",
@@ -29,9 +29,9 @@ const tasksDepsRmParams: CommandParameterMap = {
     description: "Task that is the dependency",
     required: true,
   },
-};
+} satisfies CommandParameterMap;
 
-const tasksDepsListParams: CommandParameterMap = {
+const tasksDepsListParams = {
   task: {
     schema: z.string(),
     description: "ID of the task to list dependencies for",
@@ -42,7 +42,7 @@ const tasksDepsListParams: CommandParameterMap = {
     description: "Use more detailed output format",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 export function createTasksDepsAddCommand() {
   return {

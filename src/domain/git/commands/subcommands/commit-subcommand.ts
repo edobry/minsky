@@ -10,7 +10,7 @@ import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-
 /**
  * Parameters for the commit command
  */
-export const commitCommandParams: CommandParameterMap = {
+export const commitCommandParams = {
   message: {
     schema: z.string().min(1),
     description: "Commit message",
@@ -44,7 +44,7 @@ export const commitCommandParams: CommandParameterMap = {
     description: SESSION_DESCRIPTION,
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Extended context type that includes parameters for legacy command handlers

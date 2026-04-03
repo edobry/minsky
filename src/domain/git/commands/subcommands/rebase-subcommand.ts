@@ -14,7 +14,7 @@ import {
 /**
  * Parameters for the rebase command
  */
-export const rebaseCommandParams: CommandParameterMap = {
+export const rebaseCommandParams = {
   baseBranch: {
     schema: z.string(),
     description: "Base branch to rebase onto",
@@ -52,7 +52,7 @@ export const rebaseCommandParams: CommandParameterMap = {
     description: "Strategy for handling rebase conflicts",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the rebase command

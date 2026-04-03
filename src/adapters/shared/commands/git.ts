@@ -41,7 +41,7 @@ import { CommonParameters, GitParameters, composeParams } from "../common-parame
 /**
  * Parameters for the commit command
  */
-const commitCommandParams: CommandParameterMap = composeParams(
+const commitCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
     session: CommonParameters.session,
@@ -71,12 +71,12 @@ const commitCommandParams: CommandParameterMap = composeParams(
       defaultValue: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the push command
  */
-const pushCommandParams: CommandParameterMap = composeParams(
+const pushCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
     session: CommonParameters.session,
@@ -86,12 +86,12 @@ const pushCommandParams: CommandParameterMap = composeParams(
   {
     remote: GitParameters.remote,
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the clone command
  */
-const cloneCommandParams: CommandParameterMap = composeParams(
+const cloneCommandParams = composeParams(
   {
     session: CommonParameters.session,
     branch: GitParameters.branch,
@@ -108,12 +108,12 @@ const cloneCommandParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the branch command
  */
-const branchCommandParams: CommandParameterMap = composeParams(
+const branchCommandParams = composeParams(
   {
     preview: GitParameters.preview,
     autoResolve: GitParameters.autoResolve,
@@ -130,12 +130,12 @@ const branchCommandParams: CommandParameterMap = composeParams(
       required: true,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the merge command
  */
-const mergeCommandParams: CommandParameterMap = composeParams(
+const mergeCommandParams = composeParams(
   {
     session: CommonParameters.session,
     repo: CommonParameters.repo,
@@ -154,12 +154,12 @@ const mergeCommandParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * NEW: Parameters for the checkout command
  */
-const checkoutCommandParams: CommandParameterMap = composeParams(
+const checkoutCommandParams = composeParams(
   {
     session: CommonParameters.session,
     repo: CommonParameters.repo,
@@ -179,12 +179,12 @@ const checkoutCommandParams: CommandParameterMap = composeParams(
       defaultValue: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * NEW: Parameters for the rebase command
  */
-const rebaseCommandParams: CommandParameterMap = composeParams(
+const rebaseCommandParams = composeParams(
   {
     session: CommonParameters.session,
     repo: CommonParameters.repo,
@@ -203,7 +203,7 @@ const rebaseCommandParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Register the git commands in the shared command registry
@@ -354,7 +354,6 @@ export function registerGitCommands(): void {
         repo: params!.repo,
         preview: params!.preview,
         autoResolve: params!.autoStash, // Map autoStash to autoResolve for conflict handling
-        conflictStrategy: params!.conflictStrategy,
       });
 
       return {

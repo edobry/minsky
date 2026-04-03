@@ -14,7 +14,7 @@ import {
 /**
  * Parameters for the merge command
  */
-export const mergeCommandParams: CommandParameterMap = {
+export const mergeCommandParams = {
   sourceBranch: {
     schema: z.string(),
     description: "Branch to merge from",
@@ -52,7 +52,7 @@ export const mergeCommandParams: CommandParameterMap = {
     description: "Strategy for handling merge conflicts",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the merge command

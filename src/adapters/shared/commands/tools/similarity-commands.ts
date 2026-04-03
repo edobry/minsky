@@ -14,7 +14,7 @@ const log = createLogger();
 
 // === Parameter Definitions ===
 
-const toolsSimilarParams: CommandParameterMap = {
+const toolsSimilarParams = {
   toolId: {
     schema: z.string(),
     help: "Tool ID to find similar tools for",
@@ -36,9 +36,9 @@ const toolsSimilarParams: CommandParameterMap = {
     required: false,
   },
   json: CommonParameters.json,
-};
+} satisfies CommandParameterMap;
 
-const toolsSearchParams: CommandParameterMap = {
+const toolsSearchParams = {
   query: {
     schema: z.string(),
     help: "Natural language query to search for tools",
@@ -70,7 +70,7 @@ const toolsSearchParams: CommandParameterMap = {
     required: false,
   },
   json: CommonParameters.json,
-};
+} satisfies CommandParameterMap;
 
 // === Type Definitions ===
 

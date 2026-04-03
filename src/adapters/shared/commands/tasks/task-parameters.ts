@@ -133,7 +133,7 @@ export const taskEditParams = {
 /**
  * Index embeddings parameters
  */
-export const tasksIndexEmbeddingsParams: CommandParameterMap = {
+export const tasksIndexEmbeddingsParams = {
   // Optional single-task target (CLI should use --task, not --task-id)
   task: CommonParameters.task,
   reindex: {
@@ -153,12 +153,12 @@ export const tasksIndexEmbeddingsParams: CommandParameterMap = {
   },
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Similarity parameters (taskId + limit/threshold)
  */
-export const tasksSimilarParams: CommandParameterMap = {
+export const tasksSimilarParams = {
   ...taskIdParam,
   limit: {
     schema: z.number().int().positive().default(10),
@@ -177,12 +177,12 @@ export const tasksSimilarParams: CommandParameterMap = {
   },
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Search-by-text parameters
  */
-export const tasksSearchParams: CommandParameterMap = {
+export const tasksSearchParams = {
   query: {
     schema: z.string(),
     description: "Natural language query",
@@ -210,90 +210,90 @@ export const tasksSearchParams: CommandParameterMap = {
   quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 // Combined parameter sets for each command
 
 /**
  * Parameters for tasks status get command
  */
-export const tasksStatusGetParams: CommandParameterMap = {
+export const tasksStatusGetParams = {
   ...taskIdParam,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks status set command
  */
-export const tasksStatusSetParams: CommandParameterMap = {
+export const tasksStatusSetParams = {
   ...taskIdParam,
   ...taskStatusParam,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks spec command
  */
-export const tasksSpecParams: CommandParameterMap = {
+export const tasksSpecParams = {
   ...taskIdParam,
   ...taskSpecParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks list command
  */
-export const tasksListParams: CommandParameterMap = {
+export const tasksListParams = {
   ...taskFilterParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks get command
  */
-export const tasksGetParams: CommandParameterMap = {
+export const tasksGetParams = {
   ...taskIdParam,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks create command
  */
-export const tasksCreateParams: CommandParameterMap = {
+export const tasksCreateParams = {
   ...taskCreationParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks delete command
  */
-export const tasksDeleteParams: CommandParameterMap = {
+export const tasksDeleteParams = {
   ...taskIdParam,
   ...taskDeletionParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks edit command
  */
-export const tasksEditParams: CommandParameterMap = {
+export const tasksEditParams = {
   ...taskIdParam,
   ...taskEditParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for tasks migrate command (md#429 importer by default)
  */
-export const tasksMigrateParams: CommandParameterMap = {
+export const tasksMigrateParams = {
   execute: {
     schema: z.boolean().default(false),
     description: "Apply changes (defaults to dry-run without this flag)",
@@ -312,4 +312,4 @@ export const tasksMigrateParams: CommandParameterMap = {
   quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
-};
+} satisfies CommandParameterMap;

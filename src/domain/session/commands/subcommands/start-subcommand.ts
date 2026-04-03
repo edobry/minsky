@@ -9,7 +9,7 @@ import { log } from "../../../../utils/logger";
 /**
  * Parameters for the session start command
  */
-export const sessionStartCommandParams: CommandParameterMap = {
+export const sessionStartCommandParams = {
   name: {
     schema: z.string().min(1),
     description: "Name for the new session (optional, alternative to --task)",
@@ -69,7 +69,7 @@ export const sessionStartCommandParams: CommandParameterMap = {
     description: "Override the detected package manager",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the session start command
