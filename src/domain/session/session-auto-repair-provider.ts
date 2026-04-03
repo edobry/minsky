@@ -4,6 +4,7 @@ import { attemptSessionAutoRepair } from "./session-auto-repair";
 import { createGitService } from "../git";
 import { getMinskyStateDir } from "../../utils/paths";
 import { join } from "path";
+import { isUuidSessionName } from "../tasks/task-id";
 
 /**
  * Auto-repair wrapper for SessionProviderInterface
@@ -39,10 +40,24 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
 
       try {
         // Attempt auto-repair by session name - try to reverse-engineer a task ID
-        // Look for common patterns: task<id>, task#<id>, task-md#<id>
         let taskIdFromSessionName: string | undefined;
 
-        if (session.match(/^task-?md#(.+)$/)) {
+        // UUID session names don't encode task IDs — look up from DB by listing all sessions
+        if (isUuidSessionName(session)) {
+          log.debug("Session name is UUID format, attempting DB lookup for task ID", { session });
+          // Try to find the session record by listing all sessions and matching by session name
+          // This handles the case where the session exists in DB but lookup failed
+          const allSessions = await this.baseProvider.listSessions();
+          const matchedSession = allSessions.find((s) => s.session === session);
+          if (matchedSession?.taskId) {
+            taskIdFromSessionName = matchedSession.taskId;
+            log.debug("Found task ID from session listing", {
+              session,
+              taskId: taskIdFromSessionName,
+            });
+          }
+        } else if (session.match(/^task-?md#(.+)$/)) {
+          // Look for common patterns: task<id>, task#<id>, task-md#<id>
           taskIdFromSessionName = session.replace(/^task-?md#/, "md#");
         } else if (session.match(/^task#(.+)$/)) {
           taskIdFromSessionName = session.replace(/^task#/, "md#");

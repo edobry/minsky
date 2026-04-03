@@ -115,7 +115,7 @@ export async function resolveSessionContext(
       // Provide a more helpful error message with available sessions
       const allSessions = await sessionProvider!.listSessions();
       const sessionNames = allSessions
-        .map((s) => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`)
+        .map((s) => (s.taskId ? `${s.taskId} (${s.session})` : s.session))
         .join(", ");
 
       throw new ResourceNotFoundError(
@@ -145,7 +145,10 @@ export async function resolveSessionContext(
       });
 
       if (sessionContext!?.sessionId) {
-        const autoDetectionMessage = `Auto-detected session: ${sessionContext!.sessionId}`;
+        const taskLabel = sessionContext!.taskId
+          ? `for task ${sessionContext!.taskId}`
+          : `(session ${sessionContext!.sessionId})`;
+        const autoDetectionMessage = `Auto-detected session ${taskLabel}`;
         log.debug("Session auto-detection successful", {
           sessionId: sessionContext!.sessionId,
           taskId: sessionContext!.taskId,
@@ -164,18 +167,20 @@ export async function resolveSessionContext(
       // Fallback to basic session detection
       const sessionName = await getCurrentSessionFn(workingDirectory);
       if (sessionName) {
-        const autoDetectionMessage = `Auto-detected session: ${sessionName}`;
+        // Get task ID from session record to show human-friendly message
+        const sessionRecord = await sessionProvider!.getSession(sessionName);
+        const taskLabel = sessionRecord?.taskId
+          ? `for task ${sessionRecord.taskId}`
+          : `(session ${sessionName})`;
+        const autoDetectionMessage = `Auto-detected session ${taskLabel}`;
         log.debug("Basic session auto-detection successful", {
           sessionName,
           workingDirectory,
         });
 
-        // Get task ID from session record
-        const sessionRecord = await sessionProvider!.getSession(sessionName);
-
         return {
           sessionName,
-          taskId: sessionRecord!?.taskId,
+          taskId: sessionRecord?.taskId,
           resolvedBy: "auto-detection",
           workingDirectory,
           autoDetectionMessage,

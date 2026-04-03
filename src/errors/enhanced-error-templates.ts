@@ -22,12 +22,14 @@ import {
 export function createSessionPrBranchErrorMessage(
   currentBranch: string,
   sessionName?: string,
-  context?: ContextInfo[]
+  context?: ContextInfo[],
+  branchName?: string
 ): string {
+  const switchTarget = branchName || sessionName;
   const suggestions: CommandSuggestion[] = [
     {
       description: "Switch to your session branch",
-      command: sessionName ? `git switch ${sessionName}` : "git switch <session-branch>",
+      command: switchTarget ? `git switch ${switchTarget}` : "git switch <session-branch>",
       emoji: ErrorEmojis.NEXT_STEP,
     },
     {

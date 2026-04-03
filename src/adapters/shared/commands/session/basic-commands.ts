@@ -149,7 +149,7 @@ export class SessionGetCommand extends BaseSessionCommand<
     });
 
     if (!session) {
-      const identifier = params.name || `task-${params.task}`;
+      const identifier = params.name || params.task || "unknown";
       throw new Error(`Session '${identifier}' not found`);
     }
 
