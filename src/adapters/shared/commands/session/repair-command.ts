@@ -23,7 +23,7 @@ interface SessionRepairParams extends BaseSessionCommandParams {
   debug?: boolean;
 }
 
-export class SessionRepairCommand extends BaseSessionCommand<SessionRepairParams, any> {
+export class SessionRepairCommand extends BaseSessionCommand<SessionRepairParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.repair";
   }
@@ -36,11 +36,11 @@ export class SessionRepairCommand extends BaseSessionCommand<SessionRepairParams
     return "Repair session state issues (PR state, backend sync, etc.)";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionRepairCommandParams;
   }
 
-  async executeCommand(params: SessionRepairParams, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionRepairParams, context: CommandExecutionContext): Promise<Record<string, unknown>> {
     try {
       const repairParams: SessionRepairParameters = {
         name: params.name,

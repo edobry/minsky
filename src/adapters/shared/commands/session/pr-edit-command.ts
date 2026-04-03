@@ -30,7 +30,7 @@ interface SessionPrEditParams extends BaseSessionCommandParams {
   debug?: boolean;
 }
 
-export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams, any> {
+export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.edit";
   }
@@ -43,14 +43,14 @@ export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams
     return "Update an existing pull request for a session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionPrEditCommandParams;
   }
 
   async executeCommand(
     params: SessionPrEditParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     // Validate that at least one field is provided for updating
     if (!params.title && !params.body && !params.bodyPath) {
       throw new ValidationError(
@@ -203,7 +203,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams
     }
   }
 
-  protected getAdditionalLogContext(params: SessionPrEditParams): Record<string, any> {
+  protected getAdditionalLogContext(params: SessionPrEditParams): Record<string, unknown> {
     return {
       title: params.title,
       hasBody: !!params.body,

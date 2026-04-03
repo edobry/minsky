@@ -28,13 +28,13 @@ export interface TaskCommandResult {
   success: boolean;
   taskId?: string;
   message?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
  * Abstract base class for task commands
  */
-export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
+export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record<string, unknown>> {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
@@ -80,7 +80,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   /**
    * Log debug message with command context
    */
-  protected debug(message: string, context?: Record<string, any>): void {
+  protected debug(message: string, context?: Record<string, unknown>): void {
     if (context) {
       log.debug(`[${this.id}] ${message}`, context);
     } else {
@@ -172,7 +172,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   protected createSuccessResult(
     taskId: string,
     message: string,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): TaskCommandResult {
     return {
       success: true,
@@ -188,7 +188,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   protected createErrorResult(
     message: string,
     taskId?: string,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): TaskCommandResult {
     return {
       success: false,
@@ -216,32 +216,32 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
 /**
  * Factory function type for creating task commands
  */
-export type TaskCommandFactory = () => BaseTaskCommand<any, any>;
+export type TaskCommandFactory = () => BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>;
 
 /**
  * Task command registry for managing command instances
  */
 export class TaskCommandRegistry {
-  private commands = new Map<string, BaseTaskCommand<any, any>>();
+  private commands = new Map<string, BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>>();
 
   /**
    * Register a task command
    */
-  register(command: BaseTaskCommand<any, any>): void {
+  register(command: BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>): void {
     this.commands.set(command.id, command);
   }
 
   /**
    * Get a task command by ID
    */
-  get(commandId: string): BaseTaskCommand<any, any> | undefined {
+  get(commandId: string): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>> | undefined {
     return this.commands.get(commandId);
   }
 
   /**
    * Get all registered commands
    */
-  getAll(): BaseTaskCommand<any, any>[] {
+  getAll(): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>[] {
     return Array.from(this.commands.values());
   }
 

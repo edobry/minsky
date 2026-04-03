@@ -253,7 +253,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     }
 
     // Build filters from CLI parameters for server-side filtering
-    const filters: Record<string, any> = {};
+    const filters: Record<string, unknown> = {};
 
     // Add backend filter if provided
     if (params.backend) {

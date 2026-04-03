@@ -151,11 +151,11 @@ const changesetInfoParams: CommandParameterMap = composeParams(
 /**
  * List changesets in the repository
  */
-async function executeChangesetList(params: any, ctx?: CommandExecutionContext): Promise<any> {
+async function executeChangesetList(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
+      repoParam: params.repo as string | undefined,
     });
 
     // Create changeset service
@@ -164,10 +164,10 @@ async function executeChangesetList(params: any, ctx?: CommandExecutionContext):
     // Build list options
     const listOptions: ChangesetListOptions = {
       status: params.status as ChangesetStatus | undefined,
-      author: params.author,
-      targetBranch: params.targetBranch,
-      limit: params.limit || 30,
-      includeClosed: params.includeClosed,
+      author: params.author as string | undefined,
+      targetBranch: params.targetBranch as string | undefined,
+      limit: (params.limit as number | undefined) || 30,
+      includeClosed: params.includeClosed as boolean | undefined,
     };
 
     // Get changesets
@@ -236,11 +236,11 @@ async function executeChangesetList(params: any, ctx?: CommandExecutionContext):
 /**
  * Search changesets by query
  */
-async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext): Promise<any> {
+async function executeChangesetSearch(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
+      repoParam: params.repo as string | undefined,
     });
 
     // Create changeset service
@@ -248,10 +248,10 @@ async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext
 
     // Build search options
     const searchOptions: ChangesetSearchOptions = {
-      query: params.query,
+      query: params.query as string,
       status: params.status as ChangesetStatus | undefined,
-      author: params.author,
-      limit: params.limit || 20,
+      author: params.author as string | undefined,
+      limit: (params.limit as number | undefined) || 20,
       searchTitle: params.searchTitle !== false,
       searchDescription: params.searchDescription !== false,
       searchComments: params.searchComments !== false,
@@ -323,11 +323,11 @@ async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext
 /**
  * Get details for a specific changeset
  */
-async function executeChangesetGet(params: any, ctx?: CommandExecutionContext): Promise<any> {
+async function executeChangesetGet(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
+      repoParam: params.repo as string | undefined,
     });
 
     // Create changeset service
@@ -335,8 +335,8 @@ async function executeChangesetGet(params: any, ctx?: CommandExecutionContext): 
 
     // Get changeset
     const changeset = params.details
-      ? await changesetService.getDetails(params.id)
-      : await changesetService.get(params.id);
+      ? await changesetService.getDetails(params.id as string)
+      : await changesetService.get(params.id as string);
 
     if (!changeset) {
       const errorMsg = `Changeset not found: ${params.id}`;
@@ -405,11 +405,11 @@ async function executeChangesetGet(params: any, ctx?: CommandExecutionContext): 
 /**
  * Show changeset platform information and capabilities
  */
-async function executeChangesetInfo(params: any, ctx?: CommandExecutionContext): Promise<any> {
+async function executeChangesetInfo(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
-      repoParam: params.repo,
+      repoParam: params.repo as string | undefined,
     });
 
     // Create changeset service
