@@ -57,8 +57,8 @@ export async function createPreparedMergeCommitPR(
   const { title, body, sourceBranch, baseBranch, workdir, session } = options;
   const gitExec = deps.execGitWithTimeout || execGitWithTimeout;
 
-  // Generate PR branch name - use session name if provided (for session PRs), otherwise use title
-  const prBranchName = session ? session : titleToBranchName(title);
+  // Generate PR branch name - use sourceBranch (actual git branch) for PR naming
+  const prBranchName = sourceBranch;
   const prBranch = `pr/${prBranchName}`;
 
   let stashCreated = false;

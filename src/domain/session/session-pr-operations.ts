@@ -225,7 +225,12 @@ export async function sessionPrImpl(
   // Enhanced validation and description extraction for missing title/body
   if (!titleToUse || !bodyToUse) {
     try {
-      const prDescription = await extractPrDescription(sessionName, deps.gitService, currentDir);
+      const prDescription = await extractPrDescription(
+        sessionName,
+        deps.gitService,
+        currentDir,
+        deps.sessionDB
+      );
 
       if (prDescription) {
         titleToUse = titleToUse || prDescription.title;
@@ -365,8 +370,8 @@ Please provide a title for your pull request:
     // Determine correct branch format based on backend type
     let prBranchName: string;
     if (sessionRecord?.backendType === "github") {
-      // GitHub backend uses session branch directly
-      prBranchName = sessionName;
+      // GitHub backend uses the actual git branch (task/mt-NNN), not the session UUID
+      prBranchName = currentBranch;
     } else {
       // Local/remote backends use pr/ prefix format
       prBranchName = typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`;

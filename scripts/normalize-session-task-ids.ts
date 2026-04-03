@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
 
 /**
+ * LEGACY SCRIPT — for pre-qualified-ID session data only. May be obsolete.
+ *
+ * This script was written to normalize task IDs that predate the qualified-ID
+ * format (e.g., "md#123"). Current sessions use qualified task IDs and UUID
+ * session names; this script is unlikely to be needed for modern data.
+ *
  * Normalize Session Task IDs
  *
  * This script normalizes task IDs in session records to ensure consistent formatting.

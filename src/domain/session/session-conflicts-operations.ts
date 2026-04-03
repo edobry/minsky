@@ -78,8 +78,8 @@ export async function scanSessionConflicts(
       // Get session by task ID
       const sessionDir = await getSessionDirFromParams({ task: params.task });
       sessionPath = sessionDir;
-      // Extract session name from path
-      actualSessionName = sessionPath.split("/").pop() || `task${params.task}`;
+      // Derive session name from the resolved path (works for both UUID and legacy formats)
+      actualSessionName = sessionPath.split("/").pop() || params.task;
     } else {
       // Auto-detect current session from working directory
       const cwd = getCurrentWorkingDirectory();
