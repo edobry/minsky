@@ -8,7 +8,7 @@
 import { ChangesetService, createChangesetService } from "./changeset-service";
 import type { RepositoryBackend, RepositoryBackendConfig } from "../repository/index";
 import type { Changeset, CreateChangesetOptions } from "./types";
-import { detectRepositoryBackendType } from "../session/repository-backend-detection";
+import { getRepositoryBackendFromConfig } from "../session/repository-backend-detection";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 
@@ -89,8 +89,8 @@ export async function createChangesetAwareRepositoryBackend(
   workdir?: string
 ): Promise<ChangesetAwareRepositoryBackend> {
   try {
-    // Use existing repository backend detection and creation
-    const backendType = detectRepositoryBackendType(workdir || repositoryUrl);
+    // Use project config for backend detection (preferred over per-workdir detection)
+    const { backendType } = await getRepositoryBackendFromConfig();
 
     const config: RepositoryBackendConfig = {
       type: backendType as "local" | "remote" | "github",
