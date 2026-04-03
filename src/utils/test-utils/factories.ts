@@ -64,7 +64,7 @@ export function createSessionData(
     branch?: string;
     createdAt?: string;
   } = {}
-): any {
+): Record<string, unknown> {
   const taskId = overrides!.taskId || "123";
   const session = overrides!.session || `task#${taskId}`;
 
@@ -87,8 +87,8 @@ export function createSessionData(
  */
 export function createSessionDataArray(
   count: number,
-  commonOverrides: Partial<Record<string, any>> = {}
-): any[] {
+  commonOverrides: Partial<Record<string, unknown>> = {}
+): Record<string, unknown>[] {
   return Array(count)
     .fill(0)
     .map((_, index) => {
@@ -112,7 +112,7 @@ export function createRepositoryData(
     repoUrl?: string;
     path?: string;
   } = {}
-): any {
+): Record<string, unknown> {
   return {
     name: overrides?.name || "test-repo",
     type: overrides?.type || "local",
@@ -169,7 +169,7 @@ export function createRandomFilePath(extension: string = "txt"): string {
  * @param fieldName The name of the field to generate data for
  * @returns Appropriate test data for the field
  */
-export function createFieldData(fieldName: string): any {
+export function createFieldData(fieldName: string): unknown {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
     case "id":

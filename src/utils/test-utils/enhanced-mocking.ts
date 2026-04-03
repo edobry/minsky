@@ -24,7 +24,9 @@ interface MockFileSystemState {
 
 interface MockModuleState {
   modulePath: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   originalModule?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockImplementation: any;
   isActive: boolean;
   testId: string;
@@ -207,7 +209,9 @@ export class EnhancedMockFileSystem {
    * Create comprehensive mock implementations for fs modules
    */
   createFSMocks(): {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fs: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fsPromises: any;
   } {
     const fsMock = {
@@ -219,9 +223,11 @@ export class EnhancedMockFileSystem {
       writeFileSync: (path: string, data: string | Buffer) => {
         this.writeFile(path, typeof data === "string" ? data : data.toString());
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mkdirSync: (path: string, options?: any) => {
         this.mkdir(path, options);
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rmSync: (path: string, options?: any) => {
         this.remove(path, options);
       },
@@ -241,9 +247,11 @@ export class EnhancedMockFileSystem {
       writeFile: async (path: string, data: string | Buffer) => {
         this.writeFile(path, typeof data === "string" ? data : data.toString());
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mkdir: async (path: string, options?: any) => {
         this.mkdir(path, options);
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rm: async (path: string, options?: any) => {
         this.remove(path, options);
       },
@@ -369,6 +377,7 @@ export class EnhancedModuleMocker {
   /**
    * Mock a module with enhanced tracking
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static mockModule<T = any>(
     modulePath: string,
     mockImplementation: () => T,

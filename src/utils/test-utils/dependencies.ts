@@ -568,7 +568,9 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
   });
 
   // Add additional utility methods that some tests expect
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockGitService as any).getGitCallCount = () => gitCallCount;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockGitService as any).resetGitCallCount = () => {
     gitCallCount = 0;
   };
@@ -640,8 +642,11 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
   });
 
   // Add additional properties that some tests expect
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockTaskService as any).backends = options.backends || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockTaskService as any).currentBackend = options.currentBackend || "test";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockTaskService as any).getWorkspacePath =
     options.getWorkspacePath || (() => "/mock/workspace/path");
 
@@ -659,7 +664,9 @@ export interface MockPersistenceProviderOptions {
     jsonb?: boolean;
     migrations?: boolean;
   };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getDatabaseConnection?: () => Promise<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getStorage?: () => any;
   initialize?: () => Promise<void>;
   close?: () => Promise<void>;
@@ -682,6 +689,7 @@ export function createMockPersistenceProvider(
   options: MockPersistenceProviderOptions = {}
 ): PersistenceProvider {
   return createPartialMock<PersistenceProvider>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     capabilities: (options.capabilities || {
       sql: true,
       transactions: true,
@@ -694,6 +702,7 @@ export function createMockPersistenceProvider(
       options.getDatabaseConnection ||
       ((() => {
         // Create a comprehensive mock query builder that always returns empty arrays
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const createQueryChain = (): any => ({
           from: () => createQueryChain(),
           where: () => createQueryChain(),
@@ -703,6 +712,7 @@ export function createMockPersistenceProvider(
           leftJoin: () => createQueryChain(),
           innerJoin: () => createQueryChain(),
           select: () => createQueryChain(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           then: (fn: (result: any[]) => any) => fn([]), // Make it thenable
           [Symbol.iterator]: () => [][Symbol.iterator](), // Make it iterable
         });
@@ -724,7 +734,9 @@ export function createMockPersistenceProvider(
             returning: () => Promise.resolve([]),
           }),
         });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getStorage: options.getStorage || (() => ({}) as any),
     close: options.close || (() => Promise.resolve()),
     getCapabilities:
@@ -736,6 +748,7 @@ export function createMockPersistenceProvider(
         jsonb: true,
         migrations: true,
       })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 

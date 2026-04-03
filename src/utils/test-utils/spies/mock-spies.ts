@@ -31,6 +31,7 @@ import { mock } from "bun:test";
 export function mockReadonlyProperty<T extends object, K extends keyof T>(
   obj: T,
   propName: K,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property

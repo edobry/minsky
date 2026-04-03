@@ -11,12 +11,14 @@ import { mock, afterEach } from "bun:test";
  */
 type MockResult<T> = {
   type: "return" | "throw";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   value: T | any;
 };
 
 /**
  * Tracks the state and behavior of a mock function.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockState<TArgs extends any[] = any[], TReturn = any> = {
   /**
    * All arguments received in all calls to the mock function.
@@ -63,6 +65,7 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
  * Compatibility layer for Jest/Vitest mock functions.
  * This interface extends Bun"s mock functions with additional methods found in Jest/Vitest.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> {
   /**
    * Mock function that can be called with arguments.
@@ -161,6 +164,7 @@ let globalInvocationCount = 0;
 /**
  * Creates a mock state object for tracking mock function behavior.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TReturn> {
   return {
     calls: [],
@@ -181,6 +185,7 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
  * @param implementation Optional initial implementation
  * @returns A Jest/Vitest compatible mock function
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createCompatMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> {
@@ -302,6 +307,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Add mockReturnValue method
   mockFn.mockReturnValue = function (value) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (mockFn = mock(() => value) as any);
   };
 
@@ -313,29 +319,34 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   // Add mockResolvedValue method
   mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (mockFn = mock(() => Promise.resolve(value) as ReturnType<T>) as any);
   };
 
   // Add mockResolvedValueOnce method
   mockFn.mockResolvedValueOnce = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return mockFn.mockImplementationOnce(() => Promise.resolve(value) as ReturnType<T>) as any;
   };
 
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (mockFn = mock(() => Promise.reject(value) as ReturnType<T>) as any);
   };
 
   // Add mockRejectedValueOnce method
   mockFn.mockRejectedValueOnce = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return mockFn.mockImplementationOnce(() => Promise.reject(value) as ReturnType<T>) as any;
   };
 
   // If there"s an initial implementation, set it
   if (implementation) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockFn = mock(implementation) as any;
   }
 
@@ -349,6 +360,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
  * @param implementation Optional initial implementation
  * @returns A strongly typed mock function
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createTypedMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> & T {
@@ -363,6 +375,7 @@ export function createTypedMock<T extends (...args: unknown[]) => any>(
  * @param method The name of the method to spy on
  * @returns A mock function that replaces the original method
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function spyOn<T extends object, M extends keyof T>(
   object: T,
   method: M
@@ -379,9 +392,11 @@ export function spyOn<T extends object, M extends keyof T>(
   });
 
   // Store the original implementation for restoration
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mockFn.mock as any).originalImplementation = original;
 
   // Replace the method with our mock
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   object[method] = mockFn as any;
 
   return mockFn;
@@ -413,6 +428,7 @@ export function autoMockModule<T extends object>(module: T): T {
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {
     if (typeof mockedModule[key] === "function") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockedModule[key] = createCompatMock(mockedModule[key] as any) as any;
     } else if (typeof mockedModule[key] === "object" && mockedModule[key] !== null) {
       mockedModule[key] = autoMockModule(mockedModule[key]);

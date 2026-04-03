@@ -115,10 +115,12 @@ class AnyMatcher extends AsymmetricMatcherBase {
   }
 
   toString(): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 
   toJSON(): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 }
@@ -221,7 +223,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
   /**
    * Checks if two values are equal, handling object and array comparison
    */
-  private valuesAreEqual(expected: unknown, actual: any): boolean {
+  private valuesAreEqual(expected: unknown, actual: unknown): boolean {
     // If types don't match, they're not equal
     if (typeof expected !== typeof actual) {
       return false;
@@ -408,7 +410,10 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
  */
 export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
   return (
-    obj !== null && typeof obj === "object" && typeof (obj as any).asymmetricMatch === "function"
+    obj !== null &&
+    typeof obj === "object" &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    typeof (obj as any).asymmetricMatch === "function"
   );
 }
 
@@ -427,7 +432,7 @@ export function setupAsymmetricMatchers(): void {
       const originalEqualsFn = originalEquals;
 
       // Override with matcher-aware version
-      bun.expect.equals = (a: unknown, b: any): boolean => {
+      bun.expect.equals = (a: unknown, b: unknown): boolean => {
         // Check if either value is an asymmetric matcher
         if (isAsymmetricMatcher(a)) {
           return a.asymmetricMatch(b);
