@@ -170,8 +170,12 @@ export function updateSessionFn(
     return state;
   }
 
+  // Strip 'session' key if present (prevents renaming the primary key)
+  const { session: _sessionKey, ...safeUpdates } = updates as Partial<SessionRecord> & {
+    session?: string;
+  };
   const updatedSessions = [...state.sessions];
-  updatedSessions[index] = { ...updatedSessions[index], ...updates };
+  updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
 
   return {
     ...state,

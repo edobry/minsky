@@ -192,7 +192,9 @@ export async function createPullRequest(
             pullRequest: {
               number: pr.number,
               url: pr.html_url,
-              state: pr.draft ? "draft" : (pr.state as "open" | "closed" | "merged" | "draft") || "open",
+              state: pr.draft
+                ? "draft"
+                : (pr.state as "open" | "closed" | "merged" | "draft") || "open",
               createdAt: pr.created_at,
               mergedAt: pr.merged_at || undefined,
               headBranch: pr.head.ref,

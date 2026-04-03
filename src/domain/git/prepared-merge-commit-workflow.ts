@@ -84,9 +84,7 @@ export async function createPreparedMergeCommitPR(
         await gitExec("stash-push", `stash push -m "${stashName}"`, { workdir, timeout: 30000 });
         stashCreated = true;
       } catch (stashErr) {
-        throw new MinskyError(
-          `Failed to stash uncommitted changes: ${getErrorMessage(stashErr)}`
-        );
+        throw new MinskyError(`Failed to stash uncommitted changes: ${getErrorMessage(stashErr)}`);
       }
     }
 

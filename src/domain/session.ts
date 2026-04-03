@@ -129,7 +129,12 @@ export async function startSessionFromParams(
       depsInput?.resolveRepositoryAndBackend ??
       // Back-compat: wrap legacy resolveRepoPath(uri) => string into the new resolver interface
       (depsInput?.resolveRepoPath
-        ? depsInput.resolveRepoPath
+        ? async (options?: { repoParam?: string; cwd?: string }) => {
+            const resolveFn = depsInput.resolveRepoPath as (uri?: string) => Promise<string>;
+            const uri = await resolveFn(options?.repoParam || options?.cwd);
+            const backendType = detectRepositoryBackendTypeFromUrl(uri);
+            return { repoUrl: uri, backendType };
+          }
         : resolveRepositoryAndBackend),
     fs: depsInput?.fs,
   } as const;

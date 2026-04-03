@@ -66,6 +66,8 @@ export async function createToolSimilarityCore(options: ToolSimilarityCoreOption
   });
 
   // Fallback order: embeddings -> ai (future) -> keywords -> lexical
-  const backends = [embeddings, /* ai (future) */ keywords, lexical].filter((b): b is NonNullable<typeof b> => b != null);
+  const backends = [embeddings, /* ai (future) */ keywords, lexical].filter(
+    (b): b is NonNullable<typeof b> => b != null
+  );
   return new SimilaritySearchService(backends);
 }

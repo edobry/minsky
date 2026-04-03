@@ -77,7 +77,7 @@ export class DefaultConfigValidator implements ConfigValidator {
       // Validate backend-specific configuration (using tasks.backend instead of deprecated root backend)
       if (backend === TaskBackend.GITHUB_ISSUES) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const backendConfig = get("backendConfig") as any;
+        const backendConfig = get("backendConfig") as any;
         const githubConfig = backendConfig?.["github-issues"];
 
         if (!githubConfig?.owner) {

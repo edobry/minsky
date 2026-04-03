@@ -115,7 +115,7 @@ export class DefaultAICompletionService implements AICompletionService {
             name: call.toolName,
             arguments: call.args,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result: (call as any).result,
+            result: (call as any).result,
           })),
           usage: transformUsage(step.usage),
         })),

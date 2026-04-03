@@ -82,7 +82,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .update(tasksTable)
       .set({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      status: status as any,
+        status: status as any,
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));

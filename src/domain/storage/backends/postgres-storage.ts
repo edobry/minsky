@@ -312,7 +312,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     try {
       await this.ensureConnection();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const result = (await this.drizzle!.select()
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
@@ -416,7 +416,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async entityExists(id: string): Promise<boolean> {
     try {
       await this.ensureConnection();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const result = (await this.drizzle!.select({ session: postgresSessions.session })
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))

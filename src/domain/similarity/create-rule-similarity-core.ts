@@ -35,7 +35,7 @@ export async function createRuleSimilarityCore(
   const lexical = new LexicalSimilarityBackend({
     getById: async (id: string) => {
       try {
-        return await rulesService.getRule(id) as { id: string } | null;
+        return (await rulesService.getRule(id)) as { id: string } | null;
       } catch {
         return null;
       }
@@ -51,6 +51,8 @@ export async function createRuleSimilarityCore(
   });
 
   // Fallback order: embeddings -> ai (future) -> lexical
-  const backends = [embeddings, /* ai (future) */ lexical].filter((b): b is NonNullable<typeof b> => b != null);
+  const backends = [embeddings, /* ai (future) */ lexical].filter(
+    (b): b is NonNullable<typeof b> => b != null
+  );
   return new SimilaritySearchService(backends);
 }

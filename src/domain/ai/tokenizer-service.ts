@@ -96,7 +96,7 @@ export class DefaultTokenizerService implements TokenizerService {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
 
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    const tokenizer = (await this.getTokenizerInstance(tokenizerInfo)) as TokenizerInstance;
     const tokens = tokenizer.encode(text);
 
     return {
@@ -113,7 +113,7 @@ export class DefaultTokenizerService implements TokenizerService {
     if (!tokenizerInfo) {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    const tokenizer = (await this.getTokenizerInstance(tokenizerInfo)) as TokenizerInstance;
     return tokenizer.encode(text) as number[];
   }
 
@@ -122,7 +122,7 @@ export class DefaultTokenizerService implements TokenizerService {
     if (!tokenizerInfo) {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    const tokenizer = (await this.getTokenizerInstance(tokenizerInfo)) as TokenizerInstance;
     if (typeof tokenizer.decode === "function") {
       return tokenizer.decode(tokenIds);
     }
@@ -263,10 +263,14 @@ export class DefaultTokenizerService implements TokenizerService {
       // Ensure decode API exists in a consistent shape
       if (
         typeof (instance as TokenizerInstance).decode !== "function" &&
-        typeof (instance as TokenizerInstance & { decodeTokens?: (t: number[]) => string }).decodeTokens === "function"
+        typeof (instance as TokenizerInstance & { decodeTokens?: (t: number[]) => string })
+          .decodeTokens === "function"
       ) {
-        const withDecode = instance as TokenizerInstance & { decodeTokens: (t: number[]) => string };
-        (instance as TokenizerInstance).decode = (tokens: number[]) => withDecode.decodeTokens(tokens);
+        const withDecode = instance as TokenizerInstance & {
+          decodeTokens: (t: number[]) => string;
+        };
+        (instance as TokenizerInstance).decode = (tokens: number[]) =>
+          withDecode.decodeTokens(tokens);
       }
       return instance;
     } catch (error) {

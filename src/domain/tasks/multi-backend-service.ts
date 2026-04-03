@@ -182,8 +182,13 @@ export class TaskServiceImpl implements TaskService {
     }
 
     // If backend has setTaskMetadata method, use it for comprehensive updates
-    type BackendWithMetadata = typeof backend & { setTaskMetadata: (id: string, meta: Record<string, unknown>) => Promise<void> };
-    if ("setTaskMetadata" in backend && typeof (backend as BackendWithMetadata).setTaskMetadata === "function") {
+    type BackendWithMetadata = typeof backend & {
+      setTaskMetadata: (id: string, meta: Record<string, unknown>) => Promise<void>;
+    };
+    if (
+      "setTaskMetadata" in backend &&
+      typeof (backend as BackendWithMetadata).setTaskMetadata === "function"
+    ) {
       const metadata = {
         id: taskId,
         title: updates.title !== undefined ? updates.title : currentTask.title,
@@ -408,7 +413,12 @@ export class TaskServiceImpl implements TaskService {
     }
 
     // Check if backend has a getTaskSpecContent method
-    type BackendWithSpecContent = typeof backend & { getTaskSpecContent: (id: string, section?: string) => Promise<{ task: Task; specPath: string; content: string; section?: string }> };
+    type BackendWithSpecContent = typeof backend & {
+      getTaskSpecContent: (
+        id: string,
+        section?: string
+      ) => Promise<{ task: Task; specPath: string; content: string; section?: string }>;
+    };
     if ((backend as BackendWithSpecContent).getTaskSpecContent) {
       return await (backend as BackendWithSpecContent).getTaskSpecContent(taskId, section);
     }
