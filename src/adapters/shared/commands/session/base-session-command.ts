@@ -14,7 +14,7 @@ import { CommandCategory, type CommandExecutionContext } from "../../command-reg
  */
 export interface SessionCommandDependencies {
   // Session domain functions - will be injected
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -43,7 +43,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   /**
    * Get the Zod schema for validating parameters
    */
-  abstract getParameterSchema(): Record<string, any>;
+  abstract getParameterSchema(): Record<string, unknown>;
 
   /**
    * Execute the command with validated parameters
@@ -113,7 +113,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   /**
    * Get additional context for error logging (override in subclasses)
    */
-  protected getAdditionalLogContext(params: TParams): Record<string, any> {
+  protected getAdditionalLogContext(params: TParams): Record<string, unknown> {
     return {};
   }
 
@@ -121,10 +121,10 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Create success result with consistent structure
    */
   protected createSuccessResult(
-    data: any,
+    data: Record<string, unknown>,
     message?: string,
-    additionalData: Record<string, any> = {}
-  ): any {
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
     return {
       success: true,
       ...data,
@@ -138,8 +138,8 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    */
   protected createErrorResult(
     error: string | Error,
-    additionalData: Record<string, any> = {}
-  ): any {
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
     return {
       success: false,
       error: typeof error === "string" ? error : getErrorMessage(error),
@@ -157,7 +157,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
       name: this.getCommandName(),
       description: this.getCommandDescription(),
       parameters: this.getParameterSchema(),
-      execute: (params: Record<string, any>, context: CommandExecutionContext) =>
+      execute: (params: Record<string, unknown>, context: CommandExecutionContext) =>
         this.execute(params as TParams, context),
     };
   }
@@ -174,20 +174,20 @@ export type SessionCommandFactory<TParams, TResult> = (
  * Session command registry for managing command instances
  */
 export class SessionCommandRegistry {
-  private commands = new Map<string, BaseSessionCommand<any, any>>();
+  private commands = new Map<string, BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>>();
 
   /**
    * Register a session command
    */
   register<TParams, TResult>(id: string, command: BaseSessionCommand<TParams, TResult>): void {
-    this.commands.set(id, command);
+    this.commands.set(id, command as unknown as BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>);
   }
 
   /**
    * Get a session command by ID
    */
   get<TParams, TResult>(id: string): BaseSessionCommand<TParams, TResult> | undefined {
-    return this.commands.get(id);
+    return this.commands.get(id) as unknown as BaseSessionCommand<TParams, TResult> | undefined;
   }
 
   /**
@@ -215,7 +215,7 @@ export class SessionCommandRegistry {
   /**
    * Get all commands for registration
    */
-  getAllCommands(): Array<{ id: string; registrationData: any }> {
+  getAllCommands(): Array<{ id: string; registrationData: Record<string, unknown> }> {
     return Array.from(this.commands.entries()).map(([id, command]) => ({
       id,
       registrationData: command.getRegistrationData(),

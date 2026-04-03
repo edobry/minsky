@@ -26,7 +26,7 @@ interface SessionPrListParams extends BaseSessionCommandParams {
   verbose?: boolean;
 }
 
-export class SessionPrListCommand extends BaseSessionCommand<SessionPrListParams, any> {
+export class SessionPrListCommand extends BaseSessionCommand<SessionPrListParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.list";
   }
@@ -39,14 +39,14 @@ export class SessionPrListCommand extends BaseSessionCommand<SessionPrListParams
     return "List all pull requests associated with sessions";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionPrListCommandParams;
   }
 
   async executeCommand(
     params: SessionPrListParams,
     _context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     try {
       const result = await sessionPrList({
         session: params.session,

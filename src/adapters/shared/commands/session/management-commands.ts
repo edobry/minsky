@@ -49,7 +49,7 @@ interface SessionMigrateBackendParams extends BaseSessionCommandParams {
 /**
  * Session Delete Command
  */
-export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams, any> {
+export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.delete";
   }
@@ -62,11 +62,11 @@ export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams
     return "Delete a session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionDeleteCommandParams;
   }
 
-  async executeCommand(params: SessionDeleteParams, context: CommandExecutionContext): Promise<any> {
+  async executeCommand(params: SessionDeleteParams, context: CommandExecutionContext): Promise<Record<string, unknown>> {
     const { deleteSessionFromParams } = await import("../../../../domain/session");
 
     const deleted = await deleteSessionFromParams({
@@ -87,7 +87,7 @@ export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams
 /**
  * Session Update Command
  */
-export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams, any> {
+export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.update";
   }
@@ -100,14 +100,14 @@ export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams
     return "Update a session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionUpdateCommandParams;
   }
 
   async executeCommand(
     params: SessionUpdateParams,
     context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { updateSessionFromParams } = await import("../../../../domain/session");
 
     await updateSessionFromParams({
@@ -139,7 +139,7 @@ export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams
  */
 export class SessionMigrateBackendCommand extends BaseSessionCommand<
   SessionMigrateBackendParams,
-  any
+  Record<string, unknown>
 > {
   getCommandId(): string {
     return "session.migrate-backend";
@@ -153,14 +153,14 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
     return "Migrate a session's repository backend to GitHub by following origin remote";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionMigrateBackendCommandParams;
   }
 
   async executeCommand(
     params: SessionMigrateBackendParams,
     _context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     const { resolveSessionContextWithFeedback } = await import(
       "../../../../domain/session/session-context-resolver"
     );
@@ -329,7 +329,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
     }
 
     // Prepare session record updates
-    const sessionUpdates: any = {
+    const sessionUpdates: Record<string, unknown> = {
       repoUrl: finalTargetUrl,
       backendType: targetBackend,
     };
