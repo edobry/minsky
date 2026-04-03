@@ -65,7 +65,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
       const baseParams = validParams as BaseGitOperationParams;
       if (baseParams.session && !baseParams.repo) {
         const workdir = await resolveSessionDirectory(baseParams.session);
-        (validParams as any).repo = workdir;
+        (validParams as Record<string, unknown>).repo = workdir;
       }
 
       // Execute the operation

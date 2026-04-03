@@ -104,6 +104,7 @@ export class DefaultAICompletionService implements AICompletionService {
           id: call.toolCallId,
           name: call.toolName,
           arguments: call.args,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           result: (call as any).result,
         })),
         steps: result.steps?.map((step) => ({
@@ -113,7 +114,8 @@ export class DefaultAICompletionService implements AICompletionService {
             id: call.toolCallId,
             name: call.toolName,
             arguments: call.args,
-            result: (call as any).result,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          result: (call as any).result,
           })),
           usage: transformUsage(step.usage),
         })),
@@ -195,6 +197,7 @@ export class DefaultAICompletionService implements AICompletionService {
           id: call.toolCallId,
           name: call.toolName,
           arguments: call.args,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           result: (call as any).result,
         })),
         finishReason: mapFinishReason((await streamResult.finishReason) || "stop"),

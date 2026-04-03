@@ -315,11 +315,11 @@ export class DefaultTokenizationService implements TokenizationService {
   private getTokenizerEncoding(tokenizer: LocalTokenizer, model: string): string {
     // Try to get encoding from tokenizer if it supports this method
     if ("getModelEncoding" in tokenizer && typeof tokenizer.getModelEncoding === "function") {
-      return (tokenizer as any).getModelEncoding(model);
+      return (tokenizer as LocalTokenizer & { getModelEncoding: (model: string) => string }).getModelEncoding(model);
     }
 
     if ("getEncodingForModel" in tokenizer && typeof tokenizer.getEncodingForModel === "function") {
-      return (tokenizer as any).getEncodingForModel(model);
+      return (tokenizer as LocalTokenizer & { getEncodingForModel: (model: string) => string }).getEncodingForModel(model);
     }
 
     // Default based on model patterns

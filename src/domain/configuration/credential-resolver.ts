@@ -42,6 +42,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   async getAICredential(provider: string): Promise<string | undefined> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const aiConfig = get("ai") as any;
       const providerConfig = aiConfig?.providers?.[provider];
 
@@ -84,6 +85,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   private async getGitHubCredential(): Promise<string | undefined> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const githubConfig = get("github") as any;
       if (!githubConfig?.credentials) {
         return undefined;

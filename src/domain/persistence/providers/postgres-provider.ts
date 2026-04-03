@@ -258,6 +258,7 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new PostgresVectorStorage(this.sql, this.db as any, dimension, {
       tableName: "tasks_embeddings",
       idColumn: "task_id",

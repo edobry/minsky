@@ -111,7 +111,7 @@ export class SessionDbHealthMonitor {
     } catch (error) {
       log.error("Health check failed", {
         error: getErrorMessage(error),
-        duration: (Date as any).now() - startTime,
+        duration: Date.now() - startTime,
       });
 
       return {
@@ -159,7 +159,7 @@ export class SessionDbHealthMonitor {
         setTimeout(() => reject(new Error("Health check timeout")), this.HEALTH_CHECK_TIMEOUT)
       );
 
-      await Promise.race([testPromise, timeoutPromise] as any[]);
+      await Promise.race([testPromise, timeoutPromise]);
 
       status.healthy = true;
       status.responseTime = Date.now() - startTime;
@@ -169,7 +169,7 @@ export class SessionDbHealthMonitor {
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
-      (status.errors as any).push(getErrorMessage(error));
+      (status.errors ??= []).push(getErrorMessage(error));
 
       log.warn("Backend health check failed", {
         backend: config.backend,
@@ -235,7 +235,7 @@ export class SessionDbHealthMonitor {
 
       if (fs.existsSync(dbPath)) {
         const stats = fs.statSync(dbPath);
-        (status.details! as any).fileSize = stats.size;
+        status.details!.fileSize = stats.size;
         status.details!.lastModified = stats.mtime.toISOString();
 
         // Warn about large files

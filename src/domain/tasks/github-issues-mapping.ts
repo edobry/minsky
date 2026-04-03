@@ -190,7 +190,7 @@ export function extractTaskIdFromIssue(issue: {
  * Derive a Minsky TaskStatus from the labels attached to a GitHub issue.
  */
 export function getTaskStatusFromIssue(
-  issue: { labels: Array<string | { name: string }> },
+  issue: { labels: Array<string | { name?: string | null }> },
   statusLabels: Record<string, string>
 ): TaskStatus {
   for (const [status, label] of Object.entries(statusLabels)) {
@@ -246,7 +246,7 @@ export function buildSpecContentFromIssue(
   taskId: string,
   statusLabels: Record<string, string>
 ): string {
-  const status = getTaskStatusFromIssue(issue as any, statusLabels);
+  const status = getTaskStatusFromIssue(issue, statusLabels);
   return `# Task ${taskId}: ${issue.title}
 
 ## Status

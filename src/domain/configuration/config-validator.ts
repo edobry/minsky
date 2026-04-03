@@ -76,7 +76,8 @@ export class DefaultConfigValidator implements ConfigValidator {
 
       // Validate backend-specific configuration (using tasks.backend instead of deprecated root backend)
       if (backend === TaskBackend.GITHUB_ISSUES) {
-        const backendConfig = get("backendConfig") as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const backendConfig = get("backendConfig") as any;
         const githubConfig = backendConfig?.["github-issues"];
 
         if (!githubConfig?.owner) {
@@ -118,6 +119,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ai = get("ai") as any;
 
       if (ai?.default_provider) {
@@ -136,6 +138,7 @@ export class DefaultConfigValidator implements ConfigValidator {
         for (const [providerName, providerConfig] of Object.entries(ai.providers)) {
           const validationResult = this.validateAIProviderConfig(
             providerName,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             providerConfig as any
           );
           errors.push(...validationResult.errors);
@@ -176,6 +179,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const github = get("github") as any;
 
       if (github?.credentials) {

@@ -117,7 +117,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       const data = readFileSync(this.filePath, "utf8");
-      const dataStr = typeof data === "string" ? data : String((data as any).toString());
+      const dataStr = typeof data === "string" ? data : data.toString("utf8");
 
       // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.toString().trim()) {
@@ -213,7 +213,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
-    const entity = entities.find((e) => (e as any)[this.idField] === id);
+    const entity = entities.find((e) => (e as Record<string, unknown>)[this.idField] === id);
 
     return entity || null;
   }
@@ -239,7 +239,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     // Filter entities based on query options
     return entities.filter((entity) => {
       for (const [key, value] of Object.entries(options)) {
-        if ((entity as any)[key] !== value) {
+        if ((entity as Record<string, unknown>)[key] !== value) {
           return false;
         }
       }
@@ -265,8 +265,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Check if entity with this ID already exists
-      const id = (entity as any)[this.idField];
-      if (id && entities.some((e) => (e as any)[this.idField] === id)) {
+      const id = (entity as Record<string, unknown>)[this.idField];
+      if (id && entities.some((e) => (e as Record<string, unknown>)[this.idField] === id)) {
         throw new Error(`Entity with ID ${id} already exists`);
       }
 

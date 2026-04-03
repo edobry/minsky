@@ -29,7 +29,7 @@ export interface EffectivePersistenceConfig {
  *   4. Hard-coded defaults (backend → "sqlite", dbPath → default SQLite path)
  */
 export function getEffectivePersistenceConfig(config: Configuration): EffectivePersistenceConfig {
-  const legacy = (config as any).sessiondb as Record<string, any> | undefined;
+  const legacy = (config as Configuration & { sessiondb?: Record<string, unknown> }).sessiondb;
 
   // ── backend ──────────────────────────────────────────────────────────────
   const backend: string = config.persistence?.backend ?? legacy?.backend ?? "sqlite";

@@ -218,7 +218,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
 Current directory: ${process.cwd()}
-Session requested: "${(options as any).session}"
+Session requested: "${options.session}"
 `);
           }
         } else {
@@ -262,7 +262,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
 Current directory: ${process.cwd()}
-Session requested: "${(options as any).session}"
+Session requested: "${options.session}"
 `);
         }
       } else {
@@ -306,7 +306,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
 Current directory: ${process.cwd()}
-Session requested: "${(options as any).session}"
+Session requested: "${options.session}"
 `);
       }
     }

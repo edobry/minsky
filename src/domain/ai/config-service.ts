@@ -27,14 +27,15 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
       // Check if this is a mock config service with loadConfiguration method
+      type ConfigServiceWithLoad = { loadConfiguration: (path: string) => Promise<{ resolved: Record<string, unknown> }> };
       if ("loadConfiguration" in this.configService) {
-        const result = await (this.configService as any).loadConfiguration(processCwd());
-        const config = (result as any).resolved;
+        const result = await (this.configService as ConfigServiceWithLoad).loadConfiguration(processCwd());
+        const config = result.resolved;
         return await this.parseProviderConfig(provider, config);
       }
 
       // Use the real configuration provider's getConfig method
-      const config = (this.configService as any).getConfig();
+      const config = (this.configService as { getConfig: () => Record<string, unknown> }).getConfig();
       return await this.parseProviderConfig(provider, config);
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
@@ -50,10 +51,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getDefaultProvider(): Promise<string> {
     try {
-      const result = await (this.configService as any).loadConfiguration(processCwd());
+      type ConfigServiceWithLoad = { loadConfiguration: (path: string) => Promise<{ resolved: { ai?: { defaultProvider?: string; default_provider?: string } } }> };
+      const result = await (this.configService as ConfigServiceWithLoad).loadConfiguration(processCwd());
       const defaultProvider =
-        (result.resolved.ai as any).defaultProvider ||
-        (result.resolved.ai as any).default_provider ||
+        result.resolved.ai?.defaultProvider ||
+        result.resolved.ai?.default_provider ||
         "openai";
       return defaultProvider;
     } catch (error) {

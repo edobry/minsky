@@ -35,7 +35,7 @@ export async function createToolSimilarityCore(options: ToolSimilarityCoreOption
   const lexical = new LexicalSimilarityBackend({
     getById: async (id: string) => {
       try {
-        return sharedCommandRegistry.getCommand(id) as any;
+        return sharedCommandRegistry.getCommand(id) as { id: string } | null;
       } catch {
         return null;
       }
@@ -66,6 +66,6 @@ export async function createToolSimilarityCore(options: ToolSimilarityCoreOption
   });
 
   // Fallback order: embeddings -> ai (future) -> keywords -> lexical
-  const backends = [embeddings, /* ai (future) */ keywords, lexical].filter(Boolean) as any;
+  const backends = [embeddings, /* ai (future) */ keywords, lexical].filter((b): b is NonNullable<typeof b> => b != null);
   return new SimilaritySearchService(backends);
 }

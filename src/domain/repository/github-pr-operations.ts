@@ -192,7 +192,7 @@ export async function createPullRequest(
             pullRequest: {
               number: pr.number,
               url: pr.html_url,
-              state: pr.draft ? "draft" : (pr.state as any) || "open",
+              state: pr.draft ? "draft" : (pr.state as "open" | "closed" | "merged" | "draft") || "open",
               createdAt: pr.created_at,
               mergedAt: pr.merged_at || undefined,
               headBranch: pr.head.ref,
@@ -575,6 +575,7 @@ export async function getPullRequestDiff(
     pull_number: prNumber,
     headers: { accept: "application/vnd.github.v3.diff" },
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const diff = String((diffResponse as any).data || "");
 
   const filesResponse = await octokit.rest.pulls.listFiles({

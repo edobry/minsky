@@ -74,7 +74,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
-    this.gitService = (config as any).gitService || createGitService();
+    this.gitService = config.gitService || createGitService();
   }
 
   getCapabilities(): BackendCapabilities {
@@ -138,7 +138,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (taskIndex === -1) throw new Error(`Task not found: ${taskId}`);
 
     const updatedTask = { ...tasks[taskIndex]!, ...updates, id: tasks[taskIndex]!.id };
-    tasks[taskIndex] = updatedTask as any;
+    tasks[taskIndex] = updatedTask as TaskData;
 
     await this.saveTasksOrThrow(tasks);
 
@@ -148,7 +148,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       description: updatedTask.description || "",
       status: updatedTask.status || "",
       specPath: updatedTask.specPath || "",
-    } as any;
+    };
   }
 
   async createTask(specPath: string | any, _options?: CreateTaskOptions): Promise<Task> {

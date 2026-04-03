@@ -209,7 +209,7 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
     log.error(`Failed to list files in directory: ${dirPath}`, {
       error: error instanceof Error ? error : String(error),
     });
-    return null as any;
+    return null;
   }
 }
 

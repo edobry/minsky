@@ -71,8 +71,11 @@ export const PROVIDER_FETCHER_REGISTRY = {
   morph: MorphModelFetcher,
 
   // ❌ Missing fetchers - TypeScript will enforce these!
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   google: null as any, // TODO: Implement GoogleModelFetcher
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cohere: null as any, // TODO: Implement CohereModelFetcher
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mistral: null as any, // TODO: Implement MistralModelFetcher
 } as const satisfies EnsureCompleteRegistry<ProviderFetcherRegistry>;
 

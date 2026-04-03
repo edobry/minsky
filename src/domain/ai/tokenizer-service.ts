@@ -7,6 +7,12 @@
 
 import type { AIModel, TokenizerInfo } from "./types";
 
+/** Common shape of tokenizer instances returned by various libraries */
+interface TokenizerInstance {
+  encode(text: string): number[] | { length: number };
+  decode?(tokenIds: number[]): string;
+}
+
 // Token counting interface
 export interface TokenCount {
   tokens: number;
@@ -90,11 +96,11 @@ export class DefaultTokenizerService implements TokenizerService {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
 
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    const tokens = (tokenizer as any).encode(text);
+    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    const tokens = tokenizer.encode(text);
 
     return {
-      tokens: tokens.length,
+      tokens: (tokens as number[]).length ?? (tokens as { length: number }).length,
       characters: text.length,
       model: modelId,
       library: tokenizerInfo.library ?? "unknown",
@@ -107,8 +113,8 @@ export class DefaultTokenizerService implements TokenizerService {
     if (!tokenizerInfo) {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    return (tokenizer as any).encode(text);
+    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    return tokenizer.encode(text) as number[];
   }
 
   async detokenize(tokenIds: number[], modelId: string, provider?: string): Promise<string> {
@@ -116,9 +122,9 @@ export class DefaultTokenizerService implements TokenizerService {
     if (!tokenizerInfo) {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
-    const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    if (typeof (tokenizer as any).decode === "function") {
-      return (tokenizer as any).decode(tokenIds);
+    const tokenizer = await this.getTokenizerInstance(tokenizerInfo) as TokenizerInstance;
+    if (typeof tokenizer.decode === "function") {
+      return tokenizer.decode(tokenIds);
     }
     // Fallback: join by spaces (rough) if decoder not available
     return tokenIds.join(" ");
@@ -248,17 +254,19 @@ export class DefaultTokenizerService implements TokenizerService {
   private async createGptTokenizer(encoding: string): Promise<unknown> {
     try {
       const gptTokenizer = await import("gpt-tokenizer");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const GPTTokens = (gptTokenizer as any).GPTTokens;
       const instance = new GPTTokens({
         model: encoding === "o200k_base" ? "gpt-4o" : "gpt-4",
         training: false,
-      });
+      }) as TokenizerInstance;
       // Ensure decode API exists in a consistent shape
       if (
-        typeof (instance as any).decode !== "function" &&
-        typeof (instance as any).decodeTokens === "function"
+        typeof (instance as TokenizerInstance).decode !== "function" &&
+        typeof (instance as TokenizerInstance & { decodeTokens?: (t: number[]) => string }).decodeTokens === "function"
       ) {
-        (instance as any).decode = (tokens: number[]) => (instance as any).decodeTokens(tokens);
+        const withDecode = instance as TokenizerInstance & { decodeTokens: (t: number[]) => string };
+        (instance as TokenizerInstance).decode = (tokens: number[]) => withDecode.decodeTokens(tokens);
       }
       return instance;
     } catch (error) {
@@ -272,6 +280,7 @@ export class DefaultTokenizerService implements TokenizerService {
   private async createTiktokenTokenizer(encoding: string): Promise<unknown> {
     try {
       const { get_encoding } = await import("tiktoken");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return get_encoding(encoding as any);
     } catch (error) {
       throw new Error(`Failed to load tiktoken: ${error}`);

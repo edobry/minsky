@@ -90,7 +90,7 @@ function extractGitHubRepoFromRemote(
       workspacePath,
       error: getErrorMessage(error),
     });
-    return null as any;
+    return null;
   }
 }
 

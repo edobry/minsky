@@ -504,8 +504,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
               startLine: comment.start_line || comment.line,
               endLine: comment.line,
               createdAt: new Date(comment.created_at),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               isResolved: (comment as any).resolved,
             })),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             submittedAt: new Date(review.submitted_at || (review as any).created_at),
           };
         })
@@ -536,6 +538,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         content: comment.body || "",
         createdAt: new Date(comment.created_at),
         updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         isMinimized: (comment as any).minimized_reason !== null,
       })) as ChangesetComment[];
     } catch (error) {

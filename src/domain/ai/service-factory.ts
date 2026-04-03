@@ -32,7 +32,7 @@ export function createCompletionService(config: ResolvedConfig): DefaultAIComple
  * Create an AI configuration service from a resolved configuration.
  */
 export function createConfigService(config: ResolvedConfig): DefaultAIConfigurationService {
-  return new DefaultAIConfigurationService(wrapConfig(config) as any);
+  return new DefaultAIConfigurationService(wrapConfig(config));
 }
 
 /**

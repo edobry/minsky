@@ -43,12 +43,14 @@ export function createLanguageModel(
     }
 
     case "anthropic":
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return anthropic(resolvedModel, {
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
       } as any);
 
     case "google":
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return google(resolvedModel, {
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
@@ -59,6 +61,7 @@ export function createLanguageModel(
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (morphProvider as any)(resolvedModel);
     }
 

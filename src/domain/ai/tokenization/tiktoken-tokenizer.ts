@@ -55,6 +55,7 @@ export class TiktokenTokenizer implements LocalTokenizer {
   encode(text: string, model?: string): number[] {
     try {
       if (model && this.isModelSupported(model)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const encoding = encoding_for_model(model as any);
         const tokens = encoding.encode(text);
         encoding.free(); // Important: free the encoding to prevent memory leaks
@@ -77,6 +78,7 @@ export class TiktokenTokenizer implements LocalTokenizer {
   decode(tokens: number[], model?: string): string {
     try {
       if (model && this.isModelSupported(model)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const encoding = encoding_for_model(model as any);
         const decoded = encoding.decode(new Uint32Array(tokens));
         encoding.free();
@@ -98,6 +100,7 @@ export class TiktokenTokenizer implements LocalTokenizer {
   countTokens(text: string, model?: string): number {
     try {
       if (model && this.isModelSupported(model)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const encoding = encoding_for_model(model as any);
         const tokens = encoding.encode(text);
         const count = tokens.length;

@@ -161,6 +161,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     }
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sessions = (state as any).sessions || [];
 
       // Use Drizzle transaction
@@ -170,6 +171,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
         // Insert new sessions
         if (sessions.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const sessionRecords = sessions.map((session: TEntity) => toSqliteInsert(session as any));
           await tx.insert(sessionsTable).values(sessionRecords);
         }
@@ -235,6 +237,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           query = query.where(and(...conditions)) as any;
         }
       }
@@ -254,6 +257,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     }
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sessionRecord = toSqliteInsert(entity as any);
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
@@ -278,6 +282,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
       // Prepare update data using schema conversion
       const mergedEntity = { ...existing, ...updates };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateData = toSqliteInsert(mergedEntity as any);
 
       // Remove the session field from updates (it's the primary key)

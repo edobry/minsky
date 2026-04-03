@@ -184,7 +184,7 @@ ${description}
       taskId = validateQualifiedTaskId(spec.id) || spec.id;
     } else {
       // TASK 283: Generate plain ID format for storage using proper max ID logic
-      taskId = getNextTaskId(tasks as any); // Uses max existing ID + 1, returns plain format
+      taskId = getNextTaskId(tasks as unknown as TaskData[]); // Uses max existing ID + 1, returns plain format
     }
 
     // Create the new task data
@@ -224,6 +224,7 @@ ${description}
 
           // Delete from tasks table (this will cascade delete from tasks_embeddings due to FK constraint)
           const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           log.debug(`Deleted task ${id} from database`, { rowCount: (result as any).rowCount });
         } else {
           log.debug(`No database connection available for task ${id} deletion`);
@@ -233,7 +234,7 @@ ${description}
       }
     } catch (dbError) {
       // Log but don't fail the operation if database deletion fails
-      log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError as any)}`);
+      log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError)}`);
     }
 
     // Delete spec file if it exists

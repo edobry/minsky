@@ -157,7 +157,7 @@ export class PostgresVectorStorage implements VectorStorage {
       `SELECT ${cols.join(", ")} FROM ${this.config.tableName} WHERE ${this.config.idColumn} = $1 LIMIT 1`,
       [id]
     );
-    const row = (rows as any[])[0];
+    const row = (rows as Record<string, unknown>[])[0];
     if (!row) return null;
     const out: Record<string, unknown> = {};
     for (const c of cols) out[c] = (row as Record<string, unknown>)[c];
@@ -218,9 +218,9 @@ export class PostgresVectorStorage implements VectorStorage {
 
     const rows = await this.sql.unsafe(query, queryParams);
 
-    const results: SearchResult[] = (rows as any[]).map((r) => ({
-      id: String((r as any).id),
-      score: Number((r as any).score),
+    const results: SearchResult[] = (rows as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id),
+      score: Number(r.score),
     }));
 
     return results.filter((r) =>

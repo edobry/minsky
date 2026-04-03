@@ -39,8 +39,8 @@ export function validateSessionApprovedForMerge(
   sessionName: string
 ): void {
   // For GitHub backend, presence of a recorded PR is sufficient for further checks
-  if ((sessionRecord as any).backendType === "github") {
-    if (!(sessionRecord as any).pullRequest) {
+  if (sessionRecord.backendType === "github") {
+    if (!sessionRecord.pullRequest) {
       throw new ValidationError(
         `❌ MERGE REJECTED: Session "${sessionName}" has no GitHub pull request.\n` +
           `   Create or repair the PR first with 'minsky session pr create' or 'minsky session pr get'`
@@ -186,7 +186,7 @@ export async function mergeSessionPr(
   // Use stored repoUrl for backend detection to avoid redundant git commands
   const repoUrl = params.repo || sessionRecord.repoUrl || process.cwd();
   const backendType =
-    (sessionRecord.backendType as any) || detectRepositoryBackendTypeFromUrl(repoUrl);
+    sessionRecord.backendType || detectRepositoryBackendTypeFromUrl(repoUrl);
 
   // For merge operations, we still need a working directory (session workspace)
   const workingDirectory = await sessionDB.getSessionWorkdir(sessionNameToUse);
@@ -271,8 +271,8 @@ export async function mergeSessionPr(
   // Merge the approved PR using repository backend
   // Determine PR identifier based on backend
   let prIdentifier: string | number | undefined = sessionRecord.prBranch;
-  if ((sessionRecord as any).backendType === "github" && (sessionRecord as any).pullRequest) {
-    prIdentifier = (sessionRecord as any).pullRequest.number as number;
+  if (sessionRecord.backendType === "github" && sessionRecord.pullRequest) {
+    prIdentifier = sessionRecord.pullRequest.number;
   }
 
   if (!params.json) {
@@ -357,7 +357,7 @@ export async function mergeSessionPr(
           taskId: sessionRecord.taskId,
           force: true, // After successful merge, we can force cleanup
         },
-        { sessionDB: sessionDB as any }
+        { sessionDB: sessionDB }
       );
 
       sessionCleanup = {

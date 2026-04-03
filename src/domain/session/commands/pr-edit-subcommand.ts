@@ -100,9 +100,9 @@ export async function sessionPrEdit(
 
   const result = {
     prBranch: sessionRecord.prBranch ?? "",
-    baseBranch: (sessionRecord as any).baseBranch || "main",
-    title: params.title || (sessionRecord.prState as any)?.title,
-    body: finalBody || (sessionRecord.prState as any)?.body,
+    baseBranch: "main",
+    title: params.title,
+    body: finalBody,
   };
 
   return {

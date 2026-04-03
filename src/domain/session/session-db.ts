@@ -170,9 +170,8 @@ export function updateSessionFn(
     return state;
   }
 
-  const { session: _, ...safeUpdates } = updates as any;
   const updatedSessions = [...state.sessions];
-  updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
+  updatedSessions[index] = { ...updatedSessions[index], ...updates };
 
   return {
     ...state,

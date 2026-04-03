@@ -41,35 +41,35 @@ export class ModularTaskCommandsManager {
    * List tasks using the provided parameters
    */
   async listTasksFromParams(params: TaskListParams): Promise<any[]> {
-    return await this.operations.listTasks.execute(params as any);
+    return await this.operations.listTasks.execute(params as unknown as Parameters<typeof this.operations.listTasks.execute>[0]);
   }
 
   /**
    * Get a task by ID using the provided parameters
    */
   async getTaskFromParams(params: TaskGetParams): Promise<Task> {
-    return await this.operations.getTask.execute(params as any);
+    return await this.operations.getTask.execute(params as unknown as Parameters<typeof this.operations.getTask.execute>[0]);
   }
 
   /**
    * Get task status using the provided parameters
    */
   async getTaskStatusFromParams(params: TaskStatusGetParams): Promise<string> {
-    return await this.operations.getTaskStatus.execute(params as any);
+    return await this.operations.getTaskStatus.execute(params as unknown as Parameters<typeof this.operations.getTaskStatus.execute>[0]);
   }
 
   /**
    * Set task status using the provided parameters
    */
   async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<void> {
-    return await this.operations.setTaskStatus.execute(params as any);
+    return await this.operations.setTaskStatus.execute(params as unknown as Parameters<typeof this.operations.setTaskStatus.execute>[0]);
   }
 
   /**
    * Create task using the provided parameters
    */
   async createTaskFromParams(params: TaskCreateParams): Promise<Task> {
-    return await this.operations.createTask.execute(params as any);
+    return await this.operations.createTask.execute(params as unknown as Parameters<typeof this.operations.createTask.execute>[0]);
   }
 
   /**
@@ -86,14 +86,14 @@ export class ModularTaskCommandsManager {
       force: false,
       ...options,
     };
-    return await this.operations.createTaskFromTitleAndSpec.execute(params as any);
+    return await this.operations.createTaskFromTitleAndSpec.execute(params as unknown as Parameters<typeof this.operations.createTaskFromTitleAndSpec.execute>[0]);
   }
 
   /**
    * Get task specification content using the provided parameters
    */
   async getTaskSpecContentFromParams(params: TaskSpecContentParams): Promise<string> {
-    return await this.operations.getTaskSpecContent.execute(params as any);
+    return await this.operations.getTaskSpecContent.execute(params as unknown as Parameters<typeof this.operations.getTaskSpecContent.execute>[0]);
   }
 
   /**

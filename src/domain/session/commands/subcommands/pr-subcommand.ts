@@ -12,7 +12,7 @@ export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
   const noStatusUpdate = options?.["no-status-update"] === true;
 
   try {
-    const prDescription = await sessionPr({ session: sessionId, noStatusUpdate } as any);
+    const prDescription = await sessionPr({ session: sessionId, noStatusUpdate, title: "" });
     return {
       success: true,
       data: { prDescription },

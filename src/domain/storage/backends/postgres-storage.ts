@@ -244,13 +244,14 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
-      const anyErr: any = typedError as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyErr = typedError as any;
 
       // Prefer the underlying driver error message if available (no SQL query text)
-      const causeMessage =
+      const causeMessage: string | undefined =
         anyErr?.cause?.message || anyErr?.originalError?.message || anyErr?.cause?.cause?.message;
 
-      let concise = (causeMessage || typedError.message || String(typedError as any)) as string;
+      let concise = causeMessage || typedError.message || String(typedError);
 
       // If the message is a Drizzle wrapper ("Failed query: ..."), strip query/params blocks
       if (/^Failed query:/i.test(concise) || concise.includes("\nparams:")) {
@@ -311,6 +312,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     try {
       await this.ensureConnection();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = (await this.drizzle!.select()
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
@@ -330,6 +332,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     try {
       await this.ensureConnection();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const results = (await this.drizzle!.select().from(postgresSessions)) as any;
       log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
       log.debug(`Sample raw record:`, JSON.stringify(results[0], null, 2));
@@ -413,6 +416,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async entityExists(id: string): Promise<boolean> {
     try {
       await this.ensureConnection();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = (await this.drizzle!.select({ session: postgresSessions.session })
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
