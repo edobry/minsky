@@ -30,6 +30,8 @@ interface TasksListParams extends BaseTaskParams {
   status?: string;
   filter?: string;
   limit?: number;
+  since?: string;
+  until?: string;
 }
 
 /**
@@ -44,6 +46,7 @@ interface TasksGetParams extends BaseTaskParams {
  */
 interface TasksCreateParams extends BaseTaskParams {
   title: string;
+  description?: string;
   spec?: string;
   specPath?: string;
   force?: boolean;
@@ -83,8 +86,8 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
     try {
       const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
-      const sinceTs = parseTime((params as any).since);
-      const untilTs = parseTime((params as any).until);
+      const sinceTs = parseTime(params.since);
+      const untilTs = parseTime(params.until);
       tasks = filterByTimeRange(tasks, sinceTs, untilTs);
     } catch {
       // If utilities unavailable, skip
@@ -178,12 +181,12 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const title = this.validateRequired(params.title, "title");
 
       // Validate that either description or specPath is provided
-      if (!(params as any).description && !params.specPath) {
+      if (!params.description && !params.specPath) {
         throw new ValidationError("Either --description or --spec-path must be provided");
       }
 
       // Both description and specPath provided is an error
-      if ((params as any).description && params.specPath) {
+      if (params.description && params.specPath) {
         throw new ValidationError(
           "Cannot provide both --description and --spec-path - use one or the other"
         );
@@ -192,7 +195,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       // Create the task using the same function as main branch
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
-        spec: (params as any).description, // Map description to spec
+        spec: params.description, // Map description to spec
         specPath: params.specPath,
         force: params.force ?? false,
         backend: params.backend,

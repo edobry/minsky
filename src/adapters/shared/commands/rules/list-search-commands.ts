@@ -103,7 +103,7 @@ export function registerListSearchCommands(targetRegistry: {
       try {
         const workspacePath = await resolveWorkspacePath({});
         const limit = params.limit ?? 10;
-        const quiet = Boolean((params as any).quiet);
+        const quiet = Boolean(params.quiet);
         const json = Boolean(params.json) || ctx?.format === "json";
 
         if (!quiet && !json && params.query) {

@@ -13,6 +13,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../../command-registry";
+import type { ChangesetStatus } from "../../../../domain/changeset/types";
 import { CommonParameters, composeParams } from "../../common-parameters";
 import { getCurrentSession } from "../../../../domain/workspace";
 import { resolveRepositoryAndBackend } from "../../../../domain/session/repository-backend-detection";
@@ -35,7 +36,7 @@ const sessionChangesetListParams: CommandParameterMap = composeParams(
   },
   {
     status: {
-      schema: z.string().optional(),
+      schema: z.enum(["open", "merged", "closed", "draft"]).optional(),
       spec: "Filter by status (open, merged, closed, draft)",
       required: false,
     },
@@ -109,7 +110,7 @@ async function executeSessionChangesetList(
 
     // Get all changesets and filter by session
     const allChangesets = await changesetService.list({
-      status: params.status as any,
+      status: params.status as ChangesetStatus | undefined,
       limit: params.limit || 10,
     });
 

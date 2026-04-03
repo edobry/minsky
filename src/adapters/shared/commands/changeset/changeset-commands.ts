@@ -11,6 +11,7 @@ import { createChangesetService } from "../../../../domain/changeset/index";
 import type {
   ChangesetListOptions,
   ChangesetSearchOptions,
+  ChangesetStatus,
 } from "../../../../domain/changeset/types";
 import { resolveRepositoryAndBackend } from "../../../../domain/session/repository-backend-detection";
 import {
@@ -34,7 +35,7 @@ const changesetListParams: CommandParameterMap = composeParams(
   },
   {
     status: {
-      schema: z.string().optional(),
+      schema: z.enum(["open", "merged", "closed", "draft"]).optional(),
       spec: "Filter by status (open, merged, closed, draft)",
       required: false,
     },
@@ -77,7 +78,7 @@ const changesetSearchParams: CommandParameterMap = composeParams(
       required: true,
     },
     status: {
-      schema: z.string().optional(),
+      schema: z.enum(["open", "merged", "closed", "draft"]).optional(),
       spec: "Filter by status (open, merged, closed, draft)",
       required: false,
     },
@@ -162,7 +163,7 @@ async function executeChangesetList(params: any, ctx?: CommandExecutionContext):
 
     // Build list options
     const listOptions: ChangesetListOptions = {
-      status: params.status as any,
+      status: params.status as ChangesetStatus | undefined,
       author: params.author,
       targetBranch: params.targetBranch,
       limit: params.limit || 30,
@@ -248,7 +249,7 @@ async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext
     // Build search options
     const searchOptions: ChangesetSearchOptions = {
       query: params.query,
-      status: params.status as any,
+      status: params.status as ChangesetStatus | undefined,
       author: params.author,
       limit: params.limit || 20,
       searchTitle: params.searchTitle !== false,
