@@ -79,11 +79,13 @@ export const repositoryGitHubConfigSchema = z.object({
  * Stores the project-level repository backend type and associated settings,
  * detected once at `minsky init` and stored in .minsky/config.yaml.
  */
-export const repositoryConfigSchema = z.object({
-  backend: enumSchemas.repoBackendType,
-  url: z.string().optional(),
-  github: repositoryGitHubConfigSchema.optional(),
-});
+export const repositoryConfigSchema = z
+  .object({
+    backend: enumSchemas.repoBackendType.optional(),
+    url: z.string().optional(),
+    github: repositoryGitHubConfigSchema.optional(),
+  })
+  .passthrough();
 
 // Type exports
 export type Backend = z.infer<typeof backendSchema>;

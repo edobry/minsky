@@ -68,7 +68,7 @@ export interface RepositoryConfig {
     "json-file"?: Record<string, unknown>;
   };
   repository?: {
-    backend: "github" | "gitlab" | "local";
+    backend?: "github" | "gitlab" | "local";
     url?: string;
     github?: {
       owner: string;

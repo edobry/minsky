@@ -39,7 +39,7 @@ The repository backend type is set once — at `minsky init` — when the projec
 
 ```yaml
 repository:
-  backend: github          # "github" | "gitlab" | "local"
+  backend: github # "github" | "gitlab" | "local"
   url: https://github.com/edobry/minsky.git
   github:
     owner: edobry
@@ -89,6 +89,7 @@ CI environments, developer machines, and MCP server processes may all use differ
 ### Alternative 1: Keep Per-Session URL Pattern Matching
 
 **Rejected because**:
+
 - Conflates clone source with project identity
 - Produces inconsistent results across clone methods (SSH vs HTTPS)
 - Requires duplicate derivation logic on every session start
@@ -100,6 +101,7 @@ CI environments, developer machines, and MCP server processes may all use differ
 Set `MINSKY_REPO_BACKEND=github` to override URL detection.
 
 **Rejected because**:
+
 - Environment variables are per-machine, not per-project
 - Still requires fallback detection logic for unset environments
 - Does not solve the consistency problem across CI and developer machines
@@ -109,6 +111,7 @@ Set `MINSKY_REPO_BACKEND=github` to override URL detection.
 If `github.owner` and `github.repo` are present, assume GitHub backend.
 
 **Rejected because**:
+
 - Implicit coupling between unrelated config sections
 - `github` config is for authentication, not repository identity
 - Does not accommodate GitLab or future VCS providers
@@ -119,6 +122,7 @@ If `github.owner` and `github.repo` are present, assume GitHub backend.
 Detect the backend once and cache the result in a local state file.
 
 **Rejected because**:
+
 - Local state files are machine-specific and not version-controlled
 - Cache invalidation is a solved problem only if the source of truth is explicit
 - Adds complexity without eliminating the underlying heuristic
