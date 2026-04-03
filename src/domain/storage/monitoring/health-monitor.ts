@@ -18,7 +18,7 @@ export interface HealthStatus {
   backend: string;
   responseTime: number;
   timestamp: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   errors?: string[];
   warnings?: string[];
 }
@@ -380,7 +380,7 @@ export class SessionDbHealthMonitor {
     connectionCount?: number;
     locksHeld?: number;
   }> {
-    const metrics: Record<string, any> = {};
+    const metrics: Record<string, unknown> = {};
 
     try {
       // Check disk usage
@@ -416,7 +416,7 @@ export class SessionDbHealthMonitor {
   private static generateRecommendations(
     backendHealth: HealthStatus,
     performance: { averageResponseTime: number; successRate: number; recentErrors: number },
-    _storage: Record<string, any>
+    _storage: Record<string, unknown>
   ): string[] {
     const recommendations: string[] = [];
 

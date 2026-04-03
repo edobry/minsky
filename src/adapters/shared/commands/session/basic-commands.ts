@@ -76,7 +76,7 @@ export class SessionListCommand extends BaseSessionCommand<SessionListParams, an
     return "List all sessions";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionListCommandParams;
   }
 
@@ -122,7 +122,7 @@ export class SessionGetCommand extends BaseSessionCommand<SessionGetParams, any>
     return "Get details of a specific session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionGetCommandParams;
   }
 
@@ -174,7 +174,7 @@ export class SessionStartCommand extends BaseSessionCommand<SessionStartParams, 
     return "Start a new session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionStartCommandParams;
   }
 
@@ -226,7 +226,7 @@ export class SessionDirCommand extends BaseSessionCommand<SessionDirParams, any>
     return "Get the directory of a session";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionDirCommandParams;
   }
 
@@ -277,7 +277,7 @@ export class SessionSearchCommand extends BaseSessionCommand<SessionSearchParams
     return "Search sessions by query string across multiple fields";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionSearchCommandParams;
   }
 

@@ -101,7 +101,7 @@ export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams
     return "Commit and push changes within a session workspace";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionCommitCommandParams;
   }
 
@@ -157,7 +157,7 @@ export class SessionApproveCommand extends BaseSessionCommand<SessionApprovePara
     return "Approve a session pull request";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams;
   }
 
@@ -194,7 +194,7 @@ export class SessionInspectCommand extends BaseSessionCommand<SessionInspectPara
     return "Inspect the current session (auto-detected from workspace)";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionInspectCommandParams;
   }
 
@@ -228,7 +228,7 @@ export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams
     return "Review a session PR by gathering and displaying relevant information";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionReviewCommandParams;
   }
 
@@ -425,7 +425,7 @@ export class SessionPrApproveCommand extends BaseSessionCommand<SessionApprovePa
     return "Approve a session pull request (does not merge)";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams;
   }
 
@@ -463,7 +463,7 @@ export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergePara
     return "Merge an approved session pull request";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionApproveCommandParams; // Reuse same params for now
   }
 

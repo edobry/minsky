@@ -25,7 +25,7 @@ export interface ValidationSuccess<T> {
 export interface ValidationError {
   success: false;
   error: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   fieldErrors?: Record<string, string[]>;
 }
 
@@ -101,7 +101,7 @@ export function validateOperationParameters<T>(
  */
 export function validateCliArguments<T>(
   schema: ZodSchema<T>,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
   command: string
 ): ValidationResult<T> {
   // Transform CLI-style arguments (kebab-case) to expected format
@@ -188,8 +188,8 @@ export function extractFieldErrors(error: ZodError): Record<string, string[]> {
 /**
  * Transforms CLI-style arguments (kebab-case flags) to camelCase
  */
-export function transformCliArguments(args: Record<string, any>): Record<string, any> {
-  const transformed: Record<string, any> = {};
+export function transformCliArguments(args: Record<string, unknown>): Record<string, unknown> {
+  const transformed: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(args)) {
     // Convert kebab-case to camelCase

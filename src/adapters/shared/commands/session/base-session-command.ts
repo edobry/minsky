@@ -43,7 +43,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   /**
    * Get the Zod schema for validating parameters
    */
-  abstract getParameterSchema(): Record<string, any>;
+  abstract getParameterSchema(): Record<string, unknown>;
 
   /**
    * Execute the command with validated parameters
@@ -113,7 +113,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   /**
    * Get additional context for error logging (override in subclasses)
    */
-  protected getAdditionalLogContext(params: TParams): Record<string, any> {
+  protected getAdditionalLogContext(params: TParams): Record<string, unknown> {
     return {};
   }
 
@@ -123,7 +123,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   protected createSuccessResult(
     data: any,
     message?: string,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): any {
     return {
       success: true,
@@ -138,7 +138,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    */
   protected createErrorResult(
     error: string | Error,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): any {
     return {
       success: false,
@@ -157,7 +157,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
       name: this.getCommandName(),
       description: this.getCommandDescription(),
       parameters: this.getParameterSchema(),
-      execute: (params: Record<string, any>, context: CommandExecutionContext) =>
+      execute: (params: Record<string, unknown>, context: CommandExecutionContext) =>
         this.execute(params as TParams, context),
     };
   }
