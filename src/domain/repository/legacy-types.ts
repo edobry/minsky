@@ -175,7 +175,7 @@ export interface RepositoryBackend {
    * @param session Optional session identifier
    * @returns RepositoryStatus with clean state, changes, and branch information
    */
-  getStatus(session?: string): Promise<any>;
+  getStatus(session?: string): Promise<RepositoryStatus>;
 
   /**
    * Get the local path of the repository.
@@ -188,21 +188,21 @@ export interface RepositoryBackend {
    * Validate the repository configuration.
    * @returns ValidationResult indicating if the repository is valid
    */
-  validate(): Promise<any>;
+  validate(): Promise<ValidationResult>;
 
   /**
    * Push changes to the remote repository.
    * @param branch Branch to push (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  push(branch?: string): Promise<any>;
+  push(branch?: string): Promise<{ success: boolean; message: string }>;
 
   /**
    * Pull changes from the remote repository.
    * @param branch Branch to pull (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  pull(branch?: string): Promise<any>;
+  pull(branch?: string): Promise<{ success: boolean; message: string }>;
 
   /**
    * Create a new branch and switch to it.

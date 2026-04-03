@@ -54,7 +54,7 @@ export interface TokenizerService {
  */
 export class DefaultTokenizerService implements TokenizerService {
   private customTokenizers = new Map<string, TokenizerInfo>();
-  private tokenizerCache = new Map<string, any>();
+  private tokenizerCache = new Map<string, unknown>();
 
   /**
    * Get tokenizer information for a model
@@ -91,7 +91,7 @@ export class DefaultTokenizerService implements TokenizerService {
     }
 
     const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    const tokens = tokenizer.encode(text);
+    const tokens = (tokenizer as any).encode(text);
 
     return {
       tokens: tokens.length,
@@ -108,7 +108,7 @@ export class DefaultTokenizerService implements TokenizerService {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
     const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    return tokenizer.encode(text);
+    return (tokenizer as any).encode(text);
   }
 
   async detokenize(tokenIds: number[], modelId: string, provider?: string): Promise<string> {
@@ -117,8 +117,8 @@ export class DefaultTokenizerService implements TokenizerService {
       throw new Error(`No tokenizer found for model: ${modelId}`);
     }
     const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
-    if (typeof tokenizer.decode === "function") {
-      return tokenizer.decode(tokenIds);
+    if (typeof (tokenizer as any).decode === "function") {
+      return (tokenizer as any).decode(tokenIds);
     }
     // Fallback: join by spaces (rough) if decoder not available
     return tokenIds.join(" ");
@@ -212,14 +212,14 @@ export class DefaultTokenizerService implements TokenizerService {
   /**
    * Get cached tokenizer instance
    */
-  private async getTokenizerInstance(tokenizerInfo: TokenizerInfo): Promise<any> {
+  private async getTokenizerInstance(tokenizerInfo: TokenizerInfo): Promise<unknown> {
     const cacheKey = `${tokenizerInfo.library}:${tokenizerInfo.encoding}`;
 
     if (this.tokenizerCache.has(cacheKey)) {
       return this.tokenizerCache.get(cacheKey);
     }
 
-    let tokenizer: any;
+    let tokenizer: unknown;
 
     switch (tokenizerInfo.library) {
       case "gpt-tokenizer":
@@ -245,7 +245,7 @@ export class DefaultTokenizerService implements TokenizerService {
   /**
    * Create gpt-tokenizer instance
    */
-  private async createGptTokenizer(encoding: string): Promise<any> {
+  private async createGptTokenizer(encoding: string): Promise<unknown> {
     try {
       const gptTokenizer = await import("gpt-tokenizer");
       const GPTTokens = (gptTokenizer as any).GPTTokens;
@@ -269,7 +269,7 @@ export class DefaultTokenizerService implements TokenizerService {
   /**
    * Create tiktoken instance
    */
-  private async createTiktokenTokenizer(encoding: string): Promise<any> {
+  private async createTiktokenTokenizer(encoding: string): Promise<unknown> {
     try {
       const { get_encoding } = await import("tiktoken");
       return get_encoding(encoding as any);
@@ -281,7 +281,7 @@ export class DefaultTokenizerService implements TokenizerService {
   /**
    * Create Anthropic tokenizer (placeholder - would need actual implementation)
    */
-  private async createAnthropicTokenizer(encoding: string): Promise<any> {
+  private async createAnthropicTokenizer(encoding: string): Promise<unknown> {
     // For now, fallback to tiktoken for Claude models
     // In a real implementation, we'd use Anthropic's tokenizer if available
     return this.createTiktokenTokenizer("cl100k_base");
@@ -290,7 +290,7 @@ export class DefaultTokenizerService implements TokenizerService {
   /**
    * Create Google tokenizer (placeholder - would need actual implementation)
    */
-  private async createGoogleTokenizer(encoding: string): Promise<any> {
+  private async createGoogleTokenizer(encoding: string): Promise<unknown> {
     // For now, fallback to tiktoken for Gemini models
     // In a real implementation, we'd use Google's tokenizer if available
     return this.createTiktokenTokenizer("cl100k_base");

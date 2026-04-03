@@ -93,7 +93,7 @@ export interface AIStep {
 export interface AICompletionService {
   complete(request: AICompletionRequest): Promise<AICompletionResponse>;
   stream(request: AICompletionRequest): AsyncIterable<AICompletionResponse>;
-  generateObject(request: AIObjectGenerationRequest): Promise<any>;
+  generateObject(request: AIObjectGenerationRequest): Promise<unknown>;
   getAvailableModels(provider?: string): Promise<AIModel[]>;
   validateConfiguration(): Promise<ValidationResult>;
 }

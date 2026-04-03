@@ -9,7 +9,7 @@ import {
   type GitOperationDependencies,
   type BaseGitOperationParams,
 } from "./base-git-operation";
-import { type GitServiceInterface } from "../types";
+import { type GitServiceInterface, type EnhancedMergeResult } from "../types";
 import { getErrorMessage } from "../../../errors/index";
 
 /**
@@ -34,6 +34,20 @@ interface CheckoutParams extends BaseGitOperationParams {
 }
 
 /**
+ * Result of a checkout operation
+ */
+interface CheckoutResult {
+  workdir: string;
+  switched: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  warning?: {
+    wouldLoseChanges: boolean;
+    recommendedAction: string;
+  };
+}
+
+/**
  * Parameters for rebase operation
  */
 interface RebaseParams extends BaseGitOperationParams {
@@ -45,14 +59,29 @@ interface RebaseParams extends BaseGitOperationParams {
 }
 
 /**
+ * Result of a rebase operation
+ */
+interface RebaseResult {
+  workdir: string;
+  rebased: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  prediction?: {
+    canAutoResolve: boolean;
+    recommendations: string[];
+    overallComplexity: string;
+  };
+}
+
+/**
  * Merge branches operation with conflict detection
  */
-export class MergeOperation extends BaseGitOperation<MergeParams, any> {
+export class MergeOperation extends BaseGitOperation<MergeParams, EnhancedMergeResult> {
   getOperationName(): string {
     return "merge branches";
   }
 
-  async executeOperation(params: MergeParams, gitService: GitServiceInterface): Promise<any> {
+  async executeOperation(params: MergeParams, gitService: GitServiceInterface): Promise<EnhancedMergeResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const targetBranch = params.targetBranch || "HEAD";
 
@@ -84,12 +113,12 @@ export class MergeOperation extends BaseGitOperation<MergeParams, any> {
 /**
  * Checkout/switch branches operation with conflict detection
  */
-export class CheckoutOperation extends BaseGitOperation<CheckoutParams, any> {
+export class CheckoutOperation extends BaseGitOperation<CheckoutParams, CheckoutResult> {
   getOperationName(): string {
     return "checkout branch";
   }
 
-  async executeOperation(params: CheckoutParams, gitService: GitServiceInterface): Promise<any> {
+  async executeOperation(params: CheckoutParams, gitService: GitServiceInterface): Promise<CheckoutResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
 
     // Use ConflictDetectionService to check for branch switch conflicts
@@ -138,12 +167,12 @@ export class CheckoutOperation extends BaseGitOperation<CheckoutParams, any> {
 /**
  * Rebase branches operation with conflict detection
  */
-export class RebaseOperation extends BaseGitOperation<RebaseParams, any> {
+export class RebaseOperation extends BaseGitOperation<RebaseParams, RebaseResult> {
   getOperationName(): string {
     return "rebase branch";
   }
 
-  async executeOperation(params: RebaseParams, gitService: GitServiceInterface): Promise<any> {
+  async executeOperation(params: RebaseParams, gitService: GitServiceInterface): Promise<RebaseResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const featureBranch = params.featureBranch || "HEAD";
 

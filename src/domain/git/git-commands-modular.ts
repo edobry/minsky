@@ -11,6 +11,14 @@ import {
   type GitOperationRegistry,
 } from "./operations";
 import { createGitService } from "./git-service-factory";
+import type {
+  CloneResult,
+  BranchResult,
+  PushResult,
+  PreparePrResult,
+  MergePrResult,
+  EnhancedMergeResult,
+} from "./types";
 
 /**
  * Default dependencies for git operations
@@ -86,7 +94,7 @@ export class ModularGitCommandsManager {
     body?: string;
     branchName?: string;
     debug?: boolean;
-  }): Promise<any> {
+  }): Promise<PreparePrResult> {
     return await this.getOperations().preparePr.execute(params);
   }
 
@@ -98,7 +106,7 @@ export class ModularGitCommandsManager {
     repo?: string;
     baseBranch?: string;
     session?: string;
-  }): Promise<any> {
+  }): Promise<MergePrResult> {
     return await this.getOperations().mergePr.execute(params);
   }
 
@@ -110,14 +118,14 @@ export class ModularGitCommandsManager {
     workdir: string;
     session?: string;
     branch?: string;
-  }): Promise<any> {
+  }): Promise<CloneResult> {
     return await this.getOperations().clone.execute(params);
   }
 
   /**
    * Create branch using the provided parameters
    */
-  async branchFromParams(params: { session: string; name: string }): Promise<any> {
+  async branchFromParams(params: { session: string; name: string }): Promise<BranchResult> {
     return await this.getOperations().branch.execute(params);
   }
 
@@ -130,7 +138,7 @@ export class ModularGitCommandsManager {
     remote?: string;
     force?: boolean;
     debug?: boolean;
-  }): Promise<any> {
+  }): Promise<PushResult> {
     return await this.getOperations().push.execute(params);
   }
 
@@ -145,7 +153,7 @@ export class ModularGitCommandsManager {
     preview?: boolean;
     autoResolve?: boolean;
     conflictStrategy?: string;
-  }): Promise<any> {
+  }): Promise<EnhancedMergeResult> {
     return await this.getOperations().merge.execute(params);
   }
 
@@ -159,7 +167,7 @@ export class ModularGitCommandsManager {
     preview?: boolean;
     autoResolve?: boolean;
     conflictStrategy?: string;
-  }): Promise<any> {
+  }): Promise<{ workdir: string; switched: boolean; conflicts: boolean; conflictDetails?: string; warning?: { wouldLoseChanges: boolean; recommendedAction: string } }> {
     return await this.getOperations().checkout.execute(params);
   }
 
@@ -174,7 +182,7 @@ export class ModularGitCommandsManager {
     preview?: boolean;
     autoResolve?: boolean;
     conflictStrategy?: string;
-  }): Promise<any> {
+  }): Promise<{ workdir: string; rebased: boolean; conflicts: boolean; conflictDetails?: string; prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string } }> {
     return await this.getOperations().rebase.execute(params);
   }
 
@@ -272,7 +280,7 @@ export async function preparePrFromParams(
     debug?: boolean;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<PreparePrResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.preparePrFromParams(params);
 }
@@ -288,7 +296,7 @@ export async function mergePrFromParams(
     session?: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<MergePrResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.mergePrFromParams(params);
 }
@@ -302,7 +310,7 @@ export async function branchFromParams(
     name: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<BranchResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.branchFromParams(params);
 }
@@ -318,7 +326,7 @@ export async function cloneFromParams(
     branch?: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<CloneResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.cloneFromParams(params);
 }
@@ -335,7 +343,7 @@ export async function pushFromParams(
     debug?: boolean;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<PushResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.pushFromParams(params);
 }
@@ -354,7 +362,7 @@ export async function mergeFromParams(
     conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<EnhancedMergeResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.mergeFromParams(params);
 }
@@ -372,7 +380,7 @@ export async function checkoutFromParams(
     conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<{ workdir: string; switched: boolean; conflicts: boolean; conflictDetails?: string; warning?: { wouldLoseChanges: boolean; recommendedAction: string } }> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.checkoutFromParams(params);
 }
@@ -391,7 +399,7 @@ export async function rebaseFromParams(
     conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
-): Promise<any> {
+): Promise<{ workdir: string; rebased: boolean; conflicts: boolean; conflictDetails?: string; prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string } }> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.rebaseFromParams(params);
 }

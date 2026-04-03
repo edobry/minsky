@@ -16,6 +16,7 @@ import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TASK_STATUS, createConfiguredTaskService } from "../tasks";
 import type { TaskServiceInterface } from "../tasks/taskService";
+import type { Task } from "../tasks/types";
 import { execAsync } from "../../utils/exec";
 import {
   type WorkspaceUtilsInterface,
@@ -97,10 +98,10 @@ export async function approveSessionImpl(
     sessionDB?: SessionProviderInterface;
     gitService?: GitServiceInterface;
     taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      setTaskStatus?: (taskId: string, status: string) => Promise<void>;
       getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-      getBackendForTask?: (taskId: string) => Promise<any>;
-      getTask?: (taskId: string) => Promise<any>;
+      getBackendForTask?: (taskId: string) => Promise<string>;
+      getTask?: (taskId: string) => Promise<Task | null>;
     };
     workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;

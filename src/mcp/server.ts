@@ -76,7 +76,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: object;
-  handler: (args: any) => Promise<any>;
+  handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
 interface ResourceDefinition {
@@ -84,14 +84,14 @@ interface ResourceDefinition {
   name: string;
   description?: string;
   spec?: string;
-  handler: (uri: string) => Promise<any>;
+  handler: (uri: string) => Promise<unknown>;
 }
 
 interface PromptDefinition {
   name: string;
   description?: string;
   spec?: string;
-  handler: (args: any) => Promise<any>;
+  handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
 /**
