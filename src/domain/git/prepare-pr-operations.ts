@@ -155,7 +155,7 @@ export async function preparePrImpl(
               repoUrl: repoUrl.trim(),
               repoName,
               createdAt: new Date().toISOString(),
-              taskId: taskId !== options.session ? taskId : undefined, // Only set if valid task ID
+              taskId: taskId ?? undefined, // Only set if valid task ID extracted
               branch: options.session,
             };
 

@@ -237,7 +237,7 @@ describe("Session Start Consistency Tests", () => {
             rm: async () => {},
           },
         })
-      ).rejects.toThrow("Session 'task-md#160' already exists");
+      ).rejects.toThrow(/Session '.*' already exists/);
 
       // Verify no git operations were attempted
       expect(gitCloneSpy).not.toHaveBeenCalled();
@@ -379,9 +379,12 @@ describe("Session Start Consistency Tests", () => {
 
       // Verify return value includes session information
       expect(result).toMatchObject({
-        session: "task-md#160",
         taskId: "md#160",
       });
+      // Session name is now a UUID
+      expect(result.session).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      );
     });
   });
 });

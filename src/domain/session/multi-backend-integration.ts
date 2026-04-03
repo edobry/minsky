@@ -5,6 +5,8 @@ import {
   isQualifiedTaskId,
   extractBackend,
   extractLocalId,
+  generateSessionId,
+  isUuidSessionName,
 } from "../tasks/task-id";
 
 /**
@@ -22,19 +24,21 @@ export interface MultiBackendSessionRecord extends SessionRecord {
  */
 export class SessionMultiBackendIntegration {
   /**
-   * Generate session name from qualified task ID
+   * Generate session name from qualified task ID.
+   * Returns an opaque UUID — task linkage is via SessionRecord.taskId, not the session name.
    *
    * @param taskId Task ID in qualified format (md#123, gh#456)
-   * @returns Session name (task-md#123)
+   * @param idGenerator Optional custom ID generator (for testing)
+   * @returns Session name (UUID)
    */
-  static generateSessionName(taskId: string): string {
+  static generateSessionName(taskId: string, idGenerator?: () => string): string {
     if (!taskId) {
       throw new Error("Task ID is required for session name generation");
     }
 
     // Strict: qualified IDs only
     if (isQualifiedTaskId(taskId)) {
-      return taskIdToSessionName(taskId);
+      return generateSessionId(idGenerator);
     }
 
     throw new Error(
@@ -43,17 +47,23 @@ export class SessionMultiBackendIntegration {
   }
 
   /**
-   * Extract task ID from session name
+   * Extract task ID from session name.
+   * Returns null for UUID session names — use DB lookup instead.
    *
-   * @param sessionName Session name (task-md#123)
-   * @returns Task ID in qualified format (md#123)
+   * @param sessionName Session name (UUID or legacy task-md#123)
+   * @returns Task ID in qualified format (md#123) or null
    */
   static extractTaskIdFromSessionName(sessionName: string): string | null {
     if (!sessionName) {
       return null;
     }
 
-    // Strict: only task-<qualifiedId>
+    // UUID session names don't encode task IDs — use DB lookup instead
+    if (isUuidSessionName(sessionName)) {
+      return null;
+    }
+
+    // Legacy: task-md#123 → md#123
     if (sessionName.startsWith("task-")) {
       return sessionNameToTaskId(sessionName);
     }
@@ -81,12 +91,17 @@ export class SessionMultiBackendIntegration {
   }
 
   /**
-   * Check if session name uses new multi-backend format
+   * Check if session name uses multi-backend format (UUID or legacy task-md#123)
    *
    * @param sessionName Session name to check
-   * @returns True if using new format (task-md#123), false for legacy (task123)
+   * @returns True if using multi-backend format
    */
   static isMultiBackendSessionName(sessionName: string): boolean {
+    // UUID session names are the new multi-backend format
+    if (isUuidSessionName(sessionName)) {
+      return true;
+    }
+    // Legacy format: task-md#123
     return sessionName.startsWith("task-") && sessionName.includes("#");
   }
 
@@ -95,14 +110,20 @@ export class SessionMultiBackendIntegration {
   // getDisplayTaskId removed: strict qualified IDs are displayed as-is
 
   /**
-   * Validate session-task compatibility
+   * Validate session-task compatibility.
+   * UUID sessions are always compatible — validation is via DB record, not name.
    *
    * @param sessionName Session name
    * @param taskId Task ID
-   * @returns True if session name matches task ID format
+   * @returns True if session name is compatible with task ID
    */
   static validateSessionTaskCompatibility(sessionName: string, taskId: string): boolean {
-    const expectedSessionName = this.generateSessionName(taskId);
+    // UUID sessions can be associated with any task — validation is done via DB record
+    if (isUuidSessionName(sessionName)) {
+      return true;
+    }
+    // Legacy: check if session name matches expected format
+    const expectedSessionName = taskIdToSessionName(taskId);
     return sessionName === expectedSessionName;
   }
 
@@ -170,11 +191,14 @@ export class SessionBackwardCompatibility {
       return false;
     }
 
-    // Qualified IDs should match the new session naming convention
+    // UUID session names are the current format — no migration needed
+    if (isUuidSessionName(sessionRecord.session)) {
+      return false;
+    }
+
+    // Qualified IDs should match the legacy session naming convention
     if (isQualifiedTaskId(sessionRecord.taskId)) {
-      const expectedSessionName = SessionMultiBackendIntegration.generateSessionName(
-        sessionRecord.taskId
-      );
+      const expectedSessionName = taskIdToSessionName(sessionRecord.taskId);
       return sessionRecord.session !== expectedSessionName;
     }
 

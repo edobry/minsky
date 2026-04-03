@@ -20,7 +20,7 @@ import type { SessionProviderInterface, SessionRecord, Session } from "../sessio
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import { getRepositoryBackendFromConfig } from "./repository-backend-detection";
 import { RepositoryBackendType } from "../repository";
-import { taskIdToSessionName } from "../tasks/task-id";
+import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -165,8 +165,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Use the task ID as the session name with proper formatting
-      sessionName = taskIdToSessionName(taskId);
+      // Use a generated UUID as the session name
+      sessionName = generateSessionId();
     }
 
     if (!sessionName) {
@@ -240,7 +240,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
-    const branchName = branch || sessionName;
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionName);
 
     try {
       // First clone the repo.  Use cloneSource so that an explicit --repo path can

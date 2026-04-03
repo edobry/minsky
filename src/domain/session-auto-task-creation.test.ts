@@ -127,7 +127,10 @@ describe("Session Auto-Task Creation", () => {
 
     // Verify session was created with task ID (qualified format)
     expect(result.taskId).toBe("md#001"); // Code returns qualified ID format
-    expect(result.session).toBe("task-md#001"); // Session name follows qualified ID format with hyphen
+    // Session name is now a UUID (opaque, no task info encoded)
+    expect(result.session).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
   });
 
   test("should not auto-create task when task ID is provided", async () => {
