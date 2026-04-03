@@ -71,7 +71,7 @@ export class CloneOperation extends BaseGitOperation<CloneParams, CloneResult> {
     return result;
   }
 
-  protected getAdditionalLogContext(params: CloneParams): Record<string, any> {
+  protected getAdditionalLogContext(params: CloneParams): Record<string, unknown> {
     return {
       url: params.url,
       workdir: params.workdir,
@@ -103,7 +103,7 @@ export class BranchOperation extends BaseGitOperation<BranchParams, BranchResult
     return result;
   }
 
-  protected getAdditionalLogContext(params: BranchParams): Record<string, any> {
+  protected getAdditionalLogContext(params: BranchParams): Record<string, unknown> {
     return {
       name: params.name,
     };
@@ -129,7 +129,7 @@ export class PushOperation extends BaseGitOperation<PushParams, PushResult> {
     return result;
   }
 
-  protected getAdditionalLogContext(params: PushParams): Record<string, any> {
+  protected getAdditionalLogContext(params: PushParams): Record<string, unknown> {
     return {
       remote: params.remote,
       force: params.force,
@@ -170,7 +170,7 @@ export class CommitOperation extends BaseGitOperation<
     };
   }
 
-  protected getAdditionalLogContext(params: CommitParams): Record<string, any> {
+  protected getAdditionalLogContext(params: CommitParams): Record<string, unknown> {
     return {
       message: params.message,
       all: params.all,

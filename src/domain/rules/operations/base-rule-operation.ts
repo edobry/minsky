@@ -87,7 +87,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
   /**
    * Get additional context for error logging (override in subclasses)
    */
-  protected getAdditionalLogContext(params: TParams): Record<string, any> {
+  protected getAdditionalLogContext(params: TParams): Record<string, unknown> {
     return {};
   }
 
@@ -146,7 +146,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
   protected createSuccessResult(
     data: any,
     message?: string,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): any {
     return {
       success: true,
@@ -161,7 +161,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    */
   protected createErrorResult(
     error: string | Error,
-    additionalData: Record<string, any> = {}
+    additionalData: Record<string, unknown> = {}
   ): any {
     return {
       success: false,

@@ -12,7 +12,7 @@ import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 /**
  * Format session details for human-readable output
  */
-export function formatSessionDetails(session: Record<string, any>): void {
+export function formatSessionDetails(session: Record<string, unknown>): void {
   if (!session) return;
 
   // Display session information in a user-friendly format
@@ -51,7 +51,7 @@ export function formatSessionDetails(session: Record<string, any>): void {
 /**
  * Format session summary for list views
  */
-export function formatSessionSummary(session: Record<string, any>): void {
+export function formatSessionSummary(session: Record<string, unknown>): void {
   if (!session) return;
 
   const sessionName = session.session || "unknown";
@@ -66,7 +66,7 @@ export function formatSessionSummary(session: Record<string, any>): void {
 /**
  * Format session PR details for human-readable output
  */
-export function formatSessionPrDetails(result: Record<string, any>): void {
+export function formatSessionPrDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
   const sessionName = result.session?.session || result.sessionName || "Unknown";
@@ -111,7 +111,7 @@ export function formatSessionPrDetails(result: Record<string, any>): void {
 /**
  * Format session approval details for human-readable output
  */
-export function formatSessionApprovalDetails(result: Record<string, any>): void {
+export function formatSessionApprovalDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
   const sessionName = result.session?.session || result.sessionName || "Unknown";
@@ -169,7 +169,7 @@ export function formatSessionApprovalDetails(result: Record<string, any>): void 
 /**
  * Format debug echo details for human-readable output
  */
-export function formatDebugEchoDetails(result: Record<string, any>): void {
+export function formatDebugEchoDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
   // Display a user-friendly debug echo response
@@ -186,7 +186,7 @@ export function formatDebugEchoDetails(result: Record<string, any>): void {
 
   if (result.echo && typeof result.echo === "object") {
     log.cli("📝 Echo Parameters:");
-    const echoParams = result.echo as Record<string, any>;
+    const echoParams = result.echo as Record<string, unknown>;
 
     if (Object.keys(echoParams).length === 0) {
       log.cli("   (no parameters provided)");
@@ -210,7 +210,7 @@ export function formatDebugEchoDetails(result: Record<string, any>): void {
 /**
  * Format rule details for human-readable output
  */
-export function formatRuleDetails(rule: Record<string, any>): void {
+export function formatRuleDetails(rule: Record<string, unknown>): void {
   if (!rule) return;
 
   // Display rule information in a user-friendly format
@@ -229,7 +229,7 @@ export function formatRuleDetails(rule: Record<string, any>): void {
 /**
  * Format rule summary for list views
  */
-export function formatRuleSummary(rule: Record<string, any>): void {
+export function formatRuleSummary(rule: Record<string, unknown>): void {
   if (!rule) return;
 
   const ruleId = rule.id || "unknown";

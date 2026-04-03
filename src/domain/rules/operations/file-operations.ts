@@ -102,7 +102,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
     }
   }
 
-  private logDebug(message: string, context: Record<string, any>): void {
+  private logDebug(message: string, context: Record<string, unknown>): void {
     log.debug(`[DEBUG] ${message}`, context);
   }
 
@@ -110,7 +110,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
     id: string;
     format: RuleFormat;
     debug?: boolean;
-  }): Record<string, any> {
+  }): Record<string, unknown> {
     return {
       ruleId: params.id,
       format: params.format,
@@ -184,7 +184,7 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
     content: string;
     meta: RuleMeta;
     options: CreateRuleOptions;
-  }): Record<string, any> {
+  }): Record<string, unknown> {
     return {
       ruleId: params.id,
       format: params.options.format || "cursor",
@@ -227,7 +227,7 @@ export class ListRulesDirectoryOperation extends BaseRuleOperation<
   protected getAdditionalLogContext(params: {
     format: RuleFormat;
     debug?: boolean;
-  }): Record<string, any> {
+  }): Record<string, unknown> {
     return {
       format: params.format,
     };

@@ -64,8 +64,8 @@ export interface RepositoryConfig {
       owner: string;
       repo: string;
     };
-    markdown?: Record<string, any>;
-    "json-file"?: Record<string, any>;
+    markdown?: Record<string, unknown>;
+    "json-file"?: Record<string, unknown>;
   };
   repository?: {
     auto_detect_backend?: boolean;
@@ -122,8 +122,8 @@ export interface BackendConfig {
     owner: string;
     repo: string;
   };
-  markdown?: Record<string, any>;
-  "json-file"?: Record<string, any>;
+  markdown?: Record<string, unknown>;
+  "json-file"?: Record<string, unknown>;
 }
 
 export interface SessionDbConfig {
