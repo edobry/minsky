@@ -9,6 +9,20 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-edit.sh",
+            "timeout": 30,
+            "statusMessage": "Type checking...",
+            "asyncRewake": true
+          }
+        ]
+      }
     ]
   }
 }

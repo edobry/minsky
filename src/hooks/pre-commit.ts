@@ -55,16 +55,16 @@ export class PreCommitHook {
         return variableResult;
       }
 
-      // Step 3: Unit tests
-      const testsResult = await this.runUnitTests();
-      if (!testsResult.success) {
-        return testsResult;
-      }
-
-      // Step 4: TypeScript type checking
+      // Step 3: TypeScript type checking
       const typeCheckResult = await this.runTypeCheck();
       if (!typeCheckResult.success) {
         return typeCheckResult;
+      }
+
+      // Step 4: Unit tests
+      const testsResult = await this.runUnitTests();
+      if (!testsResult.success) {
+        return testsResult;
       }
 
       // Step 5: Test pattern validation
