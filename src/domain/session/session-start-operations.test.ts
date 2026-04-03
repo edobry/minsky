@@ -19,8 +19,8 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
     listSessions: vi.fn(async () => []),
   });
   const gitService = createPartialMock<GitServiceInterface>({
-    clone: vi.fn(async () => ({ workdir: "/tmp/work", session: "task-md#x" })),
-    branchWithoutSession: vi.fn(async () => ({ workdir: "/tmp/work", branch: "task-md#x" })),
+    clone: vi.fn(async () => ({ workdir: "/tmp/work", session: "test-uuid-session" })),
+    branchWithoutSession: vi.fn(async () => ({ workdir: "/tmp/work", branch: "task/md-x" })),
   });
   const taskService = createPartialMock<TaskServiceInterface>({
     getTaskStatus: vi.fn(async () => "TODO"),

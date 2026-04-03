@@ -66,7 +66,7 @@ export function createSessionData(
   } = {}
 ): Record<string, unknown> {
   const taskId = overrides!.taskId || "123";
-  const session = overrides!.session || `task#${taskId}`;
+  const session = overrides!.session || `test-session-${taskId}`;
 
   return {
     session,
@@ -74,7 +74,7 @@ export function createSessionData(
     repoName: overrides!.repoName || "test/repo",
     repoUrl: overrides!.repoUrl || "https://github.com/test/repo.git",
     repoPath: overrides!.repoPath || `/mock/repo/${createRandomId()}`,
-    branch: overrides?.branch || `task-${taskId}`,
+    branch: overrides?.branch || `task/md-${taskId}`,
     createdAt: overrides?.createdAt || new Date().toISOString(),
   };
 }

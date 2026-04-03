@@ -24,7 +24,7 @@ const popStashMock = async (_workdir: string) => {
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import type { TaskBackend, TaskBackendConfig } from "./types";
 
-const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/task-md#423";
+const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/test-uuid-423";
 
 describe("MarkdownTaskBackend - createTask auto-commit", () => {
   // Mock the fs module to prevent actual file operations

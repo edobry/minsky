@@ -375,12 +375,10 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Early exit commands should be handled first
-        if (command.includes(`git show-ref --verify --quiet refs/heads/pr/task-md#125`)) {
+        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
           // EXPLICIT MOCK: Use correct PR branch name with dash (task-md#125)
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error(
-            `Command failed: git show-ref --verify --quiet refs/heads/pr/task-md#125`
-          );
+          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
         }
         if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
           return Promise.resolve("ghi789commit");
@@ -468,10 +466,10 @@ describe("Session Approve Task Status Commit", () => {
     // Should trigger early exit since task is DONE and PR branch doesn't exist
     expect(result.isNewlyApproved).toBe(false); // EXPLICIT MOCK: Correct - no PR branch means no new approval
     expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
-    expect(result.session).toBe("task-md#125"); // EXPLICIT MOCK: Use correct session name with dash
+    expect(result.session).toBe(SESSION_NAME); // TEMPLATE LITERAL: Use extracted constant
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/pr/task-md#125`); // EXPLICIT MOCK: Use correct PR branch with dash
+    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
     expect(gitCommands).toContain(GIT_COMMANDS.REV_PARSE_HEAD);
     expect(gitCommands).toContain(GIT_COMMANDS.CONFIG_USER_NAME);
 

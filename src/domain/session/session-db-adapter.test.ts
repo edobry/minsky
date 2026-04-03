@@ -22,8 +22,8 @@ const mockStorage = {
       success: true,
       data: {
         sessions: [
-          { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
-          { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" },
+          { session: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
+          { session: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
         ],
         baseDir: "/test/path",
       },
@@ -32,8 +32,8 @@ const mockStorage = {
   writeState: mock(() => Promise.resolve({ success: true })),
   getEntities: mock(() =>
     Promise.resolve([
-      { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
-      { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" },
+      { session: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
+      { session: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
     ] as SessionRecord[])
   ),
 };

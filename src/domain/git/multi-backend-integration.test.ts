@@ -9,7 +9,7 @@ mockModule("../../utils/exec", () => ({
 
 // Mock git-exec module
 mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: mock(async () => ({ stdout: "task-md#123", stderr: "" })),
+  execGitWithTimeout: mock(async () => ({ stdout: "task/md-123", stderr: "" })),
   gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
   gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
 }));
@@ -27,6 +27,8 @@ mockModule("node:child_process", () => ({
 import { describe, it, expect } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";
+
+const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 // Mock dependencies for testing
 function createMockDependencies() {
@@ -49,10 +51,10 @@ function createMockDependencies() {
       return "/mock/repo/path";
     }
     if (command === "git symbolic-ref --short HEAD") {
-      return "task-md#123";
+      return "task/md-123";
     }
     if (command === "git rev-parse --abbrev-ref HEAD") {
-      return "task-md#123";
+      return "task/md-123";
     }
     if (command.startsWith("git rev-parse")) {
       return "abc123def456"; // Mock commit hash
@@ -77,12 +79,12 @@ describe("Git Operations Multi-Backend Integration", () => {
 
       // Mock being in a session workspace directory
       const originalCwd = process.cwd;
-      process.cwd = mock(() => "/mock/sessions/task-md#123");
+      process.cwd = mock(() => `/mock/sessions/${TEST_UUID}`);
 
       try {
         await preparePrImpl(
           {
-            session: "task-md#123",
+            session: TEST_UUID,
             baseBranch: "main",
           },
           deps
@@ -91,7 +93,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         // Should have attempted session auto-repair with qualified ID extraction
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
-            session: "task-md#123",
+            session: TEST_UUID,
             taskId: "md#123", // Should extract qualified task ID
             taskBackend: "md", // Should add backend information
           })
@@ -121,7 +123,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task123", // Original session name preserved
-            taskId: undefined, // Legacy format → no valid task ID
+            taskId: "md#123", // Extracted from mock git branch (task/md-123)
           })
         );
       } finally {
@@ -147,7 +149,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task#456",
-            taskId: undefined, // Legacy task# format → no valid task ID
+            taskId: "md#123", // Extracted from mock git branch (task/md-123)
           })
         );
       } finally {
@@ -200,8 +202,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "custom-session",
-            taskId: undefined, // No task ID for custom sessions
-            // No backend information for non-task sessions
+            taskId: "md#123", // Extracted from mock git branch (task/md-123)
           })
         );
       } finally {
@@ -214,9 +215,9 @@ describe("Git Operations Multi-Backend Integration", () => {
 
       // Mock existing session record
       deps.sessionDb.getSession = mock(async (sessionName: string) => {
-        if (sessionName === "task-md#123") {
+        if (sessionName === TEST_UUID) {
           return {
-            session: "task-md#123",
+            session: TEST_UUID,
             repoName: "test/repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: "2024-01-01T00:00:00Z",
@@ -228,7 +229,7 @@ describe("Git Operations Multi-Backend Integration", () => {
 
       await preparePrImpl(
         {
-          session: "task-md#123",
+          session: TEST_UUID,
           baseBranch: "main",
         },
         deps

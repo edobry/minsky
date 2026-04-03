@@ -6,6 +6,10 @@ import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 // Mock execGitWithTimeout since that's what preparePrImpl actually uses
 const mockExecGitWithTimeout = mock();
 
+const TEST_SESSION = "550e8400-e29b-41d4-a716-446655440000";
+const TEST_BRANCH = "task/md-357";
+const TEST_PR_BRANCH = `pr/${TEST_BRANCH}`;
+
 describe("PR Branch Validation Bug Fix", () => {
   // Bug: PR creation from PR branches creates double pr/ prefix (pr/pr/task-name)
   // Root cause: System allows PR creation from any branch, including existing PR branches
@@ -17,10 +21,10 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockSessionDb = {
         getSession: () =>
           Promise.resolve({
-            session: "task-md#357",
+            session: TEST_SESSION,
             taskId: "md#357",
             repoName: "test-repo",
-            branch: "task-md#357",
+            branch: TEST_BRANCH,
             workspacePath: "/mock/workspace",
             sessionWorkspacePath: "/mock/session/workdir",
           }),
@@ -33,7 +37,7 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockExecInRepository = (workdir: string, command: string) => {
         // Simulate being on a PR branch (this is the bug scenario)
         if (command.includes(GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD)) {
-          return Promise.resolve("pr/task-md#357"); // Current branch is already a PR branch
+          return Promise.resolve(TEST_PR_BRANCH); // Current branch is already a PR branch
         }
         if (command.includes("git status")) {
           return Promise.resolve("");
@@ -44,7 +48,7 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockPush = () => Promise.resolve();
 
       const options = {
-        session: "task-md#357",
+        session: TEST_SESSION,
         title: "Test PR",
         body: "Test body",
         baseBranch: "main",
@@ -58,9 +62,9 @@ describe("PR Branch Validation Bug Fix", () => {
       };
 
       // This test should FAIL until we fix the bug
-      // Currently it creates pr/pr/task-md#357 instead of rejecting
+      // Currently it creates pr/pr/task/md-357 instead of rejecting
       await expect(preparePrImpl(options, deps as any)).rejects.toThrow(
-        /Cannot create PR from PR branch 'pr\/task-md#357'/
+        /Cannot create PR from PR branch 'pr\/task\/md-357'/
       );
     });
 
@@ -69,10 +73,10 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockSessionDb = {
         getSession: () =>
           Promise.resolve({
-            session: "task-md#357",
+            session: TEST_SESSION,
             taskId: "md#357",
             repoName: "test-repo",
-            branch: "task-md#357",
+            branch: TEST_BRANCH,
             workspacePath: "/mock/workspace",
             sessionWorkspacePath: "/mock/session/workdir",
           }),
@@ -85,7 +89,7 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockExecInRepository = (workdir: string, command: string) => {
         // Simulate being on a session branch (correct scenario)
         if (command.includes(GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD)) {
-          return Promise.resolve("task-md#357"); // Current branch is a session branch
+          return Promise.resolve(TEST_BRANCH); // Current branch is a session branch
         }
         if (command.includes("git status")) {
           return Promise.resolve("");
@@ -96,7 +100,7 @@ describe("PR Branch Validation Bug Fix", () => {
         if (command.includes("fetch origin main")) {
           return Promise.resolve("");
         }
-        if (command.includes("checkout -b pr/task-md#357")) {
+        if (command.includes(`checkout -b ${TEST_PR_BRANCH}`)) {
           return Promise.resolve("");
         }
         if (command.includes("merge")) {
@@ -108,7 +112,7 @@ describe("PR Branch Validation Bug Fix", () => {
       const mockPush = () => Promise.resolve();
 
       const options = {
-        session: "task-md#357",
+        session: TEST_SESSION,
         title: "Test PR",
         body: "Test body",
         baseBranch: "main",
@@ -123,7 +127,7 @@ describe("PR Branch Validation Bug Fix", () => {
 
       // This should work fine - creating PR from session branch
       const result = await preparePrImpl(options, deps as any);
-      expect(result.prBranch).toBe("pr/task-md#357");
+      expect(result.prBranch).toBe(TEST_PR_BRANCH);
     });
 
     it("should detect various PR branch naming patterns", async () => {

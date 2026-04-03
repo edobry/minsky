@@ -13,7 +13,7 @@ import type { SessionProviderInterface, SessionRecord } from "./types";
 // Mock session data
 const mockSessions: SessionRecord[] = [
   {
-    session: "task-md#123-session",
+    session: "test-session-md123",
     repoName: "test-repo",
     repoUrl: "https://github.com/test/repo.git",
     createdAt: "2023-01-01T00:00:00Z",
@@ -66,11 +66,11 @@ describe("Session Task Association", () => {
 
       expect(result.sessionsFound).toBe(1);
       expect(result.sessionsUpdated).toBe(1);
-      expect(result.updatedSessions).toEqual(["task-md#123-session"]);
+      expect(result.updatedSessions).toEqual(["test-session-md123"]);
       expect(result.errors).toEqual([]);
 
       // Verify updateSession was called with correct parameters
-      expect(mockProvider.updateSession).toHaveBeenCalledWith("task-md#123-session", {
+      expect(mockProvider.updateSession).toHaveBeenCalledWith("test-session-md123", {
         taskId: "123", // Should use the new local ID
       });
     });
@@ -94,7 +94,7 @@ describe("Session Task Association", () => {
 
       expect(result.sessionsFound).toBe(2);
       expect(result.sessionsUpdated).toBe(2);
-      expect(result.updatedSessions).toEqual(["task-md#123-session", "duplicate-session"]);
+      expect(result.updatedSessions).toEqual(["test-session-md123", "duplicate-session"]);
       expect(result.errors).toEqual([]);
     });
 
@@ -106,7 +106,7 @@ describe("Session Task Association", () => {
 
       expect(result.sessionsFound).toBe(1);
       expect(result.sessionsUpdated).toBe(1); // Should still count in dry-run
-      expect(result.updatedSessions).toEqual(["task-md#123-session"]);
+      expect(result.updatedSessions).toEqual(["test-session-md123"]);
       expect(result.errors).toEqual([]);
 
       // Verify updateSession was NOT called in dry-run mode
@@ -162,7 +162,7 @@ describe("Session Task Association", () => {
       expect(result.sessionsUpdated).toBe(0);
       expect(result.updatedSessions).toEqual([]);
       expect(result.errors.length).toBe(1);
-      expect(result.errors[0]).toContain("Failed to update session task-md#123-session");
+      expect(result.errors[0]).toContain("Failed to update session test-session-md123");
     });
 
     test("should handle same old and new task IDs (no change needed)", async () => {
@@ -173,11 +173,11 @@ describe("Session Task Association", () => {
 
       expect(result.sessionsFound).toBe(1);
       expect(result.sessionsUpdated).toBe(1);
-      expect(result.updatedSessions).toEqual(["task-md#123-session"]);
+      expect(result.updatedSessions).toEqual(["test-session-md123"]);
       expect(result.errors).toEqual([]);
 
       // Should still call updateSession with the same ID (no harm)
-      expect(mockProvider.updateSession).toHaveBeenCalledWith("task-md#123-session", {
+      expect(mockProvider.updateSession).toHaveBeenCalledWith("test-session-md123", {
         taskId: "123",
       });
     });
@@ -186,12 +186,12 @@ describe("Session Task Association", () => {
   describe("findSessionsByTaskId", () => {
     test("should find sessions by qualified task ID", async () => {
       const sessions = await findSessionsByTaskId("md#123", mockProvider);
-      expect(sessions).toEqual(["task-md#123-session"]);
+      expect(sessions).toEqual(["test-session-md123"]);
     });
 
     test("should find sessions by plain task ID", async () => {
       const sessions = await findSessionsByTaskId("123", mockProvider);
-      expect(sessions).toEqual(["task-md#123-session"]);
+      expect(sessions).toEqual(["test-session-md123"]);
     });
 
     test("should return empty array for nonexistent task", async () => {

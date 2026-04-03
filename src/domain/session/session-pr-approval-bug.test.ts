@@ -20,6 +20,10 @@ import { createSessionProvider } from "../session";
 import type { SessionRecord } from "../session/types";
 import { SESSION_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
+const TEST_SESSION = "550e8400-e29b-41d4-a716-446655440000";
+const TEST_BRANCH = "task/md-357";
+const TEST_PR_BRANCH = `pr/${TEST_BRANCH}`;
+
 /**
  * CRITICAL BUG REPRODUCTION:
  * - Database has session data: ✅
@@ -41,16 +45,17 @@ describe("Session PR Approval Bug", () => {
     // Use mock sessionDB instead of real database to avoid configuration issues
     sessionDB = {
       getSession: (name: string) => {
-        if (name === "task-md#357") {
+        if (name === TEST_SESSION) {
           return Promise.resolve({
-            session: "task-md#357",
+            session: TEST_SESSION,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
             taskId: "md#357",
-            prBranch: "pr/task-md#357",
+            branch: TEST_BRANCH,
+            prBranch: TEST_PR_BRANCH,
             prState: {
-              branchName: "pr/task-md#357",
+              branchName: TEST_PR_BRANCH,
               exists: true,
               lastChecked: new Date().toISOString(),
               createdAt: new Date().toISOString(),
@@ -92,11 +97,11 @@ describe("Session PR Approval Bug", () => {
 
   test("CRITICAL: should retrieve existing session from database", async () => {
     // This reproduces the core bug: getSession returns null for existing session
-    const session = await sessionDB.getSession("task-md#357");
+    const session = await sessionDB.getSession(TEST_SESSION);
 
     // This test should fail until the Drizzle mapping bug is fixed
     expect(session).not.toBeNull();
-    expect(session?.session).toBe("task-md#357");
+    expect(session?.session).toBe(TEST_SESSION);
     expect(session?.taskId).toBe("md#357");
   });
 
