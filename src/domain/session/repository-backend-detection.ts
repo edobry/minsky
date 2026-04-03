@@ -36,6 +36,7 @@ export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryB
  * Auto-detect repository backend type from git remote URL
  * Following KISS principle - simple detection based on immediate git remote URL
  * Use detectRepositoryBackendTypeFromUrl() if you already have the URL
+ * @deprecated Use init-time detection via `resolveRepositoryFromGitRemote` instead
  */
 export function detectRepositoryBackendType(workdir: string): RepositoryBackendType {
   try {
@@ -81,6 +82,7 @@ export function detectRepositoryBackendType(workdir: string): RepositoryBackendT
  * - Otherwise, read configuration `repository.default_repo_backend` (default to "github")
  * - If default is github, auto-detect GitHub remote URL from current working directory
  * - Else, fall back to detecting current git repo path; if that fails, use process.cwd()
+ * @deprecated Use `getRepositoryBackendFromConfig()` instead
  */
 export async function resolveRepositoryAndBackend(options?: {
   repoParam?: string;
@@ -166,6 +168,7 @@ export async function createRepositoryBackendFromSessionUrl(
  * Create a repository backend instance based on auto-detection
  * Session commands can use this to get the appropriate backend for PR operations
  * Use createRepositoryBackendFromSessionUrl() if you already have the repoUrl
+ * @deprecated Use `createRepositoryBackendFromSessionUrl()` instead
  */
 export async function createRepositoryBackendForSession(
   workdir: string

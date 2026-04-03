@@ -313,8 +313,11 @@ Please provide a title for your pull request:
       log.cli("📋 Using session repository configuration...");
       repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
     } else {
-      // Fall back to auto-detection from git remote
-      log.cli("🔍 Auto-detecting repository backend...");
+      // Fall back to auto-detection from git remote (deprecated path — session missing repoUrl)
+      log.warn(
+        "Session record has no repoUrl; falling back to git remote auto-detection (deprecated). " +
+          "Re-run 'minsky init' to write repository config and avoid this warning."
+      );
       repositoryBackend = await createRepositoryBackendForSession(currentDir);
     }
 
