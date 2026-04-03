@@ -1,24 +1,4 @@
-import type { Task } from "./types";
-
-// Define the base TaskService interface used across the domain
-export interface TaskServiceInterface {
-  listTasks(options?: any): Promise<Task[]>;
-  getTask(taskId: string): Promise<Task | null>;
-  getTaskStatus(taskId: string): Promise<string | undefined>;
-  setTaskStatus(taskId: string, status: string): Promise<void>;
-  createTask(specPath: string, options?: any): Promise<Task>;
-  createTaskFromTitleAndSpec(title: string, spec: string, options?: any): Promise<Task>;
-  deleteTask(taskId: string, options?: any): Promise<boolean>;
-  getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
-  getWorkspacePath(): string;
-  getBackendForTask?(taskId: string): Promise<string>;
-  listBackends?(): any[];
-  updateTask?(taskId: string, updates: any): Promise<Task>;
-  setDefaultBackend?(backendName: string): void;
-}
+import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "./types";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
@@ -28,6 +8,31 @@ import { createTaskService } from "./multi-backend-service";
 import { TaskBackend } from "../configuration/backend-detection";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+
+// Define the base TaskService interface used across the domain
+export interface TaskServiceInterface {
+  listTasks(options?: TaskListOptions): Promise<Task[]>;
+  getTask(taskId: string): Promise<Task | null>;
+  getTaskStatus(taskId: string): Promise<string | undefined>;
+  setTaskStatus(taskId: string, status: string): Promise<void>;
+  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndSpec(
+    title: string,
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
+  deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean>;
+  getTaskSpecContent(
+    taskId: string,
+    section?: string
+  ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
+  getWorkspacePath(): string;
+  getBackendForTask?(taskId: string): Promise<string>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- backends are heterogeneous objects with varying shapes
+  listBackends?(): any[];
+  updateTask?(taskId: string, updates: Partial<Task>): Promise<Task>;
+  setDefaultBackend?(backendName: string): void;
+}
 
 export interface TaskServiceOptions {
   workspacePath: string;
@@ -122,7 +127,8 @@ export async function createConfiguredTaskService(options: {
     try {
       // Get PersistenceService (should already be initialized at application startup)
       const { PersistenceService } = await import("../persistence/service");
-      let persistenceProvider: any = null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- persistence provider type varies by implementation
+      let persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null = null;
       try {
         persistenceProvider = PersistenceService.getProvider();
         log.debug("PersistenceService available for multi-backend mode");
@@ -173,7 +179,7 @@ export async function createConfiguredTaskService(options: {
       // Add minsky backend (mt# prefix) - only if persistence provider is available
       if (persistenceProvider) {
         try {
-          const db = await persistenceProvider.getDatabaseConnection();
+          const db = await persistenceProvider.getDatabaseConnection?.();
 
           const minskyBackend = createMinskyTaskBackend({
             name: TaskBackend.MINSKY,

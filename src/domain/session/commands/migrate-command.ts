@@ -35,7 +35,13 @@ export interface SessionMigrateParameters {
  * Progress reporting for CLI
  */
 function createProgressReporter(verbose: boolean) {
-  return (progress: any) => {
+  return (progress: {
+    currentBatch: number;
+    totalBatches: number;
+    processed: number;
+    migrated: number;
+    failed: number;
+  }) => {
     if (verbose) {
       log.debug(
         `\r⚡ Batch ${progress.currentBatch}/${progress.totalBatches} | ` +

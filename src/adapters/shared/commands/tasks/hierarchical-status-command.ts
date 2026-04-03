@@ -41,7 +41,7 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
       .description(this.statusGetCommand.description)
       .argument("<taskId>", "Task ID to get status for")
       .option("--json", "Output as JSON")
-      .action(async (taskId: string, options: any) => {
+      .action(async (taskId: string, options: { json?: boolean }) => {
         const params = {
           taskId,
           json: options.json,
@@ -55,7 +55,7 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
       .argument("<taskId>", "Task ID to set status for")
       .argument("[status]", "Status to set (will prompt if not provided)")
       .option("--json", "Output as JSON")
-      .action(async (taskId: string, status: string | undefined, options: any) => {
+      .action(async (taskId: string, status: string | undefined, options: { json?: boolean }) => {
         const params = {
           taskId,
           status,

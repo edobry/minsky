@@ -126,6 +126,7 @@ export interface SessionProviderInterface {
   /**
    * Get the repository path for a session
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accepts session record or any record-like object for flexibility
   getRepoPath(record: SessionRecord | any): Promise<string>;
 
   /**

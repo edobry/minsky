@@ -43,7 +43,7 @@ export async function executeSessionGetCommand(
     >;
   },
   context: CommandExecutionContext
-): Promise<any> {
+): Promise<unknown> {
   const { name, task, repo, json } = parameters;
 
   const result = await sessionGet({

@@ -12,8 +12,10 @@ import {
   AICompletionRequest,
   AICompletionResponse,
   AIModel,
-  AIProviderError,
+  AIObjectGenerationRequest,
   ValidationResult,
+  ValidationError,
+  ValidationWarning,
 } from "./types";
 import { DefaultAIConfigurationService } from "./config-service";
 import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
@@ -34,7 +36,7 @@ export class DefaultAICompletionService implements AICompletionService {
   private providerModels: Map<string, LanguageModel> = new Map();
   private modelCacheService: DefaultModelCacheService;
 
-  constructor(configurationService: any) {
+  constructor(configurationService: unknown) {
     this.configService = new DefaultAIConfigurationService(configurationService);
 
     // Initialize model cache service with fetchers
@@ -212,7 +214,7 @@ export class DefaultAICompletionService implements AICompletionService {
   /**
    * Generate structured object using AI provider
    */
-  async generateObject(request: any): Promise<any> {
+  async generateObject(request: AIObjectGenerationRequest): Promise<unknown> {
     try {
       const model = await resolveLanguageModel(
         this.configService,
@@ -229,7 +231,8 @@ export class DefaultAICompletionService implements AICompletionService {
 
       const result = await generateObject({
         model,
-        messages: request.messages,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- message roles are validated at runtime; CoreMessage requires literal types
+        messages: request.messages as any,
         schema: request.schema,
         temperature: request.temperature || 0.3,
       });
@@ -275,8 +278,8 @@ export class DefaultAICompletionService implements AICompletionService {
    * Validate configuration and provider connectivity
    */
   async validateConfiguration(): Promise<ValidationResult> {
-    const errors: any[] = [];
-    const warnings: any[] = [];
+    const errors: ValidationError[] = [];
+    const warnings: ValidationWarning[] = [];
 
     try {
       const defaultProvider = await this.configService.getDefaultProvider();

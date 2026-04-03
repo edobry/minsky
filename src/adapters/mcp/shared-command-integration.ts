@@ -19,7 +19,9 @@ import { z } from "zod";
 /**
  * Convert shared command parameters to a Zod schema that MCP can use
  */
-function convertParametersToZodSchema(parameters: CommandParameterMap): z.ZodObject<any> {
+function convertParametersToZodSchema(
+  parameters: CommandParameterMap
+): z.ZodObject<Record<string, z.ZodTypeAny>> {
   // If no parameters, return empty object schema
   if (!parameters || Object.keys(parameters).length === 0) {
     return z.object({});
@@ -64,10 +66,10 @@ function convertParametersToZodSchema(parameters: CommandParameterMap): z.ZodObj
  * Convert MCP args to the format expected by shared commands
  */
 function convertMcpArgsToParameters(
-  args: Record<string, any>,
+  args: Record<string, unknown>,
   parameterDefs: CommandParameterMap
-): Record<string, any> {
-  const result: Record<string, any> = {};
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
 
   for (const [key, paramDef] of Object.entries(parameterDefs)) {
     const value = args[key];
@@ -144,7 +146,7 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
-        handler: async (args: any, projectContext?: any) => {
+        handler: async (args: Record<string, unknown>) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
 
@@ -152,7 +154,7 @@ export function registerSharedCommandsWithMcp(
             // Create execution context for shared command
             const context: CommandExecutionContext = {
               interface: "mcp",
-              debug: args?.debug || false,
+              debug: Boolean(args?.debug),
               format: args?.json === "true" ? "json" : "text", // Use json format only when explicitly requested
             };
             log.debug(`[MCP] Created execution context: ${command.id}`, { context });

@@ -42,7 +42,7 @@ export class TestConfigurationBuilder {
   /**
    * Set session database configuration
    */
-  sessionDb(backend: "sqlite" | "postgres", options?: any): this {
+  sessionDb(backend: "sqlite" | "postgres", options?: Record<string, unknown>): this {
     this.config.sessiondb = {
       backend,
       ...options,
@@ -101,7 +101,10 @@ export class TestConfigurationBuilder {
   /**
    * Simple deep merge for testing
    */
-  private deepMerge(target: any, source: any): any {
+  private deepMerge(
+    target: Record<string, unknown>,
+    source: Record<string, unknown>
+  ): Record<string, unknown> {
     const result = { ...target };
 
     for (const key in source) {
@@ -111,7 +114,10 @@ export class TestConfigurationBuilder {
           !Array.isArray(source[key]) &&
           source[key] !== null
         ) {
-          result[key] = this.deepMerge(result[key] || {}, source[key]);
+          result[key] = this.deepMerge(
+            (result[key] || {}) as Record<string, unknown>,
+            source[key] as Record<string, unknown>
+          );
         } else {
           result[key] = source[key];
         }
@@ -135,7 +141,7 @@ export class MockConfigurationLoader {
   mockSource(
     name: string,
     config: PartialConfiguration,
-    metadata: Record<string, any> = {},
+    metadata: Record<string, unknown> = {},
     success: boolean = true,
     error?: Error
   ): this {
@@ -362,15 +368,15 @@ export const testAssertions = {
   /**
    * Assert configuration has expected structure
    */
-  hasValidStructure(config: any): config is Configuration {
+  hasValidStructure(config: unknown): config is Configuration {
+    if (typeof config !== "object" || config === null) return false;
+    const c = config as Record<string, unknown>;
     return (
-      typeof config === "object" &&
-      config !== null &&
-      typeof config.backend === "string" &&
-      typeof config.sessiondb === "object" &&
-      typeof config.github === "object" &&
-      typeof config.ai === "object" &&
-      typeof config.logger === "object"
+      typeof c.backend === "string" &&
+      typeof c.sessiondb === "object" &&
+      typeof c.github === "object" &&
+      typeof c.ai === "object" &&
+      typeof c.logger === "object"
     );
   },
 

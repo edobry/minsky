@@ -4,7 +4,11 @@
  * Registers all tools-related commands in the shared command registry.
  * Follows patterns from rules and tasks command registration.
  */
-import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  type CommandExecutionContext,
+} from "../command-registry";
 import { createToolsIndexEmbeddingsCommand } from "./tools/index-embeddings-command";
 import { createToolsSearchCommand, createToolsSimilarCommand } from "./tools/similarity-commands";
 
@@ -21,8 +25,11 @@ export function registerToolsCommands(): void {
     name: indexEmbeddingsCommand.name,
     description: indexEmbeddingsCommand.description,
     parameters: indexEmbeddingsCommand.parameters,
-    execute: async (params: any, ctx: any) => {
-      return await indexEmbeddingsCommand.execute(params, ctx);
+    execute: async (params, ctx: CommandExecutionContext) => {
+      return await indexEmbeddingsCommand.execute(
+        params as Parameters<typeof indexEmbeddingsCommand.execute>[0],
+        ctx
+      );
     },
   });
 
@@ -35,8 +42,11 @@ export function registerToolsCommands(): void {
     name: searchCommand.name,
     description: searchCommand.description,
     parameters: searchCommand.parameters,
-    execute: async (params: any, ctx: any) => {
-      return await searchCommand.execute(params, ctx);
+    execute: async (params, ctx: CommandExecutionContext) => {
+      return await searchCommand.execute(
+        params as Parameters<typeof searchCommand.execute>[0],
+        ctx
+      );
     },
   });
 
@@ -49,8 +59,11 @@ export function registerToolsCommands(): void {
     name: similarCommand.name,
     description: similarCommand.description,
     parameters: similarCommand.parameters,
-    execute: async (params: any, ctx: any) => {
-      return await similarCommand.execute(params, ctx);
+    execute: async (params, ctx: CommandExecutionContext) => {
+      return await similarCommand.execute(
+        params as Parameters<typeof similarCommand.execute>[0],
+        ctx
+      );
     },
   });
 }

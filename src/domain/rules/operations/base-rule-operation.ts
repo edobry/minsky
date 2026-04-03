@@ -74,7 +74,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
   /**
    * Log operation errors with consistent format
    */
-  protected logError(params: TParams, error: any): void {
+  protected logError(params: TParams, error: unknown): void {
     log.error(`Error in ${this.getOperationName()}`, {
       operation: this.getOperationName(),
       workspacePath: this.deps.workspacePath,
@@ -144,10 +144,10 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    * Create success result with consistent structure
    */
   protected createSuccessResult(
-    data: any,
+    data: Record<string, unknown>,
     message?: string,
     additionalData: Record<string, unknown> = {}
-  ): any {
+  ): Record<string, unknown> {
     return {
       success: true,
       ...data,
@@ -162,7 +162,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
   protected createErrorResult(
     error: string | Error,
     additionalData: Record<string, unknown> = {}
-  ): any {
+  ): Record<string, unknown> {
     return {
       success: false,
       error: typeof error === "string" ? error : error.message,

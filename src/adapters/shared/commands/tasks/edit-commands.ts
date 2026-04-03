@@ -10,6 +10,7 @@ import { getErrorMessage } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
+import type { Task } from "../../../../domain/tasks/types";
 import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { readTextFile } from "../../../../utils/fs";
@@ -182,7 +183,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         parsePrefixFromId(taskId: string): string | null;
         getBackendByPrefix(
           prefix: string | null
-        ): { name: string; setTaskMetadata?: (...args: any[]) => Promise<void> } | null;
+        ): { name: string; setTaskMetadata?: (...args: unknown[]) => Promise<void> } | null;
       };
       const serviceWithAccess = service as ServiceWithBackendAccess;
 
@@ -295,14 +296,18 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   /**
    * Open an interactive editor for spec content
    */
-  private async openEditorForSpec(currentTask: any): Promise<string> {
+  private async openEditorForSpec(currentTask: Task): Promise<string> {
     const { tmpdir } = await import("os");
     const { join } = await import("path");
-    const { randomBytes } = await import("crypto");
+    const crypto = await import("crypto");
 
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
-    const tempFile = join(tempDir, `task-${Buffer.from(randomBytes(8) as any).toString("hex")}.md`);
+
+    const tempFile = join(
+      tempDir,
+      `task-${Buffer.from((crypto.randomBytes as any)(8)).toString("hex")}.md`
+    );
 
     try {
       // Write current spec content to temp file
@@ -380,7 +385,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    * Build preview message showing actual changes
    */
   private buildPreviewMessage(
-    currentTask: any,
+    currentTask: Task,
     updates: { title?: string; spec?: string },
     taskId: string
   ): string {

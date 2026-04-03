@@ -11,11 +11,11 @@ export interface ComponentInput {
     preferMcp: boolean;
   };
   // Optional command registry for testing isolation
-  commandRegistry?: any;
+  commandRegistry?: unknown;
   // Files currently in context for glob matching
   filesInContext?: string[];
   // Optional rules service for testing isolation
-  rulesService?: any;
+  rulesService?: unknown;
   // ... other potential inputs
 }
 
@@ -29,12 +29,13 @@ export interface ComponentOutput {
     tokenCount?: number;
     sections?: string[];
     totalTools?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
 // New: Gathered inputs for a specific component
 export interface ComponentInputs {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component inputs are polymorphic: each component defines its own concrete subtype
   [key: string]: any; // Flexible structure for component-specific data
 }
 
@@ -70,7 +71,7 @@ export interface ContextComponentRegistry {
 
 // Template integration types
 export interface TemplateContext {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ComponentTemplate {

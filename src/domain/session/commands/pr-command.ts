@@ -1,6 +1,7 @@
 import type { SessionPRParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
+import type { GitServiceInterface } from "../../git/types";
 import { sessionPrImpl } from "../session-pr-operations";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionPrResult, SessionProviderInterface } from "../types";
@@ -150,7 +151,7 @@ export async function sessionPr(
  */
 async function checkPrBranchExists(
   sessionName: string,
-  gitService: any,
+  gitService: GitServiceInterface,
   currentDir: string,
   branchName?: string
 ): Promise<boolean> {
