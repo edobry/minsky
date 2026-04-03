@@ -10,7 +10,7 @@ import { SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 /**
  * Parameters for the branch command
  */
-export const branchCommandParams: CommandParameterMap = {
+export const branchCommandParams = {
   session: {
     schema: z.string(),
     description: SESSION_DESCRIPTION,
@@ -33,7 +33,7 @@ export const branchCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the branch command

@@ -27,6 +27,42 @@ const MIGRATION_BACKENDS = [
   TaskBackend.JSON_FILE,
 ] as const;
 
+// Migration result types
+interface MigrationDetail {
+  id: string;
+  status: "migrated" | "skipped" | "error";
+  error?: string;
+  reason?: string;
+  targetId?: string;
+  sourceBackend?: string;
+  targetBackend?: string;
+  sessionUpdates?: {
+    wouldUpdateSessions: boolean;
+    taskIdChanged: boolean;
+  };
+}
+
+interface MigrationResult {
+  total: number;
+  migrated: number;
+  skipped: number;
+  errors: number;
+  details: MigrationDetail[];
+}
+
+interface ValidationDetail {
+  taskId: string;
+  targetTaskId: string;
+  status?: string;
+  reason?: string;
+  details?: string;
+}
+
+interface ValidationResult {
+  passed: ValidationDetail[];
+  failed: ValidationDetail[];
+}
+
 const migrateBackendParamsSchema = z.object({
   from: z.enum(MIGRATION_BACKENDS).optional(),
   to: z.enum(MIGRATION_BACKENDS),
@@ -135,7 +171,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         sourceBackend,
         targetBackend,
         workspacePath,
-        migratedTasks: result.details.filter((d: any) => d.status === "migrated"),
+        migratedTasks: result.details.filter((d) => d.status === "migrated"),
         updateIds: p.updateIds,
       });
 
@@ -219,13 +255,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     limit?: number;
     filterStatus?: string;
     updateIds: boolean;
-  }): Promise<{
-    total: number;
-    migrated: number;
-    skipped: number;
-    errors: number;
-    details: any[];
-  }> {
+  }): Promise<MigrationResult> {
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
@@ -250,12 +280,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       tasks = tasks.slice(0, limit);
     }
 
-    const result = {
+    const result: MigrationResult = {
       total: tasks.length,
       migrated: 0,
       skipped: 0,
       errors: 0,
-      details: [] as any[],
+      details: [],
     };
 
     for (const task of tasks) {
@@ -449,7 +479,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   }
 
   private displayResults(
-    result: any,
+    result: MigrationResult,
     dryRun: boolean,
     sourceBackend: string,
     targetBackend: string
@@ -494,8 +524,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     }
   }
 
-  private groupErrorsByType(details: any[]): Record<string, any[]> {
-    const groups: Record<string, any[]> = {
+  private groupErrorsByType(details: MigrationDetail[]): Record<string, MigrationDetail[]> {
+    const groups: Record<string, MigrationDetail[]> = {
       "Missing spec files": [],
       "Already migrated": [],
       "File system issues": [],
@@ -528,9 +558,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     sourceBackend: string;
     targetBackend: string;
     workspacePath: string;
-    migratedTasks: any[];
+    migratedTasks: MigrationDetail[];
     updateIds: boolean;
-  }): Promise<{ passed: any[]; failed: any[] }> {
+  }): Promise<ValidationResult> {
     const { sourceBackend, targetBackend, workspacePath, migratedTasks, updateIds } = params;
 
     if (migratedTasks.length === 0) {
@@ -547,8 +577,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       workspacePath,
     });
 
-    const passed: any[] = [];
-    const failed: any[] = [];
+    const passed: ValidationDetail[] = [];
+    const failed: ValidationDetail[] = [];
 
     for (const migratedTask of migratedTasks) {
       try {
@@ -651,7 +681,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   /**
    * Display detailed validation results to the user
    */
-  private displayValidationResults(validationResult: { passed: any[]; failed: any[] }): void {
+  private displayValidationResults(validationResult: ValidationResult): void {
     log.cli("\n❌ MIGRATION VALIDATION FAILED:");
     log.cli(`✅ Validated: ${validationResult.passed.length}`);
     log.cli(`❌ Failed: ${validationResult.failed.length}`);
@@ -660,12 +690,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       log.cli("\n🔍 Validation Failures:");
 
       // Group failures by reason
-      const failureGroups: Record<string, any[]> = {};
+      const failureGroups: Record<string, ValidationDetail[]> = {};
       validationResult.failed.forEach((failure) => {
-        if (!failureGroups[failure.reason]) {
-          failureGroups[failure.reason] = [];
+        const key = failure.reason ?? "UNKNOWN";
+        if (!failureGroups[key]) {
+          failureGroups[key] = [];
         }
-        failureGroups[failure.reason]!.push(failure);
+        failureGroups[key]!.push(failure);
       });
 
       for (const [reason, failures] of Object.entries(failureGroups)) {

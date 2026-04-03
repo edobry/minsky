@@ -9,7 +9,7 @@ import { log } from "../../../../utils/logger";
 /**
  * Parameters for the session list command
  */
-export const sessionListCommandParams: CommandParameterMap = {
+export const sessionListCommandParams = {
   repo: {
     schema: z.string(),
     description: "Repository path",
@@ -21,7 +21,7 @@ export const sessionListCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the session list command

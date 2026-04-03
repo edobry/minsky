@@ -11,7 +11,7 @@ import { execAsync } from "../../../../utils/exec";
 /**
  * Parameters for the conflicts command
  */
-export const conflictsCommandParams: CommandParameterMap = {
+export const conflictsCommandParams = {
   format: {
     schema: z.enum(["json", "text"]),
     description: "Output format for conflict results",
@@ -25,11 +25,11 @@ export const conflictsCommandParams: CommandParameterMap = {
     defaultValue: 3,
   },
   files: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description: "File pattern to limit conflict scanning (e.g. '*.ts')",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the conflicts command
@@ -42,7 +42,7 @@ export async function executeConflictsCommand(
   },
   context: CommandExecutionContext
 ): Promise<string> {
-  const { format, contextLines, files } = parameters;
+  const { format, context: contextLines, files } = parameters;
 
   try {
     // Get current working directory as repository path

@@ -9,7 +9,7 @@ import { log } from "../../../../utils/logger";
 /**
  * Parameters for the session get command
  */
-export const sessionGetCommandParams: CommandParameterMap = {
+export const sessionGetCommandParams = {
   name: {
     schema: z.string().min(1),
     description: "Session ID",
@@ -31,7 +31,7 @@ export const sessionGetCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Execute the session get command

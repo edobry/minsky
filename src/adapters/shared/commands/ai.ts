@@ -42,7 +42,7 @@ function getResolvedConfig(): ResolvedConfig {
 /**
  * Parameters for AI completion command
  */
-const aiCompleteParams: CommandParameterMap = {
+const aiCompleteParams = {
   prompt: {
     schema: z.string().min(1),
     description: "The prompt to complete",
@@ -79,12 +79,12 @@ const aiCompleteParams: CommandParameterMap = {
     description: "System prompt",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for fast-apply command
  */
-const aiFastApplyParams: CommandParameterMap = {
+const aiFastApplyParams = {
   filePath: {
     schema: z.string().min(1),
     description: "Path to the file to edit",
@@ -115,7 +115,7 @@ const aiFastApplyParams: CommandParameterMap = {
     description: "Show the proposed changes without applying them",
     required: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Register all AI-related shared commands

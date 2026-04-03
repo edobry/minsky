@@ -33,12 +33,12 @@ export async function attemptSessionAutoRepair(
   log.debug("Attempting session auto-repair for task", { taskId, baseDir });
 
   // Generate possible session directory names based on task ID
-  const possibleSessionNames = generatePossibleSessionNames(taskId);
+  const possibleSessionIds = generatePossibleSessionIds(taskId);
 
-  log.debug("Generated possible session IDs", { taskId, possibleSessionNames });
+  log.debug("Generated possible session IDs", { taskId, possibleSessionIds });
 
   // Check each possible session ID for existing directory
-  for (const sessionId of possibleSessionNames) {
+  for (const sessionId of possibleSessionIds) {
     const sessionDir = join(baseDir, sessionId);
 
     if (existsSync(sessionDir)) {
@@ -80,7 +80,7 @@ export async function attemptSessionAutoRepair(
  * Generate possible session directory names based on task ID
  * Handles both qualified (md#123) and unqualified (123) task IDs
  */
-export function generatePossibleSessionNames(taskId: string): string[] {
+export function generatePossibleSessionIds(taskId: string): string[] {
   const names: string[] = [];
 
   // UUID session IDs are used directly as directory names — add as first candidate

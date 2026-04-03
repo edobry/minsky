@@ -27,7 +27,7 @@ import { CommonParameters, composeParams } from "../../common-parameters";
 /**
  * Parameters for changeset list command
  */
-const changesetListParams: CommandParameterMap = composeParams(
+const changesetListParams = composeParams(
   {
     repo: CommonParameters.repo,
     session: CommonParameters.session,
@@ -60,12 +60,12 @@ const changesetListParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for changeset search command
  */
-const changesetSearchParams: CommandParameterMap = composeParams(
+const changesetSearchParams = composeParams(
   {
     repo: CommonParameters.repo,
     session: CommonParameters.session,
@@ -113,12 +113,12 @@ const changesetSearchParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for changeset get command
  */
-const changesetGetParams: CommandParameterMap = composeParams(
+const changesetGetParams = composeParams(
   {
     repo: CommonParameters.repo,
     json: CommonParameters.json,
@@ -135,18 +135,18 @@ const changesetGetParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for changeset info command
  */
-const changesetInfoParams: CommandParameterMap = composeParams(
+const changesetInfoParams = composeParams(
   {
     repo: CommonParameters.repo,
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * List changesets in the repository

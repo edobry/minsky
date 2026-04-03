@@ -35,7 +35,7 @@ export type { TaskStatus } from "./tasks/taskConstants";
 
 // ---- Command functions (parameter-validated wrappers) ----
 
-export async function listTasksFromParams(params: any) {
+export async function listTasksFromParams(params: Record<string, unknown>) {
   const validParams = taskListParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.list params", { backend: validParams.backend });
@@ -69,7 +69,7 @@ export async function listTasksFromParams(params: any) {
   return tasks;
 }
 
-export async function getTaskFromParams(params: any) {
+export async function getTaskFromParams(params: Record<string, unknown>) {
   const validParams = taskGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.get params", { backend: validParams.backend });
@@ -98,7 +98,7 @@ export async function getTaskFromParams(params: any) {
   return task;
 }
 
-export async function getTaskStatusFromParams(params: any) {
+export async function getTaskStatusFromParams(params: Record<string, unknown>) {
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.get params", { backend: validParams.backend });
@@ -113,7 +113,7 @@ export async function getTaskStatusFromParams(params: any) {
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
-export async function setTaskStatusFromParams(params: any) {
+export async function setTaskStatusFromParams(params: Record<string, unknown>) {
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
@@ -129,12 +129,12 @@ export async function setTaskStatusFromParams(params: any) {
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 
-export async function updateTaskFromParams(params: any) {
+export async function updateTaskFromParams(params: Record<string, unknown>) {
   const workspacePath = process.cwd();
   log.debug("tasks.update params", { backend: params.backend });
   const taskService = await createConfiguredTaskService({
     workspacePath,
-    backend: params.backend,
+    backend: params.backend as string | undefined,
   });
   log.debug("tasks.update created TaskService", {
     backend:
@@ -142,7 +142,7 @@ export async function updateTaskFromParams(params: any) {
   });
 
   // Prepare updates object
-  const updates: any = {};
+  const updates: Record<string, unknown> = {};
   if (params.title !== undefined) {
     updates.title = params.title;
   }
@@ -150,11 +150,11 @@ export async function updateTaskFromParams(params: any) {
     updates.spec = params.spec;
   }
 
-  const updatedTask = await taskService.updateTask?.(params.taskId, updates);
+  const updatedTask = await taskService.updateTask?.(params.taskId as string, updates);
   return updatedTask;
 }
 
-export async function createTaskFromParams(params: any) {
+export async function createTaskFromParams(params: Record<string, unknown>) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.create params", { backend: validParams.backend });
@@ -169,7 +169,7 @@ export async function createTaskFromParams(params: any) {
   return await taskService.createTask(validParams.specPath || "");
 }
 
-export async function createTaskFromTitleAndSpec(params: any) {
+export async function createTaskFromTitleAndSpec(params: Record<string, unknown>) {
   // Parse using the existing schema (which may still use "description")
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
@@ -190,7 +190,7 @@ export async function createTaskFromTitleAndSpec(params: any) {
   return await taskService.createTaskFromTitleAndSpec(title, spec, validParams);
 }
 
-export async function deleteTaskFromParams(params: any) {
+export async function deleteTaskFromParams(params: Record<string, unknown>) {
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.delete params", { backend: validParams.backend });
@@ -206,7 +206,7 @@ export async function deleteTaskFromParams(params: any) {
   return { success, taskId: validParams.taskId };
 }
 
-export async function getTaskSpecContentFromParams(params: any) {
+export async function getTaskSpecContentFromParams(params: Record<string, unknown>) {
   const validParams = taskSpecContentParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.spec params", { backend: validParams.backend });

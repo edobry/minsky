@@ -51,7 +51,7 @@ describe("Git Conflicts Command", () => {
     test("should execute conflicts detection with default parameters", async () => {
       const parameters = {
         format: "json" as const,
-        contextLines: 3,
+        context: 3,
         files: undefined,
       };
 
@@ -67,7 +67,7 @@ describe("Git Conflicts Command", () => {
     test("should handle text format output", async () => {
       const parameters = {
         format: "text" as const,
-        contextLines: 3,
+        context: 3,
         files: undefined,
       };
 

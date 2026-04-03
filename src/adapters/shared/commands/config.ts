@@ -58,18 +58,24 @@ const configShowParams = configCommandParams;
  * @param showSecrets Whether to show actual secret values
  * @returns Configuration with credentials masked unless showSecrets is true
  */
-function maskCredentials(config: any, showSecrets: boolean): any {
+function maskCredentials(
+  config: Record<string, unknown>,
+  showSecrets: boolean
+): Record<string, unknown> {
   if (showSecrets) {
     return config;
   }
 
-  const masked = JSON.parse(JSON.stringify(config)); // Deep clone
+  const masked = JSON.parse(JSON.stringify(config)) as Record<string, unknown>; // Deep clone
 
   // Mask AI provider API keys
-  if (masked.ai?.providers) {
-    for (const [provider, providerConfig] of Object.entries(masked.ai.providers)) {
+  const maskedAi = masked.ai as Record<string, unknown> | undefined;
+  if (maskedAi?.providers) {
+    for (const [provider, providerConfig] of Object.entries(
+      maskedAi.providers as Record<string, unknown>
+    )) {
       if (providerConfig && typeof providerConfig === "object") {
-        const cfg = providerConfig as any;
+        const cfg = providerConfig as Record<string, unknown>;
         if (cfg.apiKey) {
           cfg.apiKey = `${"*".repeat(20)} (configured)`;
         }
@@ -78,27 +84,29 @@ function maskCredentials(config: any, showSecrets: boolean): any {
   }
 
   // Mask GitHub token
-  if (masked.github?.token) {
-    masked.github.token = `${"*".repeat(20)} (configured)`;
+  const maskedGithub = masked.github as Record<string, unknown> | undefined;
+  if (maskedGithub?.token) {
+    maskedGithub.token = `${"*".repeat(20)} (configured)`;
   }
 
   // Mask any other potential credential fields
-  if (masked.sessiondb?.connectionString) {
-    masked.sessiondb.connectionString = `${"*".repeat(20)} (configured)`;
+  const maskedSessiondb = masked.sessiondb as Record<string, unknown> | undefined;
+  if (maskedSessiondb?.connectionString) {
+    maskedSessiondb.connectionString = `${"*".repeat(20)} (configured)`;
   }
 
   return masked;
 }
 
 function maskCredentialsInEffectiveValues(
-  effectiveValues: Record<string, { value: any; source: string; path: string }>,
+  effectiveValues: Record<string, { value: unknown; source: string; path: string }>,
   showSecrets: boolean
-): Record<string, { value: any; source: string; path: string }> {
+): Record<string, { value: unknown; source: string; path: string }> {
   if (showSecrets) {
     return effectiveValues;
   }
 
-  const masked: Record<string, { value: any; source: string; path: string }> = {};
+  const masked: Record<string, { value: unknown; source: string; path: string }> = {};
 
   // Helper to check if a path contains sensitive information
   const isSensitivePath = (path: string): boolean => {
@@ -113,7 +121,7 @@ function maskCredentialsInEffectiveValues(
   };
 
   // Helper to mask value (but don't re-mask already masked values)
-  const maskValue = (value: any): any => {
+  const maskValue = (value: unknown): unknown => {
     if (typeof value === "string") {
       // If it's already masked, don't re-mask it
       if (value.includes("*") && value.includes("(configured)")) {
@@ -253,8 +261,11 @@ const configShowRegistration = defineCommand({
 /**
  * Safely gather credential information for display
  */
-async function gatherCredentialInfo(credentialResolver: DefaultCredentialResolver, config: any) {
-  const credentials: any = {};
+async function gatherCredentialInfo(
+  credentialResolver: DefaultCredentialResolver,
+  config: Record<string, unknown>
+) {
+  const credentials: Record<string, unknown> = {};
 
   // Check GitHub credentials
   try {
@@ -270,18 +281,21 @@ async function gatherCredentialInfo(credentialResolver: DefaultCredentialResolve
   }
 
   // Check AI provider credentials
-  if (config.ai?.providers) {
+  const configAi = config.ai as Record<string, unknown> | undefined;
+  if (configAi?.providers) {
     credentials.ai = {};
-    for (const [provider, providerConfig] of Object.entries(config.ai.providers)) {
+    for (const [provider, providerConfig] of Object.entries(
+      configAi.providers as Record<string, unknown>
+    )) {
       if (
         provider &&
         provider !== "undefined" &&
         providerConfig &&
         typeof providerConfig === "object"
       ) {
-        const providerCfg = providerConfig as any;
+        const providerCfg = providerConfig as Record<string, unknown>;
         if (providerCfg.apiKey) {
-          credentials.ai[provider] = {
+          (credentials.ai as Record<string, unknown>)[provider] = {
             apiKey: `${"*".repeat(20)} (configured)`,
             source: "environment",
           };
@@ -309,7 +323,7 @@ export function registerConfigCommands() {
 /**
  * Helper: parse configuration value from string input
  */
-function parseConfigValue(value: string): any {
+function parseConfigValue(value: string): unknown {
   if (value === "true") return true;
   if (value === "false") return false;
   if (value === "null") return null;

@@ -29,7 +29,7 @@ import {
 /**
  * Session changeset list parameters (simplified, session-focused)
  */
-const sessionChangesetListParams: CommandParameterMap = composeParams(
+const sessionChangesetListParams = composeParams(
   {
     repo: CommonParameters.repo,
     json: CommonParameters.json,
@@ -51,12 +51,12 @@ const sessionChangesetListParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Session changeset get parameters
  */
-const sessionChangesetGetParams: CommandParameterMap = composeParams(
+const sessionChangesetGetParams = composeParams(
   {
     repo: CommonParameters.repo,
     json: CommonParameters.json,
@@ -73,7 +73,7 @@ const sessionChangesetGetParams: CommandParameterMap = composeParams(
       required: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * List changesets for current session (or all sessions)

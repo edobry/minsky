@@ -17,18 +17,18 @@ import {
 /**
  * Parameters for the session list command
  */
-export const sessionListCommandParams: CommandParameterMap = composeParams(
+export const sessionListCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session get command
  */
-export const sessionGetCommandParams: CommandParameterMap = composeParams(
+export const sessionGetCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     name: SessionParameters.name,
@@ -37,12 +37,12 @@ export const sessionGetCommandParams: CommandParameterMap = composeParams(
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session start command
  */
-export const sessionStartCommandParams: CommandParameterMap = composeParams(
+export const sessionStartCommandParams = composeParams(
   {
     name: SessionParameters.name,
     task: CommonParameters.task,
@@ -70,35 +70,35 @@ export const sessionStartCommandParams: CommandParameterMap = composeParams(
       defaultValue: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session dir command
  */
-export const sessionDirCommandParams: CommandParameterMap = composeParams(
+export const sessionDirCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session delete command
  */
-export const sessionDeleteCommandParams: CommandParameterMap = composeParams(
+export const sessionDeleteCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     force: CommonParameters.force,
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session update command
  */
-export const sessionUpdateCommandParams: CommandParameterMap = composeParams(
+export const sessionUpdateCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     force: CommonParameters.force,
@@ -137,19 +137,19 @@ export const sessionUpdateCommandParams: CommandParameterMap = composeParams(
       defaultValue: false,
     },
   }
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session approve command
  */
-export const sessionApproveCommandParams: CommandParameterMap = composeParams(
+export const sessionApproveCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     noStash: GitParameters.noStash,
     json: CommonParameters.json,
   },
   {}
-);
+) satisfies CommandParameterMap;
 
 /**
  * Parameters for the session pr command
@@ -200,24 +200,24 @@ export const sessionPrCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for the session inspect command
  */
-export const sessionInspectCommandParams: CommandParameterMap = {
+export const sessionInspectCommandParams = {
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
-};
+} satisfies CommandParameterMap;
 
 /**
  * Parameters for the session commit command
  */
-export const sessionCommitCommandParams: CommandParameterMap = composeParams(
+export const sessionCommitCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
     json: CommonParameters.json,
@@ -259,4 +259,4 @@ export const sessionCommitCommandParams: CommandParameterMap = composeParams(
       defaultValue: false,
     },
   }
-);
+) satisfies CommandParameterMap;

@@ -27,8 +27,8 @@ export {
 export class ValidationError extends MinskyError {
   constructor(
     message: string,
-    public readonly errors?: any,
-    cause?: any
+    public readonly errors?: unknown,
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -42,7 +42,7 @@ export class ResourceNotFoundError extends MinskyError {
     message: string,
     public readonly resourceType?: string,
     public readonly resourceId?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -55,7 +55,7 @@ export class ServiceUnavailableError extends MinskyError {
   constructor(
     message: string,
     public readonly serviceName?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -68,7 +68,7 @@ export class FileSystemError extends MinskyError {
   constructor(
     message: string,
     public readonly path?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -81,7 +81,7 @@ export class ConfigurationError extends MinskyError {
   constructor(
     message: string,
     public readonly configKey?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -94,7 +94,7 @@ export class GitOperationError extends MinskyError {
   constructor(
     message: string,
     public readonly command?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, cause);
   }
@@ -118,7 +118,7 @@ export class SessionConflictError extends GitOperationError {
     message: string,
     public readonly sessionBranch?: string,
     public readonly baseBranch?: string,
-    cause?: any
+    cause?: unknown
   ) {
     super(message, undefined, cause);
   }
