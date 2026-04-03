@@ -115,7 +115,9 @@ export async function suggestRules(
       }
     } catch (error) {
       // If similarity service fails, continue without agent-requested rules
-      log.warn("Failed to search for agent-requested rules:", error);
+      log.warn(
+        `Failed to search for agent-requested rules: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

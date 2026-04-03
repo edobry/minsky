@@ -89,9 +89,10 @@ If you plan on deleting a section, you must provide context before and after to 
 
 Make edits to a task spec in a single edit_file call instead of multiple edit_file calls to the same task. The apply model can handle many distinct edits at once.`,
     parameters: TaskEditSchema,
-    handler: async (args: TaskEditArgs): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
+      const typedArgs = args as TaskEditArgs;
       try {
-        log.debug("Starting task edit_file operation", { taskId: args.taskId });
+        log.debug("Starting task edit_file operation", { taskId: typedArgs.taskId });
 
         // Load current task spec content
         let originalContent = "";
@@ -99,11 +100,11 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
 
         try {
           const specResult = await getTaskSpecContentFromParams({
-            taskId: args.taskId,
-            repo: args.repo,
-            workspace: args.workspace,
-            session: args.session,
-            backend: args.backend,
+            taskId: typedArgs.taskId,
+            repo: typedArgs.repo,
+            workspace: typedArgs.workspace,
+            session: typedArgs.session,
+            backend: typedArgs.backend,
           });
           if (specResult?.content) {
             originalContent = specResult.content;
@@ -111,27 +112,31 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           }
         } catch (error) {
           // Spec doesn't exist or task doesn't exist - handle below
-          log.debug("Task spec not found or empty", { taskId: args.taskId });
+          log.debug("Task spec not found or empty", { taskId: typedArgs.taskId });
         }
 
         // If spec doesn't exist and we have existing code markers, that's an error
-        if (!specExists && args.content.includes("// ... existing code ...")) {
+        if (!specExists && typedArgs.content.includes("// ... existing code ...")) {
           throw new Error(
-            `Cannot apply edits with existing code markers to task ${args.taskId} - task spec is empty or task doesn't exist`
+            `Cannot apply edits with existing code markers to task ${typedArgs.taskId} - task spec is empty or task doesn't exist`
           );
         }
 
         let finalContent: string;
 
-        if (specExists && args.content.includes("// ... existing code ...")) {
+        if (specExists && typedArgs.content.includes("// ... existing code ...")) {
           // Apply the edit pattern using fast-apply providers, passing optional instruction
-          finalContent = await applyEditPattern(originalContent, args.content, args.instructions);
+          finalContent = await applyEditPattern(
+            originalContent,
+            typedArgs.content,
+            typedArgs.instructions
+          );
         } else {
           // Direct write for new specs or complete replacements
-          finalContent = args.content;
+          finalContent = typedArgs.content;
         }
 
-        if (args.dryRun) {
+        if (typedArgs.dryRun) {
           // Return preview information without making changes
           const stats = {
             originalLines: originalContent.split("\n").length,
@@ -141,8 +146,8 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           return {
             success: true,
             dryRun: true,
-            taskId: args.taskId,
-            message: `Dry-run: Would update task ${args.taskId} specification`,
+            taskId: typedArgs.taskId,
+            message: `Dry-run: Would update task ${typedArgs.taskId} specification`,
             changes: {
               linesAdded: Math.max(0, stats.newLines - stats.originalLines),
               linesRemoved: Math.max(0, stats.originalLines - stats.newLines),
@@ -154,24 +159,24 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
 
         // Apply the changes by updating the task
         await updateTaskFromParams({
-          taskId: args.taskId,
+          taskId: typedArgs.taskId,
           spec: finalContent,
-          repo: args.repo,
-          workspace: args.workspace,
-          session: args.session,
-          backend: args.backend,
+          repo: typedArgs.repo,
+          workspace: typedArgs.workspace,
+          session: typedArgs.session,
+          backend: typedArgs.backend,
         });
 
-        log.debug("Task edit_file operation completed", { taskId: args.taskId });
+        log.debug("Task edit_file operation completed", { taskId: typedArgs.taskId });
 
         return {
           success: true,
-          taskId: args.taskId,
-          message: `Successfully updated task ${args.taskId} specification`,
-          instructions: args.instructions,
+          taskId: typedArgs.taskId,
+          message: `Successfully updated task ${typedArgs.taskId} specification`,
+          instructions: typedArgs.instructions,
         };
       } catch (error) {
-        log.error("Task edit_file operation failed", { taskId: args.taskId, error });
+        log.error("Task edit_file operation failed", { taskId: typedArgs.taskId, error });
         throw error;
       }
     },
@@ -183,82 +188,85 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
     description:
       "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
     parameters: TaskSearchReplaceSchema,
-    handler: async (args: TaskSearchReplaceArgs): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
+      const typedArgs = args as TaskSearchReplaceArgs;
       try {
         // Validate required parameters to catch parameter naming mismatches early
-        if (args.search == null || typeof args.search !== "string") {
-          const receivedKeys = Object.keys(args).join(", ");
+        if (typedArgs.search == null || typeof typedArgs.search !== "string") {
+          const receivedKeys = Object.keys(typedArgs).join(", ");
           throw new Error(
             `Missing required parameter "search". Received parameters: [${receivedKeys}]. ` +
               `Expected: taskId, search, replace`
           );
         }
-        if (args.replace == null || typeof args.replace !== "string") {
-          const receivedKeys = Object.keys(args).join(", ");
+        if (typedArgs.replace == null || typeof typedArgs.replace !== "string") {
+          const receivedKeys = Object.keys(typedArgs).join(", ");
           throw new Error(
             `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
               `Expected: taskId, search, replace`
           );
         }
 
-        log.debug("Starting task search_replace operation", { taskId: args.taskId });
+        log.debug("Starting task search_replace operation", { taskId: typedArgs.taskId });
 
         // Load current task spec content
         const specResult = await getTaskSpecContentFromParams({
-          taskId: args.taskId,
-          repo: args.repo,
-          workspace: args.workspace,
-          session: args.session,
-          backend: args.backend,
+          taskId: typedArgs.taskId,
+          repo: typedArgs.repo,
+          workspace: typedArgs.workspace,
+          session: typedArgs.session,
+          backend: typedArgs.backend,
         });
 
         if (!specResult?.content) {
-          throw new Error(`Task ${args.taskId} has no specification content to search in`);
+          throw new Error(`Task ${typedArgs.taskId} has no specification content to search in`);
         }
 
         const content = specResult.content;
 
         // Count occurrences
-        const occurrences = countOccurrences(content, args.search);
+        const occurrences = countOccurrences(content, typedArgs.search);
 
         if (occurrences === 0) {
-          throw new Error(`Search text not found in task ${args.taskId}: "${args.search}"`);
+          throw new Error(
+            `Search text not found in task ${typedArgs.taskId}: "${typedArgs.search}"`
+          );
         }
 
         if (occurrences > 1) {
           throw new Error(
-            `Search text found ${occurrences} times in task ${args.taskId}. Please provide more context to make it unique.`
+            `Search text found ${occurrences} times in task ${typedArgs.taskId}. Please provide more context to make it unique.`
           );
         }
 
         // Perform replacement
-        const newContent = content.replace(args.search, args.replace);
+        const newContent = content.replace(typedArgs.search, typedArgs.replace);
 
         // Apply the changes by updating the task
         await updateTaskFromParams({
-          taskId: args.taskId,
+          taskId: typedArgs.taskId,
           spec: newContent,
-          repo: args.repo,
-          workspace: args.workspace,
-          session: args.session,
-          backend: args.backend,
+          repo: typedArgs.repo,
+          workspace: typedArgs.workspace,
+          session: typedArgs.session,
+          backend: typedArgs.backend,
         });
 
         log.debug("Task search_replace operation completed", {
-          taskId: args.taskId,
-          searchLength: args.search.length,
-          replaceLength: args.replace.length,
+          taskId: typedArgs.taskId,
+          searchLength: typedArgs.search.length,
+          replaceLength: typedArgs.replace.length,
         });
 
         return {
           success: true,
-          taskId: args.taskId,
-          message: `Successfully replaced text in task ${args.taskId} specification`,
-          search: args.search,
-          replace: args.replace,
+          taskId: typedArgs.taskId,
+          message: `Successfully replaced text in task ${typedArgs.taskId} specification`,
+          search: typedArgs.search,
+          replace: typedArgs.replace,
         };
       } catch (error) {
-        log.error("Task search_replace operation failed", { taskId: args.taskId, error });
+        log.error("Task search_replace operation failed", { taskId: typedArgs.taskId, error });
         throw error;
       }
     },

@@ -308,7 +308,7 @@ async function executeChangesetSearch(
       log.cli(`   Author: ${changeset.author.username} | Target: ${changeset.targetBranch}`);
 
       // Show matching context
-      if (changeset.description.toLowerCase().includes(params.query.toLowerCase())) {
+      if (changeset.description.toLowerCase().includes((params.query as string).toLowerCase())) {
         const desc = changeset.description.substring(0, 100);
         log.cli(`   📝 ${desc}${changeset.description.length > 100 ? "..." : ""}`);
       }

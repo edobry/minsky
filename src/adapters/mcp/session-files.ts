@@ -21,6 +21,8 @@ import {
   DirectoryCreateSchema,
   GrepSearchSchema,
   FileOperationResponse,
+  FileMoveParameters,
+  FileRenameParameters,
 } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
@@ -178,14 +180,15 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     description: "Move a file from one location to another within a session workspace",
     parameters: FileMoveSchema,
     handler: async (args): Promise<FileOperationResponse> => {
+      const typedArgs = args as FileMoveParameters;
       try {
         const sourceResolvedPath = await pathResolver.resolvePath(
-          args.sessionName,
-          args.sourcePath
+          typedArgs.sessionName,
+          typedArgs.sourcePath
         );
         const targetResolvedPath = await pathResolver.resolvePath(
-          args.sessionName,
-          args.targetPath
+          typedArgs.sessionName,
+          typedArgs.targetPath
         );
 
         // Validate source file exists
@@ -195,7 +198,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const sourceStats = await stat(sourceResolvedPath);
         if (!sourceStats.isFile()) {
           throw new Error(
-            `Source path "${args.sourcePath}" is not a file - use appropriate directory tools`
+            `Source path "${typedArgs.sourcePath}" is not a file - use appropriate directory tools`
           );
         }
 
@@ -209,14 +212,14 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetExists = false;
         }
 
-        if (targetExists && !args.overwrite) {
+        if (targetExists && !typedArgs.overwrite) {
           throw new Error(
-            `Target path "${args.targetPath}" already exists. Set overwrite: true to replace it.`
+            `Target path "${typedArgs.targetPath}" already exists. Set overwrite: true to replace it.`
           );
         }
 
         // Create parent directories if requested and they don't exist
-        if (args.createDirs) {
+        if (typedArgs.createDirs) {
           const parentDir = dirname(targetResolvedPath);
           await mkdir(parentDir, { recursive: true });
         }
@@ -225,29 +228,29 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         await rename(sourceResolvedPath, targetResolvedPath);
 
         log.debug("Session file move successful", {
-          session: args.sessionName,
-          sourcePath: args.sourcePath,
-          targetPath: args.targetPath,
+          session: typedArgs.sessionName,
+          sourcePath: typedArgs.sourcePath,
+          targetPath: typedArgs.targetPath,
           sourceResolvedPath,
           targetResolvedPath,
-          overwrite: args.overwrite,
-          createdDirs: args.createDirs,
+          overwrite: typedArgs.overwrite,
+          createdDirs: typedArgs.createDirs,
         });
 
         const sourceResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
           sourceResolvedPath
         );
         const targetResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
           targetResolvedPath
         );
 
         return createSuccessResponse({
-          path: args.targetPath,
-          session: args.sessionName,
-          sourcePath: args.sourcePath,
-          targetPath: args.targetPath,
+          path: typedArgs.targetPath,
+          session: typedArgs.sessionName,
+          sourcePath: typedArgs.sourcePath,
+          targetPath: typedArgs.targetPath,
           sourceResolvedPath: sourceResolvedPath_rel,
           targetResolvedPath: targetResolvedPath_rel,
           moved: true,
@@ -256,21 +259,21 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "move_file",
-          path: `${args.sourcePath} -> ${args.targetPath}`,
-          session: args.sessionName,
-          createDirs: args.createDirs,
+          path: `${typedArgs.sourcePath} -> ${typedArgs.targetPath}`,
+          session: typedArgs.sessionName,
+          createDirs: typedArgs.createDirs,
         };
 
         log.error("Session file move failed", {
-          session: args.sessionName,
-          sourcePath: args.sourcePath,
-          targetPath: args.targetPath,
+          session: typedArgs.sessionName,
+          sourcePath: typedArgs.sourcePath,
+          targetPath: typedArgs.targetPath,
           error: getErrorMessage(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {
-          session: args.sessionName,
-          path: args.sourcePath,
+          session: typedArgs.sessionName,
+          path: typedArgs.sourcePath,
         });
       }
     },
@@ -282,8 +285,9 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     description: "Rename a file within a session workspace",
     parameters: FileRenameSchema,
     handler: async (args): Promise<FileOperationResponse> => {
+      const typedArgs = args as FileRenameParameters;
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(typedArgs.sessionName, typedArgs.path);
 
         // Validate source file exists
         await pathResolver.validatePathExists(resolvedPath);
@@ -291,16 +295,18 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         // Additional safety check - ensure source is a file, not a directory
         const stats = await stat(resolvedPath);
         if (!stats.isFile()) {
-          throw new Error(`Path "${args.path}" is not a file - use appropriate directory tools`);
+          throw new Error(
+            `Path "${typedArgs.path}" is not a file - use appropriate directory tools`
+          );
         }
 
         // Construct target path by replacing the filename
         const sourceDir = dirname(resolvedPath);
-        const targetResolvedPath = join(sourceDir, args.newName);
-        const targetPath = join(dirname(args.path), args.newName);
+        const targetResolvedPath = join(sourceDir, typedArgs.newName);
+        const targetPath = join(dirname(typedArgs.path), typedArgs.newName);
 
         // Validate that target path is still within session workspace
-        await pathResolver.resolvePath(args.sessionName, targetPath);
+        await pathResolver.resolvePath(typedArgs.sessionName, targetPath);
 
         // Check if target already exists and handle overwrite logic
         let targetExists = false;
@@ -312,9 +318,9 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetExists = false;
         }
 
-        if (targetExists && !args.overwrite) {
+        if (targetExists && !typedArgs.overwrite) {
           throw new Error(
-            `Target file "${args.newName}" already exists in the same directory. Set overwrite: true to replace it.`
+            `Target file "${typedArgs.newName}" already exists in the same directory. Set overwrite: true to replace it.`
           );
         }
 
@@ -322,30 +328,30 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         await rename(resolvedPath, targetResolvedPath);
 
         log.debug("Session file rename successful", {
-          session: args.sessionName,
-          originalPath: args.path,
-          newName: args.newName,
+          session: typedArgs.sessionName,
+          originalPath: typedArgs.path,
+          newName: typedArgs.newName,
           targetPath,
           resolvedPath,
           targetResolvedPath,
-          overwrite: args.overwrite,
+          overwrite: typedArgs.overwrite,
         });
 
         const originalResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
           resolvedPath
         );
         const newResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
           targetResolvedPath
         );
 
         return createSuccessResponse({
           path: targetPath,
-          session: args.sessionName,
-          originalPath: args.path,
+          session: typedArgs.sessionName,
+          originalPath: typedArgs.path,
           newPath: targetPath,
-          newName: args.newName,
+          newName: typedArgs.newName,
           originalResolvedPath: originalResolvedPath_rel,
           newResolvedPath: newResolvedPath_rel,
           renamed: true,
@@ -354,20 +360,20 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "rename_file",
-          path: `${args.path} -> ${args.newName}`,
-          session: args.sessionName,
+          path: `${typedArgs.path} -> ${typedArgs.newName}`,
+          session: typedArgs.sessionName,
         };
 
         log.error("Session file rename failed", {
-          session: args.sessionName,
-          path: args.path,
-          newName: args.newName,
+          session: typedArgs.sessionName,
+          path: typedArgs.path,
+          newName: typedArgs.newName,
           error: getErrorMessage(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {
-          session: args.sessionName,
-          path: args.path,
+          session: typedArgs.sessionName,
+          path: typedArgs.path,
         });
       }
     },

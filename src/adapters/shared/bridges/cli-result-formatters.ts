@@ -22,16 +22,16 @@ export function formatSessionDetails(session: Record<string, unknown>): void {
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
-  if (session.taskId) log.cli(`   Task ID: ${formatTaskIdForDisplay(session.taskId)}`);
+  if (session.taskId) log.cli(`   Task ID: ${formatTaskIdForDisplay(session.taskId as string)}`);
   if (session.branchName) log.cli(`   Branch: ${session.branchName}`);
   if (session.workspacePath) log.cli(`   Workspace: ${session.workspacePath}`);
   if (session.repoUrl) log.cli(`   Repository: ${session.repoUrl}`);
   if (session.createdAt) {
-    const date = new Date(session.createdAt);
+    const date = new Date(session.createdAt as string);
     log.cli(`   Created: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
   if (session.lastUpdated) {
-    const date = new Date(session.lastUpdated);
+    const date = new Date(session.lastUpdated as string);
     log.cli(`   Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
 
@@ -56,7 +56,9 @@ export function formatSessionSummary(session: Record<string, unknown>): void {
 
   const sessionName = session.session || "unknown";
   // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
-  const taskId = session.taskId ? ` (task: ${formatTaskIdForDisplay(session.taskId)})` : "";
+  const taskId = session.taskId
+    ? ` (task: ${formatTaskIdForDisplay(session.taskId as string)})`
+    : "";
   const branchName = session.branch ? ` [${session.branch}]` : "";
 
   // Sessions don't have status - that's a task concept
@@ -69,8 +71,9 @@ export function formatSessionSummary(session: Record<string, unknown>): void {
 export function formatSessionPrDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
-  const sessionName = result.session?.session || result.sessionName || "Unknown";
-  const taskId = result.session?.taskId || result.taskId || "";
+  const sessionObj = result.session as Record<string, unknown> | undefined;
+  const sessionName = sessionObj?.session || result.sessionName || "Unknown";
+  const taskId = sessionObj?.taskId || result.taskId || "";
   const prBranch = result.prBranch || "";
   const prUrl = result.prUrl || "";
   const baseBranch = result.baseBranch || "main";
@@ -85,7 +88,7 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
   log.cli("📝 Session Information:");
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
-    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId as string)}`);
   }
   log.cli("");
 
@@ -97,7 +100,7 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
   }
   log.cli(`   Base: ${baseBranch}`);
   if (commitHash) {
-    log.cli(`   Commit: ${commitHash.substring(0, 8)}`);
+    log.cli(`   Commit: ${(commitHash as string).substring(0, 8)}`);
   }
   if (prUrl) {
     log.cli(`   URL: ${prUrl}`);
@@ -114,8 +117,9 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
 export function formatSessionApprovalDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
-  const sessionName = result.session?.session || result.sessionName || "Unknown";
-  const taskId = result.session?.taskId || result.taskId || "";
+  const sessionObj2 = result.session as Record<string, unknown> | undefined;
+  const sessionName = sessionObj2?.session || result.sessionName || "Unknown";
+  const taskId = sessionObj2?.taskId || result.taskId || "";
   const commitHash = result.commitHash || "";
   const mergeDate = result.mergeDate || "";
   const mergedBy = result.mergedBy || "";
@@ -138,11 +142,11 @@ export function formatSessionApprovalDetails(result: Record<string, unknown>): v
     const taskStatusMessage = isNewlyApproved
       ? "(status updated to DONE)"
       : "(already marked as DONE)";
-    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)} ${taskStatusMessage}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId as string)} ${taskStatusMessage}`);
   }
   log.cli(`   Merged by: ${mergedBy}`);
   if (mergeDate) {
-    const date = new Date(mergeDate);
+    const date = new Date(mergeDate as string);
     log.cli(`   Merge date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
   log.cli("");
@@ -154,7 +158,7 @@ export function formatSessionApprovalDetails(result: Record<string, unknown>): v
     log.cli(`   PR branch: ${prBranch}`);
   }
   if (commitHash) {
-    log.cli(`   Commit hash: ${commitHash.substring(0, 8)}`);
+    log.cli(`   Commit hash: ${(commitHash as string).substring(0, 8)}`);
   }
   log.cli("");
 

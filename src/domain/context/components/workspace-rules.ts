@@ -68,8 +68,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
           filteredBy = "enhanced-suggestion";
         } catch (error) {
           log.warn(
-            "Failed to apply enhanced rule filtering, falling back to simple filter:",
-            error
+            `Failed to apply enhanced rule filtering, falling back to simple filter: ${error instanceof Error ? error.message : String(error)}`
           );
           // Fall back to simple filtering by leaving filteredBy undefined
           filteredBy = undefined;
@@ -107,7 +106,9 @@ export const WorkspaceRulesComponent: ContextComponent = {
         originalToolCount: allRules.length, // For consistency with tool-schemas
       };
     } catch (error) {
-      log.warn("Failed to load workspace rules:", error);
+      log.warn(
+        `Failed to load workspace rules: ${error instanceof Error ? error.message : String(error)}`
+      );
       return {
         requestableRules: [],
         totalRules: 0,

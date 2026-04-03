@@ -234,8 +234,8 @@ describe("Centralized Service Mock Factories", () => {
 
       const tasks = await mockTaskService.listTasks();
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].title).toBe("Custom Task");
-      expect(tasks[0].status).toBe("IN-PROGRESS");
+      expect(tasks[0]!.title).toBe("Custom Task");
+      expect(tasks[0]!.status).toBe("IN-PROGRESS");
 
       const task = await mockTaskService.getTask("test");
       expect(task?.title).toBe("Custom Task");

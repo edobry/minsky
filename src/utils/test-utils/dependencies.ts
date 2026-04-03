@@ -278,10 +278,15 @@ export function createMockRepositoryBackend(
         workdir: "/mock/workdir",
         branch: "test-_branch",
       }),
-    getStatus: () =>
+    getStatus: (_session?: string) =>
       Promise.resolve({
         clean: true,
         branch: "test-_branch",
+        ahead: 0,
+        behind: 0,
+        dirty: false,
+        remotes: [],
+        changes: [],
       }),
     getPath: () => "/mock/repo/path",
     validate: () =>
@@ -292,10 +297,12 @@ export function createMockRepositoryBackend(
     push: () =>
       Promise.resolve({
         success: true,
+        message: "Successfully pushed",
       }),
     pull: () =>
       Promise.resolve({
         success: true,
+        message: "Successfully pulled",
       }),
     ...overrides,
   });

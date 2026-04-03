@@ -127,7 +127,7 @@ describe("Session Approve Workflow", () => {
         sessionDB: mockSessionDB,
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: () => Promise.resolve("/test/repo/path"),
-        createRepositoryBackendForSession: () =>
+        createRepositoryBackendForSession: (() =>
           Promise.resolve({
             getType: () => "test-backend",
             approvePullRequest: () =>
@@ -137,7 +137,7 @@ describe("Session Approve Workflow", () => {
                 approvedAt: new Date().toISOString(),
                 prNumber: "025",
               }),
-          }),
+          })) as any,
       }
     );
 
@@ -174,7 +174,7 @@ describe("Session Approve Workflow", () => {
                 })
               ),
             })
-          ),
+          ) as any,
         }
       )
     ).rejects.toThrow();

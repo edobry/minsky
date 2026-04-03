@@ -10,7 +10,7 @@ describe("Session PR bodyPath file reading functionality", () => {
   mock.module("fs/promises", () => ({
     writeFile: mockFs.writeFile,
     mkdir: mockFs.mkdir,
-    rm: mockFs.rm,
+    rm: mockFs.fsPromises.rm,
     readFile: mockFs.readFile,
   }));
   const testDir = "/mock/test/body-path";
@@ -22,8 +22,8 @@ describe("Session PR bodyPath file reading functionality", () => {
     mockFs.reset();
 
     // Setup test directory and file in mock filesystem
-    mockFs.ensureDirectorySync(testDir);
-    mockFs.writeFileSync(testFilePath, testContent, "utf8");
+    mockFs.ensureDirectoryExists(testDir);
+    mockFs.writeFileSync(testFilePath, testContent);
   });
 
   afterEach(() => {

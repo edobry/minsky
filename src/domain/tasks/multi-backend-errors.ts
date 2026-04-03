@@ -131,19 +131,19 @@ import { log } from "../../utils/logger";
 
 export class ConsoleMultiBackendLogger implements MultiBackendLogger {
   info(message: string, context?: Record<string, unknown>): void {
-    log.info(`[INFO] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.info(`[INFO] ${message}`, context);
   }
 
   warn(message: string, context?: Record<string, unknown>): void {
-    log.warn(`[WARN] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.warn(`[WARN] ${message}`, context);
   }
 
   error(message: string, context?: Record<string, unknown>): void {
-    log.error(`[ERROR] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.error(`[ERROR] ${message}`, context);
   }
 
   debug(message: string, context?: Record<string, unknown>): void {
-    log.debug(`[DEBUG] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.debug(`[DEBUG] ${message}`, context);
   }
 }
 

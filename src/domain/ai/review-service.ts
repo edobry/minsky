@@ -102,7 +102,7 @@ export class AIReviewService {
     });
 
     try {
-      const aiResponse = await this.completionService.generateObject({
+      const aiResponseRaw = await this.completionService.generateObject({
         model: options.model || "gpt-4o", // Default model
         provider: options.provider || "openai", // Default provider
         prompt: prompt,
@@ -110,6 +110,7 @@ export class AIReviewService {
         temperature: options.temperature,
         maxTokens: options.maxTokens,
       });
+      const aiResponse = aiResponseRaw as { object: AIReviewResult; usage?: AIUsage };
 
       const duration = Date.now() - startTime;
       log.debug("AI review completed", { duration, usage: aiResponse.usage });

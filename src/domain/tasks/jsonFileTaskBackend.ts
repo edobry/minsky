@@ -37,6 +37,7 @@ import { get as getConfig, has as hasConfig } from "../configuration";
  */
 export class JsonFileTaskBackend implements TaskBackend {
   name = "json-file";
+  prefix?: string;
   private workspacePath: string;
   private tasksFilePath: string;
 

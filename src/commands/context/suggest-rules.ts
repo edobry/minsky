@@ -227,7 +227,7 @@ function outputHumanReadableResults(
   if (response.queryAnalysis.suggestedCategories.length > 0) {
     log.debug(`   Categories: ${response.queryAnalysis.suggestedCategories.join(", ")}`);
   }
-  log.debug();
+  log.debug("");
 
   // Suggestions
   if (response.suggestions.length === 0) {
@@ -247,7 +247,7 @@ function outputHumanReadableResults(
       log.debug(`${index + 1}. ${suggestion.ruleId} ${confidenceEmoji}`);
       log.debug(`   Relevance: ${scoreFormatted}% (${suggestion.confidenceLevel} confidence)`);
       log.debug(`   Reasoning: ${suggestion.reasoning}`);
-      log.debug();
+      log.debug("");
     });
   }
 
@@ -255,7 +255,7 @@ function outputHumanReadableResults(
   log.debug(`📊 Performance:`);
   log.debug(`   Analyzed ${response.totalRulesAnalyzed} rules in ${response.processingTimeMs}ms`);
   log.debug(`   Total time: ${totalTime}ms`);
-  log.debug();
+  log.debug("");
 
   // Usage hints
   if (response.suggestions.length > 0) {

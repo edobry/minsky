@@ -47,7 +47,9 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
         }
       } catch (error) {
         // Log warning but continue to next file
-        log.warn(`Warning: Failed to load project config from ${configPath}:`, error);
+        log.warn(
+          `Warning: Failed to load project config from ${configPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
@@ -76,7 +78,9 @@ function loadConfigFile(filePath: string): any {
         return null;
     }
   } catch (error) {
-    log.warn(`Warning: Failed to parse config file ${filePath}:`, error);
+    log.warn(
+      `Warning: Failed to parse config file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 }

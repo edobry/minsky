@@ -104,7 +104,7 @@ export async function listTasksFromParams(
     }
     return tasks;
   } catch (error) {
-    log.error("Error listing tasks:", getErrorMessage(error));
+    log.error(`Error listing tasks: ${getErrorMessage(error)}`);
     throw error;
   }
 }
@@ -381,6 +381,9 @@ export async function updateTaskFromParams(
     // Update the task
     const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
 
+    if (!updatedTask) {
+      throw new Error(`Failed to update task ${qualifiedTaskId}: updateTask returned no result`);
+    }
     return updatedTask;
   } catch (error) {
     if (error instanceof z.ZodError) {

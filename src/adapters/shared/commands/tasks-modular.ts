@@ -95,7 +95,7 @@ export class ModularTasksCommandManager {
           description: "Get task details",
           parameters: getCommand.parameters,
           execute: async (params, context) => {
-            return await getCommand.execute(params, context);
+            return await getCommand.execute(params as any, context);
           },
         })
       );
@@ -109,7 +109,7 @@ export class ModularTasksCommandManager {
           description: "Create a new task",
           parameters: createCommand.parameters,
           execute: async (params, context) => {
-            return await createCommand.execute(params, context);
+            return await createCommand.execute(params as any, context);
           },
         })
       );
@@ -123,7 +123,7 @@ export class ModularTasksCommandManager {
           description: "Edit task title and/or specification content",
           parameters: editCommand.parameters,
           execute: async (params, context) => {
-            return await editCommand.execute(params, context);
+            return await editCommand.execute(params as any, context);
           },
         })
       );
@@ -137,7 +137,7 @@ export class ModularTasksCommandManager {
           description: "Delete a task",
           parameters: deleteCommand.parameters,
           execute: async (params, context) => {
-            return await deleteCommand.execute(params, context);
+            return await deleteCommand.execute(params as any, context);
           },
         })
       );
@@ -151,7 +151,7 @@ export class ModularTasksCommandManager {
           description: "Get task specification content",
           parameters: specCommand.parameters,
           execute: async (params, context) => {
-            return await specCommand.execute(params, context);
+            return await specCommand.execute(params as any, context);
           },
         })
       );
@@ -170,7 +170,7 @@ export class ModularTasksCommandManager {
               ...params,
               title: undefined, // Don't allow title editing in spec edit
             };
-            return await editCommand.execute(specParams, context);
+            return await editCommand.execute(specParams as any, context);
           },
         })
       );
@@ -184,7 +184,7 @@ export class ModularTasksCommandManager {
           description: "Get the status of a task",
           parameters: statusGetCommand.parameters,
           execute: async (params, context) => {
-            return await statusGetCommand.execute(params, context);
+            return await statusGetCommand.execute(params as any, context);
           },
         })
       );
@@ -198,7 +198,7 @@ export class ModularTasksCommandManager {
           description: "Set the status of a task",
           parameters: statusSetCommand.parameters,
           execute: async (params, context) => {
-            return await statusSetCommand.execute(params, context);
+            return await statusSetCommand.execute(params as any, context);
           },
         })
       );
@@ -212,7 +212,7 @@ export class ModularTasksCommandManager {
           description: "Migrate legacy task IDs to qualified format",
           parameters: migrateCommand.parameters,
           execute: async (params, context) => {
-            return await migrateCommand.execute(params, context);
+            return await migrateCommand.execute(params as any, context);
           },
         })
       );
@@ -240,7 +240,7 @@ export class ModularTasksCommandManager {
           name: similarCommand.name,
           description: similarCommand.description,
           parameters: similarCommand.parameters,
-          execute: similarCommand.execute.bind(similarCommand),
+          execute: (params: any, ctx: any) => similarCommand.execute(params, ctx),
         })
       );
 
@@ -251,7 +251,7 @@ export class ModularTasksCommandManager {
           name: searchCommand.name,
           description: searchCommand.description,
           parameters: searchCommand.parameters,
-          execute: searchCommand.execute.bind(searchCommand),
+          execute: (params: any, ctx: any) => searchCommand.execute(params, ctx),
         })
       );
 
@@ -263,7 +263,7 @@ export class ModularTasksCommandManager {
           name: indexEmbeddingsCommand.name,
           description: indexEmbeddingsCommand.description,
           parameters: indexEmbeddingsCommand.parameters,
-          execute: indexEmbeddingsCommand.execute.bind(indexEmbeddingsCommand),
+          execute: (params: any, ctx: any) => indexEmbeddingsCommand.execute(params, ctx),
         })
       );
 
@@ -301,7 +301,7 @@ export class ModularTasksCommandManager {
         name: depsTreeCommand.name,
         description: depsTreeCommand.description,
         parameters: depsTreeCommand.parameters,
-        execute: depsTreeCommand.execute,
+        execute: depsTreeCommand.execute as any,
       });
 
       sharedCommandRegistry.registerCommand({
@@ -310,7 +310,7 @@ export class ModularTasksCommandManager {
         name: depsGraphCommand.name,
         description: depsGraphCommand.description,
         parameters: depsGraphCommand.parameters,
-        execute: depsGraphCommand.execute,
+        execute: depsGraphCommand.execute as any,
       });
 
       // Register routing commands
@@ -332,7 +332,7 @@ export class ModularTasksCommandManager {
         execute: routeCommand.execute,
       });
     } catch (error) {
-      log.warn("Failed to register task commands:", error);
+      log.warn("Failed to register task commands:", error as any);
     }
   }
 

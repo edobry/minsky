@@ -81,7 +81,7 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test branch cleanup approval
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
+    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
     expect(result.sessionName).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });
@@ -137,7 +137,7 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test graceful handling of cleanup failures
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
+    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
     expect(result.sessionName).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });
@@ -194,7 +194,7 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test already approved session
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
+    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
     expect(result.sessionName).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });

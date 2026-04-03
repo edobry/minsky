@@ -237,7 +237,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to push (defaults to current _branch)
    */
-  async push(branch?: string): Promise<void> {
+  async push(branch?: string): Promise<{ success: boolean; message: string }> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -249,6 +249,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      return { success: true, message: `Successfully pushed branch ${branchToPush}` };
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
@@ -262,7 +263,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to pull (defaults to current _branch)
    */
-  async pull(branch?: string): Promise<void> {
+  async pull(branch?: string): Promise<{ success: boolean; message: string }> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -274,6 +275,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      return { success: true, message: `Successfully pulled branch ${branchToPull}` };
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,

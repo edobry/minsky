@@ -62,7 +62,7 @@ export async function checkoutFromParams(params: {
       }
     );
 
-    log("Branch checkout completed", {
+    log.debug("Branch checkout completed", {
       branch: params.branch,
       repoPath,
       stdout,

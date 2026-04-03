@@ -43,7 +43,7 @@ describe("resolveWorkspacePath", () => {
     mockFs.ensureDirectoryExists("/test/workspace");
 
     const mockDeps: TestDependencies = {
-      access: mockFs.access,
+      access: mockFs.access as any,
     };
 
     const _result = await resolveWorkspacePath(_options, mockDeps);
@@ -83,7 +83,7 @@ describe("resolveWorkspacePath", () => {
     // The mock filesystem will throw an error when trying to access a non-existent path
 
     const mockDeps: TestDependencies = {
-      access: mockFs.access,
+      access: mockFs.access as any,
     };
 
     await expect(resolveWorkspacePath(_options, mockDeps)).rejects.toThrow(

@@ -407,7 +407,7 @@ export class SessionMigrationService {
       log.debug(`Would restore from backup: ${backupPath}`);
       return true;
     } catch (error) {
-      log.error("Rollback failed:", error);
+      log.error("Rollback failed:", error instanceof Error ? error : { error: String(error) });
       return false;
     }
   }

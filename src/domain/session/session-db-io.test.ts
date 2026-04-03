@@ -107,7 +107,7 @@ describe("Session DB I/O Functions", () => {
       // Verify the file was written correctly
       expect(mockFs.exists(mockTestDbPath)).toBe(true);
 
-      const writtenContent = mockFs.readFile(mockTestDbPath);
+      const writtenContent = mockFs.readFile(mockTestDbPath) as string;
       const parsedContent = JSON.parse(writtenContent);
 
       expect(parsedContent).toEqual(testData);
@@ -131,7 +131,7 @@ describe("Session DB I/O Functions", () => {
       expect(mockFs.exists("/mock/deep/nested/path")).toBe(true);
       expect(mockFs.exists(deepPath)).toBe(true);
 
-      const content = mockFs.readFile(deepPath);
+      const content = mockFs.readFile(deepPath) as string;
       const parsed = JSON.parse(content);
       expect(parsed).toEqual(testData);
     });
@@ -159,14 +159,14 @@ describe("Session DB I/O Functions", () => {
       writeSessionDbFile(mockTestDbPath, initialData as unknown as SessionRecord[]);
 
       // Verify initial write
-      let content = mockFs.readFile(mockTestDbPath);
+      let content = mockFs.readFile(mockTestDbPath) as string;
       expect(JSON.parse(content)).toEqual(initialData);
 
       // Overwrite with updated data
       writeSessionDbFile(mockTestDbPath, updatedData as unknown as SessionRecord[]);
 
       // Verify overwrite
-      content = mockFs.readFile(mockTestDbPath);
+      content = mockFs.readFile(mockTestDbPath) as string;
       expect(JSON.parse(content)).toEqual(updatedData);
     });
 
@@ -179,7 +179,7 @@ describe("Session DB I/O Functions", () => {
       // Verify file was written with empty array
       expect(mockFs.exists(mockTestDbPath)).toBe(true);
 
-      const content = mockFs.readFile(mockTestDbPath);
+      const content = mockFs.readFile(mockTestDbPath) as string;
       const parsed = JSON.parse(content);
       expect(parsed).toEqual([]);
     });

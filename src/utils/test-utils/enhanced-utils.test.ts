@@ -258,9 +258,9 @@ describe("Enhanced Test Utilities", () => {
             },
           }),
           sessionDB: createPartialMock<SessionProviderInterface>({
-            getSession: async (name: unknown) => {
+            getSession: async (name: string) => {
               if (name === "task#TEST_VALUE") {
-                return createSessionData({ taskId: "TEST_VALUE", session: name as string });
+                return createSessionData({ taskId: "TEST_VALUE", session: name }) as any;
               }
               return null;
             },

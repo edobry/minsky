@@ -320,7 +320,7 @@ export { createLogger as createConfigurableLogger };
 const handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
-    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error);
+    defaultLogger!._internal.programLogger.error("Unhandled error or rejection, exiting.", error);
   }
   // Give logs a moment to flush
   await new Promise((resolve) => setTimeout(resolve, 100));

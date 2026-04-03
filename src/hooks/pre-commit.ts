@@ -99,7 +99,7 @@ export class PreCommitHook {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error("❌ Pre-commit hook failed:", errorMsg);
+      log.error(`❌ Pre-commit hook failed: ${errorMsg}`);
       return {
         success: false,
         message: `Pre-commit hook failed: ${errorMsg}`,
@@ -227,7 +227,7 @@ export class PreCommitHook {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error("❌ ESLint validation failed:", errorMsg);
+      log.error(`❌ ESLint validation failed: ${errorMsg}`);
       return {
         success: false,
         message: `ESLint validation failed: ${errorMsg}`,

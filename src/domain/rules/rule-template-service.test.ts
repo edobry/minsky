@@ -221,7 +221,7 @@ describe("RuleTemplateService", () => {
       });
 
       if (!result.success) {
-        log.error("Generation failed with errors:", result.errors);
+        log.error("Generation failed with errors:", { errors: result.errors });
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
@@ -346,7 +346,7 @@ describe("RuleTemplateService", () => {
       });
 
       if (!result.success) {
-        log.error("Default template generation failed:", result.errors);
+        log.error("Default template generation failed:", { errors: result.errors });
       }
       expect(result.success).toBe(true);
       expect(result.rules.length).toBeGreaterThan(3); // Should include 3 default templates + additional
@@ -419,7 +419,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!cliResult.success) {
-        log.error("Helper test failed:", cliResult.errors);
+        log.error("Helper test failed:", { errors: cliResult.errors });
       }
       expect(cliResult.success).toBe(true);
       const cliContent = cliResult.rules[0]!.content;
@@ -571,7 +571,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!result.success) {
-        log.error("generateRulesWithConfig failed:", result.errors);
+        log.error("generateRulesWithConfig failed:", { errors: result.errors });
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
@@ -594,7 +594,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!result.success) {
-        log.error("File system integration test failed:", result.errors);
+        log.error("File system integration test failed:", { errors: result.errors });
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);

@@ -47,7 +47,10 @@ export function createModelCacheServiceWithFetchers(): DefaultModelCacheService 
         cacheService.registerFetcher(new FetcherClass());
         log.debug(`Registered model fetcher for provider: ${provider}`);
       } catch (error) {
-        log.warn(`Failed to register model fetcher for provider ${provider}:`, error);
+        log.warn(
+          `Failed to register model fetcher for provider ${provider}:`,
+          error instanceof Error ? { error: error.message } : { error: String(error) }
+        );
       }
     } else {
       log.warn(`No model fetcher implementation available for provider: ${provider}`);

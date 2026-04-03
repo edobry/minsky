@@ -13,7 +13,6 @@ interface SessionRecord {
   session: string;
   repoUrl: string;
   taskId?: string;
-  [key: string]: unknown;
 }
 
 /**

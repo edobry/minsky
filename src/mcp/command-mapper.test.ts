@@ -69,7 +69,7 @@ describe("CommandMapper", () => {
         age: z.number().optional(),
       });
 
-      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema);
+      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
 
       // Should be a flat object schema, not wrapped in $ref
       expect(jsonSchema.type).toBe("object");
@@ -104,7 +104,7 @@ describe("CommandMapper", () => {
         metadata: z.record(z.string()),
       });
 
-      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema);
+      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
 
       expect(jsonSchema.type).toBe("object");
       expect(jsonSchema.properties).toBeDefined();
@@ -121,7 +121,7 @@ describe("CommandMapper", () => {
         email: z.string().email(),
       });
 
-      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema);
+      const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
 
       expect(jsonSchema.type).toBe("object");
       expect(jsonSchema.properties?.name).toBeDefined();

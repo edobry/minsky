@@ -95,7 +95,10 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
       this.isInitialized = true;
       log.info(`SQLite database initialized: ${dbPath}`);
     } catch (error) {
-      log.error("Failed to initialize SQLite provider:", error);
+      log.error(
+        "Failed to initialize SQLite provider:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

@@ -64,7 +64,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
       const result = await sessionRepair(repairParams);
 
       if (params.json) {
-        return result;
+        return result as unknown as Record<string, unknown>;
       }
 
       // CLI output
@@ -97,7 +97,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
         log.cli(`❌ Session repair failed for '${result.sessionName}'`);
       }
 
-      return this.createSuccessResult(result);
+      return this.createSuccessResult(result as unknown as Record<string, unknown>);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error("Session repair failed", { error: errorMessage });

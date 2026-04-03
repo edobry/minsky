@@ -194,7 +194,7 @@ export class DatabaseIntegrityChecker {
       try {
         const buffer = readFileSync(filePath, { encoding: null }) as Buffer;
         if (buffer.length >= 16) {
-          const header = buffer.subarray(0, 16).toString("ascii");
+          const header = new TextDecoder("ascii").decode(buffer.subarray(0, 16));
           if (header.startsWith("SQLite format 3")) {
             // It's a SQLite file - verify it's not corrupted
             try {

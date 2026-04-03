@@ -99,7 +99,10 @@ class TestConfigurationProvider implements ConfigurationProvider {
         };
       }
     } catch (error) {
-      log.error("Configuration loading failed:", error);
+      log.error(
+        "Configuration loading failed:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

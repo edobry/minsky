@@ -78,7 +78,7 @@ export async function rebaseFromParams(params: {
         overallComplexity: conflictPrediction.overallComplexity,
       };
     } catch (error) {
-      log("Could not predict conflicts", { error });
+      log.debug("Could not predict conflicts", { error });
     }
   }
 
@@ -93,7 +93,7 @@ export async function rebaseFromParams(params: {
       }
     );
 
-    log("Rebase completed successfully", {
+    log.debug("Rebase completed successfully", {
       baseBranch: params.baseBranch,
       featureBranch,
       repoPath,

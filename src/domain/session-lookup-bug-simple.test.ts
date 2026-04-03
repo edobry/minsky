@@ -35,14 +35,15 @@ describe("Session Creation Bug Fix (TDD)", () => {
         isDirectory: () => mockFs.existsSync(path) && mockFs.directories.has(path),
       }),
     }));
+    const mockFsAny = mockFs as any;
     mock.module("fs/promises", () => ({
       mkdir: mockFs.mkdir,
-      rmdir: mockFs.rmdir,
-      rm: mockFs.rm,
+      rmdir: mockFsAny.rmdir ?? mockFs.mkdir,
+      rm: mockFs.fsPromises.rm,
       readFile: mockFs.readFile,
       writeFile: mockFs.writeFile,
-      readdir: mockFs.readdir,
-      stat: mockFs.stat,
+      readdir: mockFs.fsPromises.readdir,
+      stat: mockFsAny.stat ?? mockFs.statSync,
     }));
 
     // Mock cleanup - avoiding real filesystem operations

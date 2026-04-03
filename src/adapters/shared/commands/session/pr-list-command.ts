@@ -55,7 +55,7 @@ export class SessionPrListCommand extends BaseSessionCommand<
         session: params.session,
         task: params.task,
         status: params.status,
-        backend: params.backend,
+        backend: params.backend as "github" | "remote" | "local" | undefined,
         since: params.since,
         until: params.until,
         repo: params.repo,

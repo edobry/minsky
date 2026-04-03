@@ -232,7 +232,7 @@ export class TaskServiceImpl implements TaskService {
         });
 
         if (index !== -1) {
-          tasks[index] = { ...tasks[index], title: updates.title };
+          tasks[index] = { ...tasks[index]!, title: updates.title };
           const updated = formatTasksToMarkdown(tasks);
           await fs.writeFile(tasksFilePath, updated, "utf-8");
         }

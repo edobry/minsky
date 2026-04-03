@@ -84,7 +84,10 @@ export class PostgresPersistenceProvider
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
-      log.error("Failed to initialize PostgreSQL provider:", error);
+      log.error(
+        "Failed to initialize PostgreSQL provider:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }
@@ -161,7 +164,10 @@ export class PostgresPersistenceProvider
       await migrate(this.db, { migrationsFolder });
       log.info("Migrations completed successfully");
     } catch (error) {
-      log.error("Failed to run migrations:", error);
+      log.error(
+        "Failed to run migrations:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }
@@ -179,7 +185,10 @@ export class PostgresPersistenceProvider
         log.debug("PostgreSQL connections closed");
       }
     } catch (error) {
-      log.error("Error closing PostgreSQL connections:", error);
+      log.error(
+        "Error closing PostgreSQL connections:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }
@@ -241,7 +250,10 @@ export class PostgresVectorPersistenceProvider
 
       log.debug("PostgreSQL persistence provider initialized with vector support");
     } catch (error) {
-      log.error("Failed to verify pgvector extension:", error);
+      log.error(
+        "Failed to verify pgvector extension:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

@@ -57,7 +57,10 @@ export class PersistenceService {
 
       log.info("PersistenceService initialized successfully");
     } catch (error) {
-      log.error("Failed to initialize PersistenceService:", error);
+      log.error(
+        "Failed to initialize PersistenceService:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       throw error;
     }
   }

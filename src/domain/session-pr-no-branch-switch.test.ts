@@ -97,7 +97,7 @@ describe("Session PR Command Branch Behavior", () => {
         (cmd) => cmd.includes("branch ") || cmd.includes("switch ") || cmd.includes("checkout ")
       );
 
-      log.debug("Git branch/switch commands executed:", relevantCommands);
+      log.debug(`Git branch/switch commands executed: ${JSON.stringify(relevantCommands)}`);
     } catch (error) {
       // The test currently fails with session not found, which is expected
       // since we're using mocked functions without proper session setup

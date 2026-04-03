@@ -175,7 +175,7 @@ export function updateSessionFn(
     session?: string;
   };
   const updatedSessions = [...state.sessions];
-  updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
+  updatedSessions[index] = { ...updatedSessions[index]!, ...safeUpdates } as SessionRecord;
 
   return {
     ...state,

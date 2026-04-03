@@ -101,14 +101,8 @@ export class SessionPrGetCommand extends BaseSessionCommand<
         output.push((pullRequest as { description?: string }).description!);
       }
 
-      if (pullRequest.filesChanged && pullRequest.filesChanged.length > 0) {
-        output.push("", `Files Changed: (${pullRequest.filesChanged.length})`);
-        pullRequest.filesChanged.slice(0, 10).forEach((file) => {
-          output.push(`- ${file}`);
-        });
-        if (pullRequest.filesChanged.length > 10) {
-          output.push(`... and ${pullRequest.filesChanged.length - 10} more files`);
-        }
+      if (pullRequest.filesChanged) {
+        output.push("", `Files Changed: ${pullRequest.filesChanged}`);
       }
 
       return this.createSuccessResult({

@@ -146,7 +146,7 @@ export async function approveSessionImpl(
         });
 
     try {
-      const task = await taskService.getTask(taskIdToUse);
+      const task = await taskService.getTask!(taskIdToUse);
       if (!task) {
         // Task doesn't exist - provide clear, concise error
         throw new ResourceNotFoundError(

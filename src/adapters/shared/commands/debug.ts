@@ -131,8 +131,13 @@ export function registerDebugCommands(): void {
         const nodejsVersion = process.version;
         const platform = process.platform;
         const arch = process.arch;
-        const uptime = Math.round(process.uptime());
-        const memory = process.memoryUsage();
+        const uptime = Math.round((process as any).uptime?.() ?? 0);
+        const memory = (process as any).memoryUsage?.() ?? {
+          rss: 0,
+          heapTotal: 0,
+          heapUsed: 0,
+          external: 0,
+        };
 
         // Return formatted system information
         return {

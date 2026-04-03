@@ -390,7 +390,10 @@ export class RuleTemplateService {
         this.registerTemplate(template);
       }
     } catch (error) {
-      log.error("Error registering init templates:", error);
+      log.error(
+        "Error registering init templates:",
+        error instanceof Error ? error : { error: String(error) }
+      );
 
       // Register a minimal init template
       this.registerTemplate({

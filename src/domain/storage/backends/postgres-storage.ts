@@ -102,7 +102,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await migrate(this.drizzle!, { migrationsFolder: "./src/domain/storage/migrations/pg" });
     } catch (error) {
       // Log but don't throw - migrations may not exist yet
-      log.debug("Migration attempt failed:", error);
+      log.debug(
+        `Migration attempt failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -213,7 +215,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       // Keep user output concise; details available in debug logs
-      log.error(`Failed to read PostgreSQL state: ${typedError.message}`, error);
+      log.error(`Failed to read PostgreSQL state: ${typedError.message}`);
       return { success: false, error: typedError };
     }
   }
@@ -335,12 +337,14 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const results = (await this.drizzle!.select().from(postgresSessions)) as any;
       log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
-      log.debug(`Sample raw record:`, JSON.stringify(results[0], null, 2));
+      log.debug(`Sample raw record: ${JSON.stringify(results[0], null, 2)}`);
       const mapped = results.map((record: any, index: number) => {
         try {
           return fromPostgresSelect(record);
         } catch (mappingError) {
-          log.error(`Error mapping record ${index}:`, mappingError, record);
+          log.error(
+            `Error mapping record ${index}: ${mappingError instanceof Error ? mappingError.message : String(mappingError)}`
+          );
           throw mappingError;
         }
       });
@@ -348,7 +352,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return mapped;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
-      log.error(`Failed to get sessions from PostgreSQL: ${typedError.message}`, error);
+      log.error(`Failed to get sessions from PostgreSQL: ${typedError.message}`);
       return [];
     }
   }
@@ -424,7 +428,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.length > 0;
     } catch (error) {
-      log.error("Failed to check session existence in PostgreSQL:", error);
+      log.error(
+        "Failed to check session existence in PostgreSQL:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       return false;
     }
   }

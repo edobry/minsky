@@ -53,7 +53,9 @@ export function loadUserConfiguration(): any {
         }
       } catch (error) {
         // Log warning but continue to next file
-        log.warn(`Warning: Failed to load user config from ${configPath}:`, error);
+        log.warn(
+          `Warning: Failed to load user config from ${configPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
@@ -82,7 +84,9 @@ function loadConfigFile(filePath: string): any {
         return null;
     }
   } catch (error) {
-    log.warn(`Warning: Failed to parse config file ${filePath}:`, error);
+    log.warn(
+      `Warning: Failed to parse config file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 }
@@ -191,7 +195,9 @@ export function ensureUserConfigDir(): string {
     const fs = require("fs");
     fs.mkdirSync(configDir, { recursive: true });
   } catch (error) {
-    log.warn(`Warning: Failed to create user config directory ${configDir}:`, error);
+    log.warn(
+      `Warning: Failed to create user config directory ${configDir}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   return configDir;

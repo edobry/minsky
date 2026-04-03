@@ -84,7 +84,10 @@ export const TestContextComponent: ContextComponent = {
         issues,
       };
     } catch (error) {
-      log.error("Error gathering test context inputs:", error);
+      log.error(
+        "Error gathering test context inputs:",
+        error instanceof Error ? error : { error: String(error) }
+      );
       return {
         framework: { name: "unknown" },
         testFiles: { total: 0, byType: {}, patterns: [] },
@@ -369,7 +372,9 @@ async function discoverTestFiles(workspacePath: string): Promise<TestContextInpu
     // Check for coverage configuration
     testFiles.coverage = await detectCoverageConfig(workspacePath);
   } catch (error) {
-    log.warn("Error discovering test files:", error);
+    log.warn(
+      `Error discovering test files: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   return testFiles;

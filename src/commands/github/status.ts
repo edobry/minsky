@@ -94,7 +94,9 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
 
     // Step 4: Check GitHub config from configuration system
     try {
-      const githubConfig = get("github");
+      const githubConfig = get<
+        { organization?: string; repository?: string; baseUrl?: string } | undefined
+      >("github");
 
       log.cli(`\n⚙️  GitHub Configuration:`);
 
