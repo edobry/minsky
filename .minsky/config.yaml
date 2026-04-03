@@ -1,6 +1,11 @@
 version: 1
 
-# Task Backend Configuration - Use tasks.backend instead of deprecated root backend property
-# backend: removed - deprecated property, use tasks.backend instead
 tasks:
-  backend: "minsky"  # Modern task backend configuration
+  backend: "minsky"
+
+repository:
+  backend: "github"
+  url: "https://github.com/edobry/minsky.git"
+  github:
+    owner: "edobry"
+    repo: "minsky"

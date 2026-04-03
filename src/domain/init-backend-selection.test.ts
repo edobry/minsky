@@ -8,6 +8,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { initializeProject } from "./init";
 import * as path from "path";
+import { parse as yamlParse } from "yaml";
 
 describe("Init System Backend Selection", () => {
   let mockFileSystem: any;
@@ -39,21 +40,21 @@ describe("Init System Backend Selection", () => {
           repoPath: testRepo,
           backend: backend,
           ruleFormat: "cursor",
-          mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
+          mcp: { enabled: false },
           mcpOnly: false,
           overwrite: false,
         },
         mockFileSystem
       );
 
-      // Verify config file was created with correct backend
-      const configPath = path.join(testRepo, "config", "default.json");
+      // Verify config file was created at .minsky/config.yaml
+      const configPath = path.join(testRepo, ".minsky", "config.yaml");
       expect(capturedFiles.has(configPath)).toBe(true);
 
       const configContent = capturedFiles.get(configPath);
       expect(configContent).toBeDefined();
 
-      const config = JSON.parse(configContent!);
+      const config = yamlParse(configContent!);
       expect(config.tasks.backend).toBe(backend);
     }
   });
@@ -68,7 +69,7 @@ describe("Init System Backend Selection", () => {
         repoPath: testRepo,
         backend: "markdown",
         ruleFormat: "cursor",
-        mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
+        mcp: { enabled: false },
         mcpOnly: false,
         overwrite: false,
       },
@@ -86,7 +87,7 @@ describe("Init System Backend Selection", () => {
         repoPath: testRepo,
         backend: "json-file",
         ruleFormat: "cursor",
-        mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
+        mcp: { enabled: false },
         mcpOnly: false,
         overwrite: false,
       },
@@ -105,7 +106,7 @@ describe("Init System Backend Selection", () => {
         repoPath: testRepo,
         backend: "github-issues",
         ruleFormat: "cursor",
-        mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
+        mcp: { enabled: false },
         mcpOnly: false,
         overwrite: false,
       },
@@ -113,9 +114,9 @@ describe("Init System Backend Selection", () => {
     );
 
     // Should not create task files, only config
-    const configPath = path.join(testRepo, "config", "default.json");
+    const configPath = path.join(testRepo, ".minsky", "config.yaml");
     expect(capturedFiles.has(configPath)).toBe(true);
-    const config = JSON.parse(capturedFiles.get(configPath)!);
+    const config = yamlParse(capturedFiles.get(configPath)!);
     expect(config.tasks.backend).toBe("github-issues");
   });
 
@@ -128,16 +129,16 @@ describe("Init System Backend Selection", () => {
         repoPath: testRepo,
         backend: "json-file",
         ruleFormat: "cursor",
-        mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
+        mcp: { enabled: false },
         mcpOnly: false,
         overwrite: false,
       },
       mockFileSystem
     );
 
-    const configPath = path.join(testRepo, "config", "default.json");
+    const configPath = path.join(testRepo, ".minsky", "config.yaml");
     const configContent = capturedFiles.get(configPath);
-    const config = JSON.parse(configContent!);
+    const config = yamlParse(configContent!);
 
     // Verify user's choice is respected
     expect(config.tasks.backend).toBe("json-file");

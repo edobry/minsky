@@ -7,7 +7,11 @@ import {
   createDirectoryIfNotExists,
   createFileIfNotExists,
 } from "./init/file-system";
-import { getMinskyConfigContent, getMCPConfigContent } from "./init/config-content";
+import {
+  getMinskyConfigContent,
+  getMinskyConfigContentYaml,
+  getMCPConfigContent,
+} from "./init/config-content";
 import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,
@@ -31,7 +35,11 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 }
 
 // Re-export content helpers for consumers that may reference them
-export { getMinskyConfigContent, getMCPConfigContent } from "./init/config-content";
+export {
+  getMinskyConfigContent,
+  getMinskyConfigContentYaml,
+  getMCPConfigContent,
+} from "./init/config-content";
 export {
   getMinskyRuleContent,
   getRulesIndexContent,
@@ -177,11 +185,11 @@ export async function initializeProject(
   }
 
   // Create main Minsky configuration file with user's backend choice
-  const configDir = path.join(repoPath, "config");
-  await createDirectoryIfNotExists(configDir, fileSystem);
+  const minskyDir = path.join(repoPath, ".minsky");
+  await createDirectoryIfNotExists(minskyDir, fileSystem);
 
-  const configPath = path.join(configDir, "default.json");
-  const configContent = getMinskyConfigContent(backend, repository);
+  const configPath = path.join(minskyDir, "config.yaml");
+  const configContent = getMinskyConfigContentYaml(backend, repository);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
   // Setup MCP if enabled (default to enabled if not explicitly disabled)
