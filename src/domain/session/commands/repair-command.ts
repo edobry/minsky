@@ -13,8 +13,8 @@ import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createGitService } from "../../git";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
+import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
-import { getConfiguration } from "../../configuration/index";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -251,6 +251,35 @@ async function analyzeBackendSyncIssues(
 ): Promise<RepairIssue[]> {
   const issues: RepairIssue[] = [];
 
+  // Check for missing backendType on session record
+  if (!sessionRecord.backendType) {
+    try {
+      const { backendType: configBackendType } = await getRepositoryBackendFromConfig();
+      issues.push({
+        type: "backend-sync",
+        severity: "medium",
+        description: "Session record is missing backendType",
+        details: {
+          recordedType: undefined,
+          suggestedType: configBackendType,
+          fromConfig: true,
+        },
+        autoFixable: true,
+      });
+    } catch (error) {
+      log.debug("Could not read project config for backendType suggestion", { error });
+      issues.push({
+        type: "backend-sync",
+        severity: "medium",
+        description: "Session record is missing backendType and project config is unavailable",
+        details: { recordedType: undefined },
+        autoFixable: false,
+      });
+    }
+    // Skip the mismatch check below when backendType is absent
+    return issues;
+  }
+
   // Check if backend type matches actual repository
   try {
     const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
@@ -363,14 +392,27 @@ async function repairBackendSync(
   sessionRecord: any,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
-  // Prefer configured default when recorded type is missing; otherwise use detected actual type
-  const config = getConfiguration() as { repository?: { default_repo_backend?: string } };
-  const defaultBackend = config.repository?.default_repo_backend || "github";
-
   const recordedType = issue.details?.recordedType as string | undefined;
   const actualType = issue.details?.actualType as string | undefined;
+  const suggestedType = issue.details?.suggestedType as string | undefined;
 
-  const newBackendType = recordedType ? actualType || recordedType : defaultBackend;
+  let newBackendType: string;
+
+  if (suggestedType) {
+    // Missing backendType: use value from project config
+    newBackendType = suggestedType;
+  } else if (recordedType) {
+    // Mismatch: prefer the actually-detected type
+    newBackendType = actualType || recordedType;
+  } else {
+    // Final fallback: read project config
+    try {
+      const { backendType: configBackendType } = await getRepositoryBackendFromConfig();
+      newBackendType = configBackendType;
+    } catch {
+      newBackendType = "local";
+    }
+  }
 
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,

@@ -43,49 +43,57 @@ export class PreCommitHook {
     log.cli("🔍 Running pre-commit validation...\n");
 
     try {
-      // Step 1: Secret scanning (still use external gitleaks)
-      const secretsResult = await this.runSecretScanning();
-      if (!secretsResult.success) {
-        return secretsResult;
-      }
+      // ── Fast, lightweight checks first (~1s each) ──
 
-      // Step 2: Variable naming check (still use external script for now)
-      const variableResult = await this.runVariableNamingCheck();
-      if (!variableResult.success) {
-        return variableResult;
-      }
-
-      // Step 3: Unit tests
-      const testsResult = await this.runUnitTests();
-      if (!testsResult.success) {
-        return testsResult;
-      }
-
-      // Step 4: Test pattern validation
-      const patternsResult = await this.runTestPatternValidation();
-      if (!patternsResult.success) {
-        return patternsResult;
-      }
-
-      // Step 5: Code formatting
+      // Step 1: Code formatting (lint-staged, only staged files, ~1s)
       const formatResult = await this.runCodeFormatting();
       if (!formatResult.success) {
         return formatResult;
       }
 
-      // Step 6: Console usage validation
+      // Step 2: Console usage validation (~1s)
       const consoleResult = await this.runConsoleValidation();
       if (!consoleResult.success) {
         return consoleResult;
       }
 
-      // Step 7: ESLint validation
+      // Step 3: Variable naming check (~1s)
+      const variableResult = await this.runVariableNamingCheck();
+      if (!variableResult.success) {
+        return variableResult;
+      }
+
+      // ── Medium-weight static analysis (~5s each) ──
+
+      // Step 4: TypeScript type checking (~5s)
+      const typeCheckResult = await this.runTypeCheck();
+      if (!typeCheckResult.success) {
+        return typeCheckResult;
+      }
+
+      // Step 5: ESLint validation (~5-10s)
       const lintResult = await this.runESLintValidation();
       if (!lintResult.success) {
         return lintResult;
       }
 
-      // Step 8: ESLint rule tooling tests
+      // ── Security scanning (~2-3s, critical but rare) ──
+
+      // Step 6: Secret scanning
+      const secretsResult = await this.runSecretScanning();
+      if (!secretsResult.success) {
+        return secretsResult;
+      }
+
+      // ── Expensive runtime checks (tests) ──
+
+      // Step 7: Unit tests (most expensive)
+      const testsResult = await this.runUnitTests();
+      if (!testsResult.success) {
+        return testsResult;
+      }
+
+      // Step 8: ESLint rule tooling tests (niche)
       const ruleTestsResult = await this.runESLintRuleTests();
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
@@ -257,7 +265,7 @@ export class PreCommitHook {
    * Run secret scanning (still use gitleaks for now)
    */
   private async runSecretScanning(): Promise<HookResult> {
-    log.cli("🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)...");
+    log.cli("🔒 SECURITY: Scanning for secrets...");
 
     try {
       // Check if gitleaks is available before attempting to run it
@@ -344,6 +352,27 @@ export class PreCommitHook {
       log.cli("   • Add missing mocks or dependencies");
       log.cli("   • Check for import/export issues");
       return { success: false, message: "Unit tests failed", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Run TypeScript type checking
+   */
+  private async runTypeCheck(): Promise<HookResult> {
+    log.cli("🔎 Running TypeScript type check...");
+
+    try {
+      await execAsync("bunx tsc --noEmit", {
+        cwd: this.projectRoot,
+        timeout: 60000,
+      });
+      log.cli("✅ TypeScript compilation passed — no type errors.");
+      return { success: true, message: "Type check passed", exitCode: 0 };
+    } catch (error: any) {
+      const output = error.stdout || error.message || String(error);
+      log.cli("❌ TypeScript type errors found! Commit blocked.");
+      log.cli(output);
+      return { success: false, message: "TypeScript type check failed", exitCode: 1 };
     }
   }
 
