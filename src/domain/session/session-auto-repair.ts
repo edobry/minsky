@@ -165,10 +165,7 @@ async function reconstructSessionRecord(
 
     // Determine default branch name from task ID if possible, otherwise fall back to session name
     const validatedTaskId = validateQualifiedTaskId(taskId);
-    const defaultBranch =
-      validatedTaskId && !isUuidSessionName(sessionName)
-        ? taskIdToBranchName(validatedTaskId)
-        : sessionName;
+    const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionName; // UUID with no taskId — unavoidable fallback
 
     // Get current branch
     let branch = defaultBranch;

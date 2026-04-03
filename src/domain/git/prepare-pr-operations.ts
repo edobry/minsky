@@ -3,7 +3,12 @@ import { MinskyError, getErrorMessage } from "../../errors/index";
 import { validateGitError } from "../../schemas/error";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
-import { sessionNameToTaskId, branchNameToTaskId } from "../tasks/task-id";
+import {
+  sessionNameToTaskId,
+  branchNameToTaskId,
+  taskIdToBranchName,
+  isUuidSessionName,
+} from "../tasks/task-id";
 import {
   SessionMultiBackendIntegration,
   type MultiBackendSessionRecord,
@@ -149,17 +154,25 @@ export async function preparePrImpl(
             // Extract task ID from session name using proper utilities
             // For UUID session names, sessionNameToTaskId returns null — fall back to branch name
             let taskId = sessionNameToTaskId(options.session);
-            if (!taskId) {
-              try {
-                const currentBranch = await deps.execInRepository(
-                  currentDir,
-                  "git rev-parse --abbrev-ref HEAD"
-                );
-                taskId = branchNameToTaskId(currentBranch.trim());
-              } catch {
-                // Ignore errors reading branch name
-              }
+            let currentBranchFromGit: string | undefined;
+            try {
+              const branchOut = await deps.execInRepository(
+                currentDir,
+                "git rev-parse --abbrev-ref HEAD"
+              );
+              currentBranchFromGit = branchOut.trim();
+            } catch {
+              // Ignore errors reading branch name
             }
+            if (!taskId && currentBranchFromGit) {
+              taskId = branchNameToTaskId(currentBranchFromGit);
+            }
+
+            // Determine branch: prefer actual git branch, fall back to taskId-derived name for UUID sessions
+            const branchFallback =
+              taskId && isUuidSessionName(options.session)
+                ? taskIdToBranchName(taskId)
+                : options.session;
 
             // Create basic session record
             const basicSessionRecord: SessionRecord = {
@@ -168,17 +181,7 @@ export async function preparePrImpl(
               repoName,
               createdAt: new Date().toISOString(),
               taskId: taskId ?? undefined, // Only set if valid task ID extracted
-              branch: await (async () => {
-                try {
-                  const b = await deps.execInRepository(
-                    currentDir,
-                    "git rev-parse --abbrev-ref HEAD"
-                  );
-                  return b.trim();
-                } catch {
-                  return options.session;
-                }
-              })(),
+              branch: currentBranchFromGit ?? branchFallback,
             };
 
             // Enhance with multi-backend support
