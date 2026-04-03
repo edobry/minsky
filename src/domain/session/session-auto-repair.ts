@@ -38,16 +38,16 @@ export async function attemptSessionAutoRepair(
   log.debug("Generated possible session names", { taskId, possibleSessionNames });
 
   // Check each possible session name for existing directory
-  for (const sessionName of possibleSessionNames) {
-    const sessionDir = join(baseDir, sessionName);
+  for (const sessionId of possibleSessionNames) {
+    const sessionDir = join(baseDir, sessionId);
 
     if (existsSync(sessionDir)) {
-      log.debug("Found existing session directory", { sessionName, sessionDir });
+      log.debug("Found existing session directory", { sessionId, sessionDir });
 
       try {
         // Attempt to reconstruct session record from the workspace
         const reconstructedSession = await reconstructSessionRecord(
-          sessionName,
+          sessionId,
           sessionDir,
           taskId,
           deps
@@ -57,13 +57,13 @@ export async function attemptSessionAutoRepair(
           // Add the reconstructed session to the database
           await deps.sessionDB.addSession(reconstructedSession);
 
-          log.cli(`🔧 Auto-repair: Reconstructed session '${sessionName}' from existing workspace`);
+          log.cli(`🔧 Auto-repair: Reconstructed session '${sessionId}' from existing workspace`);
 
           return reconstructedSession;
         }
       } catch (error) {
         log.warn("Failed to reconstruct session from directory", {
-          sessionName,
+          sessionId,
           sessionDir,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -147,7 +147,7 @@ function extractIdPart(taskId: string): string | null {
  * Reconstruct a session record from an existing workspace directory
  */
 async function reconstructSessionRecord(
-  sessionName: string,
+  sessionId: string,
   sessionDir: string,
   taskId: string,
   deps: SessionAutoRepairDependencies
@@ -165,7 +165,7 @@ async function reconstructSessionRecord(
 
     // Determine default branch name from task ID if possible, otherwise fall back to session name
     const validatedTaskId = validateQualifiedTaskId(taskId);
-    const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionName; // UUID with no taskId — unavoidable fallback
+    const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionId; // UUID with no taskId — unavoidable fallback
 
     // Get current branch
     let branch = defaultBranch;
@@ -177,7 +177,7 @@ async function reconstructSessionRecord(
       branch = branchOutput.trim() || defaultBranch;
     } catch (branchError) {
       log.debug("Could not determine current branch, using default branch name", {
-        sessionName,
+        sessionId,
         defaultBranch,
         branchError,
       });
@@ -195,14 +195,14 @@ async function reconstructSessionRecord(
       }
     } catch (commitError) {
       log.debug("Could not determine creation date from git log", {
-        sessionName,
+        sessionId,
         commitError,
       });
     }
 
     // Create session record
     const sessionRecord: SessionRecord = {
-      session: sessionName,
+      session: sessionId,
       repoName,
       repoUrl,
       createdAt,
@@ -215,7 +215,7 @@ async function reconstructSessionRecord(
     return sessionRecord;
   } catch (error) {
     log.debug("Failed to reconstruct session record", {
-      sessionName,
+      sessionId,
       sessionDir,
       error: error instanceof Error ? error.message : String(error),
     });

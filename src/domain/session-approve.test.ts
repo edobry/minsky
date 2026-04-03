@@ -98,7 +98,7 @@ describe("Session Approve", () => {
     // This should work since we know the mock has the right session
     try {
       const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, simpleDeps);
-      expect(result.sessionName).toBe(TEST_SESSION_NAME);
+      expect(result.sessionId).toBe(TEST_SESSION_NAME);
     } catch (error) {
       log.debug(`Error details: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
@@ -164,12 +164,12 @@ describe("Session Approve", () => {
       { session: TEST_SESSION_NAME },
       testDeps as any
     );
-    expect(resultBySession.sessionName).toBe(TEST_SESSION_NAME);
+    expect(resultBySession.sessionId).toBe(TEST_SESSION_NAME);
     expect(resultBySession.taskId).toBe(TEST_TASK_ID);
 
     // Test by task ID
     const resultByTask = await approveSessionFromParams({ task: TEST_TASK_ID }, testDeps as any);
-    expect(resultByTask.sessionName).toBe(TEST_SESSION_NAME);
+    expect(resultByTask.sessionId).toBe(TEST_SESSION_NAME);
     expect(resultByTask.taskId).toBe(TEST_TASK_ID);
   });
 
@@ -226,7 +226,7 @@ describe("Session Approve", () => {
 
     // Test session detection by repo path
     const result = await approveSessionFromParams({ repo: TEST_REPO_PATH }, testDeps as any);
-    expect(result.sessionName).toBe("current-session");
+    expect(result.sessionId).toBe("current-session");
     expect(result.taskId).toBe("md#456");
   });
 

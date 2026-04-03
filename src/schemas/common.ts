@@ -31,7 +31,7 @@ export const repoPathSchema = z
  * @example "my-session"
  * @example "task#TEST_VALUE"
  */
-export const sessionNameSchema = z.string().min(1).max(100);
+export const sessionIdSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
@@ -56,7 +56,7 @@ export const jsonOutputSchema = flagSchema("Output as JSON");
 export const commonCommandOptionsSchema = z
   .object({
     json: jsonOutputSchema,
-    session: sessionNameSchema.optional().describe("Session name to use"),
+    session: sessionIdSchema.optional().describe("Session name to use"),
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),

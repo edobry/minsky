@@ -74,7 +74,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
     handler: async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
       const args = rawArgs as EditFileArgs;
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
 
         // Check if file exists
         let fileExists = false;
@@ -113,7 +113,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           const diffSummary = generateDiffSummary(originalContent, finalContent);
 
           log.debug("Session file edit dry-run completed", {
-            session: args.sessionName,
+            session: args.sessionId,
             path: args.path,
             resolvedPath,
             fileExisted: fileExists,
@@ -124,7 +124,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           return createSuccessResponse({
             timestamp: new Date().toISOString(),
             path: args.path,
-            session: args.sessionName,
+            session: args.sessionId,
             resolvedPath,
             dryRun: true,
             proposedContent: finalContent,
@@ -145,7 +145,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         await writeFile(resolvedPath, finalContent, "utf8");
 
         log.debug("Session file edit successful", {
-          session: args.sessionName,
+          session: args.sessionId,
           path: args.path,
           resolvedPath,
           fileExisted: fileExists,
@@ -154,7 +154,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 
         return createSuccessResponse({
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           edited: true,
           created: !fileExists,
           bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
@@ -162,14 +162,14 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
-          session: args.sessionName,
+          session: args.sessionId,
           path: args.path,
           error: errorMessage,
         });
 
         return createErrorResponse(errorMessage, undefined, {
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
         });
       }
     },
@@ -188,18 +188,18 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           const receivedKeys = Object.keys(args).join(", ");
           throw new Error(
             `Missing required parameter "search". Received parameters: [${receivedKeys}]. ` +
-              `Expected: sessionName, path, search, replace`
+              `Expected: sessionId, path, search, replace`
           );
         }
         if (args.replace == null || typeof args.replace !== "string") {
           const receivedKeys = Object.keys(args).join(", ");
           throw new Error(
             `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
-              `Expected: sessionName, path, search, replace`
+              `Expected: sessionId, path, search, replace`
           );
         }
 
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
 
         // Validate file exists
         await pathResolver.validatePathExists(resolvedPath);
@@ -227,7 +227,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         await writeFile(resolvedPath, newContent, "utf8");
 
         log.debug("Session search replace successful", {
-          session: args.sessionName,
+          session: args.sessionId,
           path: args.path,
           resolvedPath,
           searchLength: args.search.length,
@@ -236,7 +236,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 
         return createSuccessResponse({
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           edited: true,
           replaced: true,
           searchText: args.search,
@@ -245,14 +245,14 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
-          session: args.sessionName,
+          session: args.sessionId,
           path: args.path,
           error: errorMessage,
         });
 
         return createErrorResponse(errorMessage, undefined, {
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
         });
       }
     },

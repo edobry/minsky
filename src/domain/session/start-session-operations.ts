@@ -124,7 +124,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     const cloneSource = repo || repoUrl;
 
     // Determine the session name using task ID if provided
-    let sessionName = name;
+    let sessionId = name;
     let taskId: string | undefined = task;
 
     // Auto-create task if description is provided but no task ID
@@ -141,7 +141,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    if (taskId && !sessionName) {
+    if (taskId && !sessionId) {
       // Normalize the task ID format using Zod validation
       let normalizedTaskId: string;
       try {
@@ -166,17 +166,17 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
 
       // Use a generated UUID as the session name
-      sessionName = generateSessionId();
+      sessionId = generateSessionId();
     }
 
-    if (!sessionName) {
+    if (!sessionId) {
       throw new ValidationError("Session name could not be determined from task ID");
     }
 
     // Check if session already exists
-    const existingSession = await deps.sessionDB.getSession(sessionName);
+    const existingSession = await deps.sessionDB.getSession(sessionId);
     if (existingSession) {
-      throw new MinskyError(`Session '${sessionName}' already exists`);
+      throw new MinskyError(`Session '${sessionId}' already exists`);
     }
 
     // Check if a session already exists for this task
@@ -214,7 +214,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Generate the expected repository path using simplified session-ID-based structure
     const sessionBaseDir =
       process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
+    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
 
     // Check if session directory already exists and clean it up
     if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
@@ -230,7 +230,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Prepare session record but don't add to DB yet (branch no longer persisted)
     // Detect repository backend type up-front so session records have correct backendType
     const sessionRecord: SessionRecord = {
-      session: sessionName,
+      session: sessionId,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
@@ -240,7 +240,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
-    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionName);
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
     try {
       // First clone the repo.  Use cloneSource so that an explicit --repo path can
@@ -248,7 +248,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // is still stored on the session record.
       const gitCloneResult = await deps.gitService.clone({
         repoUrl: cloneSource,
-        session: sessionName,
+        session: sessionId,
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
       });
 
@@ -256,7 +256,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // since session record hasn't been added to DB yet
       const branchResult = await deps.gitService.branchWithoutSession({
         repoName: normalizedRepoName,
-        session: sessionName,
+        session: sessionId,
         branch: branchName,
       });
 
@@ -267,10 +267,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // Clean up session record if it was added but git operations failed
       if (sessionAdded) {
         try {
-          await deps.sessionDB.deleteSession(sessionName);
+          await deps.sessionDB.deleteSession(sessionId);
         } catch (cleanupError) {
           log.error("Failed to cleanup session record after git error", {
-            sessionName,
+            sessionId,
             gitError: getErrorMessage(gitError),
             cleanupError: getErrorMessage(cleanupError),
           });
@@ -333,11 +333,11 @@ Error: ${getErrorMessage(installError)}`
     }
 
     if (!quiet) {
-      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+      log.debug(`Started session for task ${taskId}`, { session: sessionId });
     }
 
     return {
-      session: sessionName,
+      session: sessionId,
       repoUrl,
       repoName: normalizedRepoName,
       taskId,

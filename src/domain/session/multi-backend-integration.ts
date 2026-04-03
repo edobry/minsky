@@ -1,7 +1,7 @@
 import type { SessionRecord } from "./types";
 import {
   taskIdToSessionName,
-  sessionNameToTaskId,
+  sessionIdToTaskId,
   isQualifiedTaskId,
   extractBackend,
   extractLocalId,
@@ -50,22 +50,22 @@ export class SessionMultiBackendIntegration {
    * Extract task ID from session name.
    * Returns null for UUID session names — use DB lookup instead.
    *
-   * @param sessionName Session name (UUID or legacy task-md#123)
+   * @param sessionId Session name (UUID or legacy task-md#123)
    * @returns Task ID in qualified format (md#123) or null
    */
-  static extractTaskIdFromSessionName(sessionName: string): string | null {
-    if (!sessionName) {
+  static extractTaskIdFromSessionName(sessionId: string): string | null {
+    if (!sessionId) {
       return null;
     }
 
     // UUID session names don't encode task IDs — use DB lookup instead
-    if (isUuidSessionName(sessionName)) {
+    if (isUuidSessionName(sessionId)) {
       return null;
     }
 
     // Legacy: task-md#123 → md#123
-    if (sessionName.startsWith("task-")) {
-      return sessionNameToTaskId(sessionName);
+    if (sessionId.startsWith("task-")) {
+      return sessionIdToTaskId(sessionId);
     }
 
     return null;
@@ -93,16 +93,16 @@ export class SessionMultiBackendIntegration {
   /**
    * Check if session name uses multi-backend format (UUID or legacy task-md#123)
    *
-   * @param sessionName Session name to check
+   * @param sessionId Session name to check
    * @returns True if using multi-backend format
    */
-  static isMultiBackendSessionName(sessionName: string): boolean {
+  static isMultiBackendSessionName(sessionId: string): boolean {
     // UUID session names are the new multi-backend format
-    if (isUuidSessionName(sessionName)) {
+    if (isUuidSessionName(sessionId)) {
       return true;
     }
     // Legacy format: task-md#123
-    return sessionName.startsWith("task-") && sessionName.includes("#");
+    return sessionId.startsWith("task-") && sessionId.includes("#");
   }
 
   // migrateLegacySessionRecord removed: strict-only; callers should provide qualified IDs and session names
@@ -113,18 +113,18 @@ export class SessionMultiBackendIntegration {
    * Validate session-task compatibility.
    * UUID sessions are always compatible — validation is via DB record, not name.
    *
-   * @param sessionName Session name
+   * @param sessionId Session name
    * @param taskId Task ID
    * @returns True if session name is compatible with task ID
    */
-  static validateSessionTaskCompatibility(sessionName: string, taskId: string): boolean {
+  static validateSessionTaskCompatibility(sessionId: string, taskId: string): boolean {
     // UUID sessions can be associated with any task — validation is done via DB record
-    if (isUuidSessionName(sessionName)) {
+    if (isUuidSessionName(sessionId)) {
       return true;
     }
     // Legacy: check if session name matches expected format
     const expectedSessionName = taskIdToSessionName(taskId);
-    return sessionName === expectedSessionName;
+    return sessionId === expectedSessionName;
   }
 
   /**

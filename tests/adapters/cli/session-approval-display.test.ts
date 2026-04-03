@@ -62,11 +62,11 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Test the data extraction logic
-    const sessionName =
+    const sessionId =
       (resultWithoutData.data as unknown as Record<string, unknown>)?.session || "Unknown";
 
     // Should gracefully fallback to "Unknown" when data is null
-    expect(sessionName).toBe("Unknown");
+    expect(sessionId).toBe("Unknown");
   });
 
   test("EDGE CASE: should demonstrate the bug with old structure", () => {

@@ -32,9 +32,9 @@ const mockSessionDB = {
       },
     ])
   ),
-  getSession: mock((sessionName: unknown) =>
+  getSession: mock((sessionId: unknown) =>
     Promise.resolve({
-      _session: sessionName,
+      _session: sessionId,
       repoName: "github/test-repo",
       repoUrl: "https://github.com/github/test-repo.git",
       _branch: "main",

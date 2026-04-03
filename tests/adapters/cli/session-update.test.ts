@@ -99,7 +99,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: "test-session",
+        sessionId: "test-session",
         branch: "new-branch",
         noPush: true,
       } as any,
@@ -143,7 +143,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: "missing-session",
+        sessionId: "missing-session",
         skipConflictCheck: true,
       } as any,
       {
@@ -191,7 +191,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
+        sessionId: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
         autoResolveDeleteConflicts: true,
       } as any,
       {
@@ -233,7 +233,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: "force-session",
+        sessionId: "force-session",
         force: true,
       } as any,
       {
@@ -273,7 +273,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: "dry-run-session",
+        sessionId: "dry-run-session",
         dryRun: true,
       } as any,
       {

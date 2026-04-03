@@ -97,7 +97,7 @@ export async function scanSessionConflicts(
     }
 
     log.debug("Scanning session for conflicts", {
-      sessionName: actualSessionName,
+      sessionId: actualSessionName,
       sessionPath,
       options,
     });

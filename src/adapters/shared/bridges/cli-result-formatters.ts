@@ -63,9 +63,9 @@ export function formatSessionSummary(session: Record<string, unknown>): void {
     log.cli(`${taskDisplay}${branchName}${uuid}`);
   } else {
     // Taskless session: just show UUID
-    const sessionName = session.session || "unknown";
+    const sessionId = session.session || "unknown";
     const branchName = session.branch ? ` [${session.branch}]` : "";
-    log.cli(`${sessionName}${branchName}`);
+    log.cli(`${sessionId}${branchName}`);
   }
 }
 
@@ -76,7 +76,7 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
   if (!result) return;
 
   const sessionObj = result.session as Record<string, unknown> | undefined;
-  const sessionName = sessionObj?.session || result.sessionName || "Unknown";
+  const sessionId = sessionObj?.session || result.sessionId || "Unknown";
   const taskId = sessionObj?.taskId || result.taskId || "";
   const prBranch = result.prBranch || "";
   const prUrl = result.prUrl || "";
@@ -96,7 +96,7 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
   if (prBranch) {
     log.cli(`   Branch: ${prBranch}`);
   }
-  log.cli(`   Session ID: ${sessionName}`);
+  log.cli(`   Session ID: ${sessionId}`);
   log.cli("");
 
   // PR Information
@@ -122,7 +122,7 @@ export function formatSessionApprovalDetails(result: Record<string, unknown>): v
   if (!result) return;
 
   const sessionObj2 = result.session as Record<string, unknown> | undefined;
-  const sessionName = sessionObj2?.session || result.sessionName || "Unknown";
+  const sessionId = sessionObj2?.session || result.sessionId || "Unknown";
   const taskId = sessionObj2?.taskId || result.taskId || "";
   const commitHash = result.commitHash || "";
   const mergeDate = result.mergeDate || "";
@@ -150,7 +150,7 @@ export function formatSessionApprovalDetails(result: Record<string, unknown>): v
   if (prBranch) {
     log.cli(`   Branch: ${prBranch}`);
   }
-  log.cli(`   Session ID: ${sessionName}`);
+  log.cli(`   Session ID: ${sessionId}`);
   log.cli(`   Merged by: ${mergedBy}`);
   if (mergeDate) {
     const date = new Date(mergeDate as string);

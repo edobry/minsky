@@ -483,7 +483,7 @@ export const sessionPrListCommandParams = {
  * Gets detailed information about a specific PR
  */
 export const sessionPrGetCommandParams = {
-  sessionName: {
+  sessionId: {
     schema: z.string(),
     description: "Session name to look up PR for (positional)",
     required: false,
@@ -546,7 +546,7 @@ export const sessionPrGetCommandParams = {
  * Opens the pull request in the default web browser
  */
 export const sessionPrOpenCommandParams = {
-  sessionName: {
+  sessionId: {
     schema: z.string(),
     description: "Session name to open PR for (positional)",
     required: false,

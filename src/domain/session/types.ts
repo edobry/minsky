@@ -131,7 +131,7 @@ export interface SessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(sessionName: string): Promise<string>;
+  getSessionWorkdir(sessionId: string): Promise<string>;
 }
 
 /**
@@ -229,5 +229,5 @@ export interface SessionPrResult {
     taskId?: string;
     repoName?: string;
   };
-  sessionName?: string; // Alternative property name for formatter compatibility
+  sessionId?: string; // Alternative property name for formatter compatibility
 }

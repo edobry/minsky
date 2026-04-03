@@ -86,7 +86,7 @@ describe("Session Start Consistency Tests", () => {
       const params = {
         task: "md#160",
         repo: "local/minsky",
-        // sessionName will be auto-generated from taskId
+        // sessionId will be auto-generated from taskId
       };
 
       // Act

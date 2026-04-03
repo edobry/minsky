@@ -284,7 +284,7 @@ export function getSessionCustomizations(): {
         "session.pr.get": {
           useFirstRequiredParamAsArgument: false,
           parameters: {
-            sessionName: {
+            sessionId: {
               description: "Session name to look up PR for (positional)",
             },
             name: {

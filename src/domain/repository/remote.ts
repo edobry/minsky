@@ -497,7 +497,7 @@ Repository: ${this.repoUrl}
 
     const result = await sessionPr(
       {
-        sessionName: options.session!,
+        sessionId: options.session!,
         title: options.title ?? "Update PR",
         body: options.body,
         // For remote backend updates, we still need conflict checking
@@ -557,24 +557,24 @@ Repository: ${this.repoUrl}
    */
   async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
     // For remote backend, treat PR as a branch prepared via prepared-merge workflow
-    let sessionName = options.session;
-    if (!sessionName && options.prIdentifier) {
+    let sessionId = options.session;
+    if (!sessionId && options.prIdentifier) {
       const prId = String(options.prIdentifier);
       const sessionDB = await this.getSessionDB();
       const sessions = await sessionDB.listSessions();
       const record = sessions.find(
         (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
       );
-      sessionName = record?.session;
+      sessionId = record?.session;
     }
-    if (!sessionName) {
+    if (!sessionId) {
       throw new MinskyError(
         "Remote backend requires session or prIdentifier to resolve PR details"
       );
     }
     const sessionDB = await this.getSessionDB();
-    const record = await sessionDB.getSession(sessionName);
-    const number = record?.prBranch || `pr/${record?.branch || sessionName}`;
+    const record = await sessionDB.getSession(sessionId);
+    const number = record?.prBranch || `pr/${record?.branch || sessionId}`;
     const prInfo = record?.pullRequest;
     return {
       number,
@@ -595,27 +595,27 @@ Repository: ${this.repoUrl}
    * Backend-agnostic PR diff retrieval for Remote backend
    */
   async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
-    let sessionName = options.session;
+    let sessionId = options.session;
     let prBranch: string | undefined;
-    if (!sessionName && options.prIdentifier) {
+    if (!sessionId && options.prIdentifier) {
       const prId = String(options.prIdentifier);
       const sessionDB = await this.getSessionDB();
       const sessions = await sessionDB.listSessions();
       const record = sessions.find(
         (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
       );
-      sessionName = record?.session;
+      sessionId = record?.session;
       prBranch = prId;
     }
-    if (!sessionName) {
+    if (!sessionId) {
       throw new MinskyError("Remote backend requires session or prIdentifier to resolve PR diff");
     }
-    const workdir = this.getSessionWorkdir(sessionName);
+    const workdir = this.getSessionWorkdir(sessionId);
     const baseBranch = this.defaultBranch || "main";
     if (!prBranch) {
       const sessionDB = await this.getSessionDB();
-      const record = await sessionDB.getSession(sessionName);
-      prBranch = record?.prBranch || `pr/${record?.branch || sessionName}`;
+      const record = await sessionDB.getSession(sessionId);
+      prBranch = record?.prBranch || `pr/${record?.branch || sessionId}`;
     }
     await execGitWithTimeout("fetch", "fetch origin", { workdir });
     const diff = await execGitWithTimeout(
@@ -674,7 +674,7 @@ Repository: ${this.repoUrl}
       platformData: {
         platform: "remote",
         prIdentifier: prId,
-        sessionName: sessionRecord.session,
+        sessionId: sessionRecord.session,
       },
     };
   }

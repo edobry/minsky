@@ -18,7 +18,7 @@ import { formatPrTitleLine } from "./pr-shared-helpers";
  * Parameters for session PR get command
  */
 interface SessionPrGetParams extends BaseSessionCommandParams {
-  sessionName?: string;
+  sessionId?: string;
   status?: string;
   since?: string;
   until?: string;
@@ -51,7 +51,7 @@ export class SessionPrGetCommand extends BaseSessionCommand<
   ): Promise<Record<string, unknown>> {
     try {
       const result = await sessionPrGet({
-        sessionName: params.sessionName,
+        sessionId: params.sessionId,
         name: params.name,
         task: params.task,
         repo: params.repo,
@@ -74,13 +74,13 @@ export class SessionPrGetCommand extends BaseSessionCommand<
         rawTitle: pullRequest.title,
         prNumber: pullRequest.number,
         taskId: pullRequest.taskId,
-        sessionName: pullRequest.sessionName,
+        sessionId: pullRequest.sessionId,
       });
 
       const output = [
         titleLine,
         "",
-        `Session:     ${pullRequest.sessionName}`,
+        `Session:     ${pullRequest.sessionId}`,
         `Task:        ${pullRequest.taskId || "none"}`,
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
@@ -88,7 +88,7 @@ export class SessionPrGetCommand extends BaseSessionCommand<
       ];
 
       // Show branch info only if it differs from the session name (avoid redundant noise)
-      if (pullRequest.branch && pullRequest.branch !== pullRequest.sessionName) {
+      if (pullRequest.branch && pullRequest.branch !== pullRequest.sessionId) {
         output.splice(4, 0, `Branch:      ${pullRequest.branch}`);
       }
 

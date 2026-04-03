@@ -126,9 +126,9 @@ export async function approveSessionPr(
   const sessionDB = deps?.sessionDB || (await createSessionProvider());
 
   // Resolve session name
-  let sessionNameToUse = params.session;
+  let sessionIdToUse = params.session;
 
-  if (params.task && !sessionNameToUse) {
+  if (params.task && !sessionIdToUse) {
     const sessionByTask = await sessionDB.getSessionByTaskId(params.task);
     if (!sessionByTask) {
       throw new ResourceNotFoundError(
@@ -137,20 +137,20 @@ export async function approveSessionPr(
         params.task
       );
     }
-    sessionNameToUse = sessionByTask.session;
+    sessionIdToUse = sessionByTask.session;
   }
 
-  if (!sessionNameToUse) {
+  if (!sessionIdToUse) {
     throw new ValidationError("No session detected. Please provide a session name or task ID");
   }
 
   // Get session record
-  const sessionRecord = await sessionDB.getSession(sessionNameToUse);
+  const sessionRecord = await sessionDB.getSession(sessionIdToUse);
   if (!sessionRecord) {
     throw new ResourceNotFoundError(
-      `Session "${sessionNameToUse}" not found`,
+      `Session "${sessionIdToUse}" not found`,
       "session",
-      sessionNameToUse
+      sessionIdToUse
     );
   }
 
@@ -160,7 +160,7 @@ export async function approveSessionPr(
 
   if (!hasLocalPr && !hasGitHubPr) {
     throw new ValidationError(
-      `Session "${sessionNameToUse}" has no PR branch. Create a PR first with 'minsky session pr'`
+      `Session "${sessionIdToUse}" has no PR branch. Create a PR first with 'minsky session pr'`
     );
   }
 
@@ -172,7 +172,7 @@ export async function approveSessionPr(
     }
 
     return {
-      session: sessionNameToUse,
+      session: sessionIdToUse,
       taskId: sessionRecord.taskId,
       prBranch: sessionRecord.prBranch ?? "",
       approvalInfo: {
@@ -228,7 +228,7 @@ export async function approveSessionPr(
   }
 
   return {
-    session: sessionNameToUse,
+    session: sessionIdToUse,
     taskId: sessionRecord.taskId,
     prBranch:
       (hasLocalPr && sessionRecord.prBranch) ||

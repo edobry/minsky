@@ -12,14 +12,14 @@ import {
 // Mock file system for testing
 export const mockFiles = new Map<string, string>();
 
-export function createMockFile(sessionName: string, path: string, content: string): void {
-  const key = sessionName ? `${sessionName}/${path}` : path;
+export function createMockFile(sessionId: string, path: string, content: string): void {
+  const key = sessionId ? `${sessionId}/${path}` : path;
   mockFiles.set(key, content);
   console.log(`📄 Created mock file: ${key}`);
 }
 
-export function getMockFile(sessionName: string, path: string): string | undefined {
-  const key = sessionName ? `${sessionName}/${path}` : path;
+export function getMockFile(sessionId: string, path: string): string | undefined {
+  const key = sessionId ? `${sessionId}/${path}` : path;
   return mockFiles.get(key);
 }
 

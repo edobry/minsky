@@ -34,7 +34,7 @@ import {
  * Parameters for session commit command
  */
 interface SessionCommitParams extends BaseSessionCommandParams {
-  sessionName?: string;
+  sessionId?: string;
   message?: string;
   all?: boolean;
   amend?: boolean;
@@ -115,7 +115,7 @@ export class SessionCommitCommand extends BaseSessionCommand<
     const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
     const result = await sessionCommit({
-      session: params.sessionName ?? "",
+      session: params.sessionId ?? "",
       message: params.message ?? "",
       all: params.all,
       amend: params.amend,
@@ -124,7 +124,7 @@ export class SessionCommitCommand extends BaseSessionCommand<
 
     return this.createSuccessResult({
       success: result.success,
-      sessionName: params.sessionName,
+      sessionId: params.sessionId,
       commitHash: result.commitHash,
       shortHash: result.shortHash,
       subject: result.subject,
@@ -340,7 +340,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
       const changesetService = await createChangesetService(
         reviewResult.changeset.metadata?.github?.url ||
-          reviewResult.changeset.metadata?.local?.sessionName ||
+          reviewResult.changeset.metadata?.local?.sessionId ||
           "unknown"
       );
 
@@ -369,7 +369,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
       const changesetService = await createChangesetService(
         reviewResult.changeset.metadata?.github?.url ||
-          reviewResult.changeset.metadata?.local?.sessionName ||
+          reviewResult.changeset.metadata?.local?.sessionId ||
           "unknown"
       );
 

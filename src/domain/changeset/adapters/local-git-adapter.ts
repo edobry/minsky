@@ -192,7 +192,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       options.description,
       options.sourceBranch || "HEAD",
       options.targetBranch || "main",
-      options.sessionName
+      options.sessionId
     );
 
     // Convert PRInfo to changeset
@@ -346,19 +346,19 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
   ): Promise<Changeset | null> {
     try {
       // Get session name from branch
-      const sessionName = prBranch.replace(/^pr\//, "");
+      const sessionId = prBranch.replace(/^pr\//, "");
 
       // Try to get session info
       let taskId: string | undefined;
-      let title = `Changes in ${sessionName}`;
+      let title = `Changes in ${sessionId}`;
       let description = "Local git changeset";
 
       try {
         const provider = await this.getSessionProvider();
-        const session = await provider.getSession(sessionName);
+        const session = await provider.getSession(sessionId);
         if (session) {
           taskId = session.taskId;
-          title = `Session: ${sessionName}`;
+          title = `Session: ${sessionId}`;
           if (taskId) {
             description = `Changes for task ${taskId}`;
           }
@@ -421,13 +421,13 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
         comments: [], // Local git doesn't have comments
         createdAt,
         updatedAt,
-        sessionName,
+        sessionId,
         taskId,
         metadata: {
           local: {
             prBranch,
             baseBranch: "main",
-            sessionName,
+            sessionId,
             isPrepared: true, // Our workflow always creates prepared commits
             mergeCommitReady: status === "open", // Ready if not already merged
           },

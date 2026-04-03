@@ -33,7 +33,7 @@ export async function sessionGet(
     });
 
     // Get the session details using the resolved session name
-    return deps.sessionDB.getSession(resolvedContext.sessionName) as Promise<Session | null>;
+    return deps.sessionDB.getSession(resolvedContext.sessionId) as Promise<Session | null>;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {

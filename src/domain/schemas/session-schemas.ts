@@ -80,7 +80,7 @@ export const SessionStartParametersSchema = z
  */
 export const SessionGetParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
@@ -99,7 +99,7 @@ export const SessionListParametersSchema = BaseBackendParametersSchema.merge(
  */
 export const SessionDeleteParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
     force: ForceSchema,
@@ -112,7 +112,7 @@ export const SessionDeleteParametersSchema = z
  */
 export const SessionUpdateParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
@@ -133,7 +133,7 @@ export const SessionUpdateParametersSchema = z
  */
 export const SessionDirectoryParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
@@ -145,7 +145,7 @@ export const SessionDirectoryParametersSchema = z
  */
 export const SessionPRParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
@@ -167,7 +167,7 @@ export const SessionPRParametersSchema = z
  */
 export const SessionApproveParametersSchema = z
   .object({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
@@ -179,7 +179,7 @@ export const SessionApproveParametersSchema = z
  * Session commit parameters
  */
 export const SessionCommitParametersSchema = z.object({
-  sessionName: SessionNameSchema,
+  sessionId: SessionNameSchema,
   message: z.string().min(1),
   all: z.boolean().default(false),
   amend: z.boolean().default(false),
@@ -220,7 +220,7 @@ export const SessionOperationResponseSchema = z.union([
     directory: z.string().optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
   }),
 ]);
 
@@ -241,11 +241,11 @@ export const SessionListResponseSchema = z.union([
  */
 export const SessionDirectoryResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionName: SessionNameSchema,
+    sessionId: SessionNameSchema,
     directory: z.string(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
   }),
 ]);
 
@@ -254,14 +254,14 @@ export const SessionDirectoryResponseSchema = z.union([
  */
 export const SessionPRResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionName: SessionNameSchema,
+    sessionId: SessionNameSchema,
     pullRequestUrl: z.string(),
     pullRequestNumber: z.number().optional(),
     title: z.string(),
     body: z.string().optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
   }),
 ]);
 
@@ -270,7 +270,7 @@ export const SessionPRResponseSchema = z.union([
  */
 export const SessionCommitResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionName: SessionNameSchema,
+    sessionId: SessionNameSchema,
     commitHash: z.string(),
     shortHash: z.string().optional(),
     subject: z.string().optional(),
@@ -292,7 +292,7 @@ export const SessionCommitResponseSchema = z.union([
       .optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionName: SessionNameSchema.optional(),
+    sessionId: SessionNameSchema.optional(),
   }),
 ]);
 

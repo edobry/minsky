@@ -60,7 +60,7 @@ export function createSessionProviderMock(
     ),
     deleteSession: mock((_session: string) => Promise.resolve(true)),
     getRepoPath: mock((_record: SessionRecord | any) => Promise.resolve("/mock/repo/path")),
-    getSessionWorkdir: mock((_sessionName: string) => Promise.resolve("/mock/session/workdir")),
+    getSessionWorkdir: mock((_sessionId: string) => Promise.resolve("/mock/session/workdir")),
     ...overrides,
   };
 }

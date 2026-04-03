@@ -246,14 +246,14 @@ describe("Session Multi-Backend Integration", () => {
       const taskIds = ["md#123", "gh#456", "json#789"];
 
       for (const taskId of taskIds) {
-        const sessionName = SessionMultiBackendIntegration.generateSessionName(taskId);
+        const sessionId = SessionMultiBackendIntegration.generateSessionName(taskId);
 
         // Session names are now UUIDs — they don't encode task IDs
-        expect(isUuidSessionName(sessionName)).toBe(true);
+        expect(isUuidSessionName(sessionId)).toBe(true);
         // UUID session names return null from extractTaskIdFromSessionName
         // (task linkage is via SessionRecord.taskId, not the session name)
         const extractedTaskId =
-          SessionMultiBackendIntegration.extractTaskIdFromSessionName(sessionName);
+          SessionMultiBackendIntegration.extractTaskIdFromSessionName(sessionId);
         expect(extractedTaskId).toBeNull();
       }
     });

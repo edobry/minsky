@@ -11,7 +11,7 @@ import { z } from "zod";
  * Used across all session-scoped operations
  */
 export const SessionIdentifierSchema = z.object({
-  sessionName: z.string().describe("Session identifier (name or task ID)"),
+  sessionId: z.string().describe("Session identifier (name or task ID)"),
 });
 
 /**

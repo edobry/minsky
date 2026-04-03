@@ -62,14 +62,14 @@ export class SessionEditFileCommand extends BaseSessionCommand<
   ): Promise<Record<string, unknown>> {
     try {
       // Resolve session name (auto-detect from workspace if not provided)
-      const sessionName = await this.resolveSessionName(params);
+      const sessionId = await this.resolveSessionName(params);
 
       // Get edit pattern from stdin or pattern file
       const content = await this.getEditPattern(params);
 
       // Call the MCP tool
       const mcpResult = await this.callSessionEditFileMcpTool({
-        sessionName,
+        sessionId,
         path: params.path ?? "",
         instructions: params.instruction ?? "",
         content,
@@ -168,7 +168,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<
    * Call the session.edit_file MCP tool directly
    */
   private async callSessionEditFileMcpTool(args: {
-    sessionName: string;
+    sessionId: string;
     path: string;
     instructions: string;
     content: string;
@@ -187,7 +187,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<
 
     // Create path resolver
     const pathResolver = new SessionPathResolver();
-    const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+    const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
 
     // Check if file exists
     let fileExists = false;
@@ -231,7 +231,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<
       return createSuccessResponse({
         timestamp: new Date().toISOString(),
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
         resolvedPath,
         dryRun: true,
         proposedContent: finalContent,
@@ -254,7 +254,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<
     return createSuccessResponse({
       timestamp: new Date().toISOString(),
       path: args.path,
-      session: args.sessionName,
+      session: args.sessionId,
       resolvedPath,
       bytesWritten,
       edited: fileExists,

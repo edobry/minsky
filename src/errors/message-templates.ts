@@ -230,7 +230,7 @@ export enum SessionErrorType {
  * Template for session-related errors
  */
 export function createSessionErrorMessage(
-  sessionName: string,
+  sessionId: string,
   errorType: SessionErrorType,
   context?: ContextInfo[]
 ): string {
@@ -243,12 +243,12 @@ export function createSessionErrorMessage(
 
   const templates: Record<SessionErrorType, SessionTemplate> = {
     not_found: {
-      title: `${ErrorEmojis.NOT_FOUND} Session "${sessionName}" Not Found`,
+      title: `${ErrorEmojis.NOT_FOUND} Session "${sessionId}" Not Found`,
       description: "The session you're trying to access doesn't exist.",
       suggestions: [
         {
           description: "Create a new session",
-          command: `minsky session start "${sessionName}"`,
+          command: `minsky session start "${sessionId}"`,
           emoji: ErrorEmojis.CREATE,
         },
         {
@@ -258,13 +258,13 @@ export function createSessionErrorMessage(
         },
         {
           description: "Check session details",
-          command: `minsky sessions get --name "${sessionName}"`,
+          command: `minsky sessions get --name "${sessionId}"`,
           emoji: ErrorEmojis.INFO,
         },
       ],
     },
     exists: {
-      title: `${ErrorEmojis.BLOCKED} Session "${sessionName}" Already Exists`,
+      title: `${ErrorEmojis.BLOCKED} Session "${sessionId}" Already Exists`,
       description: "A session with this name already exists.",
       suggestions: [
         {
@@ -274,28 +274,28 @@ export function createSessionErrorMessage(
         },
         {
           description: "Resume existing session",
-          command: `minsky session get "${sessionName}"`,
+          command: `minsky session get "${sessionId}"`,
           emoji: ErrorEmojis.ARROW,
         },
         {
           description: "Delete existing session first",
-          command: `minsky session delete "${sessionName}"`,
+          command: `minsky session delete "${sessionId}"`,
           emoji: ErrorEmojis.WARNING,
         },
       ],
     },
     invalid: {
-      title: `${ErrorEmojis.FAILED} Invalid Session "${sessionName}"`,
+      title: `${ErrorEmojis.FAILED} Invalid Session "${sessionId}"`,
       description: "The session exists but is in an invalid state.",
       suggestions: [
         {
           description: "Check session status",
-          command: `minsky sessions get --name "${sessionName}"`,
+          command: `minsky sessions get --name "${sessionId}"`,
           emoji: ErrorEmojis.INFO,
         },
         {
           description: "Update session configuration",
-          command: `minsky session update "${sessionName}"`,
+          command: `minsky session update "${sessionId}"`,
           emoji: ErrorEmojis.COMMAND,
         },
       ],
@@ -321,22 +321,22 @@ export function createSessionErrorMessage(
 /**
  * Convenience function for session not found errors
  */
-export function createSessionNotFoundMessage(sessionName: string, context?: ContextInfo[]): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context);
+export function createSessionNotFoundMessage(sessionId: string, context?: ContextInfo[]): string {
+  return createSessionErrorMessage(sessionId, SessionErrorType.NOT_FOUND, context);
 }
 
 /**
  * Convenience function for session already exists errors
  */
-export function createSessionExistsMessage(sessionName: string, context?: ContextInfo[]): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context);
+export function createSessionExistsMessage(sessionId: string, context?: ContextInfo[]): string {
+  return createSessionErrorMessage(sessionId, SessionErrorType.ALREADY_EXISTS, context);
 }
 
 /**
  * Convenience function for invalid session errors
  */
-export function createInvalidSessionMessage(sessionName: string, context?: ContextInfo[]): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context);
+export function createInvalidSessionMessage(sessionId: string, context?: ContextInfo[]): string {
+  return createSessionErrorMessage(sessionId, SessionErrorType.INVALID, context);
 }
 
 /**
@@ -462,10 +462,10 @@ export class ErrorContextBuilder {
     return this;
   }
 
-  addSession(sessionName: string): this {
+  addSession(sessionId: string): this {
     this.contexts.push({
       label: "Session",
-      value: sessionName,
+      value: sessionId,
     });
     return this;
   }

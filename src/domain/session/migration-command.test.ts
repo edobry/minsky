@@ -71,7 +71,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
   return {
     listSessions: mock(async () => [...sessions]),
     getSession: mock(
-      async (sessionName: string) => sessions.find((s) => s.session === sessionName) || null
+      async (sessionId: string) => sessions.find((s) => s.session === sessionId) || null
     ),
     getSessionByTaskId: mock(
       async (taskId: string) => sessions.find((s) => s.taskId === taskId) || null
@@ -80,15 +80,15 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       sessions.push(record);
     }),
     updateSession: mock(
-      async (sessionName: string, updates: Partial<Omit<SessionRecord, "session">>) => {
-        const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+      async (sessionId: string, updates: Partial<Omit<SessionRecord, "session">>) => {
+        const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
         if (sessionIndex !== -1) {
           sessions[sessionIndex] = { ...sessions[sessionIndex]!, ...updates };
         }
       }
     ),
-    deleteSession: mock(async (sessionName: string) => {
-      const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+    deleteSession: mock(async (sessionId: string) => {
+      const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
       if (sessionIndex !== -1) {
         sessions.splice(sessionIndex, 1);
         return true;
@@ -168,7 +168,7 @@ describe("Session Migration Command", () => {
         expect(result.migrated?.taskBackend).toBe("md");
         expect(result.migrated?.legacyTaskId).toBe("123");
 
-        expect(result.changes.sessionNameChanged).toBe(true);
+        expect(result.changes.sessionIdChanged).toBe(true);
         expect(result.changes.taskIdChanged).toBe(true);
         expect(result.changes.backendAdded).toBe(true);
         expect(result.changes.legacyIdPreserved).toBe(true);

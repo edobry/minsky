@@ -11,7 +11,7 @@ import { getErrorMessage } from "../../../errors/index";
 /**
  * Handle session PR command errors with user-friendly messages
  */
-export function handleSessionPrError(error: Error, sessionName?: string, taskId?: string): never {
+export function handleSessionPrError(error: Error, sessionId?: string, taskId?: string): never {
   const errorMessage = getErrorMessage(error);
 
   // Handle specific error types with friendly messages
@@ -66,7 +66,7 @@ Technical details: ${errorMessage}`
     throw new MinskyError(
       `🔍 Session not found.
 
-The session '${sessionName || taskId}' could not be located.
+The session '${sessionId || taskId}' could not be located.
 
 💡 Try:
 • Check available sessions: minsky session list
@@ -99,13 +99,13 @@ Need help? Run the command with --debug for detailed error information.`
 export function validatePrParameters(
   body?: string,
   bodyPath?: string,
-  sessionName?: string
+  sessionId?: string
 ): { shouldRequireBody: boolean; validationError?: string } {
   // Import gitService for validation
   const currentDir = process.cwd();
   const isSessionWorkspace = currentDir.includes("/sessions/");
 
-  let actualSessionName = sessionName;
+  let actualSessionName = sessionId;
   if (!actualSessionName && isSessionWorkspace) {
     // Try to detect session name from current directory
     const pathParts = currentDir.split("/");

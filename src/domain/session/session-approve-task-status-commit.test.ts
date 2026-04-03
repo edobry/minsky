@@ -150,14 +150,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task-${taskId}`,
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -287,14 +287,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task#${taskId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -420,14 +420,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -528,14 +528,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 

@@ -25,39 +25,39 @@ describe("session workspace detection", () => {
 
   test("TASK #168 FIX: should correctly parse session name from path structure", async () => {
     // Arrange: Test the core path parsing logic without complex mocking
-    const sessionName = "task#168";
+    const sessionId = "task#168";
     const minskyPath = "/tmp/test/minsky/sessions";
 
     // Test new path format: <minsky_path>/<repo_name>/sessions/<session_name>
-    const newFormatPath = `${minskyPath}/local-minsky/sessions/${sessionName}`;
+    const newFormatPath = `${minskyPath}/local-minsky/sessions/${sessionId}`;
     const newFormatParts = newFormatPath.substring(minskyPath.length + 1).split("/");
 
     // Test legacy path format: <minsky_path>/<repo_name>/<session_name>
-    const legacyPath = `${minskyPath}/local-minsky/${sessionName}`;
+    const legacyPath = `${minskyPath}/local-minsky/${sessionId}`;
     const legacyParts = legacyPath.substring(minskyPath.length + 1).split("/");
 
     // Act & Assert: Test path parsing logic
     // New format
     expect(newFormatParts.length).toBeGreaterThanOrEqual(3);
     expect(newFormatParts[1]).toBe("sessions");
-    expect(newFormatParts[2]).toBe(sessionName);
+    expect(newFormatParts[2]).toBe(sessionId);
 
     // Legacy format
     expect(legacyParts.length).toBe(2);
-    expect(legacyParts[1]).toBe(sessionName);
+    expect(legacyParts[1]).toBe(sessionId);
   });
 
   test("TASK #168 FIX: should handle various session name formats", async () => {
     // Test that the session detection logic works with different session name formats
     const testCases = ["task#168", "task#42", "feature-branch", "bug-fix-123", "simple-session"];
 
-    testCases.forEach((sessionName) => {
+    testCases.forEach((sessionId) => {
       const minskyPath = "/tmp/test/minsky/sessions";
-      const sessionPath = `${minskyPath}/local-minsky/sessions/${sessionName}`;
+      const sessionPath = `${minskyPath}/local-minsky/sessions/${sessionId}`;
       const pathParts = sessionPath.substring(minskyPath.length + 1).split("/");
 
       // Should correctly extract session name
-      expect(pathParts[2]).toBe(sessionName);
+      expect(pathParts[2]).toBe(sessionId);
 
       // Should correctly identify as session path
       expect(pathParts[1]).toBe("sessions");
@@ -83,23 +83,23 @@ describe("session pr command", () => {
     // Uses isolated mocking to avoid real git operations and merge conflicts
 
     const executedCommands: string[] = [];
-    const sessionName = "test-session";
+    const sessionId = "test-session";
     const sourceBranch = "task#168";
 
     // Mock the preparePr implementation behavior to simulate the expected workflow
     const mockPreparePr = async (params: any) => {
       // Simulate the preparePr workflow with the expected git commands
-      executedCommands.push(`git switch -C pr/${sessionName}`); // Create and switch to PR branch
+      executedCommands.push(`git switch -C pr/${sessionId}`); // Create and switch to PR branch
       executedCommands.push(`git merge --no-ff ${sourceBranch} -m "${params.title}"`); // Merge source branch
-      executedCommands.push(`git push origin pr/${sessionName}`); // Push PR branch
+      executedCommands.push(`git push origin pr/${sessionId}`); // Push PR branch
       executedCommands.push(`git switch ${sourceBranch}`); // Switch back to source branch (the critical fix!)
 
-      return { prBranch: `pr/${sessionName}`, commitHash: "abc123" };
+      return { prBranch: `pr/${sessionId}`, commitHash: "abc123" };
     };
 
     // Act: Call the mocked preparePr method that simulates the correct behavior
     await mockPreparePr({
-      session: sessionName,
+      session: sessionId,
       title: "Test PR",
       body: "Test body",
       baseBranch: "main",
@@ -110,7 +110,7 @@ describe("session pr command", () => {
 
     // Verify we have the expected switch commands
     expect(switchCommands.length).toBe(2);
-    expect(switchCommands[0]).toContain(`switch -C pr/${sessionName}`); // Switch to PR branch
+    expect(switchCommands[0]).toContain(`switch -C pr/${sessionId}`); // Switch to PR branch
     expect(switchCommands[1]).toContain(`switch ${sourceBranch}`); // Switch back to source branch
 
     // Verify the last switch command goes back to the source branch (not PR branch)
@@ -123,9 +123,9 @@ describe("session pr command", () => {
     // This test defines what the CORRECT behavior should be
 
     // Arrange
-    const sessionName = "task#168";
-    const originalBranch = sessionName;
-    const prBranch = `pr/${sessionName}`;
+    const sessionId = "task#168";
+    const originalBranch = sessionId;
+    const prBranch = `pr/${sessionId}`;
 
     let currentBranch = originalBranch;
     const branchHistory: string[] = [originalBranch];
@@ -178,7 +178,7 @@ describe("session pr command", () => {
 
     // Act: Execute with CORRECT implementation
     await correctPreparePr({
-      session: sessionName,
+      session: sessionId,
       title: "Test PR",
       body: "Test body",
     });

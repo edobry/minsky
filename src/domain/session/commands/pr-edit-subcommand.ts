@@ -47,9 +47,9 @@ export async function sessionPrEdit(
   });
 
   // Check if session has an existing PR
-  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionId);
   if (!sessionRecord) {
-    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
   }
 
   // Check for PR existence based on backend type
@@ -62,7 +62,7 @@ export async function sessionPrEdit(
 
   if (!hasLocalPr && !hasGitHubPr) {
     throw new ValidationError(
-      `No pull request found for session '${resolvedContext.sessionName}'. Use 'session pr create' to create a new PR.`
+      `No pull request found for session '${resolvedContext.sessionId}'. Use 'session pr create' to create a new PR.`
     );
   }
 
@@ -93,7 +93,7 @@ export async function sessionPrEdit(
 
   // Use the repository backend's updatePullRequest method
   const prInfo = await repositoryBackend.updatePullRequest({
-    session: resolvedContext.sessionName,
+    session: resolvedContext.sessionId,
     title: params.title,
     body: finalBody,
   });

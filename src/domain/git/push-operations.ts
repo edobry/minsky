@@ -27,8 +27,8 @@ export interface PushResult {
  */
 export interface PushDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (sessionName: string) => Promise<any>;
-  getSessionWorkdir: (sessionName: string) => string;
+  getSession: (sessionId: string) => Promise<any>;
+  getSessionWorkdir: (sessionId: string) => string;
 }
 
 /**

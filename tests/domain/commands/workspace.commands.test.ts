@@ -117,8 +117,8 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionName: string) => ({
-          session: sessionName,
+        getSession: async (sessionId: string) => ({
+          session: sessionId,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: `task#${TEST_VALUE}`,
@@ -191,8 +191,8 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionName: string) => ({
-          session: sessionName,
+        getSession: async (sessionId: string) => ({
+          session: sessionId,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: `task#${TEST_VALUE}`,
@@ -227,8 +227,8 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionName: string) => ({
-          session: sessionName,
+        getSession: async (sessionId: string) => ({
+          session: sessionId,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: `task#${TEST_VALUE}`,

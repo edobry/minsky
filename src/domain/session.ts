@@ -283,7 +283,7 @@ export async function approveSessionFromParams(
     createRepositoryBackendForSession?: (...args: any[]) => Promise<RepositoryBackend>;
   }
 ): Promise<{
-  sessionName: string;
+  sessionId: string;
   taskId?: string;
   prBranch?: string;
   approvalInfo: {
@@ -324,7 +324,7 @@ export async function approveSessionFromParams(
   );
 
   return {
-    sessionName: result.session,
+    sessionId: result.session,
     taskId: result.taskId,
     prBranch: result.prBranch,
     approvalInfo: result.approvalInfo,

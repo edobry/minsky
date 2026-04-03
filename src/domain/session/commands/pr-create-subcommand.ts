@@ -51,9 +51,9 @@ export async function sessionPrCreate(
       allowAutoDetection: true,
     });
 
-    const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+    const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionId);
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);

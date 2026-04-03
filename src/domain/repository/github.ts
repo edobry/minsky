@@ -426,12 +426,12 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const sessionId = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionId);
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        session: sessionName,
+        session: sessionId,
         repoPath: workdir,
         remote: "origin",
       });
@@ -469,8 +469,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const sessionId = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionId);
 
       // Use GitService for pulling changes
       const pullResult = await this.gitService.fetchLatest(workdir);
@@ -505,8 +505,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         throw new Error("No session found for this repository");
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const sessionId = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionId);
 
       await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
     } catch (error) {

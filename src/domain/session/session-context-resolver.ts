@@ -40,7 +40,7 @@ export interface SessionContextOptions {
  */
 export interface ResolvedSessionContext {
   /** The resolved session name */
-  sessionName: string;
+  sessionId: string;
   /** The task ID associated with the session (if any) */
   taskId?: string;
   /** How the session was resolved */
@@ -97,7 +97,7 @@ export async function resolveSessionContext(
     }
 
     return {
-      sessionName: session,
+      sessionId: session,
       taskId: sessionRecord!.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,
@@ -114,20 +114,20 @@ export async function resolveSessionContext(
     if (!sessionRecord) {
       // Provide a more helpful error message with available sessions
       const allSessions = await sessionProvider!.listSessions();
-      const sessionNames = allSessions
+      const sessionIds = allSessions
         .map((s) => (s.taskId ? `${s.taskId} (${s.session})` : s.session))
         .join(", ");
 
       throw new ResourceNotFoundError(
         `No session found for task ID "${validatedTaskId}"\n\n` +
-          `💡 Available sessions: ${sessionNames}`,
+          `💡 Available sessions: ${sessionIds}`,
         "task",
         validatedTaskId
       );
     }
 
     return {
-      sessionName: sessionRecord!.session,
+      sessionId: sessionRecord!.session,
       taskId: task, // ✅ BACKWARD COMPATIBILITY: Return original task ID format
       resolvedBy: "explicit-task",
       workingDirectory,
@@ -156,7 +156,7 @@ export async function resolveSessionContext(
         });
 
         return {
-          sessionName: sessionContext!.sessionId,
+          sessionId: sessionContext!.sessionId,
           taskId: sessionContext!.taskId,
           resolvedBy: "auto-detection",
           workingDirectory,
@@ -165,21 +165,21 @@ export async function resolveSessionContext(
       }
 
       // Fallback to basic session detection
-      const sessionName = await getCurrentSessionFn(workingDirectory);
-      if (sessionName) {
+      const sessionId = await getCurrentSessionFn(workingDirectory);
+      if (sessionId) {
         // Get task ID from session record to show human-friendly message
-        const sessionRecord = await sessionProvider!.getSession(sessionName);
+        const sessionRecord = await sessionProvider!.getSession(sessionId);
         const taskLabel = sessionRecord?.taskId
           ? `for task ${sessionRecord.taskId}`
-          : `(session ${sessionName})`;
+          : `(session ${sessionId})`;
         const autoDetectionMessage = `Auto-detected session ${taskLabel}`;
         log.debug("Basic session auto-detection successful", {
-          sessionName,
+          sessionId,
           workingDirectory,
         });
 
         return {
-          sessionName,
+          sessionId,
           taskId: sessionRecord?.taskId,
           resolvedBy: "auto-detection",
           workingDirectory,
@@ -205,7 +205,7 @@ export async function resolveSessionContext(
  */
 export async function resolveSessionName(options: SessionContextOptions = {}): Promise<string> {
   const context = await resolveSessionContext(options);
-  return context!.sessionName;
+  return context!.sessionId;
 }
 
 /**

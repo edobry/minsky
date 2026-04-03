@@ -4,7 +4,7 @@
 import { z } from "zod";
 import {
   commonCommandOptionsSchema,
-  sessionNameSchema,
+  sessionIdSchema,
   taskIdSchema,
   repoPathSchema,
   flagSchema,
@@ -14,7 +14,7 @@ import {
  * Schema for a session record
  */
 export const _sessionRecordSchema = z.object({
-  session: sessionNameSchema.describe("Unique name of the session"),
+  session: sessionIdSchema.describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),
   repoPath: z.string().optional().describe("Path to the session repository"),
@@ -45,7 +45,7 @@ export type SessionListParams = z.infer<typeof sessionListParamsSchema>;
  */
 export const sessionGetParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session to retrieve"),
+    name: sessionIdSchema.optional().describe("Name of the session to retrieve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
   .merge(commonCommandOptionsSchema)
@@ -63,7 +63,7 @@ export type SessionGetParams = z.infer<typeof sessionGetParamsSchema>;
  */
 export const sessionStartParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name for the new session"),
+    name: sessionIdSchema.optional().describe("Name for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
     description: z.string().min(1).optional().describe("Description for auto-created task"),
@@ -101,7 +101,7 @@ export type SessionStartParams = z.infer<typeof sessionStartParamsSchema>;
  */
 export const sessionDeleteParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session to delete"),
+    name: sessionIdSchema.optional().describe("Name of the session to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
@@ -120,7 +120,7 @@ export type SessionDeleteParams = z.infer<typeof sessionDeleteParamsSchema>;
  */
 export const sessionDirParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session"),
+    name: sessionIdSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
   .merge(commonCommandOptionsSchema)
@@ -138,7 +138,7 @@ export type SessionDirParams = z.infer<typeof sessionDirParamsSchema>;
  */
 export const sessionUpdateParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session to update"),
+    name: sessionIdSchema.optional().describe("Name of the session to update"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
     remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
@@ -167,7 +167,7 @@ export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
  */
 export const sessionApproveParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session to approve"),
+    name: sessionIdSchema.optional().describe("Name of the session to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
     noStash: z
@@ -191,7 +191,7 @@ export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
  */
 export const sessionPrParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session"),
+    name: sessionIdSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
     body: z.string().optional().describe("PR body text"),
@@ -225,7 +225,7 @@ export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
  */
 export const sessionReviewParamsSchema = z
   .object({
-    name: sessionNameSchema.optional().describe("Name of the session to review"),
+    name: sessionIdSchema.optional().describe("Name of the session to review"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),

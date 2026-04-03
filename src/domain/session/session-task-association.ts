@@ -92,7 +92,7 @@ export async function updateSessionTaskAssociation(
     for (const session of matchingSessions) {
       try {
         log.debug("Updating session", {
-          sessionName: session.session,
+          sessionId: session.session,
           oldTaskId: session.taskId,
           newTaskId: newLocalId,
           dryRun,
@@ -108,14 +108,14 @@ export async function updateSessionTaskAssociation(
         result.updatedSessions.push(session.session);
 
         log.debug("Session updated successfully", {
-          sessionName: session.session,
+          sessionId: session.session,
           newTaskId: newLocalId,
         });
       } catch (error) {
         const errorMessage = `Failed to update session ${session.session}: ${error instanceof Error ? error.message : String(error)}`;
         result.errors.push(errorMessage);
         log.error("Failed to update session", {
-          sessionName: session.session,
+          sessionId: session.session,
           error: errorMessage,
         });
       }

@@ -105,7 +105,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
     log.debug("Base provider lookup result", {
       taskId,
       found: sessionRecord !== null,
-      sessionName: sessionRecord?.session,
+      sessionId: sessionRecord?.session,
     });
 
     if (!sessionRecord && !this.autoRepairAttempted.has(`task:${taskId}`)) {
@@ -164,8 +164,8 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
     return this.baseProvider.getRepoPath(record);
   }
 
-  async getSessionWorkdir(sessionName: string): Promise<string> {
-    return this.baseProvider.getSessionWorkdir(sessionName);
+  async getSessionWorkdir(sessionId: string): Promise<string> {
+    return this.baseProvider.getSessionWorkdir(sessionId);
   }
 }
 

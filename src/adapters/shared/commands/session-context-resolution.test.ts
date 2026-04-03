@@ -38,21 +38,21 @@ describe("Session Context Resolution Architecture Issues", () => {
         const currentDir = mockCwd();
         const isSessionWorkspace = currentDir.includes("/sessions/");
 
-        let sessionName = params.name;
-        if (!sessionName && isSessionWorkspace) {
+        let sessionId = params.name;
+        if (!sessionId && isSessionWorkspace) {
           // Auto-detection logic embedded in domain layer ❌
           const pathParts = currentDir.split("/");
           const sessionsIndex = pathParts.indexOf("sessions");
           if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-            sessionName = pathParts[sessionsIndex + 1];
+            sessionId = pathParts[sessionsIndex + 1];
           }
         }
 
-        if (!sessionName) {
+        if (!sessionId) {
           throw new Error("Session name required");
         }
 
-        return { sessionName, success: true };
+        return { sessionId, success: true };
       };
 
       // CASE 1: CLI context (session workspace) - should NOT auto-detect in domain
@@ -73,7 +73,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       );
 
       // This demonstrates the problem - domain layer should NOT auto-detect
-      expect(result.sessionName).toBe("task#150");
+      expect(result.sessionId).toBe("task#150");
 
       // Force test failure to show this is the problem we need to fix
       expect("Domain layer should not auto-detect session").toBe(
@@ -88,20 +88,20 @@ describe("Session Context Resolution Architecture Issues", () => {
         const currentDir = mockCwd();
         const isSessionWorkspace = currentDir.includes("/sessions/");
 
-        let sessionName = params.name;
-        if (!sessionName && isSessionWorkspace) {
+        let sessionId = params.name;
+        if (!sessionId && isSessionWorkspace) {
           const pathParts = currentDir.split("/");
           const sessionsIndex = pathParts.indexOf("sessions");
           if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-            sessionName = pathParts[sessionsIndex + 1];
+            sessionId = pathParts[sessionsIndex + 1];
           }
         }
 
-        if (!sessionName) {
+        if (!sessionId) {
           throw new Error("Session name required");
         }
 
-        return { sessionName, success: true };
+        return { sessionId, success: true };
       };
 
       // CASE 1: Main workspace context - should fail

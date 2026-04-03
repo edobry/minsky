@@ -114,7 +114,7 @@ describe("Session Auto-Task Creation", () => {
     const params = {
       repo: "https://github.com/test/repo.git",
       description: "Fix the authentication bug", // Provided for auto-creation
-      // No taskId or sessionName provided - both should be auto-generated
+      // No taskId or sessionId provided - both should be auto-generated
     };
 
     const result = await startSessionFromParams(params as unknown as SessionStartParams, {
@@ -137,7 +137,7 @@ describe("Session Auto-Task Creation", () => {
     const params = {
       task: "md#001",
       repo: "https://github.com/test/repo.git",
-      // sessionName will be auto-generated from taskId
+      // sessionId will be auto-generated from taskId
     };
 
     await startSessionFromParams(params as unknown as SessionStartParams, {

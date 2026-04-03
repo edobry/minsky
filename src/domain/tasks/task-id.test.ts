@@ -7,7 +7,7 @@ import {
   extractBackend,
   extractLocalId,
   taskIdToSessionName,
-  sessionNameToTaskId,
+  sessionIdToTaskId,
 } from "./task-id";
 
 describe("Unified Task ID System", () => {
@@ -167,15 +167,15 @@ describe("Session/Branch Conversion", () => {
     });
   });
 
-  describe("sessionNameToTaskId", () => {
+  describe("sessionIdToTaskId", () => {
     it("should convert session names to task IDs", () => {
-      expect(sessionNameToTaskId("task-md#123")).toBe("md#123");
-      expect(sessionNameToTaskId("task-gh#456")).toBe("gh#456");
-      expect(sessionNameToTaskId("task-json#789")).toBe("json#789");
+      expect(sessionIdToTaskId("task-md#123")).toBe("md#123");
+      expect(sessionIdToTaskId("task-gh#456")).toBe("gh#456");
+      expect(sessionIdToTaskId("task-json#789")).toBe("json#789");
     });
 
     it("should handle complex local IDs", () => {
-      expect(sessionNameToTaskId("task-gh#issue-456")).toBe("gh#issue-456");
+      expect(sessionIdToTaskId("task-gh#issue-456")).toBe("gh#issue-456");
     });
   });
 
@@ -184,8 +184,8 @@ describe("Session/Branch Conversion", () => {
       const taskIds = ["md#123", "gh#456", "json#789", "gh#issue-456"];
 
       for (const taskId of taskIds) {
-        const sessionName = taskIdToSessionName(taskId);
-        const backToTaskId = sessionNameToTaskId(sessionName);
+        const sessionId = taskIdToSessionName(taskId);
+        const backToTaskId = sessionIdToTaskId(sessionId);
         expect(backToTaskId).toBe(taskId);
       }
     });
@@ -228,8 +228,8 @@ describe("Edge Cases and Error Handling", () => {
 
   it("should handle conversion edge cases", () => {
     expect(taskIdToSessionName("")).toBe("");
-    expect(sessionNameToTaskId("")).toBeNull();
+    expect(sessionIdToTaskId("")).toBeNull();
     expect(taskIdToSessionName("invalid")).toBe("invalid");
-    expect(sessionNameToTaskId("invalid")).toBeNull();
+    expect(sessionIdToTaskId("invalid")).toBeNull();
   });
 });

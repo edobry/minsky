@@ -60,14 +60,14 @@ export async function sessionReview(
     });
 
     // Get the session details using the resolved session name
-    const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionName);
+    const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Get session working directory
-    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionId);
 
     // Track warnings from non-fatal data-gathering failures
     const warnings: string[] = [];
@@ -189,7 +189,7 @@ export async function sessionReview(
     }
 
     const result: SessionReviewResult = {
-      session: resolvedContext.sessionName,
+      session: resolvedContext.sessionId,
       taskId: sessionRecord.taskId,
       taskSpec,
       prDescription,

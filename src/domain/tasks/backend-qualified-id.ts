@@ -138,10 +138,10 @@ export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
 // Git branch naming conversion functions (legacy)
 
 /** @deprecated Session names are now UUIDs; branch names come from taskIdToBranchName() in task-id.ts */
-export function sessionNameToBranchName(sessionName: string): string {
+export function sessionIdToBranchName(sessionId: string): string {
   // Convert colons to dashes for git branch compatibility
   // task#md:123 → task#md-123
-  return sessionName.replace(/:/g, "-");
+  return sessionId.replace(/:/g, "-");
 }
 
 /** @deprecated Session names are now UUIDs; use SessionRecord.taskId from the database instead */

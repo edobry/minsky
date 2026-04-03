@@ -191,16 +191,16 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
       allowAutoDetection: true,
     });
 
-    const sessionName = resolved.sessionName;
-    const record = await sessionDB.getSession(sessionName);
+    const sessionId = resolved.sessionId;
+    const record = await sessionDB.getSession(sessionId);
     if (!record) {
-      throw new Error(`Session '${sessionName}' not found`);
+      throw new Error(`Session '${sessionId}' not found`);
     }
 
     // Get session workdir to run git command
-    const workdir = await sessionDB.getSessionWorkdir(sessionName);
+    const workdir = await sessionDB.getSessionWorkdir(sessionId);
     if (!workdir) {
-      throw new Error(`Could not resolve session workspace for '${sessionName}'`);
+      throw new Error(`Could not resolve session workspace for '${sessionId}'`);
     }
 
     // Read origin URL from the session workspace (may be a local path)
@@ -255,7 +255,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
         return this.createSuccessResult(
           {
             preview: true,
-            session: sessionName,
+            session: sessionId,
             from: currentBackend,
             to: targetBackend,
             detected: {
@@ -274,7 +274,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
       return this.createSuccessResult(
         {
           preview: true,
-          session: sessionName,
+          session: sessionId,
           from: currentBackend,
           to: targetBackend,
           detected: {
@@ -329,7 +329,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
 
     if (!needsMigration) {
       return this.createSuccessResult({
-        session: sessionName,
+        session: sessionId,
         backendType: targetBackend,
         repoUrl: finalTargetUrl,
         message: "No migration needed - session already uses the correct backend",
@@ -360,10 +360,10 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
     }
 
     // Update session record to use selected backend and remote URL
-    await sessionDB.updateSession(sessionName, sessionUpdates);
+    await sessionDB.updateSession(sessionId, sessionUpdates);
 
     return this.createSuccessResult({
-      session: sessionName,
+      session: sessionId,
       backendType: targetBackend,
       repoUrl: finalTargetUrl,
       ...(gh ? { github: gh } : {}),

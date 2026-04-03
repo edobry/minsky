@@ -89,13 +89,13 @@ export function taskIdToSessionName(taskId: string): string {
 }
 
 /** @deprecated Use SessionRecord.taskId from the database instead. Kept for legacy session name parsing. */
-export function sessionNameToTaskId(sessionName: string): string | null {
+export function sessionIdToTaskId(sessionId: string): string | null {
   // UUID session names don't encode task IDs — use DB lookup instead
-  if (isUuidSessionName(sessionName)) {
+  if (isUuidSessionName(sessionId)) {
     return null;
   }
   // Legacy: task-md#123 → md#123
-  const match = sessionName.match(/^task-(.+)$/);
+  const match = sessionId.match(/^task-(.+)$/);
   if (match && match[1]) {
     return match[1] || null;
   }

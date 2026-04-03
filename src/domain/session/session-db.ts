@@ -134,8 +134,8 @@ export function listSessionsFn(state: SessionDbState): SessionRecord[] {
 /**
  * Get a specific session by name
  */
-export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
-  return state.sessions.find((s) => s.session === sessionName) || null;
+export function getSessionFn(state: SessionDbState, sessionId: string): SessionRecord | null {
+  return state.sessions.find((s) => s.session === sessionId) || null;
 }
 
 /**
@@ -162,10 +162,10 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
  */
 export function updateSessionFn(
   state: SessionDbState,
-  sessionName: string,
+  sessionId: string,
   updates: Partial<Omit<SessionRecord, "session">>
 ): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionName);
+  const index = state.sessions.findIndex((s) => s.session === sessionId);
   if (index === -1) {
     return state;
   }
@@ -186,8 +186,8 @@ export function updateSessionFn(
 /**
  * Delete a session by name
  */
-export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionName);
+export function deleteSessionFn(state: SessionDbState, sessionId: string): SessionDbState {
+  const index = state.sessions.findIndex((s) => s.session === sessionId);
   if (index === -1) {
     return state;
   }
@@ -216,8 +216,8 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
-  const session = getSessionFn(state, sessionName);
+export function getSessionWorkdirFn(state: SessionDbState, sessionId: string): string | null {
+  const session = getSessionFn(state, sessionId);
   if (!session) {
     return null;
   }

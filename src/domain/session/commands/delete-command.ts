@@ -33,7 +33,7 @@ export async function sessionDelete(
     });
 
     // In strict testable design, prefer database deletion without real filesystem cleanup
-    return await deps.sessionDB.deleteSession(resolvedContext.sessionName);
+    return await deps.sessionDB.deleteSession(resolvedContext.sessionId);
   } catch (error) {
     // Fall back to database-only deletion if cleanup fails
     log.warn(`Session cleanup failed, falling back to database-only deletion: ${error}`);
@@ -45,7 +45,7 @@ export async function sessionDelete(
         sessionProvider: deps.sessionDB,
         allowAutoDetection: true,
       });
-      return deps.sessionDB.deleteSession(resolved.sessionName);
+      return deps.sessionDB.deleteSession(resolved.sessionId);
     } catch {
       const fallbackName = name ?? "";
       return fallbackName ? deps.sessionDB.deleteSession(fallbackName) : false;

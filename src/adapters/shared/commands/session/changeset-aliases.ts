@@ -116,7 +116,7 @@ async function executeSessionChangesetList(
     if (sessionFilter) {
       changesets = allChangesets.filter(
         (changeset) =>
-          changeset.sessionName === sessionFilter ||
+          changeset.sessionId === sessionFilter ||
           changeset.sourceBranch === `pr/${sessionFilter}` ||
           changeset.sourceBranch === sessionFilter
       );
@@ -159,8 +159,8 @@ async function executeSessionChangesetList(
         `   Author: ${changeset.author.username} | Target: ${changeset.targetBranch} | Status: ${changeset.status}`
       );
 
-      if (changeset.sessionName) {
-        log.cli(`   Session: ${changeset.sessionName}`);
+      if (changeset.sessionId) {
+        log.cli(`   Session: ${changeset.sessionId}`);
       }
 
       log.cli(""); // Empty line
@@ -241,8 +241,8 @@ async function executeSessionChangesetGet(
     log.cli(`Status: ${changeset.status}`);
     log.cli(`Target: ${changeset.targetBranch} ← ${changeset.sourceBranch || "HEAD"}`);
 
-    if (changeset.sessionName) {
-      log.cli(`Session: ${changeset.sessionName}`);
+    if (changeset.sessionId) {
+      log.cli(`Session: ${changeset.sessionId}`);
     }
     if (changeset.taskId) {
       log.cli(`Task: ${changeset.taskId}`);

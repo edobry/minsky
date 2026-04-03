@@ -110,7 +110,7 @@ describe("Task 223 Enhanced Error Messages", () => {
 
     test("should identify reverse underscore mismatch (declaration without underscore, usage has underscore)", () => {
       const result = createVariableNamingErrorMessage(
-        "sessionName",
+        "sessionId",
         ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "with_underscore",
         "src/session.ts",
@@ -120,7 +120,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       );
 
       expect(result)!.toContain("Variable Declaration/Usage Mismatch");
-      expect(result)!.toContain("sessionName");
+      expect(result)!.toContain("sessionId");
       expect(result)!.toContain("declared without underscore but used with underscore prefix");
       expect(result)!.toContain(
         "Add underscore to declaration (line 20) or remove from usage (line 25)"

@@ -54,14 +54,14 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   // Implementation of the SessionProviderInterface
-  async getSession(sessionName: string): Promise<SessionRecord | null> {
-    log.debug(`Getting session: ${sessionName}`);
+  async getSession(sessionId: string): Promise<SessionRecord | null> {
+    log.debug(`Getting session: ${sessionId}`);
     try {
       const storage = await this.getStorage();
-      const result = await storage.getEntity(sessionName);
+      const result = await storage.getEntity(sessionId);
       return result;
     } catch (error) {
-      log.error(`Failed to get session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to get session '${sessionId}': ${getErrorMessage(error)}`);
       return null;
     }
   }
@@ -93,49 +93,49 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
   }
 
-  async updateSession(sessionName: string, updates: Partial<SessionRecord>): Promise<void> {
-    log.debug(`Updating session: ${sessionName}`);
+  async updateSession(sessionId: string, updates: Partial<SessionRecord>): Promise<void> {
+    log.debug(`Updating session: ${sessionId}`);
     try {
       const storage = await this.getStorage();
-      const result = await storage.updateEntity(sessionName, updates);
+      const result = await storage.updateEntity(sessionId, updates);
       if (!result) {
-        throw new Error(`Session '${sessionName}' not found`);
+        throw new Error(`Session '${sessionId}' not found`);
       }
-      log.debug(`Session updated successfully: ${sessionName}`);
+      log.debug(`Session updated successfully: ${sessionId}`);
     } catch (error) {
-      log.error(`Failed to update session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to update session '${sessionId}': ${getErrorMessage(error)}`);
       throw error;
     }
   }
 
-  async deleteSession(sessionName: string): Promise<boolean> {
-    log.debug(`Deleting session: ${sessionName}`);
+  async deleteSession(sessionId: string): Promise<boolean> {
+    log.debug(`Deleting session: ${sessionId}`);
     try {
       const storage = await this.getStorage();
-      const deleted = await storage.deleteEntity(sessionName);
+      const deleted = await storage.deleteEntity(sessionId);
       if (deleted) {
-        log.debug(`Session deleted successfully: ${sessionName}`);
+        log.debug(`Session deleted successfully: ${sessionId}`);
       } else {
-        log.debug(`Session not found: ${sessionName}`);
+        log.debug(`Session not found: ${sessionId}`);
       }
       return deleted;
     } catch (error) {
-      log.error(`Failed to delete session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to delete session '${sessionId}': ${getErrorMessage(error)}`);
       return false;
     }
   }
 
-  async doesSessionExist(sessionName: string): Promise<boolean> {
+  async doesSessionExist(sessionId: string): Promise<boolean> {
     try {
       const storage = await this.getStorage();
-      return await storage.entityExists(sessionName);
+      return await storage.entityExists(sessionId);
     } catch (error) {
-      log.error(`Error checking if session exists '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Error checking if session exists '${sessionId}': ${getErrorMessage(error)}`);
       return false;
     }
   }
 
-  async addTaskToSession(sessionName: string, taskId: string): Promise<boolean> {
+  async addTaskToSession(sessionId: string, taskId: string): Promise<boolean> {
     try {
       // Validate task ID format
       if (!isValidTaskIdInput(taskId)) {
@@ -153,27 +153,27 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
 
       // Get current session
-      const session = await this.getSession(sessionName);
+      const session = await this.getSession(sessionId);
       if (!session) {
-        log.error(`Session not found: ${sessionName}`);
+        log.error(`Session not found: ${sessionId}`);
         return false;
       }
 
       // Update session with new task ID
-      await this.updateSession(sessionName, {
+      await this.updateSession(sessionId, {
         taskId: validatedTaskId,
       });
 
-      log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionName}`);
+      log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionId}`);
       return true;
     } catch (error) {
-      log.error(`Failed to add task to session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to add task to session '${sessionId}': ${getErrorMessage(error)}`);
       return false;
     }
   }
 
   async setSessionRepo(
-    sessionName: string,
+    sessionId: string,
     repoPath: string,
     repoName?: string,
     repoUrl?: string
@@ -188,14 +188,14 @@ export class SessionDbAdapter implements SessionProviderInterface {
         updates.repoUrl = repoUrl;
       }
 
-      await this.updateSession(sessionName, updates);
+      await this.updateSession(sessionId, updates);
 
       log.debug(
-        `Repository set for session ${sessionName}: ${repoPath}${repoName ? ` (${repoName})` : ""}`
+        `Repository set for session ${sessionId}: ${repoPath}${repoName ? ` (${repoName})` : ""}`
       );
       return true;
     } catch (error) {
-      log.error(`Failed to set repo for session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to set repo for session '${sessionId}': ${getErrorMessage(error)}`);
       return false;
     }
   }
@@ -263,7 +263,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
   }
 
-  async getSessionWorkdir(sessionName: string): Promise<string> {
+  async getSessionWorkdir(sessionId: string): Promise<string> {
     try {
       const storage = await this.getStorage();
       const stateResult = await storage.readState();
@@ -273,26 +273,26 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
 
       const { getSessionWorkdirFn } = await import("./session-db");
-      const workdir = getSessionWorkdirFn(stateResult.data, sessionName);
+      const workdir = getSessionWorkdirFn(stateResult.data, sessionId);
 
       if (!workdir) {
-        throw new Error(`Session '${sessionName}' not found or has no working directory`);
+        throw new Error(`Session '${sessionId}' not found or has no working directory`);
       }
 
       return workdir;
     } catch (error) {
-      log.error(`Failed to get session workdir for '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to get session workdir for '${sessionId}': ${getErrorMessage(error)}`);
       throw error;
     }
   }
 
-  async clearSessionTask(sessionName: string): Promise<boolean> {
+  async clearSessionTask(sessionId: string): Promise<boolean> {
     try {
-      await this.updateSession(sessionName, { taskId: undefined });
-      log.debug(`Task cleared from session: ${sessionName}`);
+      await this.updateSession(sessionId, { taskId: undefined });
+      log.debug(`Task cleared from session: ${sessionId}`);
       return true;
     } catch (error) {
-      log.error(`Failed to clear task from session '${sessionName}': ${getErrorMessage(error)}`);
+      log.error(`Failed to clear task from session '${sessionId}': ${getErrorMessage(error)}`);
       return false;
     }
   }

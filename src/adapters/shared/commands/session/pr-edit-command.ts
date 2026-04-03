@@ -72,8 +72,8 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         const sessionProvider = await createSessionProvider();
 
         // Try to get session name from params or resolve from task
-        let sessionName = params.name;
-        if (!sessionName && params.task) {
+        let sessionId = params.name;
+        if (!sessionId && params.task) {
           const { resolveSessionContextWithFeedback } = await import(
             "../../../../domain/session/session-context-resolver"
           );
@@ -83,12 +83,12 @@ export class SessionPrEditCommand extends BaseSessionCommand<
             sessionProvider,
             allowAutoDetection: false, // No auto-detection for MCP
           });
-          sessionName = resolvedContext.sessionName;
+          sessionId = resolvedContext.sessionId;
         }
 
-        if (sessionName) {
+        if (sessionId) {
           workingDirectory = await sessionProvider.getRepoPath(
-            await sessionProvider.getSession(sessionName)
+            await sessionProvider.getSession(sessionId)
           );
         }
       }
