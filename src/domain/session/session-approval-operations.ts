@@ -8,10 +8,7 @@
 import { log } from "../../utils/logger";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
-import {
-  createRepositoryBackendForSession,
-  extractGitHubInfoFromUrl,
-} from "./repository-backend-detection";
+import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -117,7 +114,8 @@ export async function approveSessionPr(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     resolveRepoPath?: any;
-    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<any>;
+    /** @deprecated Use createRepositoryBackend instead */
+    createRepositoryBackendForSession?: (...args: any[]) => Promise<any>;
   }
 ): Promise<SessionApprovalResult> {
   if (!params.json) {
@@ -188,11 +186,10 @@ export async function approveSessionPr(
   }
 
   // Create repository backend for this session using stored configuration
-  // Use the session record's stored backend config instead of auto-detection
-  const createBackendFunc =
-    deps?.createRepositoryBackendForSession ||
-    ((workdir: string) => createRepositoryBackendFromSession(sessionRecord));
-  const repositoryBackend = await createBackendFunc("/test/workdir");
+  // Prefer injected factory (for testing), fall back to session record config
+  const repositoryBackend = deps?.createRepositoryBackendForSession
+    ? await deps.createRepositoryBackendForSession("/test/workdir")
+    : await createRepositoryBackendFromSession(sessionRecord);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);

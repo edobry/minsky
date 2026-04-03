@@ -7,7 +7,6 @@
 
 import { createGitService } from "./git";
 import {
-  resolveRepositoryAndBackend,
   detectRepositoryBackendTypeFromUrl,
   getRepositoryBackendFromConfig,
 } from "./session/repository-backend-detection";
@@ -115,10 +114,10 @@ export async function startSessionFromParams(
       backendType: import("./repository/index").RepositoryBackendType;
       github?: { owner: string; repo: string };
     }>;
-    /** Back-compat: legacy resolveRepositoryAndBackend signature still accepted. */
-    resolveRepositoryAndBackend?: typeof resolveRepositoryAndBackend;
-    /** Back-compat for older tests/consumers */
-    resolveRepoPath?: typeof resolveRepositoryAndBackend;
+    /** @deprecated Use getRepositoryBackend instead — accepted for backward-compat with tests */
+    resolveRepositoryAndBackend?: (...args: any[]) => Promise<any>;
+    /** @deprecated Use getRepositoryBackend instead — accepted for backward-compat with tests */
+    resolveRepoPath?: (...args: any[]) => Promise<any>;
     /** Optional filesystem adapter passthrough for tests */
     fs?: {
       exists: (path: string) => boolean | Promise<boolean>;
@@ -136,13 +135,14 @@ export async function startSessionFromParams(
   if (depsInput?.getRepositoryBackend) {
     getRepositoryBackendDep = depsInput.getRepositoryBackend;
   } else if (depsInput?.resolveRepositoryAndBackend) {
-    // Back-compat: wrap old resolver (ignores any --repo param here; callers that need
-    // repo-param overrides should pass getRepositoryBackend directly)
-    const legacyFn = depsInput.resolveRepositoryAndBackend;
+    // Back-compat shim for older tests — wraps legacy resolver into new interface
+    const legacyFn = depsInput.resolveRepositoryAndBackend as (
+      opts?: any
+    ) => Promise<{ repoUrl: string; backendType: any; github?: any }>;
     getRepositoryBackendDep = async () => legacyFn({ cwd: process.cwd() });
   } else if (depsInput?.resolveRepoPath) {
-    // Back-compat: wrap legacy resolveRepoPath(uri) => string into the new interface
-    const resolveFn = depsInput.resolveRepoPath as unknown as (uri?: string) => Promise<string>;
+    // Back-compat shim for older tests — wraps legacy path resolver into new interface
+    const resolveFn = depsInput.resolveRepoPath as (...args: any[]) => Promise<string>;
     getRepositoryBackendDep = async () => {
       const uri = await resolveFn(undefined);
       const backendType = detectRepositoryBackendTypeFromUrl(uri);
@@ -276,10 +276,11 @@ export async function approveSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
-    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<RepositoryBackend>;
     createRepositoryBackend?: (sessionRecord: any) => Promise<RepositoryBackend>;
     /** @deprecated kept for backward-compat with older tests */
     resolveRepoPath?: (...args: any[]) => Promise<string>;
+    /** @deprecated Use createRepositoryBackend instead */
+    createRepositoryBackendForSession?: (...args: any[]) => Promise<RepositoryBackend>;
   }
 ): Promise<{
   sessionName: string;
@@ -318,7 +319,6 @@ export async function approveSessionFromParams(
       gitService: depsInput?.gitService,
       taskService: depsInput?.taskService,
       workspaceUtils: depsInput?.workspaceUtils,
-      resolveRepoPath: depsInput?.resolveRepoPath,
       createRepositoryBackendForSession: depsInput?.createRepositoryBackendForSession,
     }
   );

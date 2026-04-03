@@ -22,7 +22,6 @@ import type {
   ChangesetDetails,
 } from "./adapter-interface";
 
-import { detectRepositoryBackendType } from "../session/repository-backend-detection";
 import { MinskyError } from "../../errors/index";
 import { log } from "../../utils/logger";
 

@@ -28,7 +28,6 @@ import { createSessionProvider } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
-import { createRepositoryBackendForSession } from "./repository-backend-detection";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
