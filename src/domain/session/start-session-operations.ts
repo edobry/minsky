@@ -165,7 +165,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Generate opaque UUID session ID — task linkage is via SessionRecord.taskId
+      // Use a generated UUID as the session name
       sessionName = generateSessionId();
     }
 
