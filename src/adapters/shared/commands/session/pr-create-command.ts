@@ -223,8 +223,11 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
 
       // If session has PR state, a PR already exists
       if (sessionRecord && sessionRecord.prState && sessionRecord.prBranch) {
+        const sessionDisplay = sessionRecord.taskId
+          ? `task ${sessionRecord.taskId}`
+          : `session '${sessionName}'`;
         throw new ValidationError(
-          `A pull request already exists for session '${sessionName}' (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/spec.md`
+          `A pull request already exists for ${sessionDisplay} (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/spec.md`
         );
       }
     } catch (error) {
@@ -292,8 +295,13 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
         `🔐 Git authentication error.\n\nPlease check:\n• Your SSH keys are properly configured\n• You have push access to the repository\n• Your git credentials are valid\n\nTechnical details: ${errorMessage}`
       );
     } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
+      const sessionDisplay = params.task
+        ? `task ${params.task}`
+        : params.name
+          ? `session '${params.name}'`
+          : "the requested session";
       return new MinskyError(
-        `🔍 Session not found.\n\nThe session '${params.name || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session name or task ID\n\nTechnical details: ${errorMessage}`
+        `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session name or task ID\n\nTechnical details: ${errorMessage}`
       );
     } else {
       return new MinskyError(

@@ -68,8 +68,10 @@ export function isDuplicateContent(content1: string, content2: string): boolean 
         // Remove conventional commit prefixes (feat:, feat(scope):, etc.)
         .replace(/^[a-z]+!?\([^)]*\):\s*/i, "")
         .replace(/^[a-z]+!?:\s*/i, "")
-        // Normalize task ID formats: md#123 -> #123, task-md-123 -> #123
+        // Normalize task ID formats: md#123 -> #123, task-md-123 -> #123, task/md-123 -> #123
         .replace(/(?:task-)?md[#-](\d+)/g, "#$1")
+        // Normalize branch-style task references: task/mt-123 -> #123, task/md-123 -> #123
+        .replace(/task\/[a-z]+-(\d+)/gi, "#$1")
         // Normalize whitespace
         .replace(/\s+/g, " ")
         .trim()
