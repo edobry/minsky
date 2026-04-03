@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
 
 /**
+ * LEGACY SCRIPT — matches bare-integer session names only (/^(\d+)$/).
+ *
+ * This script will NOT match UUID session names (e.g., "550e8400-e29b-41d4-a716-446655440000")
+ * or "task-" prefixed session names (e.g., "task-md#123"). It is only useful for
+ * very old session databases that stored session names as plain integers.
+ *
  * Fix Orphaned Task Sessions
  *
  * This script identifies sessions that have task numbers in their names
