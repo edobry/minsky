@@ -12,13 +12,22 @@ import type { PartialConfiguration } from "../schemas";
 import { log } from "../../../utils/logger";
 
 /**
- * Project configuration file locations (relative to project root)
+ * Canonical project configuration location.
+ * .minsky/config.yaml is the committed, team-shared config.
+ * .minsky/config.local.yaml is the gitignored, local-only overlay (secrets, personal prefs).
+ */
+const PROJECT_CONFIG_BASE = ".minsky/config.yaml";
+const PROJECT_CONFIG_LOCAL = ".minsky/config.local.yaml";
+
+/**
+ * Legacy project configuration file locations (for backward compat with older projects)
  */
 export const projectConfigFiles = [
+  PROJECT_CONFIG_BASE,
+  PROJECT_CONFIG_LOCAL,
   "config/local.yaml",
   "config/local.yml",
   "config/local.json",
-  ".minsky/config.yaml",
   ".minsky/config.yml",
   ".minsky/config.json",
   "minsky.config.yaml",
@@ -27,7 +36,39 @@ export const projectConfigFiles = [
 ] as const;
 
 /**
- * Load project configuration from available files
+ * Deep merge two plain objects. Source values override target values.
+ */
+function deepMergeConfigs(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (
+      typeof result[key] === "object" &&
+      result[key] !== null &&
+      !Array.isArray(result[key]) &&
+      typeof source[key] === "object" &&
+      source[key] !== null &&
+      !Array.isArray(source[key])
+    ) {
+      result[key] = deepMergeConfigs(
+        result[key] as Record<string, unknown>,
+        source[key] as Record<string, unknown>
+      );
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * Load project configuration from .minsky/ directory.
+ *
+ * Reads .minsky/config.yaml (committed base) and deep-merges
+ * .minsky/config.local.yaml (gitignored overlay) on top.
+ * Falls back to legacy config/ paths for older projects.
  */
 export function loadProjectConfiguration(workingDir?: string): Partial<PartialConfiguration> {
   const projectRoot = findProjectRoot(workingDir);
@@ -35,10 +76,23 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
     return {};
   }
 
-  // Try each configuration file in order
-  for (const configFile of projectConfigFiles) {
-    const configPath = join(projectRoot, configFile);
+  // Try the canonical .minsky/ pair first (base + local overlay)
+  const basePath = join(projectRoot, PROJECT_CONFIG_BASE);
+  const localPath = join(projectRoot, PROJECT_CONFIG_LOCAL);
 
+  const baseConfig = existsSync(basePath) ? loadConfigFile(basePath) : null;
+  const localConfig = existsSync(localPath) ? loadConfigFile(localPath) : null;
+
+  if (baseConfig || localConfig) {
+    const base = (baseConfig || {}) as Record<string, unknown>;
+    const local = (localConfig || {}) as Record<string, unknown>;
+    return deepMergeConfigs(base, local) as Partial<PartialConfiguration>;
+  }
+
+  // Fall back to legacy paths for older projects
+  const legacyPaths = projectConfigFiles.slice(2); // skip the two canonical paths
+  for (const configFile of legacyPaths) {
+    const configPath = join(projectRoot, configFile);
     if (existsSync(configPath)) {
       try {
         const config = loadConfigFile(configPath);
@@ -46,7 +100,6 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
           return config;
         }
       } catch (error) {
-        // Log warning but continue to next file
         log.warn(
           `Warning: Failed to load project config from ${configPath}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -135,21 +188,37 @@ export function getProjectConfiguration(workingDir?: string): {
   let config: any = {};
 
   if (projectRoot) {
-    // Try each configuration file and track searched paths
-    for (const relativeConfigFile of projectConfigFiles) {
-      const configPath = join(projectRoot, relativeConfigFile);
-      searchedPaths.push(configPath);
+    // Try canonical .minsky/ pair first
+    const basePath = join(projectRoot, PROJECT_CONFIG_BASE);
+    const localPath = join(projectRoot, PROJECT_CONFIG_LOCAL);
+    searchedPaths.push(basePath, localPath);
 
-      if (existsSync(configPath)) {
-        try {
-          const loadedConfig = loadConfigFile(configPath);
-          if (loadedConfig) {
-            config = loadedConfig;
-            configFile = configPath;
-            break;
+    const baseConfig = existsSync(basePath) ? loadConfigFile(basePath) : null;
+    const localConfig = existsSync(localPath) ? loadConfigFile(localPath) : null;
+
+    if (baseConfig || localConfig) {
+      config = deepMergeConfigs(
+        (baseConfig || {}) as Record<string, unknown>,
+        (localConfig || {}) as Record<string, unknown>
+      );
+      configFile = localConfig ? localPath : basePath;
+    } else {
+      // Fall back to legacy paths
+      for (const relativeConfigFile of projectConfigFiles.slice(2)) {
+        const configPath = join(projectRoot, relativeConfigFile);
+        searchedPaths.push(configPath);
+
+        if (existsSync(configPath)) {
+          try {
+            const loadedConfig = loadConfigFile(configPath);
+            if (loadedConfig) {
+              config = loadedConfig;
+              configFile = configPath;
+              break;
+            }
+          } catch (error) {
+            // Continue searching
           }
-        } catch (error) {
-          // Continue searching
         }
       }
     }
