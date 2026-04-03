@@ -65,7 +65,7 @@ export class CreatePullRequestOperation extends BaseGitOperation<
     return result;
   }
 
-  protected getAdditionalLogContext(params: CreatePullRequestParams): Record<string, any> {
+  protected getAdditionalLogContext(params: CreatePullRequestParams): Record<string, unknown> {
     return {
       branch: params.branch,
       taskId: params.taskId,
@@ -98,7 +98,7 @@ export class PreparePrOperation extends BaseGitOperation<PreparePrParams, Prepar
     return result;
   }
 
-  protected getAdditionalLogContext(params: PreparePrParams): Record<string, any> {
+  protected getAdditionalLogContext(params: PreparePrParams): Record<string, unknown> {
     return {
       baseBranch: params.baseBranch,
       title: params.title,
@@ -128,7 +128,7 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
     return result;
   }
 
-  protected getAdditionalLogContext(params: MergePrParams): Record<string, any> {
+  protected getAdditionalLogContext(params: MergePrParams): Record<string, unknown> {
     return {
       prBranch: params.prBranch,
       baseBranch: params.baseBranch,
