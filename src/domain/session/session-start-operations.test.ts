@@ -35,23 +35,21 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
   const workspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
     isSessionWorkspace: () => false,
   });
-  const resolveRepositoryAndBackend = vi.fn(
-    async (options?: { repoParam?: string; cwd?: string }) => {
-      const backendType =
-        repoUrl.startsWith("/") || repoUrl.startsWith("file://")
-          ? "local"
-          : repoUrl.includes("github.com")
-            ? "github"
-            : "remote";
-      return { repoUrl, backendType };
-    }
-  );
+  const getRepositoryBackend = vi.fn(async () => {
+    const backendType =
+      repoUrl.startsWith("/") || repoUrl.startsWith("file://")
+        ? "local"
+        : repoUrl.includes("github.com")
+          ? "github"
+          : "remote";
+    return { repoUrl, backendType };
+  });
   return {
     sessionDB,
     gitService,
     taskService,
     workspaceUtils,
-    resolveRepositoryAndBackend,
+    getRepositoryBackend,
     addSessionSpy,
   } as unknown as StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> };
 }

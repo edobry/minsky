@@ -252,6 +252,69 @@ export function resolveRepositoryFromGitRemote(cwd: string): ResolvedRepositoryC
 }
 
 /**
+ * Read repository backend configuration from project config (written by `minsky init`).
+ *
+ * Falls back to `resolveRepositoryAndBackend()` detection behavior if `repository.backend`
+ * is not configured — backward-compat for projects that haven't re-run init.
+ */
+export async function getRepositoryBackendFromConfig(): Promise<{
+  repoUrl: string;
+  backendType: RepositoryBackendType;
+  github?: { owner: string; repo: string };
+}> {
+  try {
+    const { getConfiguration } = await import("../configuration/index");
+    const cfg = getConfiguration() as {
+      repository?: {
+        backend?: "github" | "gitlab" | "local";
+        url?: string;
+        github?: { owner: string; repo: string };
+      };
+    };
+
+    const repo = cfg.repository;
+    if (repo?.backend) {
+      let backendType: RepositoryBackendType;
+      switch (repo.backend) {
+        case "github":
+          backendType = RepositoryBackendType.GITHUB;
+          break;
+        case "gitlab":
+          backendType = RepositoryBackendType.REMOTE;
+          break;
+        case "local":
+          backendType = RepositoryBackendType.LOCAL;
+          break;
+        default:
+          backendType = RepositoryBackendType.REMOTE;
+      }
+
+      const repoUrl = repo.url || "";
+      const result: {
+        repoUrl: string;
+        backendType: RepositoryBackendType;
+        github?: { owner: string; repo: string };
+      } = {
+        repoUrl,
+        backendType,
+      };
+
+      if (repo.github) {
+        result.github = repo.github;
+      }
+
+      return result;
+    }
+  } catch (_err) {
+    // Config unavailable — fall through to auto-detection
+  }
+
+  // Fallback: auto-detect using existing logic (backward compat)
+  const detected = await resolveRepositoryAndBackend({ cwd: process.cwd() });
+  return { repoUrl: detected.repoUrl, backendType: detected.backendType };
+}
+
+/**
  * Extract GitHub owner and repo from URL
  */
 export function extractGitHubInfoFromUrl(
