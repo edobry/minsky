@@ -63,8 +63,8 @@ export async function sessionPr(
       try {
         const branchToDelete =
           sessionRecord.backendType === "github"
-            ? resolvedContext.sessionName
-            : `pr/${resolvedContext.sessionName}`;
+            ? sessionRecord.branch || resolvedContext.sessionName
+            : `pr/${sessionRecord.branch || resolvedContext.sessionName}`;
 
         await gitService.execInRepository(workdir, `git branch -D ${branchToDelete}`);
         log.debug(`Deleted existing PR branch ${branchToDelete} to force recreation`);
@@ -151,10 +151,11 @@ export async function sessionPr(
 async function checkPrBranchExists(
   sessionName: string,
   gitService: any,
-  currentDir: string
+  currentDir: string,
+  branchName?: string
 ): Promise<boolean> {
   try {
-    const prBranchName = `pr/${sessionName}`;
+    const prBranchName = `pr/${branchName || sessionName}`;
     const branches = await gitService.execInRepository(currentDir, "git branch -a");
     return branches.includes(prBranchName);
   } catch (error) {

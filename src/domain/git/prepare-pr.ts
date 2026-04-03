@@ -94,7 +94,14 @@ export async function preparePr(
               repoName,
               createdAt: new Date().toISOString(),
               taskId,
-              branch: options.session,
+              branch: await (async () => {
+                try {
+                  const b = await deps.execInRepository(currentDir, "git branch --show-current");
+                  return b.trim() || options.session;
+                } catch {
+                  return options.session;
+                }
+              })(),
             };
 
             // Enhance with backend information if task ID was extracted
@@ -257,11 +264,12 @@ Session requested: "${options.session}"
       sourceBranch = await deps.execInRepository(workdir, "git branch --show-current");
       sourceBranch = sourceBranch.trim();
     } catch (branchError) {
-      log.debug("Failed to get current branch, falling back to session name", {
+      log.debug("Failed to get current branch, falling back to session branch or session name", {
         session: options.session,
         error: branchError,
       });
-      sourceBranch = options.session;
+      // Try to use branch from session record, then fall back to session name
+      sourceBranch = record?.branch || options.session;
     }
   } else if (options.repoPath) {
     workdir = options.repoPath;

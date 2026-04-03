@@ -303,7 +303,7 @@ export class LocalGitBackend implements RepositoryBackend {
       } else if (session.prState?.branchName) {
         prBranch = session.prState.branchName;
       } else {
-        prBranch = `pr/${session.session}`;
+        prBranch = `pr/${session.branch || session.session}`;
       }
 
       log.info(`Local session has associated PR, auto-updating PR branch '${prBranch}'`);

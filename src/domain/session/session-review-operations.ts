@@ -175,7 +175,7 @@ export async function sessionReviewImpl(
   const result: SessionReviewResult = {
     session: sessionNameToUse,
     taskId,
-    prBranch: params.prBranch || `pr/${sessionNameToUse}`,
+    prBranch: params.prBranch || `pr/${sessionRecord.branch || sessionNameToUse}`,
     baseBranch: "main",
   };
 

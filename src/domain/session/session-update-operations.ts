@@ -425,7 +425,10 @@ export async function checkPrBranchExistsOptimized(
   if (exists) {
     try {
       // Use backend-aware branch name for commit hash lookup
-      const branchName = sessionRecord.backendType === "github" ? sessionName : `pr/${sessionName}`;
+      const branchName =
+        sessionRecord.backendType === "github"
+          ? sessionName
+          : `pr/${sessionRecord.branch || sessionName}`;
 
       const hashResult = await gitService.execInRepository(
         currentDir,
@@ -433,7 +436,10 @@ export async function checkPrBranchExistsOptimized(
       );
       commitHash = hashResult.trim();
     } catch (error) {
-      const branchName = sessionRecord.backendType === "github" ? sessionName : `pr/${sessionName}`;
+      const branchName =
+        sessionRecord.backendType === "github"
+          ? sessionName
+          : `pr/${sessionRecord.branch || sessionName}`;
       log.debug(`Could not get commit hash for ${branchName}`, { error });
     }
   } else {
@@ -441,7 +447,10 @@ export async function checkPrBranchExistsOptimized(
   }
 
   // Update the session record with fresh PR state
-  const prBranch = sessionRecord.backendType === "github" ? sessionName : `pr/${sessionName}`;
+  const prBranch =
+    sessionRecord.backendType === "github"
+      ? sessionName
+      : `pr/${sessionRecord.branch || sessionName}`;
   const updatedPrState = {
     branchName: prBranch,
     commitHash,
@@ -476,7 +485,10 @@ export async function updatePrStateOnCreation(
   }
 
   // Determine correct branch name based on backend type
-  const prBranch = sessionRecord.backendType === "github" ? sessionName : `pr/${sessionName}`;
+  const prBranch =
+    sessionRecord.backendType === "github"
+      ? sessionName
+      : `pr/${sessionRecord.branch || sessionName}`;
 
   const now = new Date().toISOString();
 
@@ -538,9 +550,22 @@ export async function updatePrStateOnMerge(
 export async function extractPrDescription(
   sessionName: string,
   gitService: GitServiceInterface,
-  currentDir: string
+  currentDir: string,
+  sessionDB?: SessionProviderInterface
 ): Promise<{ title: string; body: string } | null> {
-  const prBranch = `pr/${sessionName}`;
+  // Resolve the actual branch name from session record if sessionDB is available
+  let branchComponent = sessionName;
+  if (sessionDB) {
+    try {
+      const record = await sessionDB.getSession(sessionName);
+      if (record?.branch) {
+        branchComponent = record.branch;
+      }
+    } catch {
+      // Ignore errors looking up session record
+    }
+  }
+  const prBranch = `pr/${branchComponent}`;
 
   try {
     // Try to get from remote first

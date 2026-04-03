@@ -562,7 +562,9 @@ Repository: ${this.repoUrl}
       const prId = String(options.prIdentifier);
       const sessionDB = await this.getSessionDB();
       const sessions = await sessionDB.listSessions();
-      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      const record = sessions.find(
+        (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
+      );
       sessionName = record?.session;
     }
     if (!sessionName) {
@@ -572,7 +574,7 @@ Repository: ${this.repoUrl}
     }
     const sessionDB = await this.getSessionDB();
     const record = await sessionDB.getSession(sessionName);
-    const number = record?.prBranch || `pr/${sessionName}`;
+    const number = record?.prBranch || `pr/${record?.branch || sessionName}`;
     const prInfo = record?.pullRequest;
     return {
       number,
@@ -611,7 +613,7 @@ Repository: ${this.repoUrl}
     if (!prBranch) {
       const sessionDB = await this.getSessionDB();
       const record = await sessionDB.getSession(sessionName);
-      prBranch = record?.prBranch || `pr/${sessionName}`;
+      prBranch = record?.prBranch || `pr/${record?.branch || sessionName}`;
     }
     await execGitWithTimeout("fetch", "fetch origin", { workdir });
     const diff = await execGitWithTimeout(
