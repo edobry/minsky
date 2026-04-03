@@ -94,62 +94,62 @@ export function qualifiedIdToUnifiedFormat(qualifiedId: string): string {
   if (!parsed) {
     // Handle legacy unqualified IDs - assume markdown backend
     if (/^\d+$/.test(qualifiedId)) {
-      return `task-md#${qualifiedId}`;
+      return `task/md-${qualifiedId}`;
     }
     return qualifiedId; // Return as-is if unparseable
   }
 
-  return `task-${parsed.backend}#${parsed.localId}`;
+  return `task/${parsed.backend}-${parsed.localId}`;
 }
 
 export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
-  // Parse task-md#123 → md:123
-  const match = unifiedFormat.match(/^task-([^#]+)#(.+)$/);
-  if (!match) {
-    // Handle legacy formats or invalid input
-    const legacyMatch = unifiedFormat.match(/^task#(\d+)$/);
-    if (legacyMatch) {
-      return `md:${legacyMatch[1] || ""}`; // task#123 → md:123
-    }
-
-    // Check if it's already a qualified ID
-    if (parseTaskId(unifiedFormat)) {
-      return unifiedFormat;
-    }
-
-    // If it looks like a plain number, assume markdown backend
-    if (/^\d+$/.test(unifiedFormat)) {
-      return `md:${unifiedFormat}`;
-    }
-
-    return unifiedFormat; // Return as-is if unparseable
+  // Parse new format: task/md-123 → md:123
+  const newMatch = unifiedFormat.match(/^task\/([^-]+)-(.+)$/);
+  if (newMatch && newMatch[1] && newMatch[2]) {
+    return formatTaskId(newMatch[1], newMatch[2]);
   }
 
-  const [, backend, localId] = match;
-  if (!backend || !localId) {
-    return unifiedFormat; // Return as-is if invalid
+  // Parse legacy format: task-md#123 → md:123
+  const legacyMatch = unifiedFormat.match(/^task-([^#]+)#(.+)$/);
+  if (legacyMatch && legacyMatch[1] && legacyMatch[2]) {
+    return formatTaskId(legacyMatch[1], legacyMatch[2]);
   }
-  return formatTaskId(backend, localId);
+
+  // Handle other legacy formats
+  const legacyHash = unifiedFormat.match(/^task#(\d+)$/);
+  if (legacyHash && legacyHash[1]) {
+    return `md:${legacyHash[1]}`; // task#123 → md:123
+  }
+
+  // Check if it's already a qualified ID
+  if (parseTaskId(unifiedFormat)) {
+    return unifiedFormat;
+  }
+
+  // If it looks like a plain number, assume markdown backend
+  if (/^\d+$/.test(unifiedFormat)) {
+    return `md:${unifiedFormat}`;
+  }
+
+  return unifiedFormat; // Return as-is if unparseable
 }
 
 // Git branch naming conversion functions
+
+/** @deprecated Session names are now UUIDs; branch names come from taskIdToBranchName() in task-id.ts */
 export function sessionNameToBranchName(sessionName: string): string {
   // Convert colons to dashes for git branch compatibility
-  // task#md:123 → task#md-123
   return sessionName.replace(/:/g, "-");
 }
 
+/** @deprecated Session names are now UUIDs; use branchNameToTaskId() in task-id.ts instead */
 export function branchNameToSessionName(branchName: string): string {
-  // Convert dashes back to colons for session names
-  // task#md-123 → task#md:123
-  // task#gh-issue-123 → task#gh:issue-123
-  // Find the backend part and convert only the separator dash to colon
   const match = branchName.match(/^(.+#)([^#-]+)-(.+)$/);
   if (match) {
     const [, prefix, backend, localId] = match;
     return `${prefix || ""}${backend || ""}:${localId || ""}`;
   }
-  return branchName; // Return as-is if no conversion needed
+  return branchName;
 }
 
 // Migration utilities
