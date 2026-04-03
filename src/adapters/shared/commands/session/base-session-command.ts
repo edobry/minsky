@@ -14,7 +14,7 @@ import { CommandCategory, type CommandExecutionContext } from "../../command-reg
  */
 export interface SessionCommandDependencies {
   // Session domain functions - will be injected
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -121,10 +121,10 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Create success result with consistent structure
    */
   protected createSuccessResult(
-    data: any,
+    data: Record<string, unknown>,
     message?: string,
     additionalData: Record<string, unknown> = {}
-  ): any {
+  ): Record<string, unknown> {
     return {
       success: true,
       ...data,
@@ -139,7 +139,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   protected createErrorResult(
     error: string | Error,
     additionalData: Record<string, unknown> = {}
-  ): any {
+  ): Record<string, unknown> {
     return {
       success: false,
       error: typeof error === "string" ? error : getErrorMessage(error),
@@ -174,20 +174,20 @@ export type SessionCommandFactory<TParams, TResult> = (
  * Session command registry for managing command instances
  */
 export class SessionCommandRegistry {
-  private commands = new Map<string, BaseSessionCommand<any, any>>();
+  private commands = new Map<string, BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>>();
 
   /**
    * Register a session command
    */
   register<TParams, TResult>(id: string, command: BaseSessionCommand<TParams, TResult>): void {
-    this.commands.set(id, command);
+    this.commands.set(id, command as unknown as BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>);
   }
 
   /**
    * Get a session command by ID
    */
   get<TParams, TResult>(id: string): BaseSessionCommand<TParams, TResult> | undefined {
-    return this.commands.get(id);
+    return this.commands.get(id) as unknown as BaseSessionCommand<TParams, TResult> | undefined;
   }
 
   /**
@@ -215,7 +215,7 @@ export class SessionCommandRegistry {
   /**
    * Get all commands for registration
    */
-  getAllCommands(): Array<{ id: string; registrationData: any }> {
+  getAllCommands(): Array<{ id: string; registrationData: Record<string, unknown> }> {
     return Array.from(this.commands.entries()).map(([id, command]) => ({
       id,
       registrationData: command.getRegistrationData(),

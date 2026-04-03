@@ -25,7 +25,7 @@ interface SessionPrGetParams extends BaseSessionCommandParams {
   content?: boolean;
 }
 
-export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, any> {
+export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, Record<string, unknown>> {
   getCommandId(): string {
     return "session.pr.get";
   }
@@ -38,14 +38,14 @@ export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, 
     return "Get detailed information about a session pull request";
   }
 
-  getParameterSchema(): Record<string, any> {
+  getParameterSchema(): Record<string, unknown> {
     return sessionPrGetCommandParams;
   }
 
   async executeCommand(
     params: SessionPrGetParams,
     _context: CommandExecutionContext
-  ): Promise<any> {
+  ): Promise<Record<string, unknown>> {
     try {
       const result = await sessionPrGet({
         sessionName: params.sessionName,
