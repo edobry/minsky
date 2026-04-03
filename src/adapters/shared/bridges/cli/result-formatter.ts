@@ -94,7 +94,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     switch (commandDef.id) {
       case "session.get":
         if ("session" in result) {
-          formatSessionDetails(result.session as Record<string, any>);
+          formatSessionDetails(result.session as Record<string, unknown>);
         } else {
           this.formatGenericObject(result);
         }
@@ -119,7 +119,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       // Updated to handle PR subcommands
       case "session.pr.create":
         if ("prBranch" in result) {
-          formatSessionPrDetails(result as Record<string, any>);
+          formatSessionPrDetails(result as Record<string, unknown>);
         } else {
           this.formatGenericObject(result);
         }
@@ -162,7 +162,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "session.approve":
         if (result.result && "session" in (result.result as object)) {
-          formatSessionApprovalDetails(result.result as Record<string, any>);
+          formatSessionApprovalDetails(result.result as Record<string, unknown>);
         } else {
           this.formatGenericObject(result);
         }
@@ -178,7 +178,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "rules.get":
         if ("content" in result || "id" in result) {
-          formatRuleDetails(result as Record<string, any>);
+          formatRuleDetails(result as Record<string, unknown>);
         } else {
           this.formatGenericObject(result);
         }
@@ -264,7 +264,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "debug.echo":
-        formatDebugEchoDetails(result as Record<string, any>);
+        formatDebugEchoDetails(result as Record<string, unknown>);
         break;
 
       case "session.commit": {
@@ -323,7 +323,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   private formatSessionListResult(sessions: unknown[]): void {
     if (Array.isArray(sessions) && sessions.length > 0) {
       sessions.forEach((session) => {
-        formatSessionSummary(session as Record<string, any>);
+        formatSessionSummary(session as Record<string, unknown>);
       });
     } else {
       log.cli("No sessions found.");

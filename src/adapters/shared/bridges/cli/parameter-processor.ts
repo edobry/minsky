@@ -68,12 +68,12 @@ export class ParameterProcessor {
    * Extract raw parameters from CLI options and arguments
    */
   extractRawParameters(
-    parameters: Record<string, any>,
-    options: Record<string, any>,
-    positionalArgs: any[],
+    parameters: Record<string, unknown>,
+    options: Record<string, unknown>,
+    positionalArgs: unknown[],
     commandDef: SharedCommand,
     commandOptions: CliCommandOptions
-  ): Record<string, any> {
+  ): Record<string, unknown> {
     const result = { ...options };
 
     // Create mappings to understand argument structure
@@ -103,7 +103,7 @@ export class ParameterProcessor {
    * Validate parameters against command definition
    */
   validateParameters(
-    parameters: Record<string, any>,
+    parameters: Record<string, unknown>,
     commandDef: SharedCommand
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = [];
@@ -120,6 +120,7 @@ export class ParameterProcessor {
     Object.entries(parameters).forEach(([name, value]) => {
       const paramDef = paramDefs[name];
       if (paramDef && value !== undefined && value !== null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((paramDef as any).type === "number" && typeof value !== "number") {
           // Try to convert string to number
           const numValue = Number(value);
@@ -129,6 +130,7 @@ export class ParameterProcessor {
             // Update the value in place
             parameters[name] = numValue;
           }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } else if ((paramDef as any).type === "boolean" && typeof value !== "boolean") {
           // Try to convert string to boolean
           if (typeof value === "string") {
@@ -156,9 +158,9 @@ export class ParameterProcessor {
    * Apply parameter defaults
    */
   applyParameterDefaults(
-    parameters: Record<string, any>,
+    parameters: Record<string, unknown>,
     commandDef: SharedCommand
-  ): Record<string, any> {
+  ): Record<string, unknown> {
     const result = { ...parameters };
     const paramDefs = commandDef.parameters || {};
 
