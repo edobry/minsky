@@ -28,12 +28,23 @@ interface TasksSimilarParams extends BaseTaskParams {
   limit?: number;
   threshold?: number;
   details?: boolean;
+  quiet?: boolean;
+  json?: boolean;
+  backend?: string;
+  status?: string;
+  all?: boolean;
 }
 
 interface TasksSearchParams extends BaseTaskParams {
   query: string;
   limit?: number;
   threshold?: number;
+  details?: boolean;
+  quiet?: boolean;
+  json?: boolean;
+  backend?: string;
+  status?: string;
+  all?: boolean;
 }
 
 export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
@@ -114,7 +125,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const searchResults = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
-    const includeSpecPath = (params as any).backend !== "minsky";
+    const includeSpecPath = params.backend !== "minsky";
     const enhancedResults = await this.enhanceSearchResults(
       searchResults,
       params.details,
@@ -126,7 +137,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        details: (params as any).details, // Pass through details flag for CLI formatter
+        details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );
@@ -212,8 +223,8 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     // Immediate progress hint to stderr unless JSON/quiet
     try {
       const { log } = await import("../../../../utils/logger");
-      const quiet = Boolean((params as any).quiet);
-      const json = Boolean((params as any).json) || ctx.format === "json";
+      const quiet = Boolean(params.quiet);
+      const json = Boolean(params.json) || ctx.format === "json";
       if (!quiet && !json) {
         log.cliWarn(`Searching for tasks matching: "${query}" ...`);
       }
@@ -222,7 +233,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     }
 
     // Optional human-friendly diagnostics (no global debug needed)
-    if ((params as any).details) {
+    if (params.details) {
       try {
         const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
         const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
@@ -245,16 +256,14 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const filters: Record<string, any> = {};
 
     // Add backend filter if provided
-    const backendParam = (params as any).backend as string | undefined;
-    if (backendParam) {
-      filters.backend = backendParam;
+    if (params.backend) {
+      filters.backend = params.backend;
     }
 
     // Add status filter if provided and not showing all
-    const statusParam = (params as any).status as string | undefined;
-    const showAll = Boolean((params as any).all);
-    if (statusParam && !showAll) {
-      filters.status = statusParam;
+    const showAll = Boolean(params.all);
+    if (params.status && !showAll) {
+      filters.status = params.status;
     } else if (!showAll) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
       // This matches the behavior of tasks list command (mt#477)
@@ -264,10 +273,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const searchResults = await service.searchByText(query, limit, threshold, filters);
 
     // Enhance results with task details for better usability
-    const includeSpecPath = (params as any).backend !== "minsky";
+    const includeSpecPath = params.backend !== "minsky";
     let enhancedResults = await this.enhanceSearchResults(
       searchResults,
-      (params as any).details,
+      params.details,
       includeSpecPath
     );
 
@@ -279,7 +288,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        details: (params as any).details, // Pass through details flag for CLI formatter
+        details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );

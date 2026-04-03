@@ -288,6 +288,7 @@ export type RulesSearchParams = {
   limit?: number;
   threshold?: number;
   details?: boolean;
+  quiet?: boolean;
   json?: boolean;
   debug?: boolean;
 };
@@ -312,6 +313,7 @@ export const rulesSearchCommandParams: CommandParameterMap = composeParams(
       help: "Show detailed output including scores and diagnostics",
       required: false,
     },
+    quiet: CommonParameters.quiet,
   },
   {
     json: CommonParameters.json,

@@ -167,19 +167,26 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     try {
       // Get the appropriate backend for this task
       const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-      const { resolveRepoPath } = (await import("../../../../domain/workspace")) as any;
+      const { resolveRepoPath } = await import("../../../../domain/repo-utils");
       const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
 
       const service = await createConfiguredTaskService({
         workspacePath: params.repo
-          ? await resolveRepoPath(params.repo)
+          ? await resolveRepoPath({ repo: params.repo })
           : await resolveMainWorkspacePath(),
         backend: params.backend,
       });
 
+      // Access internal multi-backend methods via a typed extension interface
+      type ServiceWithBackendAccess = typeof service & {
+        parsePrefixFromId(taskId: string): string | null;
+        getBackendByPrefix(prefix: string | null): { name: string; setTaskMetadata?: (...args: any[]) => Promise<void> } | null;
+      };
+      const serviceWithAccess = service as ServiceWithBackendAccess;
+
       // Get the backend that manages this task
-      const backend = (service as any).getBackendByPrefix(
-        (service as any).parsePrefixFromId(validatedTaskId)
+      const backend = serviceWithAccess.getBackendByPrefix(
+        serviceWithAccess.parsePrefixFromId(validatedTaskId)
       );
       if (!backend) {
         throw new ValidationError(`No backend found for task ID: ${validatedTaskId}`);
@@ -206,7 +213,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Updated task metadata with title and/or spec");
       } else if (updates.title) {
         // Title-only update via updateTask
-        await (service as any).updateTask(validatedTaskId, { title: updates.title });
+        await service.updateTask?.(validatedTaskId, { title: updates.title });
         this.debug("Updated task title only");
       }
 

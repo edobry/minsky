@@ -7,6 +7,7 @@ import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
   task?: string;
+  concurrency?: number;
 }
 
 export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbeddingsParams> {
@@ -19,15 +20,14 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     const service = await createTaskSimilarityService();
 
     // If a specific task is provided, index just that one
-    if ((params as any).task) {
+    if (params.task) {
       const task = await getTaskFromParams({
-        taskId: (params as any).task,
+        taskId: params.task,
         backend: params.backend,
         repo: params.repo,
         workspace: params.workspace,
         session: params.session,
-        json: true,
-      } as any);
+      });
       const { log } = await import("../../../../utils/logger");
       const changed = await service.indexTask(task.id);
       if (!(params.json || ctx.format === "json")) {
@@ -60,7 +60,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     }
 
     // Concurrency control
-    const concurrency = Math.max(1, Math.min(32, Number((params as any).concurrency) || 4));
+    const concurrency = Math.max(1, Math.min(32, Number(params.concurrency) || 4));
     let i = 0;
     async function worker() {
       while (true) {
