@@ -15,7 +15,6 @@ import { createGitService } from "../../git";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
-import { getConfiguration } from "../../configuration/index";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -256,18 +255,13 @@ async function analyzeBackendSyncIssues(
   if (!sessionRecord.backendType) {
     try {
       const { backendType: configBackendType } = await getRepositoryBackendFromConfig();
-      // Map RepositoryBackendType enum values to string labels
-      const backendLabel =
-        configBackendType === "github" || String(configBackendType).toLowerCase() === "github"
-          ? "github"
-          : String(configBackendType).toLowerCase();
       issues.push({
         type: "backend-sync",
         severity: "medium",
         description: "Session record is missing backendType",
         details: {
           recordedType: undefined,
-          suggestedType: backendLabel,
+          suggestedType: configBackendType,
           fromConfig: true,
         },
         autoFixable: true,
@@ -414,10 +408,9 @@ async function repairBackendSync(
     // Final fallback: read project config
     try {
       const { backendType: configBackendType } = await getRepositoryBackendFromConfig();
-      newBackendType = String(configBackendType).toLowerCase();
+      newBackendType = configBackendType;
     } catch {
-      const config = getConfiguration() as { repository?: { default_repo_backend?: string } };
-      newBackendType = config.repository?.default_repo_backend || "github";
+      newBackendType = "local";
     }
   }
 
