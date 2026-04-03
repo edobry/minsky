@@ -87,7 +87,10 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     },
   };
 
-  async execute(params: MigrateBackendParams, context: CommandExecutionContext): Promise<Record<string, unknown>> {
+  async execute(
+    params: MigrateBackendParams,
+    context: CommandExecutionContext
+  ): Promise<Record<string, unknown>> {
     const p = migrateBackendParamsSchema.parse(params);
     const dryRun = !p.execute;
     const workspacePath = context.workspacePath || process.cwd();

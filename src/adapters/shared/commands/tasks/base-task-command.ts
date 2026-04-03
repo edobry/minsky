@@ -216,13 +216,19 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record
 /**
  * Factory function type for creating task commands
  */
-export type TaskCommandFactory = () => BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>;
+export type TaskCommandFactory = () => BaseTaskCommand<
+  Record<string, unknown>,
+  Record<string, unknown>
+>;
 
 /**
  * Task command registry for managing command instances
  */
 export class TaskCommandRegistry {
-  private commands = new Map<string, BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>>();
+  private commands = new Map<
+    string,
+    BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>
+  >();
 
   /**
    * Register a task command
@@ -234,7 +240,9 @@ export class TaskCommandRegistry {
   /**
    * Get a task command by ID
    */
-  get(commandId: string): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>> | undefined {
+  get(
+    commandId: string
+  ): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>> | undefined {
     return this.commands.get(commandId);
   }
 

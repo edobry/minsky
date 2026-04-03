@@ -151,7 +151,10 @@ const changesetInfoParams: CommandParameterMap = composeParams(
 /**
  * List changesets in the repository
  */
-async function executeChangesetList(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
+async function executeChangesetList(
+  params: Record<string, unknown>,
+  ctx?: CommandExecutionContext
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
@@ -236,7 +239,10 @@ async function executeChangesetList(params: Record<string, unknown>, ctx?: Comma
 /**
  * Search changesets by query
  */
-async function executeChangesetSearch(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
+async function executeChangesetSearch(
+  params: Record<string, unknown>,
+  ctx?: CommandExecutionContext
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
@@ -323,7 +329,10 @@ async function executeChangesetSearch(params: Record<string, unknown>, ctx?: Com
 /**
  * Get details for a specific changeset
  */
-async function executeChangesetGet(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
+async function executeChangesetGet(
+  params: Record<string, unknown>,
+  ctx?: CommandExecutionContext
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({
@@ -405,7 +414,10 @@ async function executeChangesetGet(params: Record<string, unknown>, ctx?: Comman
 /**
  * Show changeset platform information and capabilities
  */
-async function executeChangesetInfo(params: Record<string, unknown>, ctx?: CommandExecutionContext): Promise<Record<string, unknown>> {
+async function executeChangesetInfo(
+  params: Record<string, unknown>,
+  ctx?: CommandExecutionContext
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await resolveRepositoryAndBackend({

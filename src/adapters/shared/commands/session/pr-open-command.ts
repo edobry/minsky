@@ -20,7 +20,10 @@ interface SessionPrOpenParams extends BaseSessionCommandParams {
   sessionName?: string;
 }
 
-export class SessionPrOpenCommand extends BaseSessionCommand<SessionPrOpenParams, Record<string, unknown>> {
+export class SessionPrOpenCommand extends BaseSessionCommand<
+  SessionPrOpenParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.open";
   }

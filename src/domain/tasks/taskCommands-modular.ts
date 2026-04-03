@@ -99,7 +99,9 @@ export class ModularTaskCommandsManager {
   /**
    * Delete task using the provided parameters
    */
-  async deleteTaskFromParams(params: TaskDeleteParams): Promise<{ success: boolean; taskId: string; task: Task }> {
+  async deleteTaskFromParams(
+    params: TaskDeleteParams
+  ): Promise<{ success: boolean; taskId: string; task: Task }> {
     return await this.operations.deleteTask.execute(params);
   }
 

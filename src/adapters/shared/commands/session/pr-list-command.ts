@@ -26,7 +26,10 @@ interface SessionPrListParams extends BaseSessionCommandParams {
   verbose?: boolean;
 }
 
-export class SessionPrListCommand extends BaseSessionCommand<SessionPrListParams, Record<string, unknown>> {
+export class SessionPrListCommand extends BaseSessionCommand<
+  SessionPrListParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.list";
   }

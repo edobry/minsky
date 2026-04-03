@@ -25,7 +25,10 @@ export class CLISessionContextResolver {
    * Resolve session context for CLI interface
    * Auto-detects session from working directory when possible
    */
-  static resolveSessionContext(params: Record<string, unknown>, workingDir?: string): Record<string, unknown> {
+  static resolveSessionContext(
+    params: Record<string, unknown>,
+    workingDir?: string
+  ): Record<string, unknown> {
     // If session is explicitly provided via name parameter, use it
     if (params.name) {
       return {
@@ -79,7 +82,10 @@ export class MCPSessionContextResolver {
    * Resolve session context for MCP interface
    * Always requires explicit session parameter
    */
-  static resolveSessionContext(params: Record<string, unknown>, workingDir?: string): Record<string, unknown> {
+  static resolveSessionContext(
+    params: Record<string, unknown>,
+    workingDir?: string
+  ): Record<string, unknown> {
     // If session is explicitly provided via session or name parameter, use it
     if (params.session || params.name) {
       return {
@@ -138,7 +144,11 @@ export class SessionContextResolverFactory {
   /**
    * Resolve session context based on interface type
    */
-  static resolveSessionContext(params: Record<string, unknown>, interfaceType: string, workingDir?: string): Record<string, unknown> {
+  static resolveSessionContext(
+    params: Record<string, unknown>,
+    interfaceType: string,
+    workingDir?: string
+  ): Record<string, unknown> {
     const resolver = this.getResolver(interfaceType);
     return resolver.resolveSessionContext(params, workingDir);
   }

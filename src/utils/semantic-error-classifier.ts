@@ -175,7 +175,10 @@ export class SemanticErrorClassifier {
   /**
    * Handle permission errors
    */
-  private static handlePermissionError(error: unknown, context: ErrorContext): SemanticErrorResponse {
+  private static handlePermissionError(
+    error: unknown,
+    context: ErrorContext
+  ): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EACCES;
     if (!mapping) {
       return this.handleGenericError(error, context);
@@ -197,7 +200,10 @@ export class SemanticErrorClassifier {
   /**
    * Handle invalid path errors
    */
-  private static handleInvalidPathError(error: unknown, context: ErrorContext): SemanticErrorResponse {
+  private static handleInvalidPathError(
+    error: unknown,
+    context: ErrorContext
+  ): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EINVAL;
     if (!mapping) {
       return this.handleGenericError(error, context);

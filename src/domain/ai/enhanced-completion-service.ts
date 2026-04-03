@@ -1,4 +1,10 @@
-import { AICompletionService, AICompletionRequest, AICompletionResponse, AIModel, ValidationResult } from "./types";
+import {
+  AICompletionService,
+  AICompletionRequest,
+  AICompletionResponse,
+  AIModel,
+  ValidationResult,
+} from "./types";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import {

@@ -30,7 +30,10 @@ interface SessionPrEditParams extends BaseSessionCommandParams {
   debug?: boolean;
 }
 
-export class SessionPrEditCommand extends BaseSessionCommand<SessionPrEditParams, Record<string, unknown>> {
+export class SessionPrEditCommand extends BaseSessionCommand<
+  SessionPrEditParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.edit";
   }

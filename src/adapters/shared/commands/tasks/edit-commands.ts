@@ -180,7 +180,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       // Access internal multi-backend methods via a typed extension interface
       type ServiceWithBackendAccess = typeof service & {
         parsePrefixFromId(taskId: string): string | null;
-        getBackendByPrefix(prefix: string | null): { name: string; setTaskMetadata?: (...args: any[]) => Promise<void> } | null;
+        getBackendByPrefix(
+          prefix: string | null
+        ): { name: string; setTaskMetadata?: (...args: any[]) => Promise<void> } | null;
       };
       const serviceWithAccess = service as ServiceWithBackendAccess;
 

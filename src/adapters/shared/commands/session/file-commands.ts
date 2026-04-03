@@ -36,7 +36,10 @@ interface SessionEditFileParams extends BaseSessionCommandParams {
   debug?: boolean;
 }
 
-export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFileParams, Record<string, unknown>> {
+export class SessionEditFileCommand extends BaseSessionCommand<
+  SessionEditFileParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.edit-file";
   }
@@ -262,7 +265,10 @@ export class SessionEditFileCommand extends BaseSessionCommand<SessionEditFilePa
   /**
    * Format the result for CLI output
    */
-  private formatResult(mcpResult: Record<string, unknown>, params: SessionEditFileParams): Record<string, unknown> {
+  private formatResult(
+    mcpResult: Record<string, unknown>,
+    params: SessionEditFileParams
+  ): Record<string, unknown> {
     if (params.json) {
       return this.createSuccessResult(mcpResult);
     }

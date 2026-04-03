@@ -92,7 +92,10 @@ const gitCommitCommandSchema: CommandSchema<Record<string, unknown>, Record<stri
 /**
  * Sample MCP command schema for tasks status get
  */
-const tasksStatusGetCommandSchema: CommandSchema<Record<string, unknown>, Record<string, unknown>> = {
+const tasksStatusGetCommandSchema: CommandSchema<
+  Record<string, unknown>,
+  Record<string, unknown>
+> = {
   name: "tasks.status.get",
   description: "Get the status of a task",
   parameters: {

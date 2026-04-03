@@ -689,7 +689,6 @@ export function createMockPersistenceProvider(
   options: MockPersistenceProviderOptions = {}
 ): PersistenceProvider {
   return createPartialMock<PersistenceProvider>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     capabilities: (options.capabilities || {
       sql: true,
       transactions: true,
@@ -734,7 +733,7 @@ export function createMockPersistenceProvider(
             returning: () => Promise.resolve([]),
           }),
         });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getStorage: options.getStorage || (() => ({}) as any),
@@ -748,7 +747,7 @@ export function createMockPersistenceProvider(
         jsonb: true,
         migrations: true,
       })),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 
