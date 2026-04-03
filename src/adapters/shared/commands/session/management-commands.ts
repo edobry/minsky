@@ -49,7 +49,10 @@ interface SessionMigrateBackendParams extends BaseSessionCommandParams {
 /**
  * Session Delete Command
  */
-export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams, Record<string, unknown>> {
+export class SessionDeleteCommand extends BaseSessionCommand<
+  SessionDeleteParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.delete";
   }
@@ -66,7 +69,10 @@ export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams
     return sessionDeleteCommandParams;
   }
 
-  async executeCommand(params: SessionDeleteParams, context: CommandExecutionContext): Promise<Record<string, unknown>> {
+  async executeCommand(
+    params: SessionDeleteParams,
+    context: CommandExecutionContext
+  ): Promise<Record<string, unknown>> {
     const { deleteSessionFromParams } = await import("../../../../domain/session");
 
     const deleted = await deleteSessionFromParams({
@@ -87,7 +93,10 @@ export class SessionDeleteCommand extends BaseSessionCommand<SessionDeleteParams
 /**
  * Session Update Command
  */
-export class SessionUpdateCommand extends BaseSessionCommand<SessionUpdateParams, Record<string, unknown>> {
+export class SessionUpdateCommand extends BaseSessionCommand<
+  SessionUpdateParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.update";
   }

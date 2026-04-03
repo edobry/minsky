@@ -174,13 +174,19 @@ export type SessionCommandFactory<TParams, TResult> = (
  * Session command registry for managing command instances
  */
 export class SessionCommandRegistry {
-  private commands = new Map<string, BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>>();
+  private commands = new Map<
+    string,
+    BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>
+  >();
 
   /**
    * Register a session command
    */
   register<TParams, TResult>(id: string, command: BaseSessionCommand<TParams, TResult>): void {
-    this.commands.set(id, command as unknown as BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>);
+    this.commands.set(
+      id,
+      command as unknown as BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>
+    );
   }
 
   /**

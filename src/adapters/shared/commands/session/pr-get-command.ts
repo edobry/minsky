@@ -25,7 +25,10 @@ interface SessionPrGetParams extends BaseSessionCommandParams {
   content?: boolean;
 }
 
-export class SessionPrGetCommand extends BaseSessionCommand<SessionPrGetParams, Record<string, unknown>> {
+export class SessionPrGetCommand extends BaseSessionCommand<
+  SessionPrGetParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.get";
   }

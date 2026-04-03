@@ -88,7 +88,10 @@ interface SessionPrMergeParams extends BaseSessionCommandParams {
  *
  * Commits and pushes changes within a session workspace
  */
-export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams, Record<string, unknown>> {
+export class SessionCommitCommand extends BaseSessionCommand<
+  SessionCommitParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.commit";
   }
@@ -144,7 +147,10 @@ export class SessionCommitCommand extends BaseSessionCommand<SessionCommitParams
 /**
  * Session Approve Command
  */
-export class SessionApproveCommand extends BaseSessionCommand<SessionApproveParams, Record<string, unknown>> {
+export class SessionApproveCommand extends BaseSessionCommand<
+  SessionApproveParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.approve";
   }
@@ -181,7 +187,10 @@ export class SessionApproveCommand extends BaseSessionCommand<SessionApprovePara
 /**
  * Session Inspect Command
  */
-export class SessionInspectCommand extends BaseSessionCommand<SessionInspectParams, Record<string, unknown>> {
+export class SessionInspectCommand extends BaseSessionCommand<
+  SessionInspectParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.inspect";
   }
@@ -215,7 +224,10 @@ export class SessionInspectCommand extends BaseSessionCommand<SessionInspectPara
 /**
  * Session Review Command
  */
-export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams, Record<string, unknown>> {
+export class SessionReviewCommand extends BaseSessionCommand<
+  SessionReviewParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.review";
   }
@@ -412,7 +424,10 @@ export class SessionReviewCommand extends BaseSessionCommand<SessionReviewParams
 /**
  * Session PR Approve Command (Task #358 - New Structure)
  */
-export class SessionPrApproveCommand extends BaseSessionCommand<SessionApproveParams, Record<string, unknown>> {
+export class SessionPrApproveCommand extends BaseSessionCommand<
+  SessionApproveParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.approve";
   }
@@ -450,7 +465,10 @@ export class SessionPrApproveCommand extends BaseSessionCommand<SessionApprovePa
 /**
  * Session PR Merge Command (Task #358 - New Structure)
  */
-export class SessionPrMergeCommand extends BaseSessionCommand<SessionPrMergeParams, Record<string, unknown>> {
+export class SessionPrMergeCommand extends BaseSessionCommand<
+  SessionPrMergeParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.merge";
   }

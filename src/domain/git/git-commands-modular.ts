@@ -167,7 +167,13 @@ export class ModularGitCommandsManager {
     preview?: boolean;
     autoResolve?: boolean;
     conflictStrategy?: string;
-  }): Promise<{ workdir: string; switched: boolean; conflicts: boolean; conflictDetails?: string; warning?: { wouldLoseChanges: boolean; recommendedAction: string } }> {
+  }): Promise<{
+    workdir: string;
+    switched: boolean;
+    conflicts: boolean;
+    conflictDetails?: string;
+    warning?: { wouldLoseChanges: boolean; recommendedAction: string };
+  }> {
     return await this.getOperations().checkout.execute(params);
   }
 
@@ -182,7 +188,13 @@ export class ModularGitCommandsManager {
     preview?: boolean;
     autoResolve?: boolean;
     conflictStrategy?: string;
-  }): Promise<{ workdir: string; rebased: boolean; conflicts: boolean; conflictDetails?: string; prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string } }> {
+  }): Promise<{
+    workdir: string;
+    rebased: boolean;
+    conflicts: boolean;
+    conflictDetails?: string;
+    prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string };
+  }> {
     return await this.getOperations().rebase.execute(params);
   }
 
@@ -380,7 +392,13 @@ export async function checkoutFromParams(
     conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
-): Promise<{ workdir: string; switched: boolean; conflicts: boolean; conflictDetails?: string; warning?: { wouldLoseChanges: boolean; recommendedAction: string } }> {
+): Promise<{
+  workdir: string;
+  switched: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  warning?: { wouldLoseChanges: boolean; recommendedAction: string };
+}> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.checkoutFromParams(params);
 }
@@ -399,7 +417,13 @@ export async function rebaseFromParams(
     conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
-): Promise<{ workdir: string; rebased: boolean; conflicts: boolean; conflictDetails?: string; prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string } }> {
+): Promise<{
+  workdir: string;
+  rebased: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  prediction?: { canAutoResolve: boolean; recommendations: string[]; overallComplexity: string };
+}> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.rebaseFromParams(params);
 }

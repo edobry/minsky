@@ -257,10 +257,7 @@ export class LocalGitBackend implements RepositoryBackend {
     return _getPRDetails(this.ctx, options);
   }
 
-  async getPullRequestDiff(options: {
-    prIdentifier?: string | number;
-    session?: string;
-  }): Promise<{
+  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }): Promise<{
     diff: string;
     stats?: { filesChanged: number; insertions: number; deletions: number };
   }> {

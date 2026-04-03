@@ -126,7 +126,10 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
 /**
  * Delete task operation
  */
-export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, { success: boolean; taskId: string; task: Task }> {
+export class DeleteTaskOperation extends BaseTaskOperation<
+  TaskDeleteParams,
+  { success: boolean; taskId: string; task: Task }
+> {
   getSchema(): import("zod").ZodSchema<TaskDeleteParams> {
     return taskDeleteParamsSchema as unknown as import("zod").ZodSchema<TaskDeleteParams>;
   }
@@ -135,7 +138,9 @@ export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, { s
     return "delete task";
   }
 
-  async executeOperation(params: TaskDeleteParams): Promise<{ success: boolean; taskId: string; task: Task }> {
+  async executeOperation(
+    params: TaskDeleteParams
+  ): Promise<{ success: boolean; taskId: string; task: Task }> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 

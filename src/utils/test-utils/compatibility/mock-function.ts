@@ -375,7 +375,7 @@ export function createTypedMock<T extends (...args: unknown[]) => any>(
  * @param method The name of the method to spy on
  * @returns A mock function that replaces the original method
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export function spyOn<T extends object, M extends keyof T>(
   object: T,
   method: M

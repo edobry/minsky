@@ -314,9 +314,7 @@ export async function diagnoseMergeBlocker(
           per_page: 100,
         });
         const checkRuns = checks.data.check_runs as GitHubCheckRun[];
-        const failingChecks = checkRuns.filter(
-          (r) => r.conclusion && r.conclusion !== "success"
-        );
+        const failingChecks = checkRuns.filter((r) => r.conclusion && r.conclusion !== "success");
         const pendingChecks = checkRuns.filter((r) => r.status !== "completed");
         if (failingChecks.length > 0) {
           const list = failingChecks

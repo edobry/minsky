@@ -81,7 +81,10 @@ export class MergeOperation extends BaseGitOperation<MergeParams, EnhancedMergeR
     return "merge branches";
   }
 
-  async executeOperation(params: MergeParams, gitService: GitServiceInterface): Promise<EnhancedMergeResult> {
+  async executeOperation(
+    params: MergeParams,
+    gitService: GitServiceInterface
+  ): Promise<EnhancedMergeResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const targetBranch = params.targetBranch || "HEAD";
 
@@ -118,7 +121,10 @@ export class CheckoutOperation extends BaseGitOperation<CheckoutParams, Checkout
     return "checkout branch";
   }
 
-  async executeOperation(params: CheckoutParams, gitService: GitServiceInterface): Promise<CheckoutResult> {
+  async executeOperation(
+    params: CheckoutParams,
+    gitService: GitServiceInterface
+  ): Promise<CheckoutResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
 
     // Use ConflictDetectionService to check for branch switch conflicts
@@ -172,7 +178,10 @@ export class RebaseOperation extends BaseGitOperation<RebaseParams, RebaseResult
     return "rebase branch";
   }
 
-  async executeOperation(params: RebaseParams, gitService: GitServiceInterface): Promise<RebaseResult> {
+  async executeOperation(
+    params: RebaseParams,
+    gitService: GitServiceInterface
+  ): Promise<RebaseResult> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const featureBranch = params.featureBranch || "HEAD";
 

@@ -34,7 +34,10 @@ interface SessionPrCreateParams extends BaseSessionCommandParams {
   draft?: boolean;
 }
 
-export class SessionPrCreateCommand extends BaseSessionCommand<SessionPrCreateParams, Record<string, unknown>> {
+export class SessionPrCreateCommand extends BaseSessionCommand<
+  SessionPrCreateParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.pr.create";
   }

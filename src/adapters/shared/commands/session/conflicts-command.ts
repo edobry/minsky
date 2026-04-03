@@ -60,7 +60,10 @@ interface SessionConflictsParams extends BaseSessionCommandParams {
 /**
  * Session Conflicts Command
  */
-export class SessionConflictsCommand extends BaseSessionCommand<SessionConflictsParams, Record<string, unknown>> {
+export class SessionConflictsCommand extends BaseSessionCommand<
+  SessionConflictsParams,
+  Record<string, unknown>
+> {
   getCommandId(): string {
     return "session.conflicts";
   }

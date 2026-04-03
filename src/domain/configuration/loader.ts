@@ -419,7 +419,10 @@ export class ConfigurationLoader {
   /**
    * Extract readable validation errors from Zod error
    */
-  private extractValidationErrors(error: { errors?: Array<{ path?: (string | number)[]; message?: string }>; message?: string }): string[] {
+  private extractValidationErrors(error: {
+    errors?: Array<{ path?: (string | number)[]; message?: string }>;
+    message?: string;
+  }): string[] {
     if (!error.errors || !Array.isArray(error.errors)) {
       return [error.message || String(error)];
     }
@@ -449,7 +452,12 @@ export class ConfigurationLoader {
       .sort((a, b) => a.source.priority - b.source.priority);
 
     for (const sourceResult of sortedSources) {
-      this.collectConfigPaths(sourceResult.config as Record<string, unknown>, sourceResult.source.name, "", effectiveValues);
+      this.collectConfigPaths(
+        sourceResult.config as Record<string, unknown>,
+        sourceResult.source.name,
+        "",
+        effectiveValues
+      );
     }
 
     return effectiveValues;
@@ -481,7 +489,12 @@ export class ConfigurationLoader {
 
         // For objects, recurse first to get leaf values
         if (typeof value === "object" && !Array.isArray(value) && value !== null) {
-          this.collectConfigPaths(value as Record<string, unknown>, sourceName, fullPath, collector);
+          this.collectConfigPaths(
+            value as Record<string, unknown>,
+            sourceName,
+            fullPath,
+            collector
+          );
         } else {
           // Only store leaf values (non-objects), later sources will override earlier ones
           collector[fullPath] = {
