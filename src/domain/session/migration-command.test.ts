@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import type { SessionProviderInterface, SessionRecord } from "./types";
 import { SessionMigrationService, type SessionMigrationOptions } from "./migration-command";
+import { isUuidSessionName } from "../tasks/task-id";
 
 // Mock session data for testing
 const createMockSessionData = () => {
@@ -161,7 +162,8 @@ describe("Session Migration Command", () => {
         expect(result).toBeDefined();
         expect(result.success).toBe(true);
         expect(result.original.session).toBe("task123");
-        expect(result.migrated?.session).toBe("task-md#123");
+        // Migrated session name is now a UUID
+        expect(isUuidSessionName(result.migrated?.session || "")).toBe(true);
         expect(result.migrated?.taskId).toBe("md#123");
         expect(result.migrated?.taskBackend).toBe("md");
         expect(result.migrated?.legacyTaskId).toBe("123");
@@ -190,16 +192,18 @@ describe("Session Migration Command", () => {
         // Should have updated database
         expect(sessionDB.updateSession).toHaveBeenCalledTimes(3);
 
-        // Verify specific migrations
+        // Verify specific migrations — session names are now UUIDs
         expect(sessionDB.updateSession).toHaveBeenCalledWith(
           "task123",
           expect.objectContaining({
-            session: "task-md#123",
             taskId: "md#123",
             taskBackend: "md",
             legacyTaskId: "123",
           })
         );
+        // Verify the migrated session name is a UUID
+        const firstCall = (sessionDB.updateSession as any).mock.calls[0];
+        expect(isUuidSessionName(firstCall[1].session)).toBe(true);
       });
 
       it("should handle batch processing", async () => {
