@@ -12,10 +12,23 @@ import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,
 } from "./init/rule-templates";
+import {
+  resolveRepositoryFromGitRemote,
+  type ResolvedRepositoryConfig,
+} from "./session/repository-backend-detection";
 
 // Re-export types and utilities from submodules for backward compatibility
 export type { FileSystem };
 export { initializeProjectWithFS } from "./init/legacy-fs";
+export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
+
+/**
+ * Detects the repository backend configuration from the git remote URL at the given path.
+ * Convenience wrapper around resolveRepositoryFromGitRemote for use in init commands.
+ */
+export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryConfig {
+  return resolveRepositoryFromGitRemote(repoPath);
+}
 
 // Re-export content helpers for consumers that may reference them
 export { getMinskyConfigContent, getMCPConfigContent } from "./init/config-content";
@@ -40,6 +53,18 @@ export const initializeProjectParamsSchema = z.object({
     .optional(),
   mcpOnly: z.boolean().optional().default(false),
   overwrite: z.boolean().optional().default(false),
+  repository: z
+    .object({
+      backend: z.enum(["github", "gitlab", "local"]),
+      url: z.string().optional(),
+      github: z
+        .object({
+          owner: z.string(),
+          repo: z.string(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSchema>;
@@ -68,6 +93,7 @@ export interface InitializeProjectOptions {
   };
   mcpOnly?: boolean;
   overwrite?: boolean;
+  repository?: ResolvedRepositoryConfig;
 }
 
 /**
@@ -82,6 +108,7 @@ export async function initializeProject(
     mcp,
     mcpOnly = false,
     overwrite = false,
+    repository,
   }: InitializeProjectOptions,
   fileSystem: FileSystem = fs
 ): Promise<void> {
@@ -154,7 +181,7 @@ export async function initializeProject(
   await createDirectoryIfNotExists(configDir, fileSystem);
 
   const configPath = path.join(configDir, "default.json");
-  const configContent = getMinskyConfigContent(backend);
+  const configContent = getMinskyConfigContent(backend, repository);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
   // Setup MCP if enabled (default to enabled if not explicitly disabled)

@@ -7,7 +7,11 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import { initializeProjectFromParams } from "../../../domain/init";
+import {
+  initializeProjectFromParams,
+  detectRepositoryBackend,
+  type ResolvedRepositoryConfig,
+} from "../../../domain/init";
 import { TaskBackend } from "../../../domain/configuration/backend-detection";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
@@ -283,6 +287,41 @@ export function registerInitCommands() {
         const mcpOnly = params.mcpOnly ?? false;
         const overwrite = params.overwrite ?? false;
 
+        // Detect repository backend from git remote
+        let repository: ResolvedRepositoryConfig | undefined;
+        const detectedRepo = detectRepositoryBackend(repoPath);
+
+        if (detectedRepo.backend !== "local") {
+          if (process.stdout.isTTY) {
+            // Interactive mode: show detection and ask for confirmation
+            const detectionLabel =
+              detectedRepo.backend === "github" && detectedRepo.github
+                ? `GitHub repository (${detectedRepo.github.owner}/${detectedRepo.github.repo})`
+                : `${detectedRepo.backend} repository (${detectedRepo.url ?? ""})`;
+
+            const useDetected = await confirm({
+              message: `Detected ${detectionLabel}. Use ${detectedRepo.backend === "github" ? "GitHub" : detectedRepo.backend} for PRs?`,
+              initialValue: true,
+            });
+
+            if (isCancel(useDetected)) {
+              cancel("Initialization cancelled.");
+              return { success: false, message: "Initialization cancelled by user." };
+            }
+
+            if (useDetected) {
+              repository = detectedRepo;
+            } else {
+              repository = { backend: "local" };
+            }
+          } else {
+            // Non-interactive mode: auto-accept detection
+            repository = detectedRepo;
+          }
+        } else {
+          repository = { backend: "local" };
+        }
+
         // Use the backend selected by the user (or provided via CLI parameter)
         const domainBackend = backend;
 
@@ -293,6 +332,7 @@ export function registerInitCommands() {
           mcp,
           mcpOnly,
           overwrite,
+          repository,
         });
 
         // TODO: Handle GitHub-specific configuration when github-issues backend is selected
