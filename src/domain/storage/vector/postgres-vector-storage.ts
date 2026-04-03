@@ -79,7 +79,7 @@ export class PostgresVectorStorage implements VectorStorage {
     // Tables are managed by Drizzle migrations. No-op here to avoid drift.
   }
 
-  async store(id: string, vector: number[], _metadata?: Record<string, any>): Promise<void> {
+  async store(id: string, vector: number[], _metadata?: Record<string, unknown>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
 
     const cols: string[] = [this.config.idColumn, this.config.embeddingColumn];
@@ -147,7 +147,7 @@ export class PostgresVectorStorage implements VectorStorage {
     await this.sql.unsafe(sql, values);
   }
 
-  async getMetadata(id: string): Promise<Record<string, any> | null> {
+  async getMetadata(id: string): Promise<Record<string, unknown> | null> {
     const cols: string[] = [this.config.idColumn];
     if (this.config.contentHashColumn) cols.push(this.config.contentHashColumn);
     if (this.config.lastIndexedAtColumn) cols.push(this.config.lastIndexedAtColumn);
@@ -159,8 +159,8 @@ export class PostgresVectorStorage implements VectorStorage {
     );
     const row = (rows as any[])[0];
     if (!row) return null;
-    const out: Record<string, any> = {};
-    for (const c of cols) out[c] = (row as any)[c];
+    const out: Record<string, unknown> = {};
+    for (const c of cols) out[c] = (row as Record<string, unknown>)[c];
     return out;
   }
 

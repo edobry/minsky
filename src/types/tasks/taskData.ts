@@ -25,7 +25,7 @@ export interface TaskData {
   status: TaskStatus;
   specPath?: string;
   backend?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   worklog?: Array<{ timestamp: string; message: string }>;
   mergeInfo?: {
     commitHash?: string;
@@ -42,7 +42,7 @@ export interface TaskData {
 export interface TaskState {
   tasks: TaskData[];
   lastUpdated?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -62,7 +62,7 @@ export interface TaskSpecData {
   title: string;
   description: string;
   id?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**

@@ -14,7 +14,7 @@ export interface CachedProviderModel extends AIModel {
   /** When this model data was fetched */
   fetchedAt: Date;
   /** API-specific model metadata */
-  providerMetadata?: Record<string, any>;
+  providerMetadata?: Record<string, unknown>;
   /** Whether this model is currently available */
   status: "available" | "deprecated" | "disabled" | "unknown";
 }
@@ -79,7 +79,7 @@ export interface ModelFetchConfig {
   /** Request timeout in milliseconds */
   timeout?: number;
   /** Additional provider-specific options */
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 /**
@@ -152,7 +152,7 @@ export class ModelCacheError extends Error {
     public provider: string,
     public operation: string,
     public code: string,
-    public details?: Record<string, any>
+    public details?: Record<string, unknown>
   ) {
     super(message);
     this.name = "ModelCacheError";
@@ -165,7 +165,7 @@ export class ModelFetchError extends Error {
     public provider: string,
     public code: string,
     public statusCode?: number,
-    public details?: Record<string, any>
+    public details?: Record<string, unknown>
   ) {
     super(message);
     this.name = "ModelFetchError";

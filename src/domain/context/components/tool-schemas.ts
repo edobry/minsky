@@ -43,7 +43,7 @@ function zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
  * Extract JSON Schema properties and required fields from command parameters
  */
 function extractParameterSchemas(commandId: string): {
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
   required: string[];
 } {
   const command = sharedCommandRegistry.getCommand(commandId);
@@ -51,7 +51,7 @@ function extractParameterSchemas(commandId: string): {
     return { properties: {}, required: [] };
   }
 
-  const properties: Record<string, any> = {};
+  const properties: Record<string, unknown> = {};
   const required: string[] = [];
 
   for (const [paramName, paramDef] of Object.entries(command.parameters)) {
@@ -108,7 +108,7 @@ export const ToolSchemasComponent: ContextComponent = {
       // disable query-based filtering to ensure full registry visibility.
       let shouldFilterByQuery = Boolean(userQuery?.trim()) && !context.commandRegistry;
 
-      let toolSchemas: Record<string, any> = {};
+      let toolSchemas: Record<string, unknown> = {};
       let totalTools = 0;
       let filteredBy: string | undefined;
       let originalToolCount: number | undefined;
@@ -267,10 +267,10 @@ Available tools could not be determined.`;
     }
 
     // Prepare tool schemas without internal metadata for output
-    const cleanToolSchemas: Record<string, any> = {};
-    for (const [toolId, schema] of Object.entries(inputs.toolSchemas)) {
+    const cleanToolSchemas: Record<string, unknown> = {};
+    for (const [toolId, schema] of Object.entries(inputs.toolSchemas as Record<string, unknown>)) {
       // Remove internal _relevance metadata for clean output
-      const { _relevance, ...cleanSchema } = schema as any;
+      const { _relevance, ...cleanSchema } = schema as Record<string, unknown>;
       cleanToolSchemas[toolId] = cleanSchema;
     }
 
