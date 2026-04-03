@@ -118,13 +118,14 @@ const persistenceMigrateRegistration = defineCommand({
         const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: !shouldApply });
 
         if (context.format === "human") {
-          if (result && typeof result === "object" && (result as any).message) {
-            return (result as any).message as string;
+          const resultObj = result as Record<string, unknown>;
+          if (resultObj && typeof resultObj === "object" && resultObj.message) {
+            return resultObj.message as string;
           }
-          if ((result as any).dryRun) {
-            return `Schema migration (dry run) for ${(result as any).backend || "sqlite"}`;
+          if (resultObj.dryRun) {
+            return `Schema migration (dry run) for ${resultObj.backend || "sqlite"}`;
           }
-          return `Schema migration applied for ${(result as any).backend || "sqlite"}`;
+          return `Schema migration applied for ${resultObj.backend || "sqlite"}`;
         }
 
         return result;
@@ -183,7 +184,7 @@ const persistenceMigrateRegistration = defineCommand({
           );
         }
 
-        const sourceConfig: any = { backend: configuredBackend };
+        const sourceConfig: Record<string, unknown> = { backend: configuredBackend };
         if (configuredBackend === "sqlite") {
           // Use configured path or default
           const dbPath = effectivePersistence.dbPath ?? getDefaultSqliteDbPath();
@@ -229,7 +230,9 @@ const persistenceMigrateRegistration = defineCommand({
               createdAt: typedSessionData.createdAt || new Date().toISOString(),
               taskId: typedSessionData.taskId || "",
               prBranch:
-                (typedSessionData as any).prBranch || (typedSessionData as any).branch || "",
+                typedSessionData.prBranch ||
+                ((typedSessionData as Record<string, unknown>)["branch"] as string) ||
+                "",
               ...typedSessionData,
             });
           }
@@ -306,7 +309,7 @@ const persistenceMigrateRegistration = defineCommand({
       }
 
       // Create target storage with config-driven approach
-      const targetConfig: any = { backend: to };
+      const targetConfig: Record<string, unknown> = { backend: to };
       let targetSqlitePath: string | undefined;
       let targetPostgresConn: string | undefined;
 
@@ -351,7 +354,9 @@ const persistenceMigrateRegistration = defineCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
-      const targetStorage = targetProvider.getStorage() as any;
+      const targetStorage = targetProvider.getStorage() as unknown as {
+        writeState: (state: unknown) => Promise<{ success: boolean; error?: { message: string } }>;
+      };
       const writeResult = await targetStorage.writeState(sourceState);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);

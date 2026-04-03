@@ -9,6 +9,19 @@ import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfi
 import { RuleSuggestionError } from "./types";
 import { log } from "../../utils/logger";
 
+interface RuleSuggestion {
+  ruleId: string;
+  relevanceScore: number;
+  reasoning: string;
+  confidenceLevel: "high" | "medium" | "low";
+}
+
+interface QueryAnalysis {
+  intent: string;
+  keywords: string[];
+  suggestedCategories: string[];
+}
+
 export class DefaultRuleSuggestionService {
   constructor(
     private aiService: AICompletionService,
@@ -69,8 +82,8 @@ export class DefaultRuleSuggestionService {
   }
 
   private async generateAISuggestions(request: RuleSuggestionRequest): Promise<{
-    suggestions: any[];
-    queryAnalysis: any;
+    suggestions: RuleSuggestion[];
+    queryAnalysis: QueryAnalysis;
   }> {
     // Build prompt for AI analysis
     const prompt = this.buildAnalysisPrompt(request);
@@ -100,11 +113,14 @@ export class DefaultRuleSuggestionService {
         temperature: 0.3,
       });
 
-      const typedResponse = response as { suggestions: any[]; queryAnalysis: any };
+      const typedResponse = response as {
+        suggestions: RuleSuggestion[];
+        queryAnalysis: QueryAnalysis;
+      };
 
       // Filter suggestions based on configuration
       const filteredSuggestions = typedResponse.suggestions
-        .filter((s: any) => s.relevanceScore >= (this.config.minRelevanceScore ?? 0.1))
+        .filter((s) => s.relevanceScore >= (this.config.minRelevanceScore ?? 0.1))
         .slice(0, this.config.maxSuggestions ?? 5);
 
       return {
@@ -155,11 +171,11 @@ Also analyze the query to extract:
 Only suggest rules that are actually relevant. If no rules match well, return empty suggestions.`;
   }
 
-  private generateFallbackSuggestions(request: RuleSuggestionRequest): any[] {
+  private generateFallbackSuggestions(request: RuleSuggestionRequest): RuleSuggestion[] {
     const query = request.query.toLowerCase();
     const queryWords = query.split(/\s+/).filter((word) => word.length > 2);
 
-    const suggestions: any[] = [];
+    const suggestions: RuleSuggestion[] = [];
 
     for (const rule of request.workspaceRules) {
       const ruleText = `${rule.id} ${rule.name || ""} ${rule.description || ""}`.toLowerCase();
@@ -209,7 +225,7 @@ Only suggest rules that are actually relevant. If no rules match well, return em
       .slice(0, this.config.maxSuggestions ?? 5);
   }
 
-  private async analyzeQuery(query: string, contextHints: any): Promise<any> {
+  private async analyzeQuery(query: string, contextHints: unknown): Promise<QueryAnalysis> {
     // Simple keyword extraction for fallback
     const keywords = query
       .toLowerCase()

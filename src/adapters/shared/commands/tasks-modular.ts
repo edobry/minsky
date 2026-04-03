@@ -240,7 +240,11 @@ export class ModularTasksCommandManager {
           name: similarCommand.name,
           description: similarCommand.description,
           parameters: similarCommand.parameters,
-          execute: (params: any, ctx: any) => similarCommand.execute(params, ctx),
+          execute: (params, ctx) =>
+            similarCommand.execute(
+              params as Parameters<typeof similarCommand.execute>[0],
+              ctx as Parameters<typeof similarCommand.execute>[1]
+            ),
         })
       );
 
@@ -251,7 +255,11 @@ export class ModularTasksCommandManager {
           name: searchCommand.name,
           description: searchCommand.description,
           parameters: searchCommand.parameters,
-          execute: (params: any, ctx: any) => searchCommand.execute(params, ctx),
+          execute: (params, ctx) =>
+            searchCommand.execute(
+              params as Parameters<typeof searchCommand.execute>[0],
+              ctx as Parameters<typeof searchCommand.execute>[1]
+            ),
         })
       );
 
@@ -263,7 +271,11 @@ export class ModularTasksCommandManager {
           name: indexEmbeddingsCommand.name,
           description: indexEmbeddingsCommand.description,
           parameters: indexEmbeddingsCommand.parameters,
-          execute: (params: any, ctx: any) => indexEmbeddingsCommand.execute(params, ctx),
+          execute: (params, ctx) =>
+            indexEmbeddingsCommand.execute(
+              params as Parameters<typeof indexEmbeddingsCommand.execute>[0],
+              ctx as Parameters<typeof indexEmbeddingsCommand.execute>[1]
+            ),
         })
       );
 
@@ -301,7 +313,7 @@ export class ModularTasksCommandManager {
         name: depsTreeCommand.name,
         description: depsTreeCommand.description,
         parameters: depsTreeCommand.parameters,
-        execute: depsTreeCommand.execute as any,
+        execute: depsTreeCommand.execute,
       });
 
       sharedCommandRegistry.registerCommand({
@@ -310,7 +322,7 @@ export class ModularTasksCommandManager {
         name: depsGraphCommand.name,
         description: depsGraphCommand.description,
         parameters: depsGraphCommand.parameters,
-        execute: depsGraphCommand.execute as any,
+        execute: depsGraphCommand.execute,
       });
 
       // Register routing commands
@@ -332,7 +344,9 @@ export class ModularTasksCommandManager {
         execute: routeCommand.execute,
       });
     } catch (error) {
-      log.warn("Failed to register task commands:", error as any);
+      log.warn(
+        `Failed to register task commands: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -363,7 +377,7 @@ export class ModularTasksCommandManager {
   /**
    * Execute a task command by ID with the given parameters
    */
-  async executeCommand(commandId: string, params: any, context: any) {
+  async executeCommand(commandId: string, params: unknown, context: unknown) {
     log.warn("executeCommand is deprecated. Commands are created on-demand.");
     throw new Error(`Task command not found: ${commandId}`);
   }

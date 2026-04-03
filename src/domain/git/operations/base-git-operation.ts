@@ -100,7 +100,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
    * Log operation errors with consistent format
    * Use debug logging to avoid exposing JSON blobs to users
    */
-  protected logError(params: TParams, error: any): void {
+  protected logError(params: TParams, error: unknown): void {
     const baseParams = params as BaseGitOperationParams;
     log.debug(`Error in ${this.getOperationName()}`, {
       session: baseParams.session,
@@ -116,7 +116,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
   /**
    * Get additional context for error logging (override in subclasses)
    */
-  protected getAdditionalLogContext(params: TParams): Record<string, any> {
+  protected getAdditionalLogContext(params: TParams): Record<string, unknown> {
     return {};
   }
 
@@ -124,10 +124,10 @@ export abstract class BaseGitOperation<TParams, TResult> {
    * Create success result with consistent structure
    */
   protected createSuccessResult(
-    data: any,
+    data: Record<string, unknown>,
     message?: string,
-    additionalData: Record<string, any> = {}
-  ): any {
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
     return {
       success: true,
       ...data,
@@ -141,8 +141,8 @@ export abstract class BaseGitOperation<TParams, TResult> {
    */
   protected createErrorResult(
     error: string | Error,
-    additionalData: Record<string, any> = {}
-  ): any {
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
     return {
       success: false,
       error: typeof error === "string" ? error : getErrorMessage(error),
@@ -162,6 +162,7 @@ export type GitOperationFactory<TParams, TResult> = (
  * Git operation registry for managing operation instances
  */
 export class GitOperationRegistry {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private operations = new Map<string, BaseGitOperation<any, any>>();
 
   /**
