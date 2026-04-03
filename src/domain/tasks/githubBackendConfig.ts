@@ -12,9 +12,10 @@ import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../../errors/index";
 import { getConfiguration } from "../configuration/index";
+import { processCwd } from "../../utils/process";
 
 // Load environment variables from .env file only if it exists
-const envPath = join((process as any).cwd(), ".env");
+const envPath = join(processCwd(), ".env");
 if (existsSync(envPath)) {
   config({ quiet: true });
 }

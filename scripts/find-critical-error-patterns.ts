@@ -2,6 +2,7 @@
 
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
+import { processExit } from "../src/utils/process";
 
 interface ErrorPattern {
   file: string;
@@ -156,7 +157,7 @@ function main() {
     console.log(
       "\n🎯 FOCUS ON CRITICAL ISSUES FIRST - these are most likely causing the runtime error"
     );
-    (process as any).exit(1);
+    processExit(1);
   }
 }
 

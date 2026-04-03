@@ -16,6 +16,7 @@ import {
 import { enumSchemas } from "../configuration/schemas/base";
 import { z } from "zod";
 import { log } from "../../utils/logger";
+import { processCwd } from "../../utils/process";
 
 // Properly typed AI provider using existing enum
 type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
@@ -27,7 +28,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     try {
       // Check if this is a mock config service with loadConfiguration method
       if ("loadConfiguration" in this.configService) {
-        const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+        const result = await (this.configService as any).loadConfiguration(processCwd());
         const config = (result as any).resolved;
         return await this.parseProviderConfig(provider, config);
       }
@@ -49,7 +50,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getDefaultProvider(): Promise<string> {
     try {
-      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      const result = await (this.configService as any).loadConfiguration(processCwd());
       const defaultProvider =
         (result.resolved.ai as any).defaultProvider ||
         (result.resolved.ai as any).default_provider ||

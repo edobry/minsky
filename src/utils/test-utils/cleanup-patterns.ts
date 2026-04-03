@@ -10,6 +10,7 @@ import { join, dirname } from "path";
 import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { log } from "../logger";
+import { processChdir } from "../process";
 
 /**
  * Working Directory Cleanup Pattern
@@ -37,10 +38,10 @@ export class WorkingDirectoryCleanup {
    */
   restoreWorkingDirectory(): void {
     try {
-      (process as any).chdir(this.originalCwd);
+      processChdir(this.originalCwd);
     } catch (error) {
       // If the original directory no longer exists, fallback to a safe directory
-      (process as any).chdir(tmpdir());
+      processChdir(tmpdir());
     }
   }
 
@@ -49,8 +50,10 @@ export class WorkingDirectoryCleanup {
    */
   mockWorkingDirectory(mockPath: string): void {
     const originalCwd = process.cwd;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).cwd = () => mockPath;
     this.cwdMockRestore = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (process as any).cwd = originalCwd;
     };
   }
@@ -60,7 +63,7 @@ export class WorkingDirectoryCleanup {
    */
   changeWorkingDirectory(newPath: string): void {
     if (existsSync(newPath)) {
-      (process as any).chdir(newPath);
+      processChdir(newPath);
     } else {
       throw new Error(`Cannot change to directory: ${newPath} (does not exist)`);
     }
@@ -72,7 +75,7 @@ export class WorkingDirectoryCleanup {
   createAndChangeToTempDir(prefix: string = "test-cwd"): string {
     const tempDir = join(tmpdir(), `${prefix}-${Date.now()}-${randomUUID()}`);
     mkdirSync(tempDir, { recursive: true });
-    (process as any).chdir(tempDir);
+    processChdir(tempDir);
     return tempDir;
   }
 

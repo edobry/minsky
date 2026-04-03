@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "../utils/logger";
 import { getErrorMessage, getErrorStack } from "../errors/index";
+import { processCwd } from "../utils/process";
 
 /**
  * Configuration options for the MCP Inspector
@@ -69,7 +70,7 @@ export function isInspectorAvailable(): boolean {
     const { existsSync } = require("fs");
     const { join } = require("path");
 
-    const binPath = join((process as any).cwd(), "node_modules", ".bin", "mcp-inspector");
+    const binPath = join(processCwd(), "node_modules", ".bin", "mcp-inspector");
     return existsSync(binPath);
   } catch (error) {
     return false;
