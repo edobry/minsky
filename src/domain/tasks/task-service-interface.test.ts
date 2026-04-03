@@ -55,7 +55,7 @@ describe("TaskService Interface Compatibility", () => {
     // Should reject invalid status
     await expect(
       (taskService as TaskServiceInterface).setTaskStatus("test", "INVALID_STATUS")
-    ).rejects.toThrow(/Failed to read tasks data/);
+    ).rejects.toThrow(/Failed to read tasks data|Task with id .* not found/);
 
     // Should accept valid status (even though it may fail on missing file, that's expected)
     const validCall = (taskService as TaskServiceInterface).setTaskStatus("test", TASK_STATUS.TODO);

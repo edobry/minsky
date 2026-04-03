@@ -61,8 +61,15 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       workdir: "/tmp/test-repo",
     };
 
+    const mockPredictConflicts = async () => ({
+      hasConflicts: false,
+      conflictType: "none" as const,
+      userGuidance: "",
+    });
+
     await createPreparedMergeCommitPR(options, {
       execGitWithTimeout: mockGitExec,
+      predictConflicts: mockPredictConflicts,
     });
 
     // Verify git command sequence includes stash operations
@@ -98,6 +105,12 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       }
     };
 
+    const mockPredictConflicts = async () => ({
+      hasConflicts: false,
+      conflictType: "none" as const,
+      userGuidance: "",
+    });
+
     const options: PreparedMergeCommitOptions = {
       title: "feat(#161): Test clean working directory",
       body: "No uncommitted changes, should skip stashing",
@@ -108,6 +121,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
 
     await createPreparedMergeCommitPR(options, {
       execGitWithTimeout: mockGitExec,
+      predictConflicts: mockPredictConflicts,
     });
 
     const commandSequence = gitCommands.map((cmd) => cmd.command);
@@ -154,10 +168,17 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       workdir: "/tmp/test-repo",
     };
 
+    const mockPredictConflicts = async () => ({
+      hasConflicts: false,
+      conflictType: "none" as const,
+      userGuidance: "",
+    });
+
     // Expect the workflow to throw an error
     await expect(
       createPreparedMergeCommitPR(options, {
         execGitWithTimeout: mockGitExec,
+        predictConflicts: mockPredictConflicts,
       })
     ).rejects.toThrow("Failed to create prepared merge commit PR");
 
@@ -193,10 +214,17 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       workdir: "/tmp/test-repo",
     };
 
+    const mockPredictConflicts = async () => ({
+      hasConflicts: false,
+      conflictType: "none" as const,
+      userGuidance: "",
+    });
+
     // Should throw error due to stash failure
     await expect(
       createPreparedMergeCommitPR(options, {
         execGitWithTimeout: mockGitExec,
+        predictConflicts: mockPredictConflicts,
       })
     ).rejects.toThrow("Failed to stash uncommitted changes");
   });
@@ -233,9 +261,16 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       workdir: "/tmp/test-repo",
     };
 
+    const mockPredictConflicts = async () => ({
+      hasConflicts: false,
+      conflictType: "none" as const,
+      userGuidance: "",
+    });
+
     // Should succeed despite stash restore failure
     const result = await createPreparedMergeCommitPR(options, {
       execGitWithTimeout: mockGitExec,
+      predictConflicts: mockPredictConflicts,
     });
 
     expect(result.state).toBe("open");
