@@ -68,10 +68,12 @@ export interface RepositoryConfig {
     "json-file"?: Record<string, unknown>;
   };
   repository?: {
-    auto_detect_backend?: boolean;
-    detection_rules?: DetectionRule[];
-    /** Default repository backend to use for sessions when ambiguous */
-    default_repo_backend?: "local" | "remote" | "github";
+    backend?: "github" | "gitlab" | "local";
+    url?: string;
+    github?: {
+      owner: string;
+      repo: string;
+    };
   };
   sessiondb?: {
     backend?: "sqlite" | "postgres";

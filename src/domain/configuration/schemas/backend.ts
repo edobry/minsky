@@ -65,6 +65,28 @@ export const backendFullConfigSchema = z
   })
   .strict();
 
+/**
+ * Repository GitHub-specific configuration
+ */
+export const repositoryGitHubConfigSchema = z.object({
+  owner: z.string(),
+  repo: z.string(),
+});
+
+/**
+ * Repository backend configuration
+ *
+ * Stores the project-level repository backend type and associated settings,
+ * detected once at `minsky init` and stored in .minsky/config.yaml.
+ */
+export const repositoryConfigSchema = z
+  .object({
+    backend: enumSchemas.repoBackendType.optional(),
+    url: z.string().optional(),
+    github: repositoryGitHubConfigSchema.optional(),
+  })
+  .passthrough();
+
 // Type exports
 export type Backend = z.infer<typeof backendSchema>;
 export type GitHubIssuesBackendConfig = z.infer<typeof githubIssuesBackendConfigSchema>;
@@ -72,6 +94,8 @@ export type MarkdownBackendConfig = z.infer<typeof markdownBackendConfigSchema>;
 export type JsonFileBackendConfig = z.infer<typeof jsonFileBackendConfigSchema>;
 export type BackendConfig = z.infer<typeof backendConfigSchema>;
 export type BackendFullConfig = z.infer<typeof backendFullConfigSchema>;
+export type RepositoryGitHubConfig = z.infer<typeof repositoryGitHubConfigSchema>;
+export type RepositoryConfig = z.infer<typeof repositoryConfigSchema>;
 
 /**
  * Validation functions for backend configuration

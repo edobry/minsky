@@ -8,7 +8,14 @@
 import { z } from "zod";
 
 // Import all domain schemas
-import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } from "./backend";
+import {
+  backendSchema,
+  backendConfigSchema,
+  repositoryConfigSchema,
+  type Backend,
+  type BackendConfig,
+  type RepositoryConfig,
+} from "./backend";
 
 import { persistenceConfigSchema, type PersistenceConfig } from "./persistence";
 
@@ -61,6 +68,9 @@ export const configurationSchema = z
 
     // Rules configuration
     rules: rulesConfigSchema,
+
+    // Repository backend configuration (project-level, set during minsky init)
+    repository: repositoryConfigSchema.optional(),
   })
   .passthrough(); // Use passthrough instead of strict to allow extra properties
 
@@ -226,6 +236,7 @@ export const configurationValidation = {
 export type {
   Backend,
   BackendConfig,
+  RepositoryConfig,
   PersistenceConfig,
   GitHubConfig,
   AIConfig,
@@ -240,6 +251,7 @@ export type {
 export {
   backendSchema,
   backendConfigSchema,
+  repositoryConfigSchema,
   persistenceConfigSchema,
   githubConfigSchema,
   aiConfigSchema,

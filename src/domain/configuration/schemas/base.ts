@@ -105,6 +105,13 @@ export const enumSchemas = {
       message: "Detection condition must be one of: tasks_md_exists, json_file_exists, always",
     }),
   }),
+
+  // Repository backend types (distinct from task backendType)
+  repoBackendType: z.enum(["github", "gitlab", "local"], {
+    errorMap: () => ({
+      message: "Repository backend must be one of: github, gitlab, local",
+    }),
+  }),
 } as const;
 
 /**
