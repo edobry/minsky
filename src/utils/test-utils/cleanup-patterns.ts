@@ -178,8 +178,8 @@ export class ConfigurationTestOverrides {
       connectionString?: string;
       baseDir?: string;
     } = {}
-  ): any {
-    const override: any = {
+  ): Record<string, unknown> {
+    const override: Record<string, unknown> = {
       sessiondb: {
         backend,
         enableIntegrityCheck: false, // Disable for faster tests
@@ -195,7 +195,10 @@ export class ConfigurationTestOverrides {
   /**
    * Create task backend configuration override
    */
-  static createTaskBackendOverride(backend: string, backendConfig: any = {}): any {
+  static createTaskBackendOverride(
+    backend: string,
+    backendConfig: Record<string, unknown> = {}
+  ): Record<string, unknown> {
     return {
       backend,
       backendConfig,
@@ -205,7 +208,7 @@ export class ConfigurationTestOverrides {
   /**
    * Create AI configuration override for testing
    */
-  static createAiOverride(provider: string = "mock"): any {
+  static createAiOverride(provider: string = "mock"): Record<string, unknown> {
     return {
       ai: {
         default_provider: provider,
@@ -248,7 +251,7 @@ export class DatabaseTestCleanup {
    */
   createJsonDb(
     filename: string = "test.json",
-    initialData: any = { sessions: [], baseDir: "/test" }
+    initialData: Record<string, unknown> = { sessions: [], baseDir: "/test" }
   ): string {
     const content = JSON.stringify(initialData, null, 2);
     const dbPath = this.fileCleanup.createTempFile(filename, content);

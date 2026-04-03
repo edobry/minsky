@@ -9,6 +9,7 @@
 import { mock } from "bun:test";
 
 // Define a MockFunction type to replace jest.Mock
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
   (...args: TArgs): TReturn;
   mock: {
@@ -38,6 +39,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const _result = mockGreet("World"); // TypeScript knows this returns string
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mockFunction<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): MockFunction<ReturnType<T>, Parameters<T>> & T {
@@ -70,6 +72,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(
  * mockFn.mockImplementation(() => "new result");
  * expect(mockFn()).toBe("new result");
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
@@ -82,6 +85,7 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
  * mockModule("./utils", () => ({ helper: vi.fn() }));
  * expect(someFunction()).toBe("mocked result");
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mockModule(_modulePath: string, factory: () => any): void {
   mock.module(_modulePath, factory); // Use mock.module for module mocking
 }

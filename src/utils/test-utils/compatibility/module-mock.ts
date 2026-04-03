@@ -9,9 +9,11 @@ import { createCompatMock } from "./mock-function";
 import { log } from "../../logger";
 
 // Store original modules for restoration
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const originalModules = new Map<string, any>();
 
 // Store mocked modules for tracking
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockedModules = new Map<string, any>();
 
 /**
@@ -50,6 +52,7 @@ const defaultOptions: MockModuleOptions = {
  * @param actualModule The actual module to base mocks on
  * @returns A mocked version of the module
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createAutoMock(modulePath: string, actualModule: any): unknown {
   const mockExports: Record<string, unknown> = {};
 
@@ -83,6 +86,7 @@ function createAutoMock(modulePath: string, actualModule: any): unknown {
  */
 export function mockModule(
   modulePath: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   factory?: () => any,
   options?: MockModuleOptions
 ): void {
@@ -177,6 +181,7 @@ export function getMockModule(modulePath: string): unknown {
 export function mockModuleFunction(
   modulePath: string,
   exportName: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockImplementation: (..._args: unknown[]) => any
 ): void {
   // Get the original module if we have it
@@ -196,6 +201,7 @@ export function mockModuleFunction(
 export function createJestMock() {
   return function jestMock(
     modulePath: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     factory?: () => any,
     options?: MockModuleOptions
   ): void {

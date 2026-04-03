@@ -98,7 +98,7 @@ export function getMockCallArg(
  * @param propertyPath The path to the property (can be nested using dot notation)
  * @param value Optional expected value of the property
  */
-export function expectToHaveProperty(object: unknown, propertyPath: string, value?: any): void {
+export function expectToHaveProperty(object: unknown, propertyPath: string, value?: unknown): void {
   const parts = propertyPath.split(".");
   let current = object;
 
@@ -134,7 +134,7 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
  * @param received The array to test
  * @param expected The item that should be found in the array
  */
-export function expectToContainEqual(received: unknown[], expected: any): void {
+export function expectToContainEqual(received: unknown[], expected: unknown): void {
   const found = received.some((item) => {
     try {
       expect(item).toEqual(expected);
@@ -152,6 +152,7 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @param testFn The test function to execute with enhanced assertions
  * @returns A wrapped test function with enhanced assertions
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
   return function (this: unknown, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future

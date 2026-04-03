@@ -45,7 +45,7 @@ import { createMock } from "../core/mock-functions";
 export function createMockFilesystem(
   initialFiles: Record<string, string> = {},
   initialDirectories: Set<string> = new Set()
-): any {
+): Record<string, unknown> {
   // Internal storage for files and directories
   const files = new Map<string, string>(Object.entries(initialFiles));
   const directories = new Set<string>(initialDirectories);
@@ -319,10 +319,12 @@ export function createMockFilesystem(
     fsPromises: {
       readFile: (path: unknown, encoding?: unknown) => mockFs.readFileAsync(path, encoding),
       writeFile: (path: unknown, data: unknown) => mockFs.writeFileAsync(path, data),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mkdir: (path: unknown, options?: unknown) => mockFs.mkdirAsync(path, options as any),
       readdir: (path: unknown) => mockFs.readdirAsync(path),
       mkdtemp: (prefix: unknown) => mockFs.mkdtempAsync(prefix),
       access: (path: unknown) => mockFs.accessAsync(path),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rm: (path: unknown, options?: unknown) => mockFs.rmAsync(path, options as any),
     },
   };
