@@ -114,7 +114,7 @@ describe("Session CLI Commands", () => {
   });
 
   describe("getSessionDirFromParams", () => {
-    test("should resolve session directory from session name", async () => {
+    test("should resolve session directory from session ID", async () => {
       const sessionPath = join(testData.tempDir, "sessions", "test-session");
 
       // Create the session directory using mock filesystem
@@ -216,7 +216,7 @@ describe("Session CLI Commands", () => {
         getSessionWorkdir: (_sessionId: string) => Promise.resolve(sessionPath),
       });
 
-      // For now, provide session name explicitly to avoid complex auto-detection mocking
+      // For now, provide session ID explicitly to avoid complex auto-detection mocking
       const result = await getSessionDirFromParams(
         { name: "current-session" },
         { sessionDB: mockSessionProviderCurrent }

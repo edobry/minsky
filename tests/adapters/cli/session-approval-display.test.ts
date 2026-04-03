@@ -1,7 +1,7 @@
 /**
  * Test-Driven Bug Fix: Session Approval Display
  *
- * Bug: Session approval command displays "Session: Unknown" instead of actual session name
+ * Bug: Session approval command displays "Session: Unknown" instead of actual session ID
  * Root Cause: Output formatter accesses result.result instead of result.data
  * Test verifies the formatter correctly extracts session data from the correct path
  */
@@ -12,12 +12,12 @@ describe("Session Approval Display Bug Fix", () => {
   test("REGRESSION TEST: formatter should extract session data from correct path", () => {
     // Bug Documentation:
     // The session approval formatter was accessing result.result instead of result.data
-    // This caused the session name to display as "Unknown" instead of the actual session name
+    // This caused the session ID to display as "Unknown" instead of the actual session ID
     //
     // Steps to reproduce the original bug:
     // 1. Run: minsky session approve --task 335
     // 2. Observe output shows "Session: Unknown"
-    // 3. Expected: Should show "Session: <actual-session-name>"
+    // 3. Expected: Should show "Session: <actual-session-id>"
 
     // Test the core logic of data extraction from the correct path
 
@@ -39,18 +39,18 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Simulate the FIXED logic: accessing .data (correct path)
-    const fixedSessionName = correctResult.data?.session || "Unknown";
+    const fixedSessionId = correctResult.data?.session || "Unknown";
 
     // Simulate the BUGGY logic: accessing .result (incorrect path)
     const buggyResult = correctResult as unknown as Record<string, Record<string, unknown>>;
-    const buggySessionName = buggyResult.result?.session || "Unknown";
+    const buggySessionId = buggyResult.result?.session || "Unknown";
 
-    // Assert: The fix should extract the correct session name
-    expect(fixedSessionName).toBe("task335-session");
-    expect(fixedSessionName).not.toBe("Unknown");
+    // Assert: The fix should extract the correct session ID
+    expect(fixedSessionId).toBe("task335-session");
+    expect(fixedSessionId).not.toBe("Unknown");
 
     // Assert: The bug would have caused "Unknown" to be displayed
-    expect(buggySessionName).toBe("Unknown");
+    expect(buggySessionId).toBe("Unknown");
   });
 
   test("EDGE CASE: should handle missing session data gracefully", () => {
@@ -100,7 +100,7 @@ describe("Session Approval Display Bug Fix", () => {
     // The fix correctly identifies missing data and falls back to "Unknown"
     expect(correctAccess).toBe("Unknown");
 
-    // The old buggy code would have accessed .result and found the session name
+    // The old buggy code would have accessed .result and found the session ID
     // But our structure has .result, not .data, so the formatter was wrong
     expect(buggyAccess).toBe("task335-session");
   });

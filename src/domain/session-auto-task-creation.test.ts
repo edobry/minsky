@@ -127,7 +127,7 @@ describe("Session Auto-Task Creation", () => {
 
     // Verify session was created with task ID (qualified format)
     expect(result.taskId).toBe("md#001"); // Code returns qualified ID format
-    // Session name is now a UUID (opaque, no task info encoded)
+    // Session ID is now a UUID (opaque, no task info encoded)
     expect(result.session).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
@@ -152,7 +152,7 @@ describe("Session Auto-Task Creation", () => {
     expect(createTaskSpy).not.toHaveBeenCalled();
   });
 
-  test("should use session name when provided with description", async () => {
+  test("should use session ID when provided with description", async () => {
     const params = {
       name: "custom-session",
       repo: "https://github.com/test/repo.git",
@@ -168,8 +168,8 @@ describe("Session Auto-Task Creation", () => {
       resolveRepositoryAndBackend: mockResolveRepositoryAndBackend,
     });
 
-    // Verify session name is the provided name, not auto-generated
+    // Verify session ID is the provided name, not auto-generated
     expect(result.session).toBe("custom-session");
-    expect(result.taskId).toBe("md#001"); // When custom session name provided, returns qualified task ID
+    expect(result.taskId).toBe("md#001"); // When custom session ID provided, returns qualified task ID
   });
 });

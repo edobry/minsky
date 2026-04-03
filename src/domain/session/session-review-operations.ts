@@ -147,7 +147,7 @@ export async function sessionReviewImpl(
 
   // Validate that we have a session to work with
   if (!sessionIdToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get the session record
@@ -207,9 +207,9 @@ export async function sessionReviewImpl(
     // Determine changeset ID from session context
     // Try different possible changeset identifiers
     const possibleChangesetIds = [
-      result.prBranch, // pr/session-name format
-      sessionIdToUse, // session name directly
-      `${sessionIdToUse}`, // session name as string
+      result.prBranch, // pr/session-id format
+      sessionIdToUse, // session ID directly
+      `${sessionIdToUse}`, // session ID as string
     ];
 
     let changesetDetails: ChangesetDetails | null = null;

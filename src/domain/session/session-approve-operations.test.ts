@@ -110,7 +110,7 @@ describe("Session Approval Repository Backend Bug", () => {
     // Verify LOCAL backend's mergePullRequest was called
     expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
       "pr/task335", // PR branch name for LOCAL backend
-      "task335" // Session name
+      "task335" // Session ID
     );
 
     // Verify it used LOCAL backend (not GitHub)
@@ -174,8 +174,8 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Verify GitHub backend's mergePullRequest was called
     expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
-      "task336", // For GitHub backend, session name is used as PR identifier
-      "task336" // Session name
+      "task336", // For GitHub backend, session ID is used as PR identifier
+      "task336" // Session ID
     );
   });
 });

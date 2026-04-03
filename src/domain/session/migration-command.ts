@@ -5,7 +5,7 @@ import {
   SessionBackwardCompatibility,
   type MultiBackendSessionRecord,
 } from "./multi-backend-integration";
-import { isUuidSessionName, generateSessionId } from "../tasks/task-id";
+import { isUuidSessionId, generateSessionId } from "../tasks/task-id";
 
 /**
  * Migration command options
@@ -196,7 +196,7 @@ export class SessionMigrationService {
   private migrateSession(session: SessionRecord): SessionMigrationResult {
     try {
       const enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
-      // Strict-only: perform a minimal migration that upgrades legacy task IDs and session names
+      // Strict-only: perform a minimal migration that upgrades legacy task IDs and session IDs
       let migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
       let sessionIdChanged = false;
       let taskIdChanged = false;
@@ -216,11 +216,11 @@ export class SessionMigrationService {
         }
       }
 
-      // If session name is already a UUID, skip rename — it's already in the new format
-      if (isUuidSessionName(session.session)) {
+      // If session ID is already a UUID, skip rename — it's already in the new format
+      if (isUuidSessionId(session.session)) {
         // No rename needed
       } else if (migrated.taskId && /^[a-z-]+#\d+$/.test(migrated.taskId)) {
-        // Session is legacy format; assign a new UUID as session name
+        // Session is legacy format; assign a new UUID as session ID
         migrated.session = generateSessionId();
         sessionIdChanged = true;
       }

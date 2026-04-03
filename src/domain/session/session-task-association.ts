@@ -22,7 +22,7 @@ export interface SessionAssociationUpdateResult {
   sessionsFound: number;
   /** Number of sessions successfully updated */
   sessionsUpdated: number;
-  /** List of session names that were updated */
+  /** List of session IDs that were updated */
   updatedSessions: string[];
   /** Any errors that occurred during the update */
   errors: string[];
@@ -143,7 +143,7 @@ export async function updateSessionTaskAssociation(
  *
  * @param taskId Task ID to search for (can be qualified like "md#123" or plain like "123")
  * @param sessionProvider Session provider to use
- * @returns List of session names associated with the task
+ * @returns List of session IDs associated with the task
  */
 export async function findSessionsByTaskId(
   taskId: string,

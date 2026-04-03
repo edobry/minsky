@@ -133,7 +133,7 @@ describe("Workspace Domain Methods", () => {
 
         // Assert
         expect(result).toEqual({
-          session: "session-name",
+          session: "session-id",
           upstreamRepository: "https://github.com/org/repo.git",
           gitRoot: SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS,
         });
@@ -216,7 +216,7 @@ describe("Workspace Domain Methods", () => {
   });
 
   describe("getCurrentSession", () => {
-    test("returns session name when in a session directory", async () => {
+    test("returns session ID when in a session directory", async () => {
       // Arrange
       const sessionPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(sessionPath);
@@ -242,7 +242,7 @@ describe("Workspace Domain Methods", () => {
         const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock);
 
         // Assert
-        expect(result).toBe("session-name");
+        expect(result).toBe("session-id");
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;

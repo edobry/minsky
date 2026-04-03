@@ -50,7 +50,7 @@ export const sessionGetParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided",
+    message: "Either session ID or task ID must be provided",
   });
 
 /**
@@ -107,7 +107,7 @@ export const sessionDeleteParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided",
+    message: "Either session ID or task ID must be provided",
   });
 
 /**
@@ -125,7 +125,7 @@ export const sessionDirParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided",
+    message: "Either session ID or task ID must be provided",
   });
 
 /**
@@ -154,7 +154,7 @@ export const sessionUpdateParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided",
+    message: "Either session ID or task ID must be provided",
   });
 
 /**
@@ -178,7 +178,7 @@ export const sessionApproveParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
-    message: "Either session name, task ID, or repo path must be provided",
+    message: "Either session ID, task ID, or repo path must be provided",
   });
 
 /**

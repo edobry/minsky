@@ -155,10 +155,10 @@ export async function sessionPrImpl(
     );
   }
 
-  // STEP 3: Determine session name from explicit parameter or directory (CLI only)
+  // STEP 3: Determine session ID from explicit parameter or directory (CLI only)
   let sessionId = params.session;
 
-  // For CLI interface, try to extract session name from directory if not explicitly provided
+  // For CLI interface, try to extract session ID from directory if not explicitly provided
   if (!sessionId && interfaceType === "cli") {
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
@@ -168,8 +168,8 @@ export async function sessionPrImpl(
   if (!sessionId) {
     const errorMessage =
       interfaceType === "mcp"
-        ? "Session parameter is required for MCP interface. Please provide session name or task ID."
-        : "Could not determine session name from current directory or parameters";
+        ? "Session parameter is required for MCP interface. Please provide session ID or task ID."
+        : "Could not determine session ID from current directory or parameters";
     throw new MinskyError(errorMessage);
   }
 

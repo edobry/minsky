@@ -39,7 +39,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       expect(result)!.toContain("pwd | grep sessions");
     });
 
-    test("should handle undefined session name gracefully", () => {
+    test("should handle undefined session ID gracefully", () => {
       const result = createSessionPrBranchErrorMessage("pr/feature-branch", undefined, []);
 
       expect(result)!.toContain("Cannot Run Session PR from PR Branch");

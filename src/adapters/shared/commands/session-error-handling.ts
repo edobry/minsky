@@ -71,7 +71,7 @@ The session '${sessionId || taskId}' could not be located.
 💡 Try:
 • Check available sessions: minsky session list
 • Verify you're in the correct directory
-• Use the correct session name or task ID
+• Use the correct session ID or task ID
 
 Technical details: ${errorMessage}`
     );
@@ -105,18 +105,18 @@ export function validatePrParameters(
   const currentDir = process.cwd();
   const isSessionWorkspace = currentDir.includes("/sessions/");
 
-  let actualSessionName = sessionId;
-  if (!actualSessionName && isSessionWorkspace) {
-    // Try to detect session name from current directory
+  let actualSessionId = sessionId;
+  if (!actualSessionId && isSessionWorkspace) {
+    // Try to detect session ID from current directory
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
     if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-      actualSessionName = pathParts[sessionsIndex + 1];
+      actualSessionId = pathParts[sessionsIndex + 1];
     }
   }
 
-  // If we can't determine the session name, let the main function handle it
-  if (!actualSessionName) {
+  // If we can't determine the session ID, let the main function handle it
+  if (!actualSessionId) {
     return { shouldRequireBody: true };
   }
 

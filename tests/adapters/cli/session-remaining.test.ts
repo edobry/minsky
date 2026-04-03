@@ -23,7 +23,7 @@ describe("session workspace detection", () => {
     await cleanupSessionTestData(testData.tempDir);
   });
 
-  test("TASK #168 FIX: should correctly parse session name from path structure", async () => {
+  test("TASK #168 FIX: should correctly parse session ID from path structure", async () => {
     // Arrange: Test the core path parsing logic without complex mocking
     const sessionId = "task#168";
     const minskyPath = "/tmp/test/minsky/sessions";
@@ -47,8 +47,8 @@ describe("session workspace detection", () => {
     expect(legacyParts[1]).toBe(sessionId);
   });
 
-  test("TASK #168 FIX: should handle various session name formats", async () => {
-    // Test that the session detection logic works with different session name formats
+  test("TASK #168 FIX: should handle various session ID formats", async () => {
+    // Test that the session detection logic works with different session ID formats
     const testCases = ["task#168", "task#42", "feature-branch", "bug-fix-123", "simple-session"];
 
     testCases.forEach((sessionId) => {
@@ -56,7 +56,7 @@ describe("session workspace detection", () => {
       const sessionPath = `${minskyPath}/local-minsky/sessions/${sessionId}`;
       const pathParts = sessionPath.substring(minskyPath.length + 1).split("/");
 
-      // Should correctly extract session name
+      // Should correctly extract session ID
       expect(pathParts[2]).toBe(sessionId);
 
       // Should correctly identify as session path

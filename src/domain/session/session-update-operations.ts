@@ -64,7 +64,7 @@ export async function updateSessionImpl(
     log.debug("Failed to resolve session", { error, name, task: params.task });
     if (error instanceof ValidationError) {
       throw new ValidationError(
-        "Session name is required. Either provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -114,7 +114,7 @@ export async function updateSessionImpl(
             ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown"
             : "local-minsky";
 
-          // Extract task ID from session name - simpler and more reliable approach
+          // Extract task ID from session ID - simpler and more reliable approach
           const taskId = sessionId.startsWith("task#") ? sessionId : undefined;
 
           // Create session record (branch no longer persisted)

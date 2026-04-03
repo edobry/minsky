@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   resolveSessionContext,
-  resolveSessionName,
+  resolveSessionId,
   resolveSessionContextWithFeedback,
   validateSessionContext,
   type SessionContextOptions,
@@ -115,8 +115,8 @@ describe("resolveSessionContext", () => {
   });
 });
 
-describe("resolveSessionName", () => {
-  test("returns just the session name", async () => {
+describe("resolveSessionId", () => {
+  test("returns just the session ID", async () => {
     const mockSessionProvider = createMockSessionProvider({
       sessions: [
         {
@@ -129,7 +129,7 @@ describe("resolveSessionName", () => {
       ],
     });
 
-    const sessionId = await resolveSessionName({
+    const sessionId = await resolveSessionId({
       session: "test-session",
       sessionProvider: mockSessionProvider,
       allowAutoDetection: false,

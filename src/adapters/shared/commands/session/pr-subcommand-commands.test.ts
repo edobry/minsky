@@ -8,7 +8,7 @@
  * "PR description is required for new pull request creation"
  *
  * Root Cause:
- * The checkIfPrCanBeRefreshed() method only checks for explicit session name or
+ * The checkIfPrCanBeRefreshed() method only checks for explicit session ID or
  * current working directory detection, but doesn't use the same session resolution
  * logic as the main command (resolveSessionContextWithFeedback).
  *

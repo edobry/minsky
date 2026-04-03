@@ -17,7 +17,7 @@ import { createSessionProvider } from "../session";
  * Session context resolution options
  */
 export interface SessionContextOptions {
-  /** Explicit session name provided by user */
+  /** Explicit session ID provided by user */
   session?: string;
   /** Explicit task ID provided by user */
   task?: string;
@@ -39,7 +39,7 @@ export interface SessionContextOptions {
  * Resolved session context
  */
 export interface ResolvedSessionContext {
-  /** The resolved session name */
+  /** The resolved session ID */
   sessionId: string;
   /** The task ID associated with the session (if any) */
   taskId?: string;
@@ -56,7 +56,7 @@ export interface ResolvedSessionContext {
  *
  * This function consolidates all session auto-detection logic into a single,
  * consistent interface. It handles:
- * - Explicit session names
+ * - Explicit session IDs
  * - Task ID to session resolution
  * - Auto-detection from working directory
  * - Consistent error handling and feedback
@@ -86,9 +86,9 @@ export async function resolveSessionContext(
 
   const workingDirectory = repo || cwd;
 
-  // Option 1: Explicit session name provided
+  // Option 1: Explicit session ID provided
   if (session) {
-    log.debug("Using explicit session name", { session });
+    log.debug("Using explicit session ID", { session });
 
     // Validate session exists
     const sessionRecord = await sessionProvider!.getSession(session);
@@ -196,14 +196,14 @@ export async function resolveSessionContext(
 
   // No session could be resolved
   throw new ValidationError(
-    "No session detected. Please provide a session name or task ID, or run this command from within a session workspace."
+    "No session detected. Please provide a session ID or task ID, or run this command from within a session workspace."
   );
 }
 
 /**
- * Simplified session resolution for commands that only need the session name
+ * Simplified session resolution for commands that only need the session ID
  */
-export async function resolveSessionName(options: SessionContextOptions = {}): Promise<string> {
+export async function resolveSessionId(options: SessionContextOptions = {}): Promise<string> {
   const context = await resolveSessionContext(options);
   return context!.sessionId;
 }

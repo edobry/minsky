@@ -25,8 +25,9 @@ import {
 // SESSION METADATA SCHEMAS
 // ========================
 
-// SessionNameSchema is now an alias for SessionIdSchema (canonical schema in common-schemas.ts)
-export const SessionNameSchema = SessionIdSchema;
+// Re-export SessionIdSchema as SessionNameSchema for backward compatibility
+// TODO: Remove once all consumers have migrated to SessionIdSchema
+export { SessionIdSchema as SessionNameSchema } from "./common-schemas";
 
 /**
  * Session description schema - used across all interfaces
@@ -63,7 +64,7 @@ export const SessionStatusSchema = z.enum([
  */
 export const SessionStartParametersSchema = z
   .object({
-    name: SessionNameSchema,
+    name: SessionIdSchema,
     description: SessionDescriptionSchema,
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
@@ -80,8 +81,8 @@ export const SessionStartParametersSchema = z
  */
 export const SessionGetParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
@@ -99,8 +100,8 @@ export const SessionListParametersSchema = BaseBackendParametersSchema.merge(
  */
 export const SessionDeleteParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     force: ForceSchema,
     json: z.boolean().optional(),
@@ -112,8 +113,8 @@ export const SessionDeleteParametersSchema = z
  */
 export const SessionUpdateParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
@@ -133,8 +134,8 @@ export const SessionUpdateParametersSchema = z
  */
 export const SessionDirectoryParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
@@ -145,8 +146,8 @@ export const SessionDirectoryParametersSchema = z
  */
 export const SessionPRParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     title: z.string().min(1),
@@ -167,8 +168,8 @@ export const SessionPRParametersSchema = z
  */
 export const SessionApproveParametersSchema = z
   .object({
-    sessionId: SessionNameSchema.optional(),
-    name: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    name: SessionIdSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     noStash: z.boolean().default(false),
@@ -179,7 +180,7 @@ export const SessionApproveParametersSchema = z
  * Session commit parameters
  */
 export const SessionCommitParametersSchema = z.object({
-  sessionId: SessionNameSchema,
+  sessionId: SessionIdSchema,
   message: z.string().min(1),
   all: z.boolean().default(false),
   amend: z.boolean().default(false),
@@ -196,7 +197,7 @@ export const SessionCommitParametersSchema = z.object({
  * Base session data schema
  */
 export const BaseSessionDataSchema = z.object({
-  name: SessionNameSchema,
+  name: SessionIdSchema,
   description: SessionDescriptionSchema,
   taskId: TaskIdSchema.optional(),
   branch: GitBranchSchema,
@@ -220,7 +221,7 @@ export const SessionOperationResponseSchema = z.union([
     directory: z.string().optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionId: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
   }),
 ]);
 
@@ -241,11 +242,11 @@ export const SessionListResponseSchema = z.union([
  */
 export const SessionDirectoryResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionId: SessionNameSchema,
+    sessionId: SessionIdSchema,
     directory: z.string(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionId: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
   }),
 ]);
 
@@ -254,14 +255,14 @@ export const SessionDirectoryResponseSchema = z.union([
  */
 export const SessionPRResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionId: SessionNameSchema,
+    sessionId: SessionIdSchema,
     pullRequestUrl: z.string(),
     pullRequestNumber: z.number().optional(),
     title: z.string(),
     body: z.string().optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionId: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
   }),
 ]);
 
@@ -270,7 +271,7 @@ export const SessionPRResponseSchema = z.union([
  */
 export const SessionCommitResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
-    sessionId: SessionNameSchema,
+    sessionId: SessionIdSchema,
     commitHash: z.string(),
     shortHash: z.string().optional(),
     subject: z.string().optional(),
@@ -292,7 +293,7 @@ export const SessionCommitResponseSchema = z.union([
       .optional(),
   }),
   BaseErrorResponseSchema.extend({
-    sessionId: SessionNameSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
   }),
 ]);
 
@@ -300,7 +301,7 @@ export const SessionCommitResponseSchema = z.union([
 // TYPE EXPORTS
 // ========================
 
-export type SessionName = z.infer<typeof SessionNameSchema>;
+// SessionId type is already exported from common-schemas.ts
 export type SessionDescription = z.infer<typeof SessionDescriptionSchema>;
 export type GitBranch = z.infer<typeof GitBranchSchema>;
 export type PackageManager = z.infer<typeof PackageManagerSchema>;

@@ -87,7 +87,7 @@ export class SessionPrGetCommand extends BaseSessionCommand<
         `Updated:     ${pullRequest.updatedAt || "unknown"}`,
       ];
 
-      // Show branch info only if it differs from the session name (avoid redundant noise)
+      // Show branch info only if it differs from the session ID (avoid redundant noise)
       if (pullRequest.branch && pullRequest.branch !== pullRequest.sessionId) {
         output.splice(4, 0, `Branch:      ${pullRequest.branch}`);
       }

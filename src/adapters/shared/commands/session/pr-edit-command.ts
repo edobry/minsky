@@ -71,7 +71,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         const { createSessionProvider } = await import("../../../../domain/session");
         const sessionProvider = await createSessionProvider();
 
-        // Try to get session name from params or resolve from task
+        // Try to get session ID from params or resolve from task
         let sessionId = params.name;
         if (!sessionId && params.task) {
           const { resolveSessionContextWithFeedback } = await import(
@@ -197,7 +197,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
       );
     } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
       return new MinskyError(
-        `🔍 Session not found.\n\nThe session '${params.name || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session name or task ID\n\nTechnical details: ${errorMessage}`
+        `🔍 Session not found.\n\nThe session '${params.name || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
       );
     } else {
       return new MinskyError(

@@ -23,7 +23,7 @@ export async function sessionDelete(
   };
 
   try {
-    // Resolve session name from either explicit name or task ID
+    // Resolve session ID from either explicit name or task ID
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: name,
       task: task,

@@ -59,7 +59,7 @@ export async function sessionReview(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
+    // Get the session details using the resolved session ID
     const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
@@ -211,7 +211,7 @@ export async function sessionReview(
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

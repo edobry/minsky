@@ -49,7 +49,7 @@ describe("Session Context Resolution Architecture Issues", () => {
         }
 
         if (!sessionId) {
-          throw new Error("Session name required");
+          throw new Error("Session ID required");
         }
 
         return { sessionId, success: true };
@@ -98,7 +98,7 @@ describe("Session Context Resolution Architecture Issues", () => {
         }
 
         if (!sessionId) {
-          throw new Error("Session name required");
+          throw new Error("Session ID required");
         }
 
         return { sessionId, success: true };

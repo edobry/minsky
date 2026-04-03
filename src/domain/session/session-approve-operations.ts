@@ -199,7 +199,7 @@ The task exists but has no associated session to approve.
     sessionIdToUse = session.session;
   }
 
-  // Try to auto-detect session from repo path if no session name or task is provided
+  // Try to auto-detect session from repo path if no session ID or task is provided
   if (!sessionIdToUse && params.repo) {
     if (!params.json) {
       log.cli("🔍 Auto-detecting session from repository...");
@@ -214,7 +214,7 @@ The task exists but has no associated session to approve.
 
   // Validate that we have a session to work with
   if (!sessionIdToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get the session record
@@ -581,7 +581,7 @@ export async function cleanupLocalBranches(
       .map((b) => b.trim())
       .filter((b) => b && b !== prBranch);
 
-    // Extract task ID from session name if not provided and session follows task# pattern
+    // Extract task ID from session ID if not provided and session follows task# pattern
     const taskBranchName = taskId ? taskId.replace("#", "") : sessionId.replace("task#", "");
 
     // Build list of possible task branch names

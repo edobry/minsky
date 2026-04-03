@@ -27,7 +27,7 @@ export const repoPathSchema = z
   .describe("Repository URI");
 
 /**
- * Schema for session names
+ * Schema for session IDs
  * @example "my-session"
  * @example "task#TEST_VALUE"
  */
@@ -56,7 +56,7 @@ export const jsonOutputSchema = flagSchema("Output as JSON");
 export const commonCommandOptionsSchema = z
   .object({
     json: jsonOutputSchema,
-    session: sessionIdSchema.optional().describe("Session name to use"),
+    session: sessionIdSchema.optional().describe("Session ID to use"),
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
@@ -70,7 +70,7 @@ export type CommonCommandOptions = z.infer<typeof commonCommandOptionsSchema>;
 
 /**
  * Session schema
- * Validates session names
+ * Validates session IDs
  */
 export const sessionSchema = z.string().min(1).describe("Session identifier");
 
@@ -79,7 +79,7 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  * Common parameters shared across repository operations
  */
 export const _commonRepoSchema = z.object({
-  session: sessionSchema.optional().describe("Session name"),
+  session: sessionSchema.optional().describe("Session ID"),
   repo: z.string().optional().describe("Repository URI"),
   workspace: z.string().optional().describe("URI of the upstream repository"),
   json: z.boolean().optional().describe("Return output as JSON"),

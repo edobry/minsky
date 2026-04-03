@@ -12,7 +12,7 @@ import { z } from "zod";
 export const commonSessionParams = {
   name: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session ID",
     required: false,
   },
   task: {
@@ -107,7 +107,7 @@ export const sessionGetCommandParams = {
 export const sessionStartCommandParams = {
   name: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session ID",
     required: false,
   },
   task: commonSessionParams.task,
@@ -164,7 +164,7 @@ export const sessionDirCommandParams = {
 export const sessionSearchCommandParams = {
   query: {
     schema: z.string().min(1),
-    description: "Search query (searches in session name, repo name, branch, task ID)",
+    description: "Search query (searches in session ID, repo name, branch, task ID)",
     required: true,
   },
   limit: {
@@ -421,7 +421,7 @@ export const sessionPrEditCommandParams = {
 export const sessionPrListCommandParams = {
   session: {
     schema: z.string(),
-    description: "Filter PRs by specific session name",
+    description: "Filter PRs by specific session ID",
     required: false,
   },
   task: commonSessionParams.task,
@@ -485,7 +485,7 @@ export const sessionPrListCommandParams = {
 export const sessionPrGetCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session name to look up PR for (positional)",
+    description: "Session ID to look up PR for (positional)",
     required: false,
   },
   name: commonSessionParams.name,
@@ -548,7 +548,7 @@ export const sessionPrGetCommandParams = {
 export const sessionPrOpenCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session name to open PR for (positional)",
+    description: "Session ID to open PR for (positional)",
     required: false,
   },
   name: commonSessionParams.name,
@@ -606,7 +606,7 @@ export const sessionRepairCommandParams = {
 export const sessionEditFileCommandParams = {
   session: {
     schema: z.string(),
-    description: "Session name (auto-detected from workspace if not provided)",
+    description: "Session ID (auto-detected from workspace if not provided)",
     required: false,
   },
   path: {
@@ -655,7 +655,7 @@ export const sessionReviewCommandParams = {
   },
   prBranch: {
     schema: z.string(),
-    description: "PR branch name (defaults to pr/<session-name>)",
+    description: "PR branch name (defaults to pr/<session-id>)",
     required: false,
   },
   // AI-powered review options

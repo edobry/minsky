@@ -197,17 +197,17 @@ describe("Session PR Command Branch Behavior", () => {
 
     const originalBehavior = {
       description: "Used git switch -C to create and checkout PR branch simultaneously",
-      command: "git switch -C pr/session-name origin/main",
+      command: "git switch -C pr/session-id origin/main",
       problem: "Left user on PR branch, requiring explicit switch-back that could fail silently",
     };
 
     const newBehavior = {
       description: "Create PR branch without checking out, only switch temporarily for merge",
       commands: [
-        "git branch pr/session-name origin/main", // Create without checkout
-        "git switch pr/session-name", // Temporary switch for merge
-        "git merge --no-ff session-name", // Perform merge
-        "git switch session-name", // CRITICAL: Switch back
+        "git branch pr/session-id origin/main", // Create without checkout
+        "git switch pr/session-id", // Temporary switch for merge
+        "git merge --no-ff session-id", // Perform merge
+        "git switch session-id", // CRITICAL: Switch back
       ],
       benefit: "User always stays on session branch, PR branch only used programmatically",
     };
@@ -217,6 +217,6 @@ describe("Session PR Command Branch Behavior", () => {
     expect(newBehavior.benefit).toContain("User always stays on session branch");
     expect(newBehavior.commands).toHaveLength(4);
     expect(newBehavior.commands[0]).toContain("branch pr/");
-    expect(newBehavior.commands[3]).toContain("switch session-name");
+    expect(newBehavior.commands[3]).toContain("switch session-id");
   });
 });

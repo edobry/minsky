@@ -24,9 +24,9 @@ async function getOrCreateProvider(): Promise<SessionProviderInterface> {
 }
 
 /**
- * Resolve a session name to its absolute filesystem directory path.
+ * Resolve a session ID to its absolute filesystem directory path.
  *
- * This is the single canonical way to go from a session name (e.g. "task-mt#123")
+ * This is the single canonical way to go from a session ID (e.g. "task-mt#123")
  * to the absolute path of its working directory on disk. It handles:
  *   1. Lazy async creation of the session provider
  *   2. Session record lookup (with clear error if not found)

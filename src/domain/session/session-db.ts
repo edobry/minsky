@@ -85,7 +85,7 @@ export interface SessionRecord {
   pullRequest?: PullRequestInfo;
 
   // NEW: Simple PR approval tracking (Task #358)
-  prBranch?: string; // PR branch if one exists ("pr/session-name")
+  prBranch?: string; // PR branch if one exists ("pr/session-id")
   prApproved?: boolean; // Whether this session's PR is approved
 
   // Legacy / compatibility fields

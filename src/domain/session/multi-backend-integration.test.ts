@@ -4,20 +4,20 @@ import {
   SessionMultiBackendIntegration,
   type MultiBackendSessionRecord,
 } from "./multi-backend-integration";
-import { isUuidSessionName } from "../tasks/task-id";
+import { isUuidSessionId } from "../tasks/task-id";
 
 describe("Session Multi-Backend Integration", () => {
   describe("SessionMultiBackendIntegration", () => {
-    describe("generateSessionName", () => {
-      it("should generate UUID session names for qualified task IDs", () => {
-        const mdSession = SessionMultiBackendIntegration.generateSessionName("md#123");
-        const ghSession = SessionMultiBackendIntegration.generateSessionName("gh#456");
-        const jsonSession = SessionMultiBackendIntegration.generateSessionName("json#789");
+    describe("generateSessionId", () => {
+      it("should generate UUID session IDs for qualified task IDs", () => {
+        const mdSession = SessionMultiBackendIntegration.generateSessionId("md#123");
+        const ghSession = SessionMultiBackendIntegration.generateSessionId("gh#456");
+        const jsonSession = SessionMultiBackendIntegration.generateSessionId("json#789");
 
-        // Session names are now opaque UUIDs
-        expect(isUuidSessionName(mdSession)).toBe(true);
-        expect(isUuidSessionName(ghSession)).toBe(true);
-        expect(isUuidSessionName(jsonSession)).toBe(true);
+        // Session IDs are now opaque UUIDs
+        expect(isUuidSessionId(mdSession)).toBe(true);
+        expect(isUuidSessionId(ghSession)).toBe(true);
+        expect(isUuidSessionId(jsonSession)).toBe(true);
 
         // Each call should produce a unique UUID
         expect(mdSession).not.toBe(ghSession);
@@ -25,50 +25,48 @@ describe("Session Multi-Backend Integration", () => {
       });
 
       it("should throw for invalid or legacy IDs", () => {
-        expect(() => SessionMultiBackendIntegration.generateSessionName("123")).toThrow();
-        expect(() => SessionMultiBackendIntegration.generateSessionName("#123")).toThrow();
-        expect(() => SessionMultiBackendIntegration.generateSessionName("task#123")).toThrow();
-        expect(() => SessionMultiBackendIntegration.generateSessionName("invalid")).toThrow();
-        expect(() => SessionMultiBackendIntegration.generateSessionName("abc123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionId("123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionId("#123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionId("task#123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionId("invalid")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionId("abc123")).toThrow();
       });
 
       it("should throw for empty task ID", () => {
-        expect(() => SessionMultiBackendIntegration.generateSessionName("")).toThrow(
+        expect(() => SessionMultiBackendIntegration.generateSessionId("")).toThrow(
           "Task ID is required"
         );
       });
     });
 
-    describe("extractTaskIdFromSessionName", () => {
-      it("should extract qualified task IDs from new format session names", () => {
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-md#123")).toBe(
+    describe("extractTaskIdFromSessionId", () => {
+      it("should extract qualified task IDs from new format session IDs", () => {
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-md#123")).toBe(
           "md#123"
         );
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-gh#456")).toBe(
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-gh#456")).toBe(
           "gh#456"
         );
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-json#789")).toBe(
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-json#789")).toBe(
           "json#789"
         );
       });
 
-      it("should return null for legacy session names", () => {
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task123")).toBeNull();
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task#123")).toBeNull();
+      it("should return null for legacy session IDs", () => {
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task123")).toBeNull();
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task#123")).toBeNull();
       });
 
-      it("should return null for invalid session names", () => {
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("")).toBeNull();
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("invalid")).toBeNull();
-        expect(
-          SessionMultiBackendIntegration.extractTaskIdFromSessionName("session123")
-        ).toBeNull();
+      it("should return null for invalid session IDs", () => {
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("")).toBeNull();
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("invalid")).toBeNull();
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("session123")).toBeNull();
       });
 
       it("should handle complex local IDs", () => {
-        expect(
-          SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-gh#issue-456")
-        ).toBe("gh#issue-456");
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-gh#issue-456")).toBe(
+          "gh#issue-456"
+        );
       });
     });
 
@@ -136,27 +134,25 @@ describe("Session Multi-Backend Integration", () => {
       });
     });
 
-    describe("isMultiBackendSessionName", () => {
-      it("should identify UUID session names as multi-backend", () => {
+    describe("isMultiBackendSessionId", () => {
+      it("should identify UUID session IDs as multi-backend", () => {
         expect(
-          SessionMultiBackendIntegration.isMultiBackendSessionName(
+          SessionMultiBackendIntegration.isMultiBackendSessionId(
             "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
           )
         ).toBe(true);
       });
 
-      it("should identify legacy new format session names", () => {
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("task-md#123")).toBe(true);
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("task-gh#456")).toBe(true);
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("task-json#789")).toBe(
-          true
-        );
+      it("should identify legacy new format session IDs", () => {
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("task-md#123")).toBe(true);
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("task-gh#456")).toBe(true);
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("task-json#789")).toBe(true);
       });
 
-      it("should identify legacy format session names", () => {
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("task123")).toBe(false);
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("task#123")).toBe(false);
-        expect(SessionMultiBackendIntegration.isMultiBackendSessionName("custom-session")).toBe(
+      it("should identify legacy format session IDs", () => {
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("task123")).toBe(false);
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("task#123")).toBe(false);
+        expect(SessionMultiBackendIntegration.isMultiBackendSessionId("custom-session")).toBe(
           false
         );
       });
@@ -167,7 +163,7 @@ describe("Session Multi-Backend Integration", () => {
     // getDisplayTaskId removed
 
     describe("validateSessionTaskCompatibility", () => {
-      it("should validate compatible session names and task IDs", () => {
+      it("should validate compatible session IDs and task IDs", () => {
         expect(
           SessionMultiBackendIntegration.validateSessionTaskCompatibility("task-md#123", "md#123")
         ).toBe(true);
@@ -177,7 +173,7 @@ describe("Session Multi-Backend Integration", () => {
         ).toBe(true);
       });
 
-      it("should detect incompatible session names and task IDs", () => {
+      it("should detect incompatible session IDs and task IDs", () => {
         expect(
           SessionMultiBackendIntegration.validateSessionTaskCompatibility("task-md#123", "gh#456")
         ).toBe(false);
@@ -242,28 +238,28 @@ describe("Session Multi-Backend Integration", () => {
   // SessionBackwardCompatibility removed in strict-only mode
 
   describe("Integration scenarios", () => {
-    it("should generate UUID session names that don't encode task IDs", () => {
+    it("should generate UUID session IDs that don't encode task IDs", () => {
       const taskIds = ["md#123", "gh#456", "json#789"];
 
       for (const taskId of taskIds) {
-        const sessionId = SessionMultiBackendIntegration.generateSessionName(taskId);
+        const sessionId = SessionMultiBackendIntegration.generateSessionId(taskId);
 
-        // Session names are now UUIDs — they don't encode task IDs
-        expect(isUuidSessionName(sessionId)).toBe(true);
-        // UUID session names return null from extractTaskIdFromSessionName
-        // (task linkage is via SessionRecord.taskId, not the session name)
+        // Session IDs are now UUIDs — they don't encode task IDs
+        expect(isUuidSessionId(sessionId)).toBe(true);
+        // UUID session IDs return null from extractTaskIdFromSessionId
+        // (task linkage is via SessionRecord.taskId, not the session ID)
         const extractedTaskId =
-          SessionMultiBackendIntegration.extractTaskIdFromSessionName(sessionId);
+          SessionMultiBackendIntegration.extractTaskIdFromSessionId(sessionId);
         expect(extractedTaskId).toBeNull();
       }
     });
 
-    it("should still extract task IDs from legacy session names", () => {
+    it("should still extract task IDs from legacy session IDs", () => {
       // Legacy format still works for backward compat
-      expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-md#123")).toBe(
+      expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-md#123")).toBe(
         "md#123"
       );
-      expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task-gh#456")).toBe(
+      expect(SessionMultiBackendIntegration.extractTaskIdFromSessionId("task-gh#456")).toBe(
         "gh#456"
       );
     });

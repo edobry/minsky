@@ -73,13 +73,13 @@ export function extractLocalId(taskId: string): string | null {
   return parsed ? parsed.localId : null;
 }
 
-/** UUID v4 regex for identifying UUID-format session names */
+/** UUID v4 regex for identifying UUID-format session IDs */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Session/Branch conversion functions
 
-/** @deprecated Use generateSessionId() for new sessions. Kept for legacy session name parsing. */
-export function taskIdToSessionName(taskId: string): string {
+/** @deprecated Use generateSessionId() for new sessions. Kept for legacy session ID parsing. */
+export function taskIdToSessionId(taskId: string): string {
   // md#123 → task-md#123
   if (isQualifiedTaskId(taskId)) {
     return `task-${taskId}`;
@@ -88,10 +88,10 @@ export function taskIdToSessionName(taskId: string): string {
   return taskId; // Return as-is if unparseable
 }
 
-/** @deprecated Use SessionRecord.taskId from the database instead. Kept for legacy session name parsing. */
+/** @deprecated Use SessionRecord.taskId from the database instead. Kept for legacy session ID parsing. */
 export function sessionIdToTaskId(sessionId: string): string | null {
-  // UUID session names don't encode task IDs — use DB lookup instead
-  if (isUuidSessionName(sessionId)) {
+  // UUID session IDs don't encode task IDs — use DB lookup instead
+  if (isUuidSessionId(sessionId)) {
     return null;
   }
   // Legacy: task-md#123 → md#123
@@ -113,9 +113,9 @@ export function generateSessionId(idGenerator?: () => string): string {
 }
 
 /**
- * Check if a session name is a UUID-format session ID (new format).
+ * Check if a session ID is a UUID-format session ID (new format).
  */
-export function isUuidSessionName(name: string): boolean {
+export function isUuidSessionId(name: string): boolean {
   return UUID_REGEX.test(name);
 }
 

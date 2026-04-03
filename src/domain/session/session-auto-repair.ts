@@ -4,7 +4,7 @@ import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
-import { isUuidSessionName, taskIdToBranchName } from "../tasks/task-id";
+import { isUuidSessionId, taskIdToBranchName } from "../tasks/task-id";
 
 export interface SessionAutoRepairDependencies {
   sessionDB: SessionProviderInterface;
@@ -35,9 +35,9 @@ export async function attemptSessionAutoRepair(
   // Generate possible session directory names based on task ID
   const possibleSessionNames = generatePossibleSessionNames(taskId);
 
-  log.debug("Generated possible session names", { taskId, possibleSessionNames });
+  log.debug("Generated possible session IDs", { taskId, possibleSessionNames });
 
-  // Check each possible session name for existing directory
+  // Check each possible session ID for existing directory
   for (const sessionId of possibleSessionNames) {
     const sessionDir = join(baseDir, sessionId);
 
@@ -67,7 +67,7 @@ export async function attemptSessionAutoRepair(
           sessionDir,
           error: error instanceof Error ? error.message : String(error),
         });
-        // Continue to next possible session name
+        // Continue to next possible session ID
       }
     }
   }
@@ -84,7 +84,7 @@ export function generatePossibleSessionNames(taskId: string): string[] {
   const names: string[] = [];
 
   // UUID session IDs are used directly as directory names — add as first candidate
-  if (isUuidSessionName(taskId)) {
+  if (isUuidSessionId(taskId)) {
     names.push(taskId);
     return names;
   }
@@ -109,7 +109,7 @@ export function generatePossibleSessionNames(taskId: string): string[] {
   // New format: task-<full-qualified-id> (e.g., "task-md#123")
   names.push(`task-${validated}`);
 
-  // Also try the exact task ID as session name (for edge cases)
+  // Also try the exact task ID as session ID (for edge cases)
   names.push(validated);
 
   // Remove duplicates while preserving order
@@ -163,7 +163,7 @@ async function reconstructSessionRecord(
     // Extract repo name from URL or path
     const repoName = extractRepoName(repoUrl);
 
-    // Determine default branch name from task ID if possible, otherwise fall back to session name
+    // Determine default branch name from task ID if possible, otherwise fall back to session ID
     const validatedTaskId = validateQualifiedTaskId(taskId);
     const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionId; // UUID with no taskId — unavoidable fallback
 

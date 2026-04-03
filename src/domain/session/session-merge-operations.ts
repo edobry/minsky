@@ -128,7 +128,7 @@ export async function mergeSessionPr(
   // Set up session provider
   const sessionDB = deps?.sessionDB || (await createSessionProvider());
 
-  // Resolve session name
+  // Resolve session ID
   let sessionIdToUse = params.session;
 
   if (params.task && !sessionIdToUse) {
@@ -144,7 +144,7 @@ export async function mergeSessionPr(
   }
 
   if (!sessionIdToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get session record

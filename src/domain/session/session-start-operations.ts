@@ -79,8 +79,8 @@ You're currently inside a session workspace, but sessions can only be created fr
    minsky session dir
 
 3️⃣ Then try creating your session again:
-   minsky session start --task <id> [session-name]
-   minsky session start --description "<description>" [session-name]
+   minsky session start --task <id> [session-id]
+   minsky session start --description "<description>" [session-id]
 
 💡 Why this restriction exists:
 Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
@@ -101,7 +101,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Determine the session name using task ID if provided
+    // Determine the session ID using task ID if provided
     let sessionId = name;
     let taskId: string | undefined = task;
 
@@ -130,12 +130,12 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Generate session name using multi-backend integration
-      sessionId = SessionMultiBackendIntegration.generateSessionName(taskId);
+      // Generate session ID using multi-backend integration
+      sessionId = SessionMultiBackendIntegration.generateSessionId(taskId);
     }
 
     if (!sessionId) {
-      throw new ValidationError("Session name could not be determined from task ID");
+      throw new ValidationError("Session ID could not be determined from task ID");
     }
 
     // Check if session already exists
@@ -214,7 +214,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
       });
 
-      // Create a branch based on the session name - use branchWithoutSession
+      // Create a branch based on the session ID - use branchWithoutSession
       // since session record hasn't been added to DB yet
       const branchResult = await deps.gitService.branchWithoutSession({
         repoName: normalizedRepoName,

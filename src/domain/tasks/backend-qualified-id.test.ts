@@ -8,7 +8,7 @@ import {
   formatTaskId,
   formatForDisplay,
   sessionIdToBranchName,
-  branchNameToSessionName,
+  branchNameToSessionId,
   extractBackendFromId,
   extractLocalIdFromId,
 } from "./backend-qualified-id";
@@ -157,13 +157,13 @@ describe("Backend-Qualified ID System", () => {
 
 describe("Git Branch Naming Conversion", () => {
   describe("sessionIdToBranchName", () => {
-    it("should convert qualified session names to git-compatible branch names", () => {
+    it("should convert qualified session IDs to git-compatible branch names", () => {
       expect(sessionIdToBranchName("task#md:123")).toBe("task#md-123");
       expect(sessionIdToBranchName("task#gh:456")).toBe("task#gh-456");
       expect(sessionIdToBranchName("task#json:789")).toBe("task#json-789");
     });
 
-    it("should handle unqualified session names for backward compatibility", () => {
+    it("should handle unqualified session IDs for backward compatibility", () => {
       expect(sessionIdToBranchName("task#123")).toBe("task#123");
     });
 
@@ -172,19 +172,19 @@ describe("Git Branch Naming Conversion", () => {
     });
   });
 
-  describe("branchNameToSessionName", () => {
-    it("should convert git branch names back to session names", () => {
-      expect(branchNameToSessionName("task#md-123")).toBe("task#md:123");
-      expect(branchNameToSessionName("task#gh-456")).toBe("task#gh:456");
-      expect(branchNameToSessionName("task#json-789")).toBe("task#json:789");
+  describe("branchNameToSessionId", () => {
+    it("should convert git branch names back to session IDs", () => {
+      expect(branchNameToSessionId("task#md-123")).toBe("task#md:123");
+      expect(branchNameToSessionId("task#gh-456")).toBe("task#gh:456");
+      expect(branchNameToSessionId("task#json-789")).toBe("task#json:789");
     });
 
     it("should handle unqualified branch names for backward compatibility", () => {
-      expect(branchNameToSessionName("task#123")).toBe("task#123");
+      expect(branchNameToSessionId("task#123")).toBe("task#123");
     });
 
     it("should handle complex local IDs", () => {
-      expect(branchNameToSessionName("task#gh-issue-123")).toBe(TEST_DATA_PATTERNS.TASK_GH_ID);
+      expect(branchNameToSessionId("task#gh-issue-123")).toBe(TEST_DATA_PATTERNS.TASK_GH_ID);
     });
   });
 
@@ -200,7 +200,7 @@ describe("Git Branch Naming Conversion", () => {
 
       for (const sessionId of sessionIds) {
         const branchName = sessionIdToBranchName(sessionId);
-        const backToSession = branchNameToSessionName(branchName);
+        const backToSession = branchNameToSessionId(branchName);
         expect(backToSession).toBe(sessionId);
       }
     });
@@ -218,7 +218,7 @@ describe("Backward Compatibility", () => {
 
   it("should handle existing session formats", () => {
     expect(sessionIdToBranchName("task#123")).toBe("task#123");
-    expect(branchNameToSessionName("task#123")).toBe("task#123");
+    expect(branchNameToSessionId("task#123")).toBe("task#123");
   });
 });
 

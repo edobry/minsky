@@ -60,7 +60,7 @@ export const sessionStartCommandParams: CommandParameterMap = composeParams(
     },
     branch: {
       schema: z.string(),
-      description: "Branch name to create (defaults to session name)",
+      description: "Branch name to create (defaults to session ID)",
       required: false,
     },
     noStatusUpdate: {
@@ -157,7 +157,7 @@ export const sessionApproveCommandParams: CommandParameterMap = composeParams(
 export const sessionPrCommandParams: CommandParameterMap = {
   sessionId: {
     schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
+    description: "Session identifier (ID or task ID)",
     required: false, // Changed to allow using name or task instead
   },
   title: {

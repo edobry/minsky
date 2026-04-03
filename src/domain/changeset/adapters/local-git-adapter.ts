@@ -345,7 +345,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
     workdir: string
   ): Promise<Changeset | null> {
     try {
-      // Get session name from branch
+      // Get session ID from branch
       const sessionId = prBranch.replace(/^pr\//, "");
 
       // Try to get session info

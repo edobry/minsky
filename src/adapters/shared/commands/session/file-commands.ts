@@ -61,8 +61,8 @@ export class SessionEditFileCommand extends BaseSessionCommand<
     context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     try {
-      // Resolve session name (auto-detect from workspace if not provided)
-      const sessionId = await this.resolveSessionName(params);
+      // Resolve session ID (auto-detect from workspace if not provided)
+      const sessionId = await this.resolveSessionId(params);
 
       // Get edit pattern from stdin or pattern file
       const content = await this.getEditPattern(params);
@@ -85,9 +85,9 @@ export class SessionEditFileCommand extends BaseSessionCommand<
   }
 
   /**
-   * Resolve session name from parameter or auto-detect from workspace
+   * Resolve session ID from parameter or auto-detect from workspace
    */
-  private async resolveSessionName(params: SessionEditFileParams): Promise<string> {
+  private async resolveSessionId(params: SessionEditFileParams): Promise<string> {
     if (params.session) {
       return params.session;
     }

@@ -37,13 +37,13 @@ export async function getSessionImpl(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
+    // Get the session details using the resolved session ID
     return deps.sessionDB.getSession(resolvedContext.sessionId) as Promise<Session | null>;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -85,13 +85,13 @@ export async function deleteSessionImpl(
       allowAutoDetection: true,
     });
 
-    // Delete the session using the resolved session name
+    // Delete the session using the resolved session ID
     return deps.sessionDB.deleteSession(resolvedContext.sessionId);
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -125,12 +125,12 @@ export async function getSessionDirImpl(
   } else {
     throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
 
-You must provide either a session name or task ID to get the session directory.
+You must provide either a session ID or task ID to get the session directory.
 
 📖 Usage Examples:
 
-  # Get directory by session name
-  minsky session dir <session-name>
+  # Get directory by session ID
+  minsky session dir <session-id>
 
   # Get directory by task ID
   minsky session dir --task <task-id>
@@ -291,7 +291,7 @@ async function getSessionDirectoriesToCleanup(
   const baseSessionPath = getSessionsDir();
 
   // Try different naming patterns that might exist.
-  // The sessionId entry handles UUID session names directly.
+  // The sessionId entry handles UUID session IDs directly.
   // Legacy patterns use the taskId to find old-style directories.
   const possibleDirs = [
     `${baseSessionPath}/${sessionId}`,

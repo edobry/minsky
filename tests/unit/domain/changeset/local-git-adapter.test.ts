@@ -173,7 +173,7 @@ describe("LocalGitChangesetAdapter", () => {
     expect(changesets.length).toBeGreaterThanOrEqual(0);
   });
 
-  test("extracts session name from pr/ branch correctly", async () => {
+  test("extracts session ID from pr/ branch correctly", async () => {
     const changeset = await adapter.get("pr/my-feature-session");
 
     expect(changeset?.sessionId).toBe("my-feature-session");

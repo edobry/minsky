@@ -268,8 +268,8 @@ export function createSessionErrorMessage(
       description: "A session with this name already exists.",
       suggestions: [
         {
-          description: "Use a different session name",
-          command: 'minsky session start "new-session-name"',
+          description: "Use a different session ID",
+          command: 'minsky session start "new-session-id"',
           emoji: ErrorEmojis.CREATE,
         },
         {

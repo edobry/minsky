@@ -383,7 +383,7 @@ describe("Session Start Consistency Tests", () => {
       expect(result).toMatchObject({
         taskId: "md#160",
       });
-      // Session name is now a UUID
+      // Session ID is now a UUID
       expect(result.session).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       );

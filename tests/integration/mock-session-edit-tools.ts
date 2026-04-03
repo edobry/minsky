@@ -263,7 +263,7 @@ require("fs/promises").writeFile = async (
   console.log(`📝 Mock wrote file: ${path} (${data.length} chars)`);
   const content = typeof data === "string" ? data : data.toString();
 
-  // Extract session name from path
+  // Extract session ID from path
   const sessionMatch = path.match(/^([^/]+)\//);
   const sessionId = sessionMatch ? (sessionMatch[1] ?? "") : "";
   const filePath = sessionMatch ? path.substring(sessionMatch[1]!.length + 1) : path;

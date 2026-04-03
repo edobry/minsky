@@ -159,7 +159,7 @@ describe("Session Approve", () => {
         }),
     };
 
-    // Test by session name
+    // Test by session ID
     const resultBySession = await approveSessionFromParams(
       { session: TEST_SESSION_NAME },
       testDeps as any

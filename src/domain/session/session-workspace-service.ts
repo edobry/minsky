@@ -33,7 +33,7 @@ export class SessionWorkspaceService {
 
   /**
    * Get session workspace information
-   * @param sessionId Session identifier (can be session name, task ID, etc.)
+   * @param sessionId Session identifier (can be session ID, task ID, etc.)
    * @returns Session workspace information
    * @throws SessionNotFoundError if session doesn't exist
    */

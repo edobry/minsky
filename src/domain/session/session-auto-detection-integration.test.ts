@@ -169,14 +169,14 @@ describe("Session Command Domain Logic", () => {
   describe("domain logic consistency", () => {
     test("all commands resolve the same session by task ID", async () => {
       const taskId = "md#456";
-      const expectedSessionName = "task#456";
+      const expectedSessionId = "task#456";
 
       // Test sessionGet
       const getResult = await sessionGet(
         { task: taskId, json: false },
         { sessionDB: mockSessionProvider }
       );
-      expect(getResult?.session).toBe(expectedSessionName);
+      expect(getResult?.session).toBe(expectedSessionId);
 
       // Test sessionDelete
       const deleteResult = await sessionDelete(
@@ -189,12 +189,12 @@ describe("Session Command Domain Logic", () => {
     });
 
     test("all commands provide consistent error messages for missing sessions", () => {
-      const expectedErrorPattern = /No session detected.*session name.*task ID.*session workspace/;
+      const expectedErrorPattern = /No session detected.*session ID.*task ID.*session workspace/;
 
       // Test error messages are consistent across commands
       expect(() => {
         throw new ResourceNotFoundError(
-          "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+          "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
         );
       }).toThrow(expectedErrorPattern);
     });

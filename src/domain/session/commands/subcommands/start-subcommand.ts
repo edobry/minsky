@@ -27,7 +27,7 @@ export const sessionStartCommandParams: CommandParameterMap = {
   },
   branch: {
     schema: z.string(),
-    description: "Branch name to create (defaults to session name)",
+    description: "Branch name to create (defaults to session ID)",
     required: false,
   },
   repo: {

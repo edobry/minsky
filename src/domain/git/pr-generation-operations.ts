@@ -102,7 +102,7 @@ async function determineWorkingDirectory(
 
 You need to specify one of these options to identify the target repository:
 
-📝 Specify a session name:
+📝 Specify a session ID:
    minsky git pr --session "my-session"
 
 🎯 Use a task ID (to auto-detect session):
@@ -113,7 +113,7 @@ You need to specify one of these options to identify the target repository:
 
 💡 If you're working in a session workspace, try running from the main workspace:
    cd /path/to/main/workspace
-   minsky git pr --session "session-name"
+   minsky git pr --session "session-id"
 
 📋 To see available sessions:
    minsky sessions list

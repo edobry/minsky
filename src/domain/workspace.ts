@@ -86,7 +86,7 @@ export async function getSessionFromWorkspace(
       return null;
     }
 
-    // Extract session name from the simplified path structure: /sessions/{sessionId}/
+    // Extract session ID from the simplified path structure: /sessions/{sessionId}/
     const relativePath = gitRoot.substring(minskySessionsPath?.length + 1);
     const sessionId = relativePath.split("/")[0]; // First part is the session ID
 
@@ -151,7 +151,7 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
     const minskySessionsPath = getSessionsDir();
 
     if (gitRoot.startsWith(minskySessionsPath)) {
-      // We're in a session workspace, extract session name and get the main workspace path
+      // We're in a session workspace, extract session ID and get the main workspace path
       const relativePath = gitRoot.substring(minskySessionsPath?.length + 1);
       const sessionId = relativePath.split("/")[0]; // First part is the session ID
 
@@ -229,7 +229,7 @@ export async function resolveWorkspacePath(
 }
 
 /**
- * Gets the current session name from the current working directory.
+ * Gets the current session ID from the current working directory.
  * Uses getSessionFromWorkspace to extract the session context from the current working directory.
  */
 export async function getCurrentSession(
@@ -243,7 +243,7 @@ export async function getCurrentSession(
 
 /**
  * Gets the current session context including task ID.
- * First gets the session name from the current working directory,
+ * First gets the session ID from the current working directory,
  * and then queries the SessionDB for the taskId.
  */
 export async function getCurrentSessionContext(
@@ -262,7 +262,7 @@ export async function getCurrentSessionContext(
 
   let sessionId: string | undefined = undefined;
   try {
-    // Get the session name from the current working directory
+    // Get the session ID from the current working directory
     sessionId = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
     if (!sessionId) {
       return null;
@@ -322,16 +322,16 @@ export interface WorkspaceUtilsInterface {
   isSessionWorkspace(path: string): boolean;
 
   /**
-   * Get the current session name from a repository path
+   * Get the current session ID from a repository path
    * @param repoPath The repository path
-   * @returns The session name or null if not in a session
+   * @returns The session ID or null if not in a session
    */
   getCurrentSession(repoPath: string): Promise<string | undefined>;
 
   /**
    * Get session information from a workspace path
    * @param workspacePath The workspace path
-   * @returns The session name or null if not in a session
+   * @returns The session ID or null if not in a session
    */
   getSessionFromWorkspace(workspacePath: string): Promise<string | undefined>;
 
@@ -344,7 +344,7 @@ export interface WorkspaceUtilsInterface {
 
   /**
    * Get the repository workspace path for a session
-   * @param sessionId Optional session name
+   * @param sessionId Optional session ID
    * @returns The workspace path
    */
   getRepoWorkspace?: (sessionId?: string) => string;
