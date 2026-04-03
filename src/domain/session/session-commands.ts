@@ -58,7 +58,7 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
   const { updateSessionFromParams } = await import("../session.js");
 
   try {
-    const result = await updateSessionFromParams({
+    await updateSessionFromParams({
       name: params.session,
       branch: params.branch,
       force: params.force ?? false,
@@ -68,11 +68,11 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
       skipConflictCheck: params.skipConflictCheck ?? false,
       skipIfAlreadyMerged: params.skipIfAlreadyMerged ?? false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
-    } as any);
+    });
 
     return {
       success: true,
-      message: (result as any).message || "Session updated successfully",
+      message: "Session updated successfully",
     };
   } catch (error) {
     log.debug("Pure session update failed", {

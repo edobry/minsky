@@ -27,8 +27,8 @@ import type { Task } from "../types";
  * Set task status operation
  */
 export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParams, void> {
-  getSchema() {
-    return taskStatusSetParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskStatusSetParams> {
+    return taskStatusSetParamsSchema as unknown as import("zod").ZodSchema<TaskStatusSetParams>;
   }
 
   getOperationName(): string {
@@ -51,8 +51,8 @@ export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParam
  * Create task operation
  */
 export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, Task> {
-  getSchema() {
-    return taskCreateParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskCreateParams> {
+    return taskCreateParamsSchema as unknown as import("zod").ZodSchema<TaskCreateParams>;
   }
 
   getOperationName(): string {
@@ -78,7 +78,7 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, Tas
     const result = await taskService.createTask(params.title, {
       description,
       force: params.force,
-    } as any);
+    });
 
     return result;
   }
@@ -91,8 +91,8 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
   TaskCreateFromTitleAndDescriptionParams,
   Task
 > {
-  getSchema() {
-    return taskCreateFromTitleAndDescriptionParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskCreateFromTitleAndDescriptionParams> {
+    return taskCreateFromTitleAndDescriptionParamsSchema as unknown as import("zod").ZodSchema<TaskCreateFromTitleAndDescriptionParams>;
   }
 
   getOperationName(): string {
@@ -117,7 +117,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
     // Create the task with title and spec
     const result = await taskService.createTask(params.title, {
       description: spec,
-    } as any);
+    });
 
     return result;
   }
@@ -127,8 +127,8 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
  * Delete task operation
  */
 export class DeleteTaskOperation extends BaseTaskOperation<TaskDeleteParams, { success: boolean; taskId: string; task: Task }> {
-  getSchema() {
-    return taskDeleteParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskDeleteParams> {
+    return taskDeleteParamsSchema as unknown as import("zod").ZodSchema<TaskDeleteParams>;
   }
 
   getOperationName(): string {

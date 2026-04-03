@@ -77,7 +77,7 @@ export async function sessionPrList(params: {
             status,
             title: prDetails.title || `PR for ${session.session}`,
             url: prDetails.url,
-            updatedAt: prDetails.updatedAt || (session as any).updatedAt,
+            updatedAt: prDetails.updatedAt,
             branch: prDetails.headBranch || session.session,
             backendType: session.backendType,
           };

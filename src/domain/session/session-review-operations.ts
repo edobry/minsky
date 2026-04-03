@@ -271,10 +271,10 @@ export async function sessionReviewImpl(
         return RepositoryBackendType.LOCAL;
       })();
 
-      const backend = (await createRepositoryBackend({
+      const backend = await createRepositoryBackend({
         type: backendType,
         repoUrl: sessionRecord.repoUrl,
-      })) as any;
+      });
 
       // Fetch PR details; if GitHub, backend infers PR number from session
       const details = await backend.getPullRequestDetails({ session: sessionNameToUse });

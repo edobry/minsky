@@ -387,23 +387,24 @@ export async function listRulesFiltered(options: ListRulesOptions): Promise<List
   });
 
   // Optional time filtering using file modification time as proxy
-  let filtered = rules;
+  type RuleWithUpdatedAt = (typeof rules)[0] & { updatedAt?: Date };
+  let filtered: RuleWithUpdatedAt[] = rules;
   try {
     const { parseTime, filterByTimeRange } = await import("../../utils/result-handling/filters");
     const sinceTs = parseTime(options.since);
     const untilTs = parseTime(options.until);
     if (sinceTs !== null || untilTs !== null) {
       const withUpdatedAt = await Promise.all(
-        rules.map(async (rule) => {
+        rules.map(async (rule): Promise<RuleWithUpdatedAt> => {
           try {
             const stat = await fs.stat(rule.path);
-            return { ...rule, updatedAt: new Date(stat.mtimeMs) } as any;
+            return { ...rule, updatedAt: new Date(stat.mtimeMs) };
           } catch {
-            return { ...rule } as any;
+            return { ...rule };
           }
         })
       );
-      filtered = filterByTimeRange(withUpdatedAt as any[], sinceTs, untilTs) as any[];
+      filtered = filterByTimeRange(withUpdatedAt, sinceTs, untilTs);
     }
   } catch {
     // ignore filtering errors

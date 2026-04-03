@@ -42,6 +42,7 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
 } from "../schemas/session";
+import type { SessionStartParameters, SessionUpdateParameters } from "./schemas";
 import type { GitServiceInterface } from "./git";
 
 // Re-export canonical types from sub-modules
@@ -128,13 +129,7 @@ export async function startSessionFromParams(
       depsInput?.resolveRepositoryAndBackend ??
       // Back-compat: wrap legacy resolveRepoPath(uri) => string into the new resolver interface
       (depsInput?.resolveRepoPath
-        ? async (options?: { repoParam?: string; cwd?: string }) => {
-            const uri = await (depsInput.resolveRepoPath as any)(
-              options?.repoParam || options?.cwd
-            );
-            const backendType = detectRepositoryBackendTypeFromUrl(uri);
-            return { repoUrl: uri, backendType };
-          }
+        ? depsInput.resolveRepoPath
         : resolveRepositoryAndBackend),
     fs: depsInput?.fs,
   } as const;
@@ -154,7 +149,7 @@ export async function startSessionFromParams(
     force: false,
   };
 
-  return startSessionImpl(sessionStartParams as any, deps);
+  return startSessionImpl(sessionStartParams as unknown as SessionStartParameters, deps);
 }
 
 /**
@@ -199,7 +194,7 @@ export async function updateSessionFromParams(
     sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
     getCurrentSession: depsInput?.getCurrentSession ?? getCurrentSession,
   };
-  return updateSessionImpl(params as any, deps);
+  return updateSessionImpl(params as unknown as SessionUpdateParameters, deps);
 }
 
 /**
@@ -289,7 +284,14 @@ export async function approveSessionFromParams(
       json: params.json,
       reviewComment: params.reviewComment,
     },
-    depsInput as any
+    {
+      sessionDB: depsInput?.sessionDB,
+      gitService: depsInput?.gitService,
+      taskService: depsInput?.taskService,
+      workspaceUtils: depsInput?.workspaceUtils,
+      resolveRepoPath: depsInput?.resolveRepoPath,
+      createRepositoryBackendForSession: depsInput?.createRepositoryBackendForSession,
+    }
   );
 
   return {

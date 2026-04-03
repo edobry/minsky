@@ -49,6 +49,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
             eq(taskRelationshipsTable.toTaskId, toId)
           )
         );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (res as any)?.rowCount ?? 0;
     },
     async listFrom(taskId) {
@@ -99,7 +100,7 @@ export class TaskGraphService {
   // Accept either a Drizzle database or a repository implementation
   constructor(dbOrRepo: PostgresJsDatabase | TaskRelationshipsRepository) {
     this.repo =
-      typeof (dbOrRepo as any).select === "function"
+      typeof (dbOrRepo as PostgresJsDatabase).select === "function"
         ? createDrizzleRepo(dbOrRepo as PostgresJsDatabase)
         : (dbOrRepo as TaskRelationshipsRepository);
   }

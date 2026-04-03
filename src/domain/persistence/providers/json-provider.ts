@@ -121,7 +121,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
    */
   async close(): Promise<void> {
     if (this.storage) {
-      await (this.storage as any).close?.();
+      await (this.storage as { close?: () => Promise<void> }).close?.();
       this.storage = null;
     }
     this.isInitialized = false;

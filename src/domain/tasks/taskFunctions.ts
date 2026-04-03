@@ -381,8 +381,8 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  * @param state Task state object
  * @returns Formatted markdown content
  */
-export function formatTaskStateToMarkdown(state: { tasks: TaskData[] } | any): string {
-  return formatTasksToMarkdown((state as any).tasks);
+export function formatTaskStateToMarkdown(state: { tasks: TaskData[] }): string {
+  return formatTasksToMarkdown(state.tasks);
 }
 
 /**

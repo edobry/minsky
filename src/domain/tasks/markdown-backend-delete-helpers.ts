@@ -22,12 +22,13 @@ export async function deleteTaskFromDatabase(id: string): Promise<void> {
         const { eq } = await import("drizzle-orm");
         const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
         log.debug(`Deleted task ${id} from database`, {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           rowCount: (result as any).rowCount,
         });
       }
     }
   } catch (dbError) {
-    log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError as any)}`);
+    log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError)}`);
   }
 }
 

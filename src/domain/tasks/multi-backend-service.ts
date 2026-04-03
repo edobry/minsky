@@ -182,7 +182,8 @@ export class TaskServiceImpl implements TaskService {
     }
 
     // If backend has setTaskMetadata method, use it for comprehensive updates
-    if ("setTaskMetadata" in backend && typeof (backend as any).setTaskMetadata === "function") {
+    type BackendWithMetadata = typeof backend & { setTaskMetadata: (id: string, meta: Record<string, unknown>) => Promise<void> };
+    if ("setTaskMetadata" in backend && typeof (backend as BackendWithMetadata).setTaskMetadata === "function") {
       const metadata = {
         id: taskId,
         title: updates.title !== undefined ? updates.title : currentTask.title,
@@ -192,7 +193,7 @@ export class TaskServiceImpl implements TaskService {
         updatedAt: new Date(),
       };
 
-      await (backend as any).setTaskMetadata(taskId, metadata);
+      await (backend as BackendWithMetadata).setTaskMetadata(taskId, metadata);
 
       // Update local cache
       if (updates.status) {
@@ -226,7 +227,7 @@ export class TaskServiceImpl implements TaskService {
         });
 
         if (index !== -1) {
-          tasks[index] = { ...tasks[index], title: updates.title } as any;
+          tasks[index] = { ...tasks[index], title: updates.title };
           const updated = formatTasksToMarkdown(tasks);
           await fs.writeFile(tasksFilePath, updated, "utf-8");
         }
@@ -280,7 +281,7 @@ export class TaskServiceImpl implements TaskService {
     // Direct backend read first
     try {
       const direct = await backend.getTask(id);
-      if (direct && typeof (direct as any).status !== "undefined") return (direct as any).status;
+      if (direct && typeof direct.status !== "undefined") return direct.status;
     } catch (_e) {
       // ignore direct read errors
     }
@@ -301,7 +302,7 @@ export class TaskServiceImpl implements TaskService {
         if (id.startsWith("#") && t.id === id.substring(1)) return true;
         return false;
       });
-      if (found && typeof (found as any).status !== "undefined") return (found as any).status;
+      if (found && typeof found.status !== "undefined") return found.status;
     } catch {
       // ignore list errors in mocked environments
     }
@@ -360,7 +361,10 @@ export class TaskServiceImpl implements TaskService {
         throw new Error(`Backend not found for prefix: ${prefix ?? "<none>"}`);
       }
 
-      const created = await (backend as any).createTask(spec);
+      if (!backend.createTask) {
+        throw new Error(`Backend ${backend.name} does not support createTask`);
+      }
+      const created = await backend.createTask(spec);
       return this.qualifyTaskFromBackend(created, backend)!;
     }
   }
@@ -404,8 +408,9 @@ export class TaskServiceImpl implements TaskService {
     }
 
     // Check if backend has a getTaskSpecContent method
-    if ((backend as any).getTaskSpecContent) {
-      return await (backend as any).getTaskSpecContent(taskId, section);
+    type BackendWithSpecContent = typeof backend & { getTaskSpecContent: (id: string, section?: string) => Promise<{ task: Task; specPath: string; content: string; section?: string }> };
+    if ((backend as BackendWithSpecContent).getTaskSpecContent) {
+      return await (backend as BackendWithSpecContent).getTaskSpecContent(taskId, section);
     }
 
     // Fallback: construct spec path and read directly

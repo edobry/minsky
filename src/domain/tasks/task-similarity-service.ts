@@ -98,8 +98,8 @@ export class TaskSimilarityService {
 
     // Skip if up-to-date
     try {
-      if (typeof (this.vectorStorage as any).getMetadata === "function") {
-        const meta = await (this.vectorStorage as any).getMetadata(taskId);
+      if (typeof this.vectorStorage.getMetadata === "function") {
+        const meta = await this.vectorStorage.getMetadata!(taskId);
         const storedHash = meta?.content_hash || meta?.contentHash;
         const storedModel = meta?.model;
         const currentModel = this.config.model;
@@ -208,8 +208,8 @@ export class TaskSimilarityService {
     } catch (error) {
       // If we can't get spec content, fall back to basic task info
       log.debug(`Failed to get spec content for task ${task.id}:`, error);
-      if ((task as any).description) {
-        parts.push((task as any).description);
+      if (task.description) {
+        parts.push(task.description);
       }
     }
 

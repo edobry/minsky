@@ -364,11 +364,11 @@ async function repairBackendSync(
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   // Prefer configured default when recorded type is missing; otherwise use detected actual type
-  const config = getConfiguration();
-  const defaultBackend = ((config.repository as any)?.default_repo_backend as string) || "github";
+  const config = getConfiguration() as { repository?: { default_repo_backend?: string } };
+  const defaultBackend = config.repository?.default_repo_backend || "github";
 
-  const recordedType = (issue.details as any)?.recordedType as string | undefined;
-  const actualType = (issue.details as any)?.actualType as string | undefined;
+  const recordedType = issue.details?.recordedType as string | undefined;
+  const actualType = issue.details?.actualType as string | undefined;
 
   const newBackendType = recordedType ? actualType || recordedType : defaultBackend;
 

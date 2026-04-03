@@ -150,7 +150,7 @@ export async function updateTaskFromParams(params: any) {
     updates.spec = params.spec;
   }
 
-  const updatedTask = await (taskService as any).updateTask(params.taskId, updates);
+  const updatedTask = await taskService.updateTask?.(params.taskId, updates);
   return updatedTask;
 }
 
@@ -185,8 +185,8 @@ export async function createTaskFromTitleAndSpec(params: any) {
       taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   // Use spec field, fallback to description for compatibility
-  const spec = (validParams as any).spec || (validParams as any).description || "";
-  const title = (validParams as any).title || "";
+  const spec = validParams.spec || validParams.description || "";
+  const title = validParams.title || "";
   return await taskService.createTaskFromTitleAndSpec(title, spec, validParams);
 }
 

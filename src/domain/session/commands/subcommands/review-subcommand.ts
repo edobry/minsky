@@ -10,7 +10,7 @@ export const reviewSessionSubcommand: CommandExecutionHandler = async (params) =
   }
 
   try {
-    const review = await sessionReview({ session: sessionId } as any);
+    const review = await sessionReview({ session: sessionId });
     return {
       success: true,
       data: review,

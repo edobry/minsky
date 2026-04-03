@@ -230,7 +230,7 @@ export async function getPullRequestDetails(
   }
 
   const number = record.prBranch || `pr/${sessionName}`;
-  const prInfo = record.pullRequest as any;
+  const prInfo = record.pullRequest;
   return {
     number,
     url: number,

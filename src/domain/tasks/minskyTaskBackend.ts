@@ -43,6 +43,7 @@ export class MinskyTaskBackend implements TaskBackend {
     const conditions: any[] = [];
 
     if (options?.status && options.status !== "all") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       conditions.push(eq(tasksTable.status, options.status as any));
     } else if (!options?.all) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
@@ -54,6 +55,7 @@ export class MinskyTaskBackend implements TaskBackend {
     conditions.push(eq(tasksTable.backend, "minsky"));
 
     if (conditions.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query = (query as any).where(and(...conditions));
     }
 
@@ -79,7 +81,8 @@ export class MinskyTaskBackend implements TaskBackend {
     await this.db
       .update(tasksTable)
       .set({
-        status: status as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      status: status as any,
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));
@@ -105,6 +108,7 @@ export class MinskyTaskBackend implements TaskBackend {
         id,
         sourceTaskId: id.split("#")[1], // Extract the numeric part
         backend: "minsky" as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         status: (options?.status || "TODO") as any,
         title,
         createdAt: new Date(),
@@ -114,6 +118,7 @@ export class MinskyTaskBackend implements TaskBackend {
         target: tasksTable.id,
         set: {
           backend: "minsky" as const,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           status: (options?.status || "TODO") as any,
           title: title,
           updatedAt: new Date(),
@@ -143,6 +148,7 @@ export class MinskyTaskBackend implements TaskBackend {
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
     const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (result as any).rowCount > 0;
   }
 
@@ -195,6 +201,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .update(tasksTable)
       .set({
         title: metadata.title,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         status: metadata.status as any,
         updatedAt: new Date(),
       })

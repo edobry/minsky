@@ -92,7 +92,11 @@ export async function createChangesetAwareRepositoryBackend(
     // Use existing repository backend detection and creation
     const backendType = detectRepositoryBackendType(workdir || repositoryUrl);
 
-    const config = {
+    const config: {
+      type: string;
+      repoUrl: string;
+      github?: { owner: string; repo: string };
+    } = {
       type: backendType,
       repoUrl: repositoryUrl,
     };
@@ -104,7 +108,7 @@ export async function createChangesetAwareRepositoryBackend(
       );
 
       if (githubInfo) {
-        (config as any).github = {
+        config.github = {
           owner: githubInfo.owner,
           repo: githubInfo.repo,
         };

@@ -22,8 +22,8 @@ import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-o
  * List tasks operation
  */
 export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]> {
-  getSchema() {
-    return taskListParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskListParams> {
+    return taskListParamsSchema as unknown as import("zod").ZodSchema<TaskListParams>;
   }
 
   getOperationName(): string {
@@ -48,8 +48,8 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
  * Get task operation
  */
 export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
-  getSchema() {
-    return taskGetParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskGetParams> {
+    return taskGetParamsSchema as unknown as import("zod").ZodSchema<TaskGetParams>;
   }
 
   getOperationName(): string {
@@ -71,8 +71,8 @@ export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
  * Get task status operation
  */
 export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParams, string> {
-  getSchema() {
-    return taskStatusGetParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskStatusGetParams> {
+    return taskStatusGetParamsSchema as unknown as import("zod").ZodSchema<TaskStatusGetParams>;
   }
 
   getOperationName(): string {
@@ -94,8 +94,8 @@ export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParam
  * Get task specification content operation
  */
 export class GetTaskSpecContentOperation extends BaseTaskOperation<TaskSpecContentParams, string> {
-  getSchema() {
-    return taskSpecContentParamsSchema as any;
+  getSchema(): import("zod").ZodSchema<TaskSpecContentParams> {
+    return taskSpecContentParamsSchema as unknown as import("zod").ZodSchema<TaskSpecContentParams>;
   }
 
   getOperationName(): string {
@@ -112,7 +112,7 @@ export class GetTaskSpecContentOperation extends BaseTaskOperation<TaskSpecConte
     // Get the task specification content
     const specContent = await taskService.getTaskSpecContent(params.taskId, params.section);
 
-    return specContent as any;
+    return specContent.content;
   }
 }
 

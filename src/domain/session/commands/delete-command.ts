@@ -15,7 +15,7 @@ export async function sessionDelete(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name, task, repo } = params as any;
+  const { name, task, repo } = params;
 
   // Set up dependencies with defaults
   const deps = {

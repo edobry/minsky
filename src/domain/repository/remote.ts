@@ -568,7 +568,7 @@ Repository: ${this.repoUrl}
     const sessionDB = await this.getSessionDB();
     const record = await sessionDB.getSession(sessionName);
     const number = record?.prBranch || `pr/${sessionName}`;
-    const prInfo = record?.pullRequest as any;
+    const prInfo = record?.pullRequest;
     return {
       number,
       url: number,

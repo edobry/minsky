@@ -106,6 +106,7 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
     prApproved: record.prApproved || null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     prState: (record.prState || null) as any,
 
     // Backend configuration - Drizzle handles JSON serialization
@@ -156,7 +157,7 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     prState: record.prState ? JSON.parse(record.prState) : undefined,
 
     // Backend configuration
-    backendType: (record.backendType as any) || undefined,
+    backendType: (record.backendType || undefined) as "local" | "remote" | "github" | undefined,
     pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
   };
 }

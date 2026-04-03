@@ -18,8 +18,8 @@ export async function createTaskSimilarityCore(
   },
   options: SimilarityCoreOptions = {}
 ) {
-  const cfg: any = await getConfiguration();
-  const model = cfg?.embeddings?.model || "text-embedding-3-small";
+  const cfg = getConfiguration();
+  const model = (cfg as unknown as { embeddings?: { model?: string } })?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   let embeddings: EmbeddingsSimilarityBackend | null = null;
@@ -38,6 +38,6 @@ export async function createTaskSimilarityCore(
     getContent: async (id: string) => await resolvers.getContent(id),
   });
 
-  const backends = [embeddings, /* ai (future) */ lexical].filter(Boolean) as any;
+  const backends = [embeddings, /* ai (future) */ lexical].filter((b): b is NonNullable<typeof b> => b != null);
   return new SimilaritySearchService(backends);
 }

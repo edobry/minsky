@@ -85,7 +85,7 @@ export async function createPreparedMergeCommitPR(
         stashCreated = true;
       } catch (stashErr) {
         throw new MinskyError(
-          `Failed to stash uncommitted changes: ${getErrorMessage(stashErr as any)}`
+          `Failed to stash uncommitted changes: ${getErrorMessage(stashErr)}`
         );
       }
     }
@@ -199,7 +199,7 @@ export async function createPreparedMergeCommitPR(
       } catch (stashRestoreErr) {
         log.warn("Failed to restore stashed changes, but PR was created successfully", {
           stashName,
-          error: getErrorMessage(stashRestoreErr as any),
+          error: getErrorMessage(stashRestoreErr),
         });
       }
     }
@@ -243,7 +243,7 @@ export async function createPreparedMergeCommitPR(
       } catch (stashRestoreErr) {
         log.warn("Failed to restore stashed changes after error", {
           stashName,
-          error: getErrorMessage(stashRestoreErr as any),
+          error: getErrorMessage(stashRestoreErr),
         });
       }
     }

@@ -141,7 +141,7 @@ async function compileDryRun(
 
   // For unknown targets, fallback: actually compile and return result without content
   const result = await target.compile(rules, options, workspacePath);
-  return { ...result, content: undefined as any };
+  return { ...result, content: "" };
 }
 
 /**

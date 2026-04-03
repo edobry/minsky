@@ -173,6 +173,7 @@ export class MockConfigurationLoader {
     });
 
     // Override the loadAllSources method
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mockLoader as any).loadAllSources = async () => {
       if (this.loadError) {
         throw this.loadError;

@@ -235,7 +235,7 @@ export async function approveSessionPr(
     taskId: sessionRecord.taskId,
     prBranch:
       (hasLocalPr && sessionRecord.prBranch) ||
-      (hasGitHubPr && (sessionRecord as any).pullRequest?.headBranch) ||
+      (hasGitHubPr && sessionRecord.pullRequest?.headBranch) ||
       (typeof prIdentifier === "string" ? prIdentifier : String(prIdentifier)),
     approvalInfo,
     wasAlreadyApproved: false,

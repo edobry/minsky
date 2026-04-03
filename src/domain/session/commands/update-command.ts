@@ -76,8 +76,11 @@ export async function updateSessionFromParams(
 
       // Call backend hook for extensible post-update operations
       // Future: This will support work item generation and AI-powered automation
-      if ((deps as any).backend?.onSessionUpdated) {
-        await (deps as any).backend.onSessionUpdated({
+      const depsWithBackend = deps as typeof deps & {
+        backend?: { onSessionUpdated?: (args: Record<string, unknown>) => Promise<void> };
+      };
+      if (depsWithBackend.backend?.onSessionUpdated) {
+        await depsWithBackend.backend.onSessionUpdated({
           session,
           workdir,
           updateType: "pull", // This was a pull operation

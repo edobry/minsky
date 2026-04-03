@@ -94,11 +94,11 @@ export async function listTasksFromParams(
 
     // Get tasks with filters - delegate filtering to domain layer
     let tasks = await taskService.listTasks({
-      status: (validParams as any).status as string | undefined,
+      status: validParams.status,
       all: validParams.all,
     });
     // Apply limit client-side if provided
-    const limit = (validParams as any).limit as number | undefined;
+    const limit = validParams.limit;
     if (typeof limit === "number" && limit > 0) {
       tasks = tasks.slice(0, limit);
     }
@@ -379,7 +379,7 @@ export async function updateTaskFromParams(
     }
 
     // Update the task
-    const updatedTask = await (taskService as any).updateTask(qualifiedTaskId, updates);
+    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
 
     return updatedTask;
   } catch (error) {
