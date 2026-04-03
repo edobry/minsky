@@ -1,10 +1,9 @@
+import { randomUUID } from "crypto";
+
 // Unified Task ID System
 // Task IDs: md#123, gh#456, json#789
-// Session names: UUID v4 (opaque, no task info encoded)
-// Branch names: task/mt-638, task/gh-456 (human-readable, derived from task ID)
-// Legacy session/branch names: task-md#123, task-gh#456 (kept for backward compat)
-
-import { randomUUID } from "crypto";
+// Session IDs: generated UUIDs (opaque, internal-only)
+// Branch names: task/md-123, task/gh-456, task/json-789
 
 export interface TaskId {
   backend: string;
@@ -91,7 +90,7 @@ export function taskIdToSessionName(taskId: string): string {
 
 /** @deprecated Use branchNameToTaskId() for new-format branches. Kept for legacy session name parsing. */
 export function sessionNameToTaskId(sessionName: string): string | null {
-  // UUID session names don't encode task IDs
+  // UUID session names don't encode task IDs — use DB lookup instead
   if (isUuidSessionName(sessionName)) {
     return null;
   }
@@ -100,6 +99,7 @@ export function sessionNameToTaskId(sessionName: string): string | null {
   if (match && match[1]) {
     return match[1] || null;
   }
+
   return null;
 }
 
@@ -126,7 +126,6 @@ export function isUuidSessionName(name: string): boolean {
 export function taskIdToBranchName(taskId: string): string {
   const parsed = parseTaskId(taskId);
   if (!parsed) {
-    // Not a qualified ID — return as-is
     return taskId;
   }
   return `task/${parsed.backend}-${parsed.localId}`;
