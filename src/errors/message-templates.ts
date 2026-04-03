@@ -5,6 +5,8 @@
  * user-friendly error messages throughout the Minsky application.
  */
 
+import { processCwd } from "../utils/process";
+
 // Error message emojis for consistent visual communication
 export const ErrorEmojis = {
   // Problem indicators
@@ -455,7 +457,7 @@ export class ErrorContextBuilder {
   addCurrentDirectory(): this {
     this.contexts.push({
       label: "Current directory",
-      value: (process as any).cwd(),
+      value: processCwd(),
     });
     return this;
   }

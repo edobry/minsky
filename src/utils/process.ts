@@ -14,6 +14,13 @@ export function exit(code: number): never {
   throw new Error("Process exit failed");
 }
 
+/**
+ * Alias for exit() — wraps (process as any).exit(code)
+ */
+export function processExit(code: number): never {
+  return exit(code);
+}
+
 // Store the original process.cwd() function to allow resetting
 let currentWorkingDirectoryImpl = () => {
   return (process as any).cwd();
@@ -26,6 +33,23 @@ let currentWorkingDirectoryImpl = () => {
  */
 export function getCurrentWorkingDirectory(): string {
   return currentWorkingDirectoryImpl();
+}
+
+/**
+ * Alias for getCurrentWorkingDirectory() — wraps (process as any).cwd()
+ * @returns The current working directory
+ */
+export function processCwd(): string {
+  return getCurrentWorkingDirectory();
+}
+
+/**
+ * A utility function that abstracts process.chdir() functionality
+ * This allows for easier mocking and testing of directory-related functionality
+ * @param directory The directory to change to
+ */
+export function processChdir(directory: string): void {
+  (process as any).chdir(directory);
 }
 
 /**

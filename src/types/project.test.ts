@@ -35,6 +35,7 @@ describe("ProjectContext", () => {
     }));
 
     // Mock process.cwd() to return our mock directory
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).cwd = mock(() => "/mock/projects/minsky");
 
     // Set up mock directories

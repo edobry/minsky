@@ -13,6 +13,7 @@
 
 import { readFileSync, writeFileSync, existsSync, copyFileSync } from "fs";
 import { join } from "path";
+import { processExit } from "../src/utils/process";
 
 interface SessionRecord {
   session: string;
@@ -32,7 +33,7 @@ const cleanedPath = join(xdgStateHome, "minsky", "session-db-cleaned.json");
 function createBackup(): void {
   if (!existsSync(sessionDbPath)) {
     console.error(`❌ Session database not found at: ${sessionDbPath}`);
-    (process as any).exit(1);
+    processExit(1);
   }
 
   console.log("📦 Creating backup...");
@@ -236,7 +237,7 @@ async function main(): Promise<void> {
     if (!isValid) {
       console.error("❌ Validation failed. Please review the errors above.");
       console.log(`📦 Original data is safely backed up at: ${backupPath}`);
-      (process as any).exit(1);
+      processExit(1);
     }
 
     // Step 6: Save cleaned data
@@ -250,7 +251,7 @@ async function main(): Promise<void> {
   } catch (error) {
     console.error("❌ Error during cleanup:", error);
     console.log(`📦 Original data is safely backed up at: ${backupPath}`);
-    (process as any).exit(1);
+    processExit(1);
   }
 }
 

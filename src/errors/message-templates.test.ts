@@ -32,6 +32,7 @@ setupTestMocks();
 describe("Error Message Templates", () => {
   beforeEach(() => {
     // Mock TEST_PATHS.MOCK_WORKSPACE to return consistent mock directory
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).cwd = mock(() => "/mock/projects/minsky");
   });
 
