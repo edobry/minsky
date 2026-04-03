@@ -1,6 +1,10 @@
 // Unified Task ID System
 // Task IDs: md#123, gh#456, json#789
-// Session/Branch names: task-md#123, task-gh#456, task-json#789
+// Session names: UUID v4 (opaque, no task info encoded)
+// Branch names: task/mt-638, task/gh-456 (human-readable, derived from task ID)
+// Legacy session/branch names: task-md#123, task-gh#456 (kept for backward compat)
+
+import { randomUUID } from "crypto";
 
 export interface TaskId {
   backend: string;
@@ -70,7 +74,12 @@ export function extractLocalId(taskId: string): string | null {
   return parsed ? parsed.localId : null;
 }
 
+/** UUID v4 regex for identifying UUID-format session names */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Session/Branch conversion functions
+
+/** @deprecated Use generateSessionId() for new sessions. Kept for legacy session name parsing. */
 export function taskIdToSessionName(taskId: string): string {
   // md#123 → task-md#123
   if (isQualifiedTaskId(taskId)) {
@@ -80,12 +89,58 @@ export function taskIdToSessionName(taskId: string): string {
   return taskId; // Return as-is if unparseable
 }
 
-export function sessionNameToTaskId(sessionName: string): string {
-  // task-md#123 → md#123
+/** @deprecated Use branchNameToTaskId() for new-format branches. Kept for legacy session name parsing. */
+export function sessionNameToTaskId(sessionName: string): string | null {
+  // UUID session names don't encode task IDs
+  if (isUuidSessionName(sessionName)) {
+    return null;
+  }
+  // Legacy: task-md#123 → md#123
   const match = sessionName.match(/^task-(.+)$/);
   if (match && match[1]) {
-    return match[1] || sessionName;
+    return match[1] || null;
   }
+  return null;
+}
 
-  return sessionName; // Return as-is if unparseable
+/**
+ * Generate a unique session ID (UUID v4).
+ * Session IDs are opaque identifiers — they do not encode task information.
+ * @param idGenerator Optional custom ID generator (for testing)
+ */
+export function generateSessionId(idGenerator?: () => string): string {
+  return idGenerator ? idGenerator() : randomUUID();
+}
+
+/**
+ * Check if a session name is a UUID-format session ID (new format).
+ */
+export function isUuidSessionName(name: string): boolean {
+  return UUID_REGEX.test(name);
+}
+
+/**
+ * Convert a qualified task ID to a shell-safe git branch name.
+ * mt#638 → task/mt-638
+ */
+export function taskIdToBranchName(taskId: string): string {
+  const parsed = parseTaskId(taskId);
+  if (!parsed) {
+    // Not a qualified ID — return as-is
+    return taskId;
+  }
+  return `task/${parsed.backend}-${parsed.localId}`;
+}
+
+/**
+ * Convert a task branch name back to a qualified task ID.
+ * task/mt-638 → mt#638
+ * Returns null if the branch name doesn't match the task branch format.
+ */
+export function branchNameToTaskId(branchName: string): string | null {
+  const match = branchName.match(/^task\/([^-]+)-(.+)$/);
+  if (!match || !match[1] || !match[2]) {
+    return null;
+  }
+  return `${match[1]}#${match[2]}`;
 }

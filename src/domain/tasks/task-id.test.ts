@@ -228,8 +228,8 @@ describe("Edge Cases and Error Handling", () => {
 
   it("should handle conversion edge cases", () => {
     expect(taskIdToSessionName("")).toBe("");
-    expect(sessionNameToTaskId("")).toBe("");
+    expect(sessionNameToTaskId("")).toBeNull();
     expect(taskIdToSessionName("invalid")).toBe("invalid");
-    expect(sessionNameToTaskId("invalid")).toBe("invalid");
+    expect(sessionNameToTaskId("invalid")).toBeNull();
   });
 });
