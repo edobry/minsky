@@ -8,7 +8,7 @@
  * - Workspace validation
  */
 import { log } from "../../../utils/logger";
-import type { SessionProviderInterface } from "../types";
+import type { SessionProviderInterface, SessionRecord } from "../types";
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createGitService } from "../../git";
@@ -41,7 +41,7 @@ export interface RepairIssue {
   type: "pr-state" | "backend-sync" | "branch-format" | "workspace" | "task-id";
   severity: "low" | "medium" | "high" | "critical";
   description: string;
-  details?: any;
+  details?: Record<string, unknown>;
   autoFixable: boolean;
 }
 
@@ -169,7 +169,7 @@ export async function sessionRepair(
  * Analyze session for various types of issues
  */
 async function analyzeSessionIssues(
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
   gitService: GitServiceInterface,
   params: SessionRepairParameters
@@ -195,7 +195,7 @@ async function analyzeSessionIssues(
  * Check for PR state related issues
  */
 async function analyzePRStateIssues(
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
   gitService: GitServiceInterface
 ): Promise<RepairIssue[]> {
@@ -245,9 +245,9 @@ async function analyzePRStateIssues(
  * Check for backend synchronization issues
  */
 async function analyzeBackendSyncIssues(
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
-  gitService: GitServiceInterface
+  _gitService: GitServiceInterface
 ): Promise<RepairIssue[]> {
   const issues: RepairIssue[] = [];
 
@@ -317,7 +317,7 @@ async function analyzeBackendSyncIssues(
  */
 async function applyRepair(
   issue: RepairIssue,
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
   gitService: GitServiceInterface
 ): Promise<RepairAction> {
@@ -341,10 +341,10 @@ async function applyRepair(
  */
 async function repairBranchFormat(
   issue: RepairIssue,
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
-  const correctBranch = issue.details.expectedBranch;
+  const correctBranch = issue.details?.expectedBranch as string;
 
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
@@ -352,12 +352,13 @@ async function repairBranchFormat(
     prState: {
       ...sessionRecord.prState,
       branchName: correctBranch,
+      lastChecked: new Date().toISOString(),
     },
   });
 
   return {
     type: "branch-format",
-    description: `Fixed branch format: '${issue.details.currentBranch}' → '${correctBranch}'`,
+    description: `Fixed branch format: '${issue.details?.currentBranch}' → '${correctBranch}'`,
     applied: true,
   };
 }
@@ -367,7 +368,7 @@ async function repairBranchFormat(
  */
 async function repairPRState(
   issue: RepairIssue,
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   await sessionDB.updateSession(sessionRecord.session, {
@@ -379,7 +380,7 @@ async function repairPRState(
 
   return {
     type: "pr-state",
-    description: `Cleared stale PR state (branch: ${issue.details.branchName})`,
+    description: `Cleared stale PR state (branch: ${issue.details?.branchName})`,
     applied: true,
   };
 }
@@ -389,7 +390,7 @@ async function repairPRState(
  */
 async function repairBackendSync(
   issue: RepairIssue,
-  sessionRecord: any,
+  sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   const recordedType = issue.details?.recordedType as string | undefined;
@@ -416,7 +417,7 @@ async function repairBackendSync(
 
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
-    backendType: newBackendType,
+    backendType: newBackendType as "local" | "remote" | "github",
   });
 
   return {

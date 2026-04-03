@@ -37,7 +37,7 @@ export interface RepoStatus extends RepositoryStatus {
   behind: number;
   dirty: boolean;
   remotes: string[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -177,7 +177,7 @@ export interface PRInfo {
   /**
    * Additional metadata specific to the repository backend
    */
-  metadata?: any;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -202,7 +202,7 @@ export interface MergeInfo {
   /**
    * Additional metadata specific to the repository backend
    */
-  metadata?: any;
+  metadata?: Record<string, unknown>;
 }
 
 // Completely rewritten repository backend interface with flexible types
@@ -333,6 +333,7 @@ export interface RepositoryBackend {
  */
 export interface SessionUpdateEvent {
   /** Basic session and context info */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session record shape varies and is accessed dynamically by consumers
   session: any;
   workdir: string;
 
@@ -342,9 +343,9 @@ export interface SessionUpdateEvent {
   /** Future extensibility hooks */
   context?: {
     /** For future: PR merge events that triggered this */
-    triggerEvent?: any;
+    triggerEvent?: unknown;
     /** For future: AI analysis and work item generation */
-    automationConfig?: any;
+    automationConfig?: unknown;
     /** For future: Related sessions and dependency tracking */
     relatedSessions?: string[];
   };

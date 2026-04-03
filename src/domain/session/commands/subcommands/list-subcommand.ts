@@ -33,12 +33,12 @@ export async function executeSessionListCommand(
     >;
   },
   context: CommandExecutionContext
-): Promise<any[]> {
+): Promise<unknown[]> {
   const { repo, json } = parameters;
 
   const result = await sessionList({
     repo,
-  } as any);
+  } as Parameters<typeof sessionList>[0]);
 
   if (context.debug) {
     log.debug("Session list command executed successfully", { result });

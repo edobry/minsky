@@ -34,11 +34,12 @@ export interface TaskCommandResult {
 /**
  * Abstract base class for task commands
  */
-export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record<string, unknown>> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- TResult default must be any to allow subclasses to return varied result shapes
+export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
-  abstract readonly parameters: any;
+  abstract readonly parameters: Record<string, unknown>;
 
   /**
    * Command category (always TASKS)
@@ -91,14 +92,14 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record
   /**
    * Log error message with command context
    */
-  protected error(message: string, error?: any): void {
-    log.error(`[${this.id}] ${message}`, error);
+  protected error(message: string, error?: unknown): void {
+    log.error(`[${this.id}] ${message}`, error as Record<string, unknown>);
   }
 
   /**
    * Create task command parameters with common fields
    */
-  protected createTaskParams(params: BaseTaskParams): any {
+  protected createTaskParams(params: BaseTaskParams): Record<string, unknown> {
     return {
       taskId: params.taskId,
       repo: params.repo,
@@ -111,23 +112,30 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record
   /**
    * Format command results for output
    */
-  protected formatResult(result: any, json: boolean = false): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result type varies by command
+  protected formatResult(result: unknown, json: boolean = false): any {
     if (json) {
       // Return structured data for programmatic use
       return result;
     } else {
       // Handle special case for task lists - display actual tasks
-      if (typeof result === "object" && result.tasks && Array.isArray(result.tasks)) {
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "tasks" in result &&
+        Array.isArray((result as Record<string, unknown>).tasks)
+      ) {
         // Import formatTaskIdForDisplay locally to avoid circular dependencies
         const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+        const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
 
-        if (result.tasks.length === 0) {
+        if (tasks.length === 0) {
           return "No tasks found.";
         }
 
         // Format each task for display (strict: derive from id only)
-        const taskList = result.tasks
-          .map((task: any) => {
+        const taskList = tasks
+          .map((task) => {
             const displayId = formatTaskIdForDisplay(task.id);
             return `${displayId}: ${task.title} [${task.status}]`;
           })
@@ -137,30 +145,34 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = Record
       }
 
       // Handle individual task details
-      if (typeof result === "object" && result.task && !Array.isArray(result.task)) {
-        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
-        const task = result.task;
-        const displayId = formatTaskIdForDisplay(task.id);
+      if (typeof result === "object" && result !== null && "task" in result) {
+        const taskResult = result as Record<string, unknown>;
+        const task = taskResult.task;
+        if (task && typeof task === "object" && !Array.isArray(task)) {
+          const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+          const taskObj = task as Record<string, unknown>;
+          const displayId = formatTaskIdForDisplay(taskObj.id);
 
-        let output = `${displayId}: ${task.title}\n`;
-        output += `Status: ${task.status}\n`;
+          let output = `${displayId}: ${taskObj.title}\n`;
+          output += `Status: ${taskObj.status}\n`;
 
-        // Note: Task objects don't contain spec content directly
-        // Spec content needs to be fetched separately via getTaskSpecContent
-        if (task.description) {
-          output += `Description: ${task.description}\n`;
+          // Note: Task objects don't contain spec content directly
+          // Spec content needs to be fetched separately via getTaskSpecContent
+          if (taskObj.description) {
+            output += `Description: ${taskObj.description}\n`;
+          }
+
+          if (taskObj.specPath) {
+            output += `Spec: ${taskObj.specPath}\n`;
+          }
+
+          return output.trim();
         }
-
-        if (task.specPath) {
-          output += `Spec: ${task.specPath}\n`;
-        }
-
-        return output.trim();
       }
 
       // Return simple message for other results
-      if (typeof result === "object" && result.message) {
-        return result.message;
+      if (typeof result === "object" && result !== null && "message" in result) {
+        return (result as Record<string, unknown>).message;
       }
       return result;
     }

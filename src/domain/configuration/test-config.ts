@@ -14,13 +14,13 @@ export interface TestConfigOverrides extends PartialConfiguration {}
 export interface TestConfigManager {
   withOverrides<T>(overrides: TestConfigOverrides, testFn: () => T): T;
   withOverridesAsync<T>(overrides: TestConfigOverrides, testFn: () => Promise<T>): Promise<T>;
-  getConfigValue(path: string): any;
-  setConfigValue(path: string, value: any): void;
+  getConfigValue(path: string): unknown;
+  setConfigValue(path: string, value: unknown): void;
   resetConfig(): void;
 }
 
 export class DefaultTestConfigManager implements TestConfigManager {
-  private originalValues: Map<string, any> = new Map();
+  private originalValues: Map<string, unknown> = new Map();
   private overrideActive: boolean = false;
 
   /**
@@ -53,7 +53,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Get a configuration value (with override support)
    */
-  getConfigValue(path: string): any {
+  getConfigValue(path: string): unknown {
     try {
       return get(path);
     } catch (error) {
@@ -64,7 +64,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Set a configuration value for testing
    */
-  setConfigValue(path: string, value: any): void {
+  setConfigValue(path: string, value: unknown): void {
     // Store original value if not already stored
     if (!this.originalValues.has(path)) {
       try {
@@ -76,7 +76,11 @@ export class DefaultTestConfigManager implements TestConfigManager {
     }
 
     // Set the override value
-    this.setNestedValue(getConfigurationProvider().getConfig(), path, value);
+    this.setNestedValue(
+      getConfigurationProvider().getConfig() as Record<string, unknown>,
+      path,
+      value
+    );
   }
 
   /**
@@ -90,9 +94,16 @@ export class DefaultTestConfigManager implements TestConfigManager {
     // Restore original values
     for (const [path, originalValue] of this.originalValues) {
       if (originalValue === undefined) {
-        this.deleteNestedValue(getConfigurationProvider().getConfig(), path);
+        this.deleteNestedValue(
+          getConfigurationProvider().getConfig() as Record<string, unknown>,
+          path
+        );
       } else {
-        this.setNestedValue(getConfigurationProvider().getConfig(), path, originalValue);
+        this.setNestedValue(
+          getConfigurationProvider().getConfig() as Record<string, unknown>,
+          path,
+          originalValue
+        );
       }
     }
 
@@ -116,9 +127,9 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Set a nested value in an object using dot notation
    */
-  private setNestedValue(obj: any, path: string, value: any): void {
+  private setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const keys = path.split(".");
-    let current = obj;
+    let current: Record<string, unknown> = obj;
 
     for (let i = 0; i < keys.length - 1; i++) {
       const key = keys[i];
@@ -126,7 +137,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
         current[key] = {};
       }
       if (key) {
-        current = current[key];
+        current = current[key] as Record<string, unknown>;
       }
     }
 
@@ -139,16 +150,16 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Delete a nested value in an object using dot notation
    */
-  private deleteNestedValue(obj: any, path: string): void {
+  private deleteNestedValue(obj: Record<string, unknown>, path: string): void {
     const keys = path.split(".");
-    let current = obj;
+    let current: Record<string, unknown> = obj;
 
     for (let i = 0; i < keys.length - 1; i++) {
       const key = keys[i];
       if (!key || !(key in current) || typeof current[key] !== "object") {
         return; // Path doesn't exist
       }
-      current = current[key];
+      current = current[key] as Record<string, unknown>;
     }
 
     const lastKey = keys[keys.length - 1];

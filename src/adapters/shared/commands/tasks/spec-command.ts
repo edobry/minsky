@@ -20,7 +20,7 @@ interface TasksSpecParams extends BaseTaskParams {
 /**
  * Task specification command implementation
  */
-export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, any> {
+export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> {
   readonly id = "tasks.spec.get";
   readonly name = "get";
   readonly description = "Get task specification content";

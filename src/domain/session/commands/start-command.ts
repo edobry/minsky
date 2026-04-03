@@ -13,6 +13,7 @@ import type { Session } from "../types";
  */
 export async function sessionStart(
   params: SessionStartParameters,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps bag uses interface implementations with varying shapes (WorkspaceUtilsInterface vs module export)
   depsInput?: any
 ): Promise<Session> {
   // Delegate to domain implementation; adapter remains thin

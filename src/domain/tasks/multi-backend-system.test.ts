@@ -63,7 +63,8 @@ describe("Multi-Backend Task System", () => {
       it("should support task creation across backends", async () => {
         const { service } = createTaskServiceWithMocks();
         const spec = mockTaskSpecs.simple();
-        const created = await service.createTask({ ...spec, id: "md#new" } as any, "md");
+
+        const created = await service.createTask({ ...spec, id: "md#new" } as any, "md" as any);
         expect(created.id.startsWith("md#")).toBe(true);
         expect(created.title).toBe(spec.title);
       });

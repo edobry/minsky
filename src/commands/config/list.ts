@@ -19,33 +19,39 @@ interface ListOptions {
  * @param showSecrets Whether to show actual secret values
  * @returns Configuration with credentials masked unless showSecrets is true
  */
-function maskCredentials(config: any, showSecrets: boolean): any {
+function maskCredentials(
+  config: Record<string, unknown>,
+  showSecrets: boolean
+): Record<string, unknown> {
   if (showSecrets) {
     return config;
   }
 
-  const masked = JSON.parse(JSON.stringify(config)); // Deep clone
+  const masked = JSON.parse(JSON.stringify(config)) as Record<string, unknown>; // Deep clone
 
   // Mask AI provider API keys
-  if (masked.ai?.providers) {
-    for (const [provider, providerConfig] of Object.entries(masked.ai.providers)) {
+  const maskedAi = masked.ai as Record<string, unknown> | undefined;
+  if (maskedAi?.providers) {
+    const providers = maskedAi.providers as Record<string, Record<string, unknown>>;
+    for (const [, providerConfig] of Object.entries(providers)) {
       if (providerConfig && typeof providerConfig === "object") {
-        const cfg = providerConfig as any;
-        if (cfg.apiKey) {
-          cfg.apiKey = `${"*".repeat(20)} (configured)`;
+        if (providerConfig.apiKey) {
+          providerConfig.apiKey = `${"*".repeat(20)} (configured)`;
         }
       }
     }
   }
 
   // Mask GitHub token
-  if (masked.github?.token) {
-    masked.github.token = `${"*".repeat(20)} (configured)`;
+  const maskedGithub = masked.github as Record<string, unknown> | undefined;
+  if (maskedGithub?.token) {
+    maskedGithub.token = `${"*".repeat(20)} (configured)`;
   }
 
   // Mask any other potential credential fields
-  if (masked.sessiondb?.connectionString) {
-    masked.sessiondb.connectionString = `${"*".repeat(20)} (configured)`;
+  const maskedSessiondb = masked.sessiondb as Record<string, unknown> | undefined;
+  if (maskedSessiondb?.connectionString) {
+    maskedSessiondb.connectionString = `${"*".repeat(20)} (configured)`;
   }
 
   return masked;
@@ -71,7 +77,9 @@ export function createConfigListCommand(): Command {
         const { backend: _deprecatedBackend, ...resolved } = config;
 
         // Apply credential masking unless explicitly requested to show secrets
-        const maskedConfig = maskCredentials(resolved, options.showSecrets || false);
+        const resolvedRecord = resolved as unknown as Record<string, unknown>;
+        const metadataRecord = metadata as unknown as Record<string, unknown>;
+        const maskedConfig = maskCredentials(resolvedRecord, options.showSecrets || false);
 
         if (options.json) {
           const output = {
@@ -81,7 +89,11 @@ export function createConfigListCommand(): Command {
           };
           await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
-          await displayConfigurationSources(resolved, metadata, options.showSecrets || false);
+          await displayConfigurationSources(
+            resolvedRecord,
+            metadataRecord,
+            options.showSecrets || false
+          );
         }
       } catch (error) {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
@@ -90,15 +102,21 @@ export function createConfigListCommand(): Command {
     });
 }
 
-async function displayConfigurationSources(resolved: any, metadata: any, showSecrets: boolean) {
+async function displayConfigurationSources(
+  resolved: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  showSecrets: boolean
+) {
   await Bun.write(Bun.stdout, "CONFIGURATION SOURCES\n");
   await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
   // Show source precedence
-  if (metadata.sources && metadata.sources.length > 0) {
+  const sources = metadata.sources as Array<Record<string, unknown>> | undefined;
+  if (sources && sources.length > 0) {
     await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
-    for (let i = 0; i < metadata.sources.length; i++) {
-      const source = metadata.sources[i];
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      if (!source) continue;
       await Bun.write(Bun.stdout, `  ${i + 1}. ${source.name || source.type || "Unknown"}\n`);
     }
   } else {
@@ -108,17 +126,21 @@ async function displayConfigurationSources(resolved: any, metadata: any, showSec
   await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
   await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
 
-  if (resolved.sessiondb) {
-    await Bun.write(Bun.stdout, `SessionDB Backend: ${resolved.sessiondb.backend}\n`);
+  const sessiondb = resolved.sessiondb as Record<string, unknown> | undefined;
+  if (sessiondb) {
+    await Bun.write(Bun.stdout, `SessionDB Backend: ${sessiondb.backend}\n`);
   }
 
-  if (resolved.github && resolved.github.token) {
+  const github = resolved.github as Record<string, unknown> | undefined;
+  if (github?.token) {
     await Bun.write(Bun.stdout, "GitHub: Configured\n");
   }
 
-  if (resolved.ai && resolved.ai.providers) {
-    const configuredProviders = Object.keys(resolved.ai.providers).filter(
-      (provider) => resolved.ai.providers[provider].apiKey
+  const ai = resolved.ai as Record<string, unknown> | undefined;
+  if (ai?.providers) {
+    const providers = ai.providers as Record<string, Record<string, unknown>>;
+    const configuredProviders = Object.keys(providers).filter(
+      (provider) => providers[provider]?.apiKey
     );
     if (configuredProviders.length > 0) {
       await Bun.write(Bun.stdout, `AI Providers: ${configuredProviders.join(", ")}\n`);

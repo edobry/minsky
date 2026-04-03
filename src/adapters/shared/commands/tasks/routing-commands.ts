@@ -3,7 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { TaskRoutingService, type RouteStep } from "../../../../domain/tasks/task-routing-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
-import { type CommandParameterMap } from "../../command-registry";
+import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
 // Parameter definitions for available tasks command
 const tasksAvailableParams = {
@@ -78,7 +78,7 @@ export function createTasksAvailableCommand() {
     name: "available",
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
-    execute: async (params: any) => {
+    execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
 
@@ -200,7 +200,7 @@ export function createTasksRouteCommand() {
     name: "route",
     description: "Generate implementation route to target task",
     parameters: tasksRouteParams,
-    execute: async (params: any) => {
+    execute: async (params: InferParams<typeof tasksRouteParams>) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
 

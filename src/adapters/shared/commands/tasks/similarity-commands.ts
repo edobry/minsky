@@ -15,8 +15,8 @@ function taskStyleFormatter(
   showScore: boolean
 ): string {
   const title = result.name || result.id;
-  const id = (result as any).displayId || result.id;
-  const status = (result as any).status || "";
+  const id = result.displayId || result.id;
+  const status = (result.status as string | undefined) || "";
   const statusPart = status ? ` [${status}]` : "";
   const scorePart =
     showScore && result.score !== undefined ? `\nScore: ${result.score.toFixed(3)}` : "";
@@ -70,7 +70,14 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
       spec?: string;
     }>
   > {
-    const enhanced: any[] = [];
+    const enhanced: Array<{
+      id: string;
+      score?: number;
+      title?: string;
+      status?: string;
+      specPath?: string;
+      description?: string;
+    }> = [];
 
     for (const result of searchResults) {
       try {
@@ -89,7 +96,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: includeSpecPath ? (task as any).specPath : undefined,
+            specPath: includeSpecPath ? task.specPath : undefined,
             // Only include description if details requested
             description: includeDetails ? task.description : undefined,
           });
@@ -167,7 +174,14 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       spec?: string;
     }>
   > {
-    const enhanced: any[] = [];
+    const enhanced: Array<{
+      id: string;
+      score?: number;
+      title?: string;
+      status?: string;
+      specPath?: string;
+      description?: string;
+    }> = [];
 
     for (const result of searchResults) {
       try {
@@ -186,7 +200,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: includeSpecPath ? (task as any).specPath : undefined,
+            specPath: includeSpecPath ? task.specPath : undefined,
             // Only include description if details requested
             description: includeDetails ? task.description : undefined,
           });
@@ -239,7 +253,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
         const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold =
-          threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
+          threshold ??
+          (service as unknown as { config?: { similarityThreshold?: number } })?.config
+            ?.similarityThreshold ??
+          "(default)";
         // Print to CLI in human-friendly lines
         const { log } = await import("../../../../utils/logger");
         // Write diagnostics to stderr so --json stays clean on stdout
@@ -343,4 +360,5 @@ declare module "./base-task-command" {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically extending prototype to add createService method declared via module augmentation
 (BaseTaskCommand as any).prototype.createService = createTaskSimilarityService;

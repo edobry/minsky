@@ -6,7 +6,7 @@
  */
 import { Command } from "commander";
 import { log } from "../../../../utils/logger";
-import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
+import { sharedCommandRegistry, CommandCategory, type SharedCommand } from "../../command-registry";
 import {
   type CommandCustomizationManager,
   type CategoryCommandOptions,
@@ -113,7 +113,7 @@ export class CategoryCommandHandler {
    */
   private addCommandsToCategory(
     categoryCommand: Command,
-    commands: any[],
+    commands: SharedCommand[],
     customOptions: CategoryCommandOptions,
     context?: { viaFactory?: boolean }
   ): void {
@@ -137,7 +137,7 @@ export class CategoryCommandHandler {
    */
   private addCommandWithNesting(
     categoryCommand: Command,
-    commandDef: any,
+    commandDef: SharedCommand,
     commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
   ): void {
@@ -165,7 +165,7 @@ export class CategoryCommandHandler {
    * E.g., id: "tasks.status.get", name: "status get" -> ["status", "get"]
    * E.g., id: "ai.models.list", name: "list" -> ["ai", "models", "list"]
    */
-  private parseCommandHierarchy(commandDef: any): string[] {
+  private parseCommandHierarchy(commandDef: SharedCommand): string[] {
     // Check if ID has category-based structure (e.g., "tasks.status.get", "ai.models.list")
     const categoryPrefix = `${commandDef.category.toLowerCase()}.`;
 
@@ -202,7 +202,7 @@ export class CategoryCommandHandler {
    */
   private addSimpleCommand(
     categoryCommand: Command,
-    commandDef: any,
+    commandDef: SharedCommand,
     context?: { viaFactory?: boolean }
   ): void {
     const subcommand = this.deps.commandGenerator.generateCommand(commandDef.id, context);
@@ -216,7 +216,7 @@ export class CategoryCommandHandler {
    */
   private addNestedCommand(
     categoryCommand: Command,
-    commandDef: any,
+    commandDef: SharedCommand,
     nameParts: string[],
     commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
@@ -256,7 +256,7 @@ export class CategoryCommandHandler {
    */
   private addComplexNestedCommand(
     categoryCommand: Command,
-    commandDef: any,
+    commandDef: SharedCommand,
     commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
   ): void {
@@ -269,7 +269,7 @@ export class CategoryCommandHandler {
    */
   private addNestedCommandRecursive(
     parentCommand: Command,
-    commandDef: any,
+    commandDef: SharedCommand,
     nameParts: string[],
     commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
