@@ -9,7 +9,7 @@ When spawning subagents via the Agent tool, use the appropriate model to balance
 
 ## Minsky Session Workflow
 
-Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/task-mt#<ID>/`. The correct working pattern:
+Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID>/` (branch names follow `task/<backend>-<id>` format). The correct working pattern:
 
 1. **ALL work goes through sessions** — even small fixes. Never edit main workspace directly.
 2. **Main agent** orchestrates: create tasks, start sessions, launch subagents, review PRs, merge.

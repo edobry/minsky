@@ -15,6 +15,8 @@ import { createMockSessionProvider, createMockTaskService } from "../utils/test-
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
+const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
+
 describe("Session Git Clone Bug Regression Test", () => {
   it("should not leave orphaned session records when git clone fails", async () => {
     // Arrange - Simulate the exact error scenario that caused the bug using centralized factories
@@ -25,13 +27,13 @@ describe("Session Git Clone Bug Regression Test", () => {
     const cloneSpy = mock(() =>
       Promise.reject(
         new Error(
-          "fatal: destination path 'task-md#160' already exists and is not an empty directory"
+          `fatal: destination path '${TEST_UUID}' already exists and is not an empty directory`
         )
       )
     );
 
     const branchSpy = mock(() =>
-      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -45,7 +47,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       clone: cloneSpy,
       branchWithoutSession: branchSpy,
       branch: mock(() =>
-        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
       ),
       execInRepository: mock(() => Promise.resolve("")),
       getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),
@@ -81,7 +83,7 @@ describe("Session Git Clone Bug Regression Test", () => {
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: mockResolveRepoPath as any,
       })
-    ).rejects.toThrow("destination path 'task-md#160' already exists");
+    ).rejects.toThrow(`destination path '${TEST_UUID}' already exists`);
 
     // Critical assertion: NO session record should be added to database
     expect(addSessionSpy).not.toHaveBeenCalled();
@@ -100,11 +102,11 @@ describe("Session Git Clone Bug Regression Test", () => {
     };
 
     const cloneSpy = mock(() =>
-      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: TEST_UUID })
     );
 
     const branchSpy = mock(() =>
-      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -118,7 +120,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       clone: cloneSpy,
       branchWithoutSession: branchSpy,
       branch: mock(() =>
-        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
+        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
       ),
       execInRepository: mock(() => Promise.resolve("")),
       getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),

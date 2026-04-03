@@ -194,7 +194,11 @@ async function executeSessionChangesetGet(
       try {
         const currentSessionName = await getCurrentSession(process.cwd());
         if (currentSessionName) {
-          changesetId = `pr/${currentSessionName}`;
+          const { createSessionProvider } = await import("../../../../domain/session");
+          const sessionProvider = await createSessionProvider();
+          const sessionRecord = await sessionProvider.getSession(currentSessionName);
+          const branchOrSession = sessionRecord?.branch || currentSessionName;
+          changesetId = `pr/${branchOrSession}`;
         } else {
           const errorMsg = "No changeset ID specified and no current session detected";
           log.cliError(errorMsg);
