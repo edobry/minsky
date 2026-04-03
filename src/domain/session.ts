@@ -33,6 +33,8 @@ import {
 import { updateSessionImpl } from "./session/session-update-operations";
 import { startSessionImpl } from "./session/start-session-operations";
 import type { RepositoryBackend } from "./repository/index";
+import type { SessionRecord } from "./session/types";
+import type { ApprovalInfo } from "./repository/approval-types";
 
 import type {
   SessionGetParams,
@@ -115,9 +117,9 @@ export async function startSessionFromParams(
       github?: { owner: string; repo: string };
     }>;
     /** @deprecated Use getRepositoryBackend instead — accepted for backward-compat with tests */
-    resolveRepositoryAndBackend?: (...args: any[]) => Promise<any>;
+    resolveRepositoryAndBackend?: (...args: unknown[]) => Promise<unknown>;
     /** @deprecated Use getRepositoryBackend instead — accepted for backward-compat with tests */
-    resolveRepoPath?: (...args: any[]) => Promise<any>;
+    resolveRepoPath?: (...args: unknown[]) => Promise<unknown>;
     /** Optional filesystem adapter passthrough for tests */
     fs?: {
       exists: (path: string) => boolean | Promise<boolean>;
@@ -137,12 +139,16 @@ export async function startSessionFromParams(
   } else if (depsInput?.resolveRepositoryAndBackend) {
     // Back-compat shim for older tests — wraps legacy resolver into new interface
     const legacyFn = depsInput.resolveRepositoryAndBackend as (
-      opts?: any
-    ) => Promise<{ repoUrl: string; backendType: any; github?: any }>;
+      opts?: Record<string, unknown>
+    ) => Promise<{
+      repoUrl: string;
+      backendType: import("./repository/index").RepositoryBackendType;
+      github?: { owner: string; repo: string };
+    }>;
     getRepositoryBackendDep = async () => legacyFn({ cwd: process.cwd() });
   } else if (depsInput?.resolveRepoPath) {
     // Back-compat shim for older tests — wraps legacy path resolver into new interface
-    const resolveFn = depsInput.resolveRepoPath as (...args: any[]) => Promise<string>;
+    const resolveFn = depsInput.resolveRepoPath as (...args: unknown[]) => Promise<string>;
     getRepositoryBackendDep = async () => {
       const uri = await resolveFn(undefined);
       const backendType = detectRepositoryBackendTypeFromUrl(uri);
@@ -276,23 +282,17 @@ export async function approveSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
-    createRepositoryBackend?: (sessionRecord: any) => Promise<RepositoryBackend>;
+    createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
     /** @deprecated kept for backward-compat with older tests */
-    resolveRepoPath?: (...args: any[]) => Promise<string>;
+    resolveRepoPath?: (...args: unknown[]) => Promise<string>;
     /** @deprecated Use createRepositoryBackend instead */
-    createRepositoryBackendForSession?: (...args: any[]) => Promise<RepositoryBackend>;
+    createRepositoryBackendForSession?: (...args: unknown[]) => Promise<RepositoryBackend>;
   }
 ): Promise<{
   sessionName: string;
   taskId?: string;
   prBranch?: string;
-  approvalInfo: {
-    reviewId: number | string;
-    approvedBy: string;
-    approvedAt: string;
-    prNumber: string | number;
-    [key: string]: any;
-  };
+  approvalInfo: ApprovalInfo;
   wasAlreadyApproved: boolean;
 }> {
   let sessionToUse = params.session;

@@ -20,6 +20,7 @@ import {
   sessionReviewCommandParams,
 } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
+import { type AIReviewResult } from "../../../../domain/ai/review-service";
 
 // Import the new PR subcommand classes
 import {
@@ -273,7 +274,9 @@ export class SessionReviewCommand extends BaseSessionCommand<
         const { getConfiguration } = await import("../../../../domain/configuration");
 
         // Create AI completion service
-        const configService: any = {
+        const configService: {
+          loadConfiguration: () => Promise<{ resolved: ReturnType<typeof getConfiguration> }>;
+        } = {
           loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
         };
         const aiService = new DefaultAICompletionService(configService);
@@ -299,16 +302,22 @@ export class SessionReviewCommand extends BaseSessionCommand<
 
         // Handle AI actions if requested
         if (params.autoComment && aiReviewResult.overall.recommendation !== "approve") {
-          await this.handleAutoComment(reviewResult, aiReviewResult);
+          await this.handleAutoComment(
+            reviewResult as unknown as Record<string, unknown>,
+            aiReviewResult
+          );
         }
 
         if (params.autoApprove && aiReviewResult.overall.score >= 8) {
-          await this.handleAutoApprove(reviewResult, aiReviewResult);
+          await this.handleAutoApprove(
+            reviewResult as unknown as Record<string, unknown>,
+            aiReviewResult
+          );
         }
 
         // Return enhanced result with AI analysis
         return this.createSuccessResult({
-          ...reviewResult,
+          ...(reviewResult as unknown as Record<string, unknown>),
           aiAnalysis: aiReviewResult,
           enhancedWithAI: true,
         });
@@ -316,7 +325,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         // If AI analysis fails, return basic result with error info
         const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
         return this.createSuccessResult({
-          ...reviewResult,
+          ...(reviewResult as unknown as Record<string, unknown>),
           aiAnalysis: null,
           aiError: `AI analysis failed: ${errorMessage}`,
           enhancedWithAI: false,
@@ -331,24 +340,34 @@ export class SessionReviewCommand extends BaseSessionCommand<
   /**
    * Handle auto-comment action: add AI review as changeset comment
    */
-  private async handleAutoComment(reviewResult: any, aiResult: any): Promise<void> {
-    if (!reviewResult.changeset) return;
+  private async handleAutoComment(
+    reviewResult: Record<string, unknown>,
+    aiResult: AIReviewResult
+  ): Promise<void> {
+    const changeset = reviewResult.changeset as
+      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionName?: string } } }
+      | undefined;
+    if (!changeset) return;
 
     try {
       const { createChangesetService } = await import(
         "../../../../domain/changeset/changeset-service"
       );
       const changesetService = await createChangesetService(
-        reviewResult.changeset.metadata?.github?.url ||
-          reviewResult.changeset.metadata?.local?.sessionName ||
-          "unknown"
+        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionName || "unknown"
       );
 
       // Get adapter to submit comment
-      const adapter = await (changesetService as any).getAdapter();
+      const adapter = await (
+        changesetService as unknown as {
+          getAdapter?: () => Promise<{
+            approve?: (id: string, text: string) => Promise<void>;
+          } | null>;
+        }
+      ).getAdapter?.();
       if (adapter && typeof adapter.approve === "function") {
         const commentText = this.formatAIReviewComment(aiResult);
-        await adapter.approve(reviewResult.changeset.id, commentText);
+        await adapter.approve(changeset.id, commentText);
       }
     } catch (error) {
       // Log error but don't fail the entire review
@@ -360,24 +379,34 @@ export class SessionReviewCommand extends BaseSessionCommand<
   /**
    * Handle auto-approve action: approve changeset if AI score is high
    */
-  private async handleAutoApprove(reviewResult: any, aiResult: any): Promise<void> {
-    if (!reviewResult.changeset || aiResult.overall.score < 8) return;
+  private async handleAutoApprove(
+    reviewResult: Record<string, unknown>,
+    aiResult: AIReviewResult
+  ): Promise<void> {
+    const changeset = reviewResult.changeset as
+      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionName?: string } } }
+      | undefined;
+    if (!changeset || aiResult.overall.score < 8) return;
 
     try {
       const { createChangesetService } = await import(
         "../../../../domain/changeset/changeset-service"
       );
       const changesetService = await createChangesetService(
-        reviewResult.changeset.metadata?.github?.url ||
-          reviewResult.changeset.metadata?.local?.sessionName ||
-          "unknown"
+        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionName || "unknown"
       );
 
       // Get adapter to approve
-      const adapter = await (changesetService as any).getAdapter();
+      const adapter = await (
+        changesetService as unknown as {
+          getAdapter?: () => Promise<{
+            approve?: (id: string, text: string) => Promise<void>;
+          } | null>;
+        }
+      ).getAdapter?.();
       if (adapter && typeof adapter.approve === "function") {
         const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
-        await adapter.approve(reviewResult.changeset.id, approvalText);
+        await adapter.approve(changeset.id, approvalText);
       }
     } catch (error) {
       // Log error but don't fail the entire review
@@ -389,7 +418,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
   /**
    * Format AI review result as a comment
    */
-  private formatAIReviewComment(aiResult: any): string {
+  private formatAIReviewComment(aiResult: AIReviewResult): string {
     const sections: string[] = [];
 
     sections.push(`## 🤖 AI Code Review`);
@@ -413,7 +442,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
     if (aiResult.fileReviews && aiResult.fileReviews.length > 0) {
       sections.push("");
       sections.push(`### File Reviews`);
-      aiResult.fileReviews.slice(0, 3).forEach((file: any) => {
+      aiResult.fileReviews.slice(0, 3).forEach((file) => {
         sections.push(`- **${file.path}**: Score ${file.score}/10`);
       });
     }
