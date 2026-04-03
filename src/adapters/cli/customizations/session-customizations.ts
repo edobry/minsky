@@ -69,20 +69,20 @@ export function getSessionCustomizations(): {
               log.cli("✅ Session started successfully!");
               log.cli("");
 
-              if (result.session.session) {
-                log.cli(`📁 Session: ${result.session.session}`);
-              }
-
               if (result.session.taskId) {
                 log.cli(`🎯 Task: ${result.session.taskId}`);
               }
 
-              if (result.session.repoName) {
-                log.cli(`📦 Repository: ${result.session.repoName}`);
-              }
-
               if (result.session.branch) {
                 log.cli(`🌿 Branch: ${result.session.branch}`);
+              }
+
+              if (result.session.session) {
+                log.cli(`📁 Session ID: ${result.session.session}`);
+              }
+
+              if (result.session.repoName) {
+                log.cli(`📦 Repository: ${result.session.repoName}`);
               }
 
               log.cli("");
@@ -181,10 +181,13 @@ export function getSessionCustomizations(): {
               if (data) {
                 log.cli("");
                 log.cli("📝 Session Details:");
-                log.cli(`   Session: ${data.session}`);
                 if (data.taskId) {
                   log.cli(`   Task: ${data.taskId} (status updated to DONE)`);
                 }
+                if (data.prBranch) {
+                  log.cli(`   Branch: ${data.prBranch}`);
+                }
+                log.cli(`   Session ID: ${data.session}`);
                 log.cli(`   Merged by: ${data.mergedBy}`);
                 log.cli(`   Merge date: ${new Date(data.mergeDate).toLocaleString()}`);
 
