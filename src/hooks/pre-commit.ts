@@ -265,7 +265,7 @@ export class PreCommitHook {
    * Run secret scanning (still use gitleaks for now)
    */
   private async runSecretScanning(): Promise<HookResult> {
-    log.cli("🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)...");
+    log.cli("🔒 SECURITY: Scanning for secrets...");
 
     try {
       // Check if gitleaks is available before attempting to run it
