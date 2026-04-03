@@ -44,7 +44,7 @@ export class TestDataFactory {
     description: string;
     status: string;
     specPath: string;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
   } {
     const { prefix = "test-task", uniqueId = true, includeMetadata = true } = options;
 
@@ -84,7 +84,7 @@ export class TestDataFactory {
     description: string;
     status: string;
     specPath: string;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
   }> {
     return Array.from({ length: count }, () => this.createTaskData(options));
   }
@@ -111,7 +111,7 @@ export class DatabaseIsolation {
    */
   static async createIsolatedDatabase(
     name: string,
-    initialData: any = {}
+    initialData: Record<string, unknown> = {}
   ): Promise<{
     dbPath: string;
     dbId: string;

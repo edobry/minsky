@@ -30,6 +30,7 @@ export interface JestGlobal {
   /**
    * Mocks a module with a factory function
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mock: (modulePath: string, factory?: () => any, options?: any) => void;
 
   /**

@@ -44,6 +44,7 @@ import { createMock } from "../core/mock-functions";
  */
 export function createMockObject<T extends string>(
   methods: T[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   implementations: Partial<Record<T, (...args: unknown[]) => any>> = {}
 ): Record<T, ReturnType<typeof createMock>> {
   return methods.reduce(
@@ -131,6 +132,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (target as any)[prop];
       }
 
