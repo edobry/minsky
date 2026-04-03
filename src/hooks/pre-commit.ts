@@ -43,55 +43,57 @@ export class PreCommitHook {
     log.cli("🔍 Running pre-commit validation...\n");
 
     try {
-      // Step 1: Secret scanning (still use external gitleaks)
-      const secretsResult = await this.runSecretScanning();
-      if (!secretsResult.success) {
-        return secretsResult;
-      }
+      // ── Fast, lightweight checks first (~1s each) ──
 
-      // Step 2: Variable naming check (still use external script for now)
-      const variableResult = await this.runVariableNamingCheck();
-      if (!variableResult.success) {
-        return variableResult;
-      }
-
-      // Step 3: TypeScript type checking
-      const typeCheckResult = await this.runTypeCheck();
-      if (!typeCheckResult.success) {
-        return typeCheckResult;
-      }
-
-      // Step 4: Unit tests
-      const testsResult = await this.runUnitTests();
-      if (!testsResult.success) {
-        return testsResult;
-      }
-
-      // Step 5: Test pattern validation
-      const patternsResult = await this.runTestPatternValidation();
-      if (!patternsResult.success) {
-        return patternsResult;
-      }
-
-      // Step 6: Code formatting
+      // Step 1: Code formatting (lint-staged, only staged files, ~1s)
       const formatResult = await this.runCodeFormatting();
       if (!formatResult.success) {
         return formatResult;
       }
 
-      // Step 7: Console usage validation
+      // Step 2: Console usage validation (~1s)
       const consoleResult = await this.runConsoleValidation();
       if (!consoleResult.success) {
         return consoleResult;
       }
 
-      // Step 8: ESLint validation
+      // Step 3: Variable naming check (~1s)
+      const variableResult = await this.runVariableNamingCheck();
+      if (!variableResult.success) {
+        return variableResult;
+      }
+
+      // ── Medium-weight static analysis (~5s each) ──
+
+      // Step 4: TypeScript type checking (~5s)
+      const typeCheckResult = await this.runTypeCheck();
+      if (!typeCheckResult.success) {
+        return typeCheckResult;
+      }
+
+      // Step 5: ESLint validation (~5-10s)
       const lintResult = await this.runESLintValidation();
       if (!lintResult.success) {
         return lintResult;
       }
 
-      // Step 9: ESLint rule tooling tests
+      // ── Security scanning (~2-3s, critical but rare) ──
+
+      // Step 6: Secret scanning
+      const secretsResult = await this.runSecretScanning();
+      if (!secretsResult.success) {
+        return secretsResult;
+      }
+
+      // ── Expensive runtime checks (tests) ──
+
+      // Step 7: Unit tests (most expensive)
+      const testsResult = await this.runUnitTests();
+      if (!testsResult.success) {
+        return testsResult;
+      }
+
+      // Step 8: ESLint rule tooling tests (niche)
       const ruleTestsResult = await this.runESLintRuleTests();
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
