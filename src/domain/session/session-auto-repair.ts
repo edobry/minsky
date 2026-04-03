@@ -4,6 +4,7 @@ import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
+import { isUuidSessionName, taskIdToBranchName } from "../tasks/task-id";
 
 export interface SessionAutoRepairDependencies {
   sessionDB: SessionProviderInterface;
@@ -82,6 +83,12 @@ export async function attemptSessionAutoRepair(
 export function generatePossibleSessionNames(taskId: string): string[] {
   const names: string[] = [];
 
+  // UUID session IDs are used directly as directory names — add as first candidate
+  if (isUuidSessionName(taskId)) {
+    names.push(taskId);
+    return names;
+  }
+
   // Normalize the task ID first
   const validated = validateQualifiedTaskId(taskId);
   if (!validated) {
@@ -156,17 +163,25 @@ async function reconstructSessionRecord(
     // Extract repo name from URL or path
     const repoName = extractRepoName(repoUrl);
 
+    // Determine default branch name from task ID if possible, otherwise fall back to session name
+    const validatedTaskId = validateQualifiedTaskId(taskId);
+    const defaultBranch =
+      validatedTaskId && !isUuidSessionName(sessionName)
+        ? taskIdToBranchName(validatedTaskId)
+        : sessionName;
+
     // Get current branch
-    let branch = sessionName; // Default to session name
+    let branch = defaultBranch;
     try {
       const branchOutput = await deps.gitService.execInRepository(
         sessionDir,
         "git branch --show-current"
       );
-      branch = branchOutput.trim() || sessionName;
+      branch = branchOutput.trim() || defaultBranch;
     } catch (branchError) {
-      log.debug("Could not determine current branch, using session name", {
+      log.debug("Could not determine current branch, using default branch name", {
         sessionName,
+        defaultBranch,
         branchError,
       });
     }

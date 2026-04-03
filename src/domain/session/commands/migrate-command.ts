@@ -208,7 +208,9 @@ export async function sessionMigrate(
     if (!dryRun && report.progress.migrated > 0) {
       log.debug(`\n🎉 **MIGRATION SUCCESSFUL**`);
       log.debug(`Your sessions now support multi-backend task system!`);
-      log.debug(`New sessions will use format: task-md#123, task-gh#456, etc.`);
+      log.debug(
+        `New sessions use generated UUIDs with task/backend-id branch names (e.g., task/md-123)`
+      );
 
       if (report.backupPath) {
         log.debug(`\n💾 Backup saved to: ${report.backupPath}`);
