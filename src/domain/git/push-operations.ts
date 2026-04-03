@@ -47,11 +47,16 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     }
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
-    // Get actual branch from git instead of assuming session name = branch name
-    const { stdout: branchOut } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-    );
-    branch = branchOut.trim();
+    if (record.branch) {
+      // Prefer branch from session record to avoid extra git call
+      branch = record.branch;
+    } else {
+      // Get actual branch from git as fallback
+      const { stdout: branchOut } = await deps.execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      branch = branchOut.trim();
+    }
   } else if (options.repoPath) {
     workdir = options.repoPath;
     // Get current branch from repo

@@ -340,9 +340,10 @@ export async function updateSessionImpl(
 export async function checkPrBranchExists(
   sessionName: string,
   gitService: GitServiceInterface,
-  currentDir: string
+  currentDir: string,
+  branch?: string
 ): Promise<boolean> {
-  const prBranch = `pr/${sessionName}`;
+  const prBranch = `pr/${branch || sessionName}`;
 
   try {
     // Check if branch exists locally
@@ -418,7 +419,12 @@ export async function checkPrBranchExistsOptimized(
     isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false,
   });
 
-  const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
+  const exists = await checkPrBranchExists(
+    sessionName,
+    gitService,
+    currentDir,
+    sessionRecord.branch
+  );
 
   // Get commit hash if branch exists
   let commitHash = sessionRecord.prState?.commitHash;

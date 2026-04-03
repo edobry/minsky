@@ -293,7 +293,7 @@ export async function sessionPrGet(params: {
       branch:
         sessionRecord.backendType === "github"
           ? fp?.headBranch || currentBranch || sessionRecord.session
-          : prState?.branchName || `pr/${sessionRecord.session}`,
+          : prState?.branchName || `pr/${sessionRecord.branch || sessionRecord.session}`,
       status: livePrData?.state || fp?.state || (prState?.commitHash ? "created" : "not_found"),
       url: livePrData?.html_url || fp?.url,
       // Use live timestamps when available
