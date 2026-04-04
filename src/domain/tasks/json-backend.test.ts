@@ -1,66 +1,27 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { createWorkspaceResolvingJsonBackend } from "./json-backend";
 import { join } from "path";
-import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
+import { createMockFs } from "../interfaces/mock-fs";
 
 describe("Enhanced JSON Backend", () => {
   // Static mock paths to prevent environment dependencies
   const mockTestDir = "/mock/tmp/json-backend-test";
-  let mockFs: ReturnType<typeof createMockFilesystem>;
+  let mockFs: ReturnType<typeof createMockFs>;
 
   beforeEach(() => {
     // Create isolated mock filesystem for each test
-    mockFs = createMockFilesystem();
-
-    // Use mock.module() to mock filesystem operations
-    const mockFsAny = mockFs as any;
-    mock.module("fs", () => ({
-      existsSync: mockFs.existsSync,
-      mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
-      promises: {
-        mkdir: mockFs.mkdir,
-        writeFile: mockFs.writeFile,
-        readFile: mockFs.readFile,
-        readdir: mockFs.fsPromises.readdir,
-        rm: mockFs.fsPromises.rm,
-        access: mockFs.access,
-        mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
-      },
-    }));
-
-    // Also mock fs/promises for JsonFileStorage
-    mock.module("fs/promises", () => ({
-      mkdir: mockFs.mkdir,
-      writeFile: mockFs.writeFile,
-      readFile: mockFs.readFile,
-      readdir: mockFs.fsPromises.readdir,
-      rm: mockFs.fsPromises.rm,
-      access: mockFs.access,
-      mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
-    }));
-
-    // Ensure mock test directory exists
-    mockFs.ensureDirectoryExists(mockTestDir);
-  });
-
-  afterEach(() => {
-    try {
-      // Clean up using mock filesystem
-      mockFs.cleanup();
-    } catch (error) {
-      // Ignore cleanup errors
-    }
+    mockFs = createMockFs({}, new Set([mockTestDir]));
   });
 
   test("should create backend with explicit workspace path", async () => {
-    const backend = createWorkspaceResolvingJsonBackend({
-      name: "json-file",
-      workspacePath: mockTestDir,
-      dbFilePath: join(mockTestDir, "custom-tasks.json"),
-    });
+    const backend = createWorkspaceResolvingJsonBackend(
+      {
+        name: "json-file",
+        workspacePath: mockTestDir,
+        dbFilePath: join(mockTestDir, "custom-tasks.json"),
+      },
+      mockFs
+    );
 
     expect(backend).toBeDefined();
     expect(backend.name).toBe("json-file");
@@ -94,11 +55,14 @@ describe("Enhanced JSON Backend", () => {
   });
 
   test("should handle workspace path resolution", async () => {
-    const backend = createWorkspaceResolvingJsonBackend({
-      name: "json-file",
-      workspacePath: mockTestDir,
-      dbFilePath: join(mockTestDir, "workspace-tasks.json"),
-    });
+    const backend = createWorkspaceResolvingJsonBackend(
+      {
+        name: "json-file",
+        workspacePath: mockTestDir,
+        dbFilePath: join(mockTestDir, "workspace-tasks.json"),
+      },
+      mockFs
+    );
 
     // Test that the backend properly handles workspace paths
     const tasks = await backend.listTasks();

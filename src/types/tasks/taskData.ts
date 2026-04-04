@@ -5,6 +5,7 @@
 
 import type { TaskStatus } from "../../domain/tasks/taskConstants";
 import type { GitServiceInterface } from "../../domain/git/types";
+import type { FsLike } from "../../domain/interfaces/fs-like";
 
 // Re-export task status types from centralized location
 export type { TaskStatus } from "../../domain/tasks/taskConstants";
@@ -83,6 +84,7 @@ export interface TaskBackendConfig {
   taskFilePath?: string;
   taskSpecPath?: string;
   gitService?: GitServiceInterface;
+  fs?: FsLike;
 }
 
 /**
