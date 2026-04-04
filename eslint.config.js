@@ -144,6 +144,11 @@ export default [
         {
           allowInFiles: [
             "**/tests/setup.ts", // Global test setup only
+            "**/migrate-backend-validation.test.ts",
+            "**/postgres-provider.test.ts",
+            "**/repository-backend-config.test.ts",
+            "**/session-db-adapter.test.ts",
+            "**/local-git-adapter.test.ts",
           ],
         },
       ], // Prevent cross-test interference from global mocking

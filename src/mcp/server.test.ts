@@ -44,7 +44,7 @@ describe("MCP Server", () => {
     const server = new MinskyMCPServer({
       name: "Test Server",
       version: "1.0.0",
-      projectContext: { repositoryPath: process.cwd() },
+      projectContext: { repositoryPath: "/mock/test-repo" },
     });
 
     expect(server).toBeDefined();

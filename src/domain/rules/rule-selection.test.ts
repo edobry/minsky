@@ -2,9 +2,11 @@ import { describe, it, expect } from "bun:test";
 import { resolveActiveRules } from "./rule-selection";
 import { RULE_PRESETS } from "../configuration/schemas/rules";
 
+const SESSION_FIRST_WORKFLOW_ID = "session-first-workflow";
+
 const ALL_RULES = [
   "minsky-workflow",
-  "session-first-workflow",
+  SESSION_FIRST_WORKFLOW_ID,
   "task-status-protocol",
   "pr-preparation-workflow",
   "creating-tasks",
@@ -66,7 +68,7 @@ describe("resolveActiveRules", () => {
     });
     expect(active.has("minsky-workflow")).toBe(false);
     // Rest of the preset is still included
-    expect(active.has("session-first-workflow")).toBe(true);
+    expect(active.has(SESSION_FIRST_WORKFLOW_ID)).toBe(true);
   });
 
   it("silently ignores unknown presets", () => {
@@ -94,9 +96,9 @@ describe("resolveActiveRules", () => {
     const active = resolveActiveRules(ALL_RULES, {
       presets: ["minsky-core"],
       enabled: [],
-      disabled: ["session-first-workflow", "task-status-protocol"],
+      disabled: [SESSION_FIRST_WORKFLOW_ID, "task-status-protocol"],
     });
-    expect(active.has("session-first-workflow")).toBe(false);
+    expect(active.has(SESSION_FIRST_WORKFLOW_ID)).toBe(false);
     expect(active.has("task-status-protocol")).toBe(false);
     // Others from preset still active
     expect(active.has("minsky-workflow")).toBe(true);

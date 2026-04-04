@@ -194,9 +194,11 @@ describe("LocalGitChangesetAdapter", () => {
  * Local Git Adapter Factory Tests
  */
 describe("LocalGitChangesetAdapterFactory", () => {
+  // eslint-disable-next-line custom/no-magic-string-duplication
   let factory: import("../../../../src/domain/changeset/adapters/local-git-adapter").LocalGitChangesetAdapterFactory;
 
   beforeEach(async () => {
+    // eslint-disable-next-line custom/no-magic-string-duplication
     const module = await import("../../../../src/domain/changeset/adapters/local-git-adapter");
     factory = new module.LocalGitChangesetAdapterFactory();
   });

@@ -1,6 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import { buildContent, DEFAULT_AGENTS_MD_SECTIONS } from "./agents-md";
 import type { Rule } from "../../types";
+import {
+  ALWAYS_APPLY_CONTENT,
+  MANUAL_RULE_CONTENT,
+  GLOB_RULE_CONTENT,
+  PROJECT_INSTRUCTIONS_HEADER,
+} from "./test-fixtures";
 
 // Helper to create a minimal Rule object
 function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
@@ -26,7 +32,7 @@ describe("agents-md target: buildContent()", () => {
 
     it("output has # Project Instructions header", () => {
       const { content } = buildContent([], {});
-      expect(content).toContain("# Project Instructions");
+      expect(content).toContain(PROJECT_INSTRUCTIONS_HEADER);
     });
 
     it("section headers appear in order matching the mapping", () => {
@@ -86,16 +92,16 @@ describe("agents-md target: buildContent()", () => {
       };
       const rules = [
         makeRule("mapped-rule", "Mapped rule content"),
-        makeRule("unmapped-always", "Always apply content", { alwaysApply: true }),
+        makeRule("unmapped-always", ALWAYS_APPLY_CONTENT, { alwaysApply: true }),
       ];
 
       const { content } = buildContent(rules, sectionMapping);
 
       expect(content).toContain("## General");
-      expect(content).toContain("Always apply content");
+      expect(content).toContain(ALWAYS_APPLY_CONTENT);
 
       const generalIdx = content.indexOf("## General");
-      const contentIdx = content.indexOf("Always apply content");
+      const contentIdx = content.indexOf(ALWAYS_APPLY_CONTENT);
       expect(contentIdx).toBeGreaterThan(generalIdx);
     });
 
@@ -120,15 +126,15 @@ describe("agents-md target: buildContent()", () => {
       };
       const rules = [
         makeRule("mapped-rule", "Mapped rule content"),
-        makeRule("unmapped-manual", "Manual rule content"),
-        makeRule("unmapped-glob", "Glob rule content", { globs: ["**/*.ts"] }),
+        makeRule("unmapped-manual", MANUAL_RULE_CONTENT),
+        makeRule("unmapped-glob", GLOB_RULE_CONTENT, { globs: ["**/*.ts"] }),
       ];
 
       const { content } = buildContent(rules, sectionMapping);
 
       expect(content).not.toContain("## General");
-      expect(content).not.toContain("Manual rule content");
-      expect(content).not.toContain("Glob rule content");
+      expect(content).not.toContain(MANUAL_RULE_CONTENT);
+      expect(content).not.toContain(GLOB_RULE_CONTENT);
     });
   });
 

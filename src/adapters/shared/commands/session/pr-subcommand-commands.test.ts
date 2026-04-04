@@ -23,6 +23,11 @@ import { SessionPrCreateCommand } from "./pr-subcommand-commands";
 import type { CommandExecutionContext } from "../../command-registry";
 import { createMock as createMockFunction } from "../../../../utils/test-utils/core/mock-functions";
 
+const SESSION_MODULE_PATH = "../../../../domain/session";
+const SESSION_CONTEXT_RESOLVER_PATH = "../../../../domain/session/session-context-resolver";
+const CREATE_SESSION_PROVIDER_FN = "createSessionProvider";
+const RESOLVE_SESSION_CONTEXT_FN = "resolveSessionContextWithFeedback";
+
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {
   let command: SessionPrCreateCommand;
   let mockContext: CommandExecutionContext;
@@ -96,19 +101,21 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
 
       // Mock module imports used by the command implementation
       const sessionImportSpy = spyOn(
-        await import("../../../../domain/session"),
-        "createSessionProvider"
+        await import(SESSION_MODULE_PATH),
+        CREATE_SESSION_PROVIDER_FN
       ).mockImplementation(
         () =>
           mockSessionProvider as unknown as ReturnType<
+            // eslint-disable-next-line custom/no-magic-string-duplication
             (typeof import("../../../../domain/session"))["createSessionProvider"]
           >
       );
 
       const resolverImportSpy = spyOn(
-        await import("../../../../domain/session/session-context-resolver"),
-        "resolveSessionContextWithFeedback"
+        await import(SESSION_CONTEXT_RESOLVER_PATH),
+        RESOLVE_SESSION_CONTEXT_FN
       ).mockImplementation(
+        // eslint-disable-next-line custom/no-magic-string-duplication
         mockSessionResolver as unknown as (typeof import("../../../../domain/session/session-context-resolver"))["resolveSessionContextWithFeedback"]
       );
 
@@ -142,19 +149,21 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       });
 
       const sessionImportSpy = spyOn(
-        await import("../../../../domain/session"),
-        "createSessionProvider"
+        await import(SESSION_MODULE_PATH),
+        CREATE_SESSION_PROVIDER_FN
       ).mockImplementation(
         () =>
           mockSessionProvider as unknown as ReturnType<
+            // eslint-disable-next-line custom/no-magic-string-duplication
             (typeof import("../../../../domain/session"))["createSessionProvider"]
           >
       );
 
       const resolverImportSpy = spyOn(
-        await import("../../../../domain/session/session-context-resolver"),
-        "resolveSessionContextWithFeedback"
+        await import(SESSION_CONTEXT_RESOLVER_PATH),
+        RESOLVE_SESSION_CONTEXT_FN
       ).mockImplementation(
+        // eslint-disable-next-line custom/no-magic-string-duplication
         mockSessionResolver as unknown as (typeof import("../../../../domain/session/session-context-resolver"))["resolveSessionContextWithFeedback"]
       );
 

@@ -3,6 +3,7 @@ import { compileMonolithic } from "./compile-monolithic";
 import type { CompileOptions } from "./compile-monolithic";
 import type { Rule } from "./types";
 import { RuleService } from "../rules";
+import { ALWAYS_APPLY_CONTENT, PROJECT_INSTRUCTIONS_HEADER } from "./compile/targets/test-fixtures";
 
 // Helper to create a mock RuleService that returns a fixed list of rules
 function createMockRuleService(rules: Rule[]): RuleService {
@@ -44,7 +45,7 @@ describe("compileMonolithic()", () => {
     it("output has # Project Instructions header", async () => {
       const ruleService = createMockRuleService([]);
       const result = await compileMonolithic(ruleService, BASE_OPTIONS);
-      expect(result.content).toContain("# Project Instructions");
+      expect(result.content).toContain(PROJECT_INSTRUCTIONS_HEADER);
     });
 
     it("section headers appear in order matching the mapping", async () => {
@@ -136,7 +137,7 @@ describe("compileMonolithic()", () => {
       };
       const rules = [
         makeRule("mapped-rule", "Mapped rule content"),
-        makeRule("unmapped-always", "Always apply content", { alwaysApply: true }),
+        makeRule("unmapped-always", ALWAYS_APPLY_CONTENT, { alwaysApply: true }),
       ];
       const ruleService = createMockRuleService(rules);
       const result = await compileMonolithic(ruleService, {
@@ -145,10 +146,10 @@ describe("compileMonolithic()", () => {
       });
 
       expect(result.content).toContain("## General");
-      expect(result.content).toContain("Always apply content");
+      expect(result.content).toContain(ALWAYS_APPLY_CONTENT);
 
       const generalIdx = result.content.indexOf("## General");
-      const contentIdx = result.content.indexOf("Always apply content");
+      const contentIdx = result.content.indexOf(ALWAYS_APPLY_CONTENT);
       expect(contentIdx).toBeGreaterThan(generalIdx);
     });
 
@@ -274,7 +275,7 @@ describe("compileMonolithic()", () => {
 
       expect(result.dryRun).toBe(true);
       expect(result.content).toContain("Build content");
-      expect(result.content).toContain("# Project Instructions");
+      expect(result.content).toContain(PROJECT_INSTRUCTIONS_HEADER);
     });
   });
 
@@ -431,7 +432,7 @@ describe("compileMonolithic()", () => {
       expect(result.content).not.toContain("## Section B");
       expect(result.content).not.toContain("## General");
       // But the header and comment should still be there
-      expect(result.content).toContain("# Project Instructions");
+      expect(result.content).toContain(PROJECT_INSTRUCTIONS_HEADER);
     });
   });
 
