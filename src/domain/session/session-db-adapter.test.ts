@@ -8,6 +8,8 @@ import { PersistenceService } from "../persistence/service";
 import type { PersistenceProvider } from "../persistence/types";
 import type { SessionRecord } from "./types";
 
+const SESSION_DB_ADAPTER_MODULE = "./session-db-adapter";
+
 // Mock the PersistenceService
 const mockPersistenceService = {
   initialize: mock(() => Promise.resolve()),
@@ -58,16 +60,16 @@ mock.module("../../persistence/service", () => ({
 // Mock the createSessionProvider function directly
 const mockCreateSessionProvider = mock(async () => {
   // Return a SessionAutoRepairProvider that wraps our SessionDbAdapter
-  const { SessionDbAdapter } = await import("./session-db-adapter");
+  const { SessionDbAdapter } = await import(SESSION_DB_ADAPTER_MODULE);
   const { SessionAutoRepairProvider } = await import("./session-auto-repair-provider");
   const adapter = new SessionDbAdapter(mockPersistenceProvider);
   return new SessionAutoRepairProvider(adapter);
 });
 
 // Mock the module
-mock.module("./session-db-adapter", () => ({
+mock.module(SESSION_DB_ADAPTER_MODULE, () => ({
   createSessionProvider: mockCreateSessionProvider,
-  SessionDbAdapter: require("./session-db-adapter").SessionDbAdapter,
+  SessionDbAdapter: require(SESSION_DB_ADAPTER_MODULE).SessionDbAdapter,
 }));
 
 describe("createSessionProvider", () => {
