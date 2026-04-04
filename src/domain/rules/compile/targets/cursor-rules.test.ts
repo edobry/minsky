@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { cursorRulesTarget, buildCursorRulesContent, serializeRuleToMdc } from "./cursor-rules";
 import type { Rule } from "../../types";
+import { SOME_RULE_CONTENT } from "./test-fixtures";
 
 // Helper to create a minimal Rule object
 function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
@@ -32,16 +33,16 @@ describe("cursor-rules target", () => {
 
   describe("serializeRuleToMdc()", () => {
     it("produces valid .mdc with YAML frontmatter delimiters", () => {
-      const rule = makeRule("test-rule", "Some rule content");
+      const rule = makeRule("test-rule", SOME_RULE_CONTENT);
       const mdc = serializeRuleToMdc(rule);
       expect(mdc).toContain("---\n");
       expect(mdc.startsWith("---\n")).toBe(true);
     });
 
     it("includes rule content after frontmatter", () => {
-      const rule = makeRule("test-rule", "Some rule content");
+      const rule = makeRule("test-rule", SOME_RULE_CONTENT);
       const mdc = serializeRuleToMdc(rule);
-      expect(mdc).toContain("Some rule content");
+      expect(mdc).toContain(SOME_RULE_CONTENT);
     });
 
     it("preserves name in frontmatter", () => {

@@ -1,6 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import { buildClaudeMdContent } from "./claude-md";
 import type { Rule } from "../../types";
+import {
+  ALWAYS_APPLY_CONTENT,
+  MANUAL_RULE_CONTENT,
+  GLOB_RULE_CONTENT,
+  PROJECT_INSTRUCTIONS_HEADER,
+} from "./test-fixtures";
 
 // Helper to create a minimal Rule object
 function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
@@ -26,24 +32,24 @@ describe("claude-md target: buildClaudeMdContent()", () => {
 
     it("output has # Project Instructions header", () => {
       const { content } = buildClaudeMdContent([]);
-      expect(content).toContain("# Project Instructions");
+      expect(content).toContain(PROJECT_INSTRUCTIONS_HEADER);
     });
   });
 
   describe("only-alwaysApply default", () => {
     it("only includes ALWAYS_APPLY rules by default", () => {
       const rules = [
-        makeRule("always-rule", "Always apply content", { alwaysApply: true }),
-        makeRule("manual-rule", "Manual rule content"),
-        makeRule("glob-rule", "Glob rule content", { globs: ["**/*.ts"] }),
+        makeRule("always-rule", ALWAYS_APPLY_CONTENT, { alwaysApply: true }),
+        makeRule("manual-rule", MANUAL_RULE_CONTENT),
+        makeRule("glob-rule", GLOB_RULE_CONTENT, { globs: ["**/*.ts"] }),
         makeRule("agent-rule", "Agent rule content", { description: "An agent rule" }),
       ];
 
       const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules);
 
-      expect(content).toContain("Always apply content");
-      expect(content).not.toContain("Manual rule content");
-      expect(content).not.toContain("Glob rule content");
+      expect(content).toContain(ALWAYS_APPLY_CONTENT);
+      expect(content).not.toContain(MANUAL_RULE_CONTENT);
+      expect(content).not.toContain(GLOB_RULE_CONTENT);
       expect(content).not.toContain("Agent rule content");
 
       expect(rulesIncluded).toContain("always-rule");
@@ -72,8 +78,8 @@ describe("claude-md target: buildClaudeMdContent()", () => {
 
     it("returns empty rulesIncluded when no alwaysApply rules exist", () => {
       const rules = [
-        makeRule("manual-rule", "Manual rule content"),
-        makeRule("glob-rule", "Glob rule content", { globs: ["**/*.ts"] }),
+        makeRule("manual-rule", MANUAL_RULE_CONTENT),
+        makeRule("glob-rule", GLOB_RULE_CONTENT, { globs: ["**/*.ts"] }),
       ];
 
       const { rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules);
@@ -93,7 +99,7 @@ describe("claude-md target: buildClaudeMdContent()", () => {
 
   describe("output format", () => {
     it("always-apply rules appear directly in the output without section headers", () => {
-      const rules = [makeRule("always-rule", "Always apply content", { alwaysApply: true })];
+      const rules = [makeRule("always-rule", ALWAYS_APPLY_CONTENT, { alwaysApply: true })];
 
       const { content } = buildClaudeMdContent(rules);
 
