@@ -173,6 +173,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error and params are heterogeneous at this error handling level
   private handlePrError(error: any, params: any): Error {
     const errorMessage = getErrorMessage(error);
 

@@ -17,11 +17,12 @@ import {
   type TaskSpecContentParams,
 } from "../../../domain/schemas";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
+import type { Task } from "../types";
 
 /**
  * List tasks operation
  */
-export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]> {
+export class ListTasksOperation extends BaseTaskOperation<TaskListParams, Task[]> {
   getSchema(): import("zod").ZodSchema<TaskListParams> {
     return taskListParamsSchema as unknown as import("zod").ZodSchema<TaskListParams>;
   }
@@ -30,7 +31,7 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
     return "list tasks";
   }
 
-  async executeOperation(params: TaskListParams): Promise<any[]> {
+  async executeOperation(params: TaskListParams): Promise<Task[]> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
@@ -47,7 +48,7 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
 /**
  * Get task operation
  */
-export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
+export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, Task> {
   getSchema(): import("zod").ZodSchema<TaskGetParams> {
     return taskGetParamsSchema as unknown as import("zod").ZodSchema<TaskGetParams>;
   }
@@ -56,7 +57,7 @@ export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, any> {
     return "get task";
   }
 
-  async executeOperation(params: TaskGetParams): Promise<any> {
+  async executeOperation(params: TaskGetParams): Promise<Task> {
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 

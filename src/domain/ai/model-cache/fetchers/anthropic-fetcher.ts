@@ -51,8 +51,10 @@ export class AnthropicModelFetcher implements ModelFetcher {
         const models = data.data || [];
 
         const cachedModels: CachedProviderModel[] = models
-          .filter((model: any) => this.isSupportedModel(model.id))
-          .map((model: any) => this.convertToAnthropicCachedModel(model));
+          .filter((model: { id: string }) => this.isSupportedModel(model.id))
+          .map((model: { id: string; display_name?: string; created_at?: string; type?: string }) =>
+            this.convertToAnthropicCachedModel(model)
+          );
 
         // Enhance with static model information
         const enhancedModels = cachedModels.map((model) => ({
@@ -365,7 +367,12 @@ export class AnthropicModelFetcher implements ModelFetcher {
   /**
    * Convert Anthropic API model response to our CachedProviderModel format
    */
-  private convertToAnthropicCachedModel(apiModel: any): CachedProviderModel {
+  private convertToAnthropicCachedModel(apiModel: {
+    id: string;
+    display_name?: string;
+    created_at?: string;
+    type?: string;
+  }): CachedProviderModel {
     return {
       id: apiModel.id,
       provider: this.provider,

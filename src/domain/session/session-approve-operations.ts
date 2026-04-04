@@ -102,7 +102,7 @@ export async function approveSessionImpl(
       getBackendForTask?: (taskId: string) => Promise<string>;
       getTask?: (taskId: string) => Promise<Task | null>;
     };
-    workspaceUtils?: any;
+    workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
     createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
   }

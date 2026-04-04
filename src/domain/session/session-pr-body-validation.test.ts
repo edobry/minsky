@@ -99,7 +99,8 @@ describe("Session PR Body Validation Bug Fix", () => {
         {
           gitService: mockGitService,
           sessionDB: mockSessionProvider,
-          createRepositoryBackend: mock((sessionRecord: any) =>
+
+          createRepositoryBackend: mock((_sessionRecord: string) =>
             Promise.resolve({
               getType: () => "local",
               createPullRequest: mock(() =>
@@ -117,8 +118,8 @@ describe("Session PR Body Validation Bug Fix", () => {
                   mergedBy: "test-user",
                 })
               ),
-            })
-          ),
+            } as any)
+          ) as any,
         }
       );
 

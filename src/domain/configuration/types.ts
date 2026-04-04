@@ -116,7 +116,7 @@ export interface ResolvedConfig {
   ai?: AIConfig;
   postgres?: PostgresConfig;
   logger?: LoggerConfig;
-  tasks?: any; // Modern tasks configuration including tasks.backend
+  tasks?: Record<string, unknown>; // Modern tasks configuration including tasks.backend
 }
 
 export interface BackendConfig {

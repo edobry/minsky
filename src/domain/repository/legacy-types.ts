@@ -97,7 +97,7 @@ export interface RepositoryStatus {
   dirty?: boolean;
   remotes?: string[];
   modifiedFiles?: Array<{ status: string; file: string }>;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**

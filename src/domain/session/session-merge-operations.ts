@@ -21,6 +21,7 @@ import {
 } from "../repository/index";
 import { createConfiguredTaskService } from "../tasks/taskService";
 import { createGitService } from "../git";
+import type { GitServiceInterface } from "../git/types";
 import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
@@ -119,7 +120,7 @@ export async function mergeSessionPr(
       getBackendForTask?: (taskId: string) => Promise<string>;
       getTask?: (taskId: string) => Promise<Task | null>;
     };
-    gitService?: any;
+    gitService?: GitServiceInterface;
     createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   }
 ): Promise<SessionMergeResult> {

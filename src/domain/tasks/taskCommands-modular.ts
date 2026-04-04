@@ -40,7 +40,7 @@ export class ModularTaskCommandsManager {
   /**
    * List tasks using the provided parameters
    */
-  async listTasksFromParams(params: TaskListParams): Promise<any[]> {
+  async listTasksFromParams(params: TaskListParams): Promise<Task[]> {
     return await this.operations.listTasks.execute(
       params as unknown as Parameters<typeof this.operations.listTasks.execute>[0]
     );

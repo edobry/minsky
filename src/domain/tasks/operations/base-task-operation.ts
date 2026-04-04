@@ -5,6 +5,7 @@
  * Extracted from taskCommands.ts as part of modularization effort.
  */
 import { z } from "zod";
+import type { Task } from "../types";
 import { resolveRepoPath } from "../../repo-utils";
 import { resolveMainWorkspacePath } from "../../workspace";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
@@ -122,7 +123,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   protected async getTaskAndVerifyExists(
     taskService: TaskServiceInterface,
     taskId: string
-  ): Promise<any> {
+  ): Promise<Task> {
     const task = await taskService.getTask(taskId);
 
     if (!task) {
@@ -165,6 +166,7 @@ export type TaskOperationFactory<TParams, TResult> = (
  * Task operation registry for managing operation instances
  */
 export class TaskOperationRegistry {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic registry must accept operations with any type params
   private operations = new Map<string, BaseTaskOperation<any, any>>();
 
   /**

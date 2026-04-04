@@ -57,7 +57,7 @@ export interface ApprovalInfo {
       taskId?: string;
     };
 
-    [key: string]: any;
+    [key: string]: unknown;
   };
 
   /**
@@ -141,7 +141,7 @@ export interface ApprovalStatus {
       approvalSource: "manual" | "automatic";
     };
 
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 

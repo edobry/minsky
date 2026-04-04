@@ -78,9 +78,11 @@ const sessionChangesetGetParams = composeParams(
 /**
  * List changesets for current session (or all sessions)
  */
+
 async function executeSessionChangesetList(
   params: any,
   ctx?: CommandExecutionContext
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
 ): Promise<any> {
   try {
     // Resolve repository
@@ -179,9 +181,11 @@ async function executeSessionChangesetList(
 /**
  * Get current session's changeset (or specified ID)
  */
+
 async function executeSessionChangesetGet(
   params: any,
   ctx?: CommandExecutionContext
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
 ): Promise<any> {
   try {
     // Resolve repository

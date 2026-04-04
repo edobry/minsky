@@ -31,7 +31,14 @@ export interface DatabaseWriteResult {
  * Options for querying database entities
  */
 export interface DatabaseQueryOptions {
-  [key: string]: any;
+  /** Filter by task ID */
+  taskId?: string;
+  /** Filter by repo name */
+  repoName?: string;
+  /** Filter by session */
+  session?: string;
+  /** Allow additional implementation-specific options */
+  [key: string]: unknown;
 }
 
 /**

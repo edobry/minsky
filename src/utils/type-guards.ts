@@ -27,10 +27,10 @@ export function safeGet<T, K extends keyof T>(obj: T, key: K): T[K] | undefined 
  * Use: safeGetNested(someObject, 'deep', 'property')
  */
 export function safeGetNested<T>(obj: T, ...keys: string[]): unknown {
-  let current: any = obj;
+  let current: unknown = obj;
   for (const key of keys) {
     if (current && typeof current === "object" && key in current) {
-      current = current[key];
+      current = (current as Record<string, unknown>)[key];
     } else {
       return undefined;
     }
@@ -224,6 +224,7 @@ export const _ServiceUtils = {
   /**
    * Safely call a method on a service
    */
+
   safeCall<T, K extends keyof T>(
     service: T,
     method: K,

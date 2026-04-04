@@ -25,6 +25,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- output formatters handle heterogeneous command results
   outputFormatter?: (result: any) => void;
 }
 
@@ -35,6 +36,8 @@ export interface CategoryCommandOptions {
   /** Override category name */
   name?: string;
   /** Override category description */
+  description?: string;
+  /** Override category description (alias for description) */
   spec?: string;
   /** Command aliases */
   aliases?: string[];
@@ -43,7 +46,7 @@ export interface CategoryCommandOptions {
   /** Whether to use category name as command prefix */
   usePrefix?: boolean;
   /** Allow additional subcommand customization options */
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -61,7 +64,7 @@ export interface ParameterMappingOptions {
   /** Human-readable description */
   description?: string;
   /** Default value */
-  defaultValue?: any;
+  defaultValue?: unknown;
 }
 
 /**

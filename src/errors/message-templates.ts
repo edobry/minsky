@@ -198,7 +198,7 @@ export function createValidationErrorMessage(
  */
 export function createCommandFailureMessage(
   command: string,
-  error: any,
+  error: unknown,
   suggestions: CommandSuggestion[],
   context?: ContextInfo[]
 ): string {
@@ -344,12 +344,12 @@ export function createInvalidSessionMessage(sessionName: string, context?: Conte
  */
 export function createGitErrorMessage(
   operation: string,
-  error: any,
+  error: unknown,
   workdir?: string,
   context?: ContextInfo[]
 ): string {
   const errorMessage = getErrorMessage(error);
-  const isConflict = (errorMessage.toLowerCase() as any).includes("conflict");
+  const isConflict = errorMessage.toLowerCase().includes("conflict");
 
   const baseContext: ContextInfo[] = [
     ...(context || []),

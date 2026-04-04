@@ -51,7 +51,7 @@ export interface SimilaritySearchResult {
 export interface EnhancedSearchResult extends SimilaritySearchResult {
   name?: string;
   description?: string;
-  [key: string]: any; // Allow additional fields
+  [key: string]: unknown; // Allow additional fields
 }
 
 /**
@@ -140,6 +140,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
     description: config.description,
     parameters: similaritySearchParams,
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       try {
         const query = params.query as string;
@@ -188,7 +189,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
             ...r,
             name: r.id,
             description: "",
-          }));
+          })) as unknown as EnhancedSearchResult[];
         }
 
         return {

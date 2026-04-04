@@ -49,7 +49,8 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
       dummyVector,
       async (id: string) => tasks.find((t) => t.id === id) || null,
       async () => tasks,
-      async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} }),
+
+      async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} as any }),
       {}
     );
   });

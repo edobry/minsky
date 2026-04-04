@@ -33,7 +33,7 @@ import type { SessionRecord } from "./types";
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
-  createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
+  createRepositoryBackend?: (sessionRecord: string) => Promise<RepositoryBackend>;
 }
 
 /**
@@ -309,7 +309,7 @@ Please provide a title for your pull request:
     // Get session record to use stored repository configuration
     const sessionRecord = await deps.sessionDB.getSession(sessionName);
 
-    let repositoryBackend: any;
+    let repositoryBackend: RepositoryBackend;
 
     if (deps.createRepositoryBackend) {
       // Use provided backend factory

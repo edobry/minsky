@@ -26,7 +26,7 @@ export interface CommandParameter {
   description?: string;
   spec?: string;
   required: boolean;
-  defaultValue?: any;
+  defaultValue?: unknown;
   cliOption?: string;
   mcpName?: string;
 }
