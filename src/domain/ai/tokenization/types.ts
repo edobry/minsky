@@ -74,7 +74,7 @@ export interface TokenizerMetadata {
   library?: string;
 
   /** Additional metadata */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -163,7 +163,7 @@ export class TokenizationError extends Error {
     public tokenizerId: string,
     public model: string,
     public code: string,
-    public details?: Record<string, any>
+    public details?: Record<string, unknown>
   ) {
     super(message);
     this.name = "TokenizationError";

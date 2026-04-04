@@ -43,7 +43,7 @@ export class TaskSimilarityService {
     query: string,
     limit = 10,
     threshold?: number,
-    filters?: Record<string, any>
+    filters?: Record<string, unknown>
   ): Promise<SearchResult[]> {
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
@@ -174,7 +174,7 @@ export class TaskSimilarityService {
       }
     }
     const vector = await this.embeddingService.generateEmbedding(content);
-    const metadata: Record<string, any> = {
+    const metadata: Record<string, unknown> = {
       taskId,
       model: this.config.model,
       dimension: this.config.dimension,

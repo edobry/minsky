@@ -1,14 +1,14 @@
 export interface SimilarityItem {
   id: string;
   score: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SimilarityQuery {
   queryText?: string;
   subjectId?: string;
   limit?: number;
-  filters?: Record<string, any>;
+  filters?: Record<string, unknown>;
 }
 
 export interface SimilarityBackend {

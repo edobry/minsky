@@ -56,11 +56,12 @@ async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResul
     });
 
     return JSON.parse(String(output));
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Linter exits with non-zero when issues found, but still outputs JSON
-    if (error.stdout) {
+    const err = error as { stdout?: string; message?: string };
+    if (err.stdout) {
       try {
-        return JSON.parse(error.stdout);
+        return JSON.parse(err.stdout);
       } catch {
         // Fall back to empty results if JSON parsing fails
         return [];
@@ -68,7 +69,7 @@ async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResul
     }
 
     log.cliError("Failed to run linter");
-    log.debug(`Linter error: ${error.message}`);
+    log.debug(`Linter error: ${err.message}`);
     exit(1);
   }
 }
@@ -259,9 +260,10 @@ for each project, making it universal across different runtimes.
           exit(2); // Too many warnings
         }
         // else: exit 0 (success)
-      } catch (error: any) {
-        log.cliError(`Lint command failed: ${error.message}`);
-        log.debug(`Error details: ${error.stack}`);
+      } catch (error: unknown) {
+        const err = error as { message?: string; stack?: string };
+        log.cliError(`Lint command failed: ${err.message}`);
+        log.debug(`Error details: ${err.stack}`);
         exit(1);
       }
     });

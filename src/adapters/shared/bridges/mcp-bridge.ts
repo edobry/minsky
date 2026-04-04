@@ -24,7 +24,7 @@ import { ensureError } from "../../../errors/index";
  */
 export interface McpExecutionContext extends CommandExecutionContext {
   interface: "mcp";
-  mcpSpecificData?: Record<string, any>;
+  mcpSpecificData?: Record<string, unknown>;
 }
 
 /**
@@ -53,7 +53,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     const validatedCommandDef = validateCommandDefinition(commandDef);
 
     // Parameter validation and parsing
-    const parsedParams: Record<string, any> = {};
+    const parsedParams: Record<string, unknown> = {};
     const validationErrors: Record<string, string[]> = {};
 
     for (const paramName in validatedCommandDef.parameters) {

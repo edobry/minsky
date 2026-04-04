@@ -7,7 +7,7 @@ export interface EmbeddingsTableConfig {
   vectorColumn: string;
   indexedAtColumn: string;
   dimensions?: number;
-  domainColumns?: Record<string, any>;
+  domainColumns?: Record<string, unknown>;
 }
 
 /**

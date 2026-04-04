@@ -221,7 +221,7 @@ export interface ChangesetListOptions {
   until?: Date;
 
   /** Platform-specific filters */
-  platformFilters?: Record<string, any>;
+  platformFilters?: Record<string, unknown>;
 }
 
 /**

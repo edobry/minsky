@@ -36,7 +36,7 @@ type NewSessionRecord = typeof sessionsTable.$inferInsert;
 /**
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
-export class SqliteStorage<TEntity extends Record<string, any>, TState>
+export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
   implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
@@ -359,7 +359,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 /**
  * Create SQLite storage backend using Drizzle ORM with Bun's native driver
  */
-export function createSqliteStorage<TEntity extends Record<string, any>, TState>(
+export function createSqliteStorage<TEntity extends Record<string, unknown>, TState>(
   config: SqliteStorageConfig
 ): DatabaseStorage<TEntity, TState> {
   return new SqliteStorage<TEntity, TState>(config);

@@ -30,7 +30,7 @@ export interface StorageErrorContext {
   operation: string;
   sessionId?: string;
   timestamp: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RecoveryAction {

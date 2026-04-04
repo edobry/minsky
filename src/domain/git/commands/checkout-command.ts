@@ -80,9 +80,9 @@ export async function checkoutFromParams(params: {
           }
         : undefined,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle checkout conflicts
-    const errorMessage = error.message || "";
+    const errorMessage = (error instanceof Error ? error.message : String(error)) || "";
     const isConflict =
       errorMessage.includes("conflict") ||
       errorMessage.includes("would be overwritten") ||

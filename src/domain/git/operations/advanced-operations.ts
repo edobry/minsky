@@ -102,7 +102,7 @@ export class MergeOperation extends BaseGitOperation<MergeParams, EnhancedMergeR
     return result;
   }
 
-  protected getAdditionalLogContext(params: MergeParams): Record<string, any> {
+  protected getAdditionalLogContext(params: MergeParams): Record<string, unknown> {
     return {
       sourceBranch: params.sourceBranch,
       targetBranch: params.targetBranch,
@@ -160,7 +160,7 @@ export class CheckoutOperation extends BaseGitOperation<CheckoutParams, Checkout
     };
   }
 
-  protected getAdditionalLogContext(params: CheckoutParams): Record<string, any> {
+  protected getAdditionalLogContext(params: CheckoutParams): Record<string, unknown> {
     return {
       branch: params.branch,
       preview: params.preview,
@@ -238,7 +238,7 @@ export class RebaseOperation extends BaseGitOperation<RebaseParams, RebaseResult
     }
   }
 
-  protected getAdditionalLogContext(params: RebaseParams): Record<string, any> {
+  protected getAdditionalLogContext(params: RebaseParams): Record<string, unknown> {
     return {
       baseBranch: params.baseBranch,
       featureBranch: params.featureBranch,

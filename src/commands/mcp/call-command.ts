@@ -56,10 +56,11 @@ export function createCallCommand(): Command {
             timeout: options.timeout ? options.timeout * 1000 : undefined,
           });
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Check if this is an enhanced MCP error
-        if (error.mcpError) {
-          const mcpError = error.mcpError as McpInspectorError;
+        const err = error as { mcpError?: McpInspectorError };
+        if (err.mcpError) {
+          const mcpError = err.mcpError;
 
           // Provide user-friendly error messages based on error type
           switch (mcpError.type) {

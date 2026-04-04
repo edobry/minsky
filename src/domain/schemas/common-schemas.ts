@@ -200,7 +200,7 @@ export const BaseListingParametersSchema = BasePaginationSchema.merge(BaseSortin
 /**
  * Creates a standardized success response
  */
-export function createSuccessResponse<T extends Record<string, any>>(
+export function createSuccessResponse<T extends Record<string, unknown>>(
   data: T,
   includeTimestamp: boolean = true
 ): z.infer<typeof BaseSuccessResponseSchema> & T {
@@ -217,7 +217,7 @@ export function createSuccessResponse<T extends Record<string, any>>(
 export function createErrorResponse(
   error: string,
   errorCode?: string,
-  details?: Record<string, any>,
+  details?: Record<string, unknown>,
   includeTimestamp: boolean = true
 ): z.infer<typeof BaseErrorResponseSchema> {
   return {
