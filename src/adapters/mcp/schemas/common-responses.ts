@@ -116,6 +116,7 @@ export function createSuccessResponse<T extends Record<string, unknown>>(
   context: { path?: string; session: string; resolvedPath?: string },
   additionalData: T
 ): FileResponse & T {
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- spread over conditional path fields requires double cast; TypeScript cannot infer FileResponse & T from the spread expression
   return {
     success: true,
     session: context.session,

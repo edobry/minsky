@@ -702,6 +702,7 @@ export function createMockPersistenceProvider(
       jsonb: true,
       vectorStorage: true,
       migrations: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test dependency mock
     }) as any,
     initialize: options.initialize || (() => Promise.resolve()),
     getDatabaseConnection:

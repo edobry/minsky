@@ -380,6 +380,7 @@ export function createTypedMock<T extends (...args: unknown[]) => any>(
 export function spyOn<T extends object, M extends keyof T>(
   object: T,
   method: M
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic mock function type
 ): CompatMockFunction<any, any> {
   // Store the original method
   const original = object[method];

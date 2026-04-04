@@ -145,9 +145,9 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   } else {
     // Fallback to existing AI-based suggestion service
     const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
-    const mockConfigService = {
+    const mockConfigService: unknown = {
       loadConfiguration: () => Promise.resolve({ resolved: config }),
-    } as unknown;
+    };
     const aiService = new DefaultAICompletionService(mockConfigService);
     const suggestionService = new DefaultRuleSuggestionService(aiService, rulesService, {
       maxSuggestions: parseInt(String(options.limit || 5), 10),

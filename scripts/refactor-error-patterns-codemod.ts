@@ -417,12 +417,14 @@ async function main() {
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
   (globalThis as any).process?.exit?.(summary.errors.length > 0 ? 1 : 0);
 }
 
 if (import.meta.main) {
   main().catch((error) => {
     console.error("💥 Codemod failed:", error);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
     (globalThis as any).process?.exit?.(1);
   });
 }

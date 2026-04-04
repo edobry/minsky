@@ -15,6 +15,7 @@ import { createConfiguredTaskService } from "./taskService";
 describe("Configuration Integration", () => {
   test("createConfiguredTaskService should create a working service from workspace", async () => {
     const taskService = await createConfiguredTaskService({
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
       workspacePath: process.cwd(),
     });
 
@@ -25,6 +26,7 @@ describe("Configuration Integration", () => {
 
   test("createConfiguredTaskService should handle missing config directory", async () => {
     // Use a path that exists but has no .minsky config — function should fall back gracefully
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
     const emptyDir = `/tmp/minsky-test-${Date.now()}`;
 
     const taskService = await createConfiguredTaskService({
@@ -38,6 +40,7 @@ describe("Configuration Integration", () => {
 
   test("createConfiguredTaskService should handle explicit backend override", async () => {
     const taskService = await createConfiguredTaskService({
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
       workspacePath: process.cwd(),
       backend: "markdown",
     });

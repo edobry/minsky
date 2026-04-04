@@ -285,6 +285,7 @@ export async function checkAndGenerateMigrations(): Promise<{
  */
 export async function runSchemaMigrationsForConfiguredBackend(
   options: { dryRun?: boolean } = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by backend
 ): Promise<any> {
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../configuration/index");
