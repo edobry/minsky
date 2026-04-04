@@ -211,7 +211,7 @@ export class SessionPathResolver {
 
   /**
    * Resolve the workspace directory path for a given session identifier.
-   * @param sessionId Session name / identifier (e.g. "task-mt#123")
+   * @param sessionId Session ID / identifier (e.g. "task-mt#123")
    * @returns Absolute filesystem path to the session workspace
    */
   async getSessionWorkspacePath(sessionId: string): Promise<string> {
@@ -223,7 +223,7 @@ export class SessionPathResolver {
    * Resolve and security-validate a user-supplied path within a session workspace.
    * Accepts both absolute and relative paths; relative ones are resolved against
    * the session workspace root.
-   * @param sessionId Session name / identifier
+   * @param sessionId Session ID / identifier
    * @param inputPath User-supplied path (absolute or relative)
    * @returns Absolute path guaranteed to lie within the session workspace
    * @throws Error if the resolved path escapes the session workspace

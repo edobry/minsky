@@ -35,10 +35,10 @@ mock.module("child_process", () => ({
 
 mock.module("../../../../src/domain/session/index", () => ({
   createSessionProvider: () => ({
-    getSession: mock((sessionName: string) => {
-      if (sessionName === "test-session") {
+    getSession: mock((sessionId: string) => {
+      if (sessionId === "test-session") {
         return Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           taskId: "mt#123",
         });
       }
@@ -96,7 +96,7 @@ describe("LocalGitChangesetAdapter", () => {
     expect(changeset).toBeDefined();
     expect(changeset?.id).toBe("pr/test-session");
     expect(changeset?.platform).toBe("local-git");
-    expect(changeset?.sessionName).toBe("test-session");
+    expect(changeset?.sessionId).toBe("test-session");
     expect(changeset?.taskId).toBe("mt#123");
   });
 
@@ -111,7 +111,7 @@ describe("LocalGitChangesetAdapter", () => {
     // For now, expect the changeset to exist (since our mock returns data)
     // In real implementation, this would return null for non-existent branches
     expect(changeset).toBeDefined();
-    expect(changeset?.sessionName).toBe("nonexistent");
+    expect(changeset?.sessionId).toBe("nonexistent");
   });
 
   test("searches changesets by title", async () => {
@@ -137,10 +137,10 @@ describe("LocalGitChangesetAdapter", () => {
   test("builds changeset with session context", async () => {
     const changeset = await adapter.get("pr/test-session");
 
-    expect(changeset?.sessionName).toBe("test-session");
+    expect(changeset?.sessionId).toBe("test-session");
     expect(changeset?.taskId).toBe("mt#123");
     expect(changeset?.title).toContain("test-session");
-    expect(changeset?.metadata.local?.sessionName).toBe("test-session");
+    expect(changeset?.metadata.local?.sessionId).toBe("test-session");
     expect(changeset?.metadata.local?.isPrepared).toBe(true);
   });
 
@@ -173,10 +173,10 @@ describe("LocalGitChangesetAdapter", () => {
     expect(changesets.length).toBeGreaterThanOrEqual(0);
   });
 
-  test("extracts session name from pr/ branch correctly", async () => {
+  test("extracts session ID from pr/ branch correctly", async () => {
     const changeset = await adapter.get("pr/my-feature-session");
 
-    expect(changeset?.sessionName).toBe("my-feature-session");
+    expect(changeset?.sessionId).toBe("my-feature-session");
     expect(changeset?.metadata.local?.prBranch).toBe("pr/my-feature-session");
   });
 
@@ -184,7 +184,7 @@ describe("LocalGitChangesetAdapter", () => {
     // Test with session that doesn't exist in session provider
     const changeset = await adapter.get("pr/unknown-session");
 
-    expect(changeset?.sessionName).toBe("unknown-session");
+    expect(changeset?.sessionId).toBe("unknown-session");
     expect(changeset?.taskId).toBeUndefined();
     expect(changeset?.title).toContain("unknown-session");
   });

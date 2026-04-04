@@ -84,9 +84,9 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
         const { createSessionProvider } = await import("../../../../domain/session");
         const sessionProvider = await createSessionProvider();
 
-        // Try to get session name from params or resolve from task
-        let sessionName = params.name;
-        if (!sessionName && params.task) {
+        // Try to get session ID from params or resolve from task
+        let sessionId = params.name;
+        if (!sessionId && params.task) {
           const { resolveSessionContextWithFeedback } = await import(
             "../../../../domain/session/session-context-resolver"
           );
@@ -96,12 +96,12 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
             sessionProvider,
             allowAutoDetection: false, // No auto-detection for MCP
           });
-          sessionName = resolvedContext.sessionName;
+          sessionId = resolvedContext.sessionId;
         }
 
-        if (sessionName) {
+        if (sessionId) {
           workingDirectory = await sessionProvider.getRepoPath(
-            await sessionProvider.getSession(sessionName)
+            await sessionProvider.getSession(sessionId)
           );
         }
       }
@@ -177,18 +177,18 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
 
-    let sessionName = params.name;
-    if (!sessionName && isSessionWorkspace) {
-      // Try to detect session name from current directory
+    let sessionId = params.name;
+    if (!sessionId && isSessionWorkspace) {
+      // Try to detect session ID from current directory
       const pathParts = currentDir.split("/");
       const sessionsIndex = pathParts.indexOf("sessions");
       if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        sessionName = pathParts[sessionsIndex + 1];
+        sessionId = pathParts[sessionsIndex + 1];
       }
     }
 
-    // If no session name resolved yet, try task-to-session resolution
-    if (!sessionName && params.task) {
+    // If no session ID resolved yet, try task-to-session resolution
+    if (!sessionId && params.task) {
       try {
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
@@ -204,14 +204,14 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
           allowAutoDetection: true,
         });
 
-        sessionName = resolvedContext.sessionName;
+        sessionId = resolvedContext.sessionId;
       } catch (error) {
         // If session resolution fails, continue with PR creation
         return;
       }
     }
 
-    if (!sessionName) {
+    if (!sessionId) {
       return;
     }
 
@@ -219,13 +219,13 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
       // Check if session has an existing PR
       const { createSessionProvider } = await import("../../../../domain/session");
       const sessionDB = await createSessionProvider();
-      const sessionRecord = await sessionDB.getSession(sessionName);
+      const sessionRecord = await sessionDB.getSession(sessionId);
 
       // If session has PR state, a PR already exists
       if (sessionRecord && sessionRecord.prState && sessionRecord.prBranch) {
         const sessionDisplay = sessionRecord.taskId
           ? `task ${sessionRecord.taskId}`
-          : `session '${sessionName}'`;
+          : `session '${sessionId}'`;
         throw new ValidationError(
           `A pull request already exists for ${sessionDisplay} (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/spec.md`
         );
@@ -244,8 +244,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
   async checkIfPrCanBeRefreshed(params: SessionPrCreateParams): Promise<boolean> {
     try {
       // Resolve via task or explicit name; do not depend on cwd for testability
-      let sessionName: string | undefined = params.name;
-      if (!sessionName && params.task) {
+      let sessionId: string | undefined = params.name;
+      if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
         );
@@ -258,14 +258,14 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
           sessionProvider,
           allowAutoDetection: true,
         });
-        sessionName = resolved.sessionName;
+        sessionId = resolved.sessionId;
       }
 
-      if (!sessionName) return false;
+      if (!sessionId) return false;
 
       const { createSessionProvider } = await import("../../../../domain/session");
       const sessionDB = await createSessionProvider();
-      const record = await sessionDB.getSession(sessionName);
+      const record = await sessionDB.getSession(sessionId);
       return Boolean(record && record.prBranch && record.prState && record.prState.exists);
     } catch {
       return false;
@@ -301,7 +301,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
           ? `session '${params.name}'`
           : "the requested session";
       return new MinskyError(
-        `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session name or task ID\n\nTechnical details: ${errorMessage}`
+        `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
       );
     } else {
       return new MinskyError(

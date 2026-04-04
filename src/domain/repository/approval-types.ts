@@ -53,7 +53,7 @@ export interface ApprovalInfo {
      */
     local?: {
       approvalId: string;
-      sessionName: string;
+      sessionId: string;
       taskId?: string;
     };
 

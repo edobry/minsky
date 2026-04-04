@@ -155,21 +155,21 @@ export async function sessionPrImpl(
     );
   }
 
-  // STEP 3: Determine session name from explicit parameter or directory (CLI only)
-  let sessionName = params.session;
+  // STEP 3: Determine session ID from explicit parameter or directory (CLI only)
+  let sessionId = params.session;
 
-  // For CLI interface, try to extract session name from directory if not explicitly provided
-  if (!sessionName && interfaceType === "cli") {
+  // For CLI interface, try to extract session ID from directory if not explicitly provided
+  if (!sessionId && interfaceType === "cli") {
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
-    sessionName = sessionsIndex >= 0 ? pathParts[sessionsIndex + 1] : undefined;
+    sessionId = sessionsIndex >= 0 ? pathParts[sessionsIndex + 1] : undefined;
   }
 
-  if (!sessionName) {
+  if (!sessionId) {
     const errorMessage =
       interfaceType === "mcp"
-        ? "Session parameter is required for MCP interface. Please provide session name or task ID."
-        : "Could not determine session name from current directory or parameters";
+        ? "Session parameter is required for MCP interface. Please provide session ID or task ID."
+        : "Could not determine session ID from current directory or parameters";
     throw new MinskyError(errorMessage);
   }
 
@@ -226,7 +226,7 @@ export async function sessionPrImpl(
   if (!titleToUse || !bodyToUse) {
     try {
       const prDescription = await extractPrDescription(
-        sessionName,
+        sessionId,
         deps.gitService,
         currentDir,
         deps.sessionDB
@@ -266,7 +266,7 @@ Please provide a title for your pull request:
   try {
     // Use enhanced update with conflict detection options
     await updateSessionFromParams({
-      name: sessionName,
+      name: sessionId,
       repo: params.repo,
       json: false,
       force: false,
@@ -307,13 +307,13 @@ Please provide a title for your pull request:
     log.cli("🔍 Creating repository backend...");
 
     // Get session record to use stored repository configuration
-    const sessionRecord = await deps.sessionDB.getSession(sessionName);
+    const sessionRecord = await deps.sessionDB.getSession(sessionId);
 
     let repositoryBackend: RepositoryBackend;
 
     if (deps.createRepositoryBackend) {
       // Use provided backend factory
-      repositoryBackend = await deps.createRepositoryBackend(sessionName);
+      repositoryBackend = await deps.createRepositoryBackend(sessionId);
     } else if (sessionRecord?.repoUrl) {
       // Use session record's stored repository configuration (preferred)
       log.cli("📋 Using session repository configuration...");
@@ -344,7 +344,7 @@ Please provide a title for your pull request:
       preparedContent.body,
       currentBranch,
       baseBranch,
-      sessionName,
+      sessionId,
       params.draft || false
     );
 

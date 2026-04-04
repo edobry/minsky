@@ -105,7 +105,6 @@ export {
   SessionListResponseSchema,
 
   // Session metadata
-  SessionNameSchema,
   SessionDescriptionSchema,
 } from "./session-schemas";
 

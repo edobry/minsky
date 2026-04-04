@@ -29,7 +29,7 @@ import {
  * Used to identify the target repository for commands
  */
 export interface RepoOptions {
-  /** Session name to use for repository resolution */
+  /** Session ID to use for repository resolution */
   session?: string;
 
   /** Repository URI (overrides session) */

@@ -79,8 +79,8 @@ You're currently inside a session workspace, but sessions can only be created fr
    minsky session dir
 
 3️⃣ Then try creating your session again:
-   minsky session start --task <id> [session-name]
-   minsky session start --description "<description>" [session-name]
+   minsky session start --task <id> [session-id]
+   minsky session start --description "<description>" [session-id]
 
 💡 Why this restriction exists:
 Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
@@ -101,8 +101,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Determine the session name using task ID if provided
-    let sessionName = name;
+    // Determine the session ID using task ID if provided
+    let sessionId = name;
     let taskId: string | undefined = task;
 
     // Auto-create task if description is provided but no task ID
@@ -119,7 +119,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    if (taskId && !sessionName) {
+    if (taskId && !sessionId) {
       // Normalize the task ID format using Zod validation
       const validatedTaskId = TaskIdSchema.parse(taskId);
       taskId = validatedTaskId;
@@ -130,18 +130,18 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Generate session name using multi-backend integration
-      sessionName = SessionMultiBackendIntegration.generateSessionName(taskId);
+      // Generate session ID using multi-backend integration
+      sessionId = SessionMultiBackendIntegration.generateSessionId(taskId);
     }
 
-    if (!sessionName) {
-      throw new ValidationError("Session name could not be determined from task ID");
+    if (!sessionId) {
+      throw new ValidationError("Session ID could not be determined from task ID");
     }
 
     // Check if session already exists
-    const existingSession = await deps.sessionDB.getSession(sessionName);
+    const existingSession = await deps.sessionDB.getSession(sessionId);
     if (existingSession) {
-      throw new MinskyError(`Session '${sessionName}' already exists`);
+      throw new MinskyError(`Session '${sessionId}' already exists`);
     }
 
     // Check if a session already exists for this task
@@ -177,7 +177,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Generate the expected repository path using simplified session-ID-based structure
-    const sessionDir = getSessionDir(sessionName);
+    const sessionDir = getSessionDir(sessionId);
 
     // Check if session directory already exists and clean it up
     if (existsSync(sessionDir)) {
@@ -192,7 +192,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     // Prepare session record but don't add to DB yet (branch no longer persisted)
     const baseSessionRecord: SessionRecord = {
-      session: sessionName,
+      session: sessionId,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
@@ -204,21 +204,21 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
-    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionName);
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
     try {
       // First clone the repo
       const gitCloneResult = await deps.gitService.clone({
         repoUrl,
-        session: sessionName,
+        session: sessionId,
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
       });
 
-      // Create a branch based on the session name - use branchWithoutSession
+      // Create a branch based on the session ID - use branchWithoutSession
       // since session record hasn't been added to DB yet
       const branchResult = await deps.gitService.branchWithoutSession({
         repoName: normalizedRepoName,
-        session: sessionName,
+        session: sessionId,
         branch: branchName,
       });
 
@@ -229,10 +229,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // Clean up session record if it was added but git operations failed
       if (sessionAdded) {
         try {
-          await deps.sessionDB.deleteSession(sessionName);
+          await deps.sessionDB.deleteSession(sessionId);
         } catch (cleanupError) {
           log.error("Failed to cleanup session record after git error", {
-            sessionName,
+            sessionId,
             gitError: getErrorMessage(gitError),
             cleanupError: getErrorMessage(cleanupError),
           });
@@ -295,11 +295,11 @@ Error: ${getErrorMessage(installError)}`
     }
 
     if (!quiet) {
-      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+      log.debug(`Started session for task ${taskId}`, { session: sessionId });
     }
 
     return {
-      session: sessionName,
+      session: sessionId,
       repoUrl,
       repoName: normalizedRepoName,
       taskId,

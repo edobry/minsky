@@ -76,7 +76,7 @@ export interface Changeset {
   metadata: ChangesetMetadata;
 
   /** Optional associated session (for local git workflow) */
-  sessionName?: string;
+  sessionId?: string;
 
   /** Optional associated task ID */
   taskId?: string;
@@ -191,7 +191,7 @@ export interface ChangesetMetadata {
   local?: {
     prBranch: string;
     baseBranch: string;
-    sessionName?: string;
+    sessionId?: string;
     isPrepared: boolean;
     mergeCommitReady: boolean;
   };
@@ -256,7 +256,7 @@ export interface CreateChangesetOptions {
   assignees?: string[];
   reviewers?: string[];
   labels?: string[];
-  sessionName?: string;
+  sessionId?: string;
   taskId?: string;
 }
 

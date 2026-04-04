@@ -71,7 +71,7 @@ describe("Session File Move Tools Integration", () => {
     const moveSchema = moveCommand.parameters;
 
     const validMoveData = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       sourcePath: "source.txt",
       targetPath: "target.txt",
       createDirs: true,
@@ -86,7 +86,7 @@ describe("Session File Move Tools Integration", () => {
     const renameSchema = renameCommand.parameters;
 
     const validRenameData = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       path: "oldname.txt",
       newName: "newname.txt",
       overwrite: false,
@@ -111,7 +111,7 @@ describe("Session File Move Tools Integration", () => {
     const moveSchema = moveCommand.parameters;
 
     const invalidMoveData = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       // Missing sourcePath and targetPath
     };
 
@@ -123,7 +123,7 @@ describe("Session File Move Tools Integration", () => {
     const renameSchema = renameCommand.parameters;
 
     const invalidRenameData = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       // Missing path and newName
     };
 
@@ -146,7 +146,7 @@ describe("Session File Move Tools Integration", () => {
     const moveSchema = moveCommand.parameters;
 
     const moveDataWithDefaults = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       sourcePath: "source.txt",
       targetPath: "target.txt",
       // createDirs and overwrite should default to true and false respectively
@@ -161,7 +161,7 @@ describe("Session File Move Tools Integration", () => {
     const renameSchema = renameCommand.parameters;
 
     const renameDataWithDefaults = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       path: "oldname.txt",
       newName: "newname.txt",
       // overwrite should default to false
@@ -208,7 +208,7 @@ describe("Session File Move Tools Integration", () => {
 
     // The handler should accept the correct parameters structure
     const validParams = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       sourcePath: "source.txt",
       targetPath: "target.txt",
       createDirs: true,
@@ -239,7 +239,7 @@ describe("Session File Move Tools Integration", () => {
 
     // The handler should accept the correct parameters structure
     const validParams = {
-      sessionName: "test-session",
+      sessionId: "test-session",
       path: "oldname.txt",
       newName: "newname.txt",
       overwrite: false,

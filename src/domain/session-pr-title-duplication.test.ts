@@ -22,11 +22,11 @@ interface MockGitService {
  * Extract PR description from existing PR branch (current implementation)
  */
 async function extractPrDescriptionCurrent(
-  sessionName: string,
+  sessionId: string,
   gitService: MockGitService,
   currentDir: string
 ): Promise<{ title: string; body: string } | null> {
-  const prBranch = `pr/${sessionName}`;
+  const prBranch = `pr/${sessionId}`;
 
   try {
     // Get the commit message from the PR branch's last commit
@@ -50,11 +50,11 @@ async function extractPrDescriptionCurrent(
  * Fixed version of extractPrDescription that handles duplication properly
  */
 async function extractPrDescriptionFixed(
-  sessionName: string,
+  sessionId: string,
   gitService: MockGitService,
   currentDir: string
 ): Promise<{ title: string; body: string } | null> {
-  const prBranch = `pr/${sessionName}`;
+  const prBranch = `pr/${sessionId}`;
 
   try {
     // Get the commit message from the PR branch's last commit

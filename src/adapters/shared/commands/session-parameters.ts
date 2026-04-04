@@ -30,7 +30,7 @@ export const sessionListCommandParams = composeParams(
  */
 export const sessionGetCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     name: SessionParameters.name,
     task: CommonParameters.task,
     repo: CommonParameters.repo,
@@ -60,7 +60,7 @@ export const sessionStartCommandParams = composeParams(
     },
     branch: {
       schema: z.string(),
-      description: "Branch name to create (defaults to session name)",
+      description: "Branch name to create (defaults to session ID)",
       required: false,
     },
     noStatusUpdate: {
@@ -77,7 +77,7 @@ export const sessionStartCommandParams = composeParams(
  */
 export const sessionDirCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     json: CommonParameters.json,
   },
   {}
@@ -88,7 +88,7 @@ export const sessionDirCommandParams = composeParams(
  */
 export const sessionDeleteCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     force: CommonParameters.force,
     json: CommonParameters.json,
   },
@@ -100,7 +100,7 @@ export const sessionDeleteCommandParams = composeParams(
  */
 export const sessionUpdateCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     force: CommonParameters.force,
     json: CommonParameters.json,
     noStash: GitParameters.noStash,
@@ -144,7 +144,7 @@ export const sessionUpdateCommandParams = composeParams(
  */
 export const sessionApproveCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     noStash: GitParameters.noStash,
     json: CommonParameters.json,
   },
@@ -154,10 +154,10 @@ export const sessionApproveCommandParams = composeParams(
 /**
  * Parameters for the session pr command
  */
-export const sessionPrCommandParams = {
-  sessionName: {
+export const sessionPrCommandParams: CommandParameterMap = {
+  sessionId: {
     schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
+    description: "Session identifier (ID or task ID)",
     required: false, // Changed to allow using name or task instead
   },
   title: {
@@ -219,7 +219,7 @@ export const sessionInspectCommandParams = {
  */
 export const sessionCommitCommandParams = composeParams(
   {
-    sessionName: SessionParameters.sessionName,
+    sessionId: SessionParameters.sessionId,
     json: CommonParameters.json,
   },
   {

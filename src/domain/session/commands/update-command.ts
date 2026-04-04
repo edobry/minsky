@@ -45,15 +45,15 @@ export async function updateSessionFromParams(
       getCurrentSessionFn: deps.getCurrentSession,
     });
 
-    // Get the session details using the resolved session name
-    const session = await deps.sessionDB.getSession(resolvedContext.sessionName);
+    // Get the session details using the resolved session ID
+    const session = await deps.sessionDB.getSession(resolvedContext.sessionId);
 
     if (!session) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Get session working directory
-    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionId);
 
     // Perform git operations to sync with remote
     try {
@@ -67,13 +67,13 @@ export async function updateSessionFromParams(
 
       // Update session record if branch changed
       if (branch && session.branch !== branch) {
-        await deps.sessionDB.updateSession(resolvedContext.sessionName, {
+        await deps.sessionDB.updateSession(resolvedContext.sessionId, {
           branch,
         });
         session.branch = branch;
       }
 
-      log.cli(`Session '${resolvedContext.sessionName}' updated successfully`);
+      log.cli(`Session '${resolvedContext.sessionId}' updated successfully`);
 
       // Call backend hook for extensible post-update operations
       // Future: This will support work item generation and AI-powered automation
@@ -99,7 +99,7 @@ export async function updateSessionFromParams(
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

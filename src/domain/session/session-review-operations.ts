@@ -92,11 +92,11 @@ export async function sessionReviewImpl(
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
-  let sessionNameToUse = params.session;
+  let sessionIdToUse = params.session;
   let taskId: string | undefined;
 
   // Try to get session from task ID if provided
-  if (params.task && !sessionNameToUse) {
+  if (params.task && !sessionIdToUse) {
     const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
@@ -109,15 +109,15 @@ export async function sessionReviewImpl(
         taskIdToUse
       );
     }
-    sessionNameToUse = session.session;
+    sessionIdToUse = session.session;
   }
 
   // If session is still not set, try to detect it from repo path
-  if (!sessionNameToUse && params.repo) {
+  if (!sessionIdToUse && params.repo) {
     try {
       const sessionContext = await deps.getCurrentSession(params.repo);
       if (sessionContext) {
-        sessionNameToUse = sessionContext;
+        sessionIdToUse = sessionContext;
       }
     } catch (error) {
       // Just log and continue - session detection is optional
@@ -129,12 +129,12 @@ export async function sessionReviewImpl(
   }
 
   // If session is still not set, try to detect from current directory
-  if (!sessionNameToUse) {
+  if (!sessionIdToUse) {
     try {
       const currentDir = process.cwd();
       const sessionContext = await deps.getCurrentSession(currentDir);
       if (sessionContext) {
-        sessionNameToUse = sessionContext;
+        sessionIdToUse = sessionContext;
       }
     } catch (error) {
       // Just log and continue - session detection is optional
@@ -146,17 +146,17 @@ export async function sessionReviewImpl(
   }
 
   // Validate that we have a session to work with
-  if (!sessionNameToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+  if (!sessionIdToUse) {
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get the session record
-  const sessionRecord = await deps.sessionDB.getSession(sessionNameToUse);
+  const sessionRecord = await deps.sessionDB.getSession(sessionIdToUse);
   if (!sessionRecord) {
     throw new ResourceNotFoundError(
-      `Session "${sessionNameToUse}" not found`,
+      `Session "${sessionIdToUse}" not found`,
       "session",
-      sessionNameToUse
+      sessionIdToUse
     );
   }
 
@@ -166,16 +166,16 @@ export async function sessionReviewImpl(
   }
 
   // Get session workdir
-  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionIdToUse);
 
   // Track warnings from non-fatal data-gathering failures
   const warnings: string[] = [];
 
   // Initialize result (prBranch/baseBranch will be filled from backend details when available)
   const result: SessionReviewResult = {
-    session: sessionNameToUse,
+    session: sessionIdToUse,
     taskId,
-    prBranch: params.prBranch || `pr/${sessionRecord.branch || sessionNameToUse}`,
+    prBranch: params.prBranch || `pr/${sessionRecord.branch || sessionIdToUse}`,
     baseBranch: "main",
   };
 
@@ -207,9 +207,9 @@ export async function sessionReviewImpl(
     // Determine changeset ID from session context
     // Try different possible changeset identifiers
     const possibleChangesetIds = [
-      result.prBranch, // pr/session-name format
-      sessionNameToUse, // session name directly
-      `${sessionNameToUse}`, // session name as string
+      result.prBranch, // pr/session-id format
+      sessionIdToUse, // session ID directly
+      `${sessionIdToUse}`, // session ID as string
     ];
 
     let changesetDetails: ChangesetDetails | null = null;
@@ -277,7 +277,7 @@ export async function sessionReviewImpl(
       });
 
       // Fetch PR details; if GitHub, backend infers PR number from session
-      const details = await backend.getPullRequestDetails({ session: sessionNameToUse });
+      const details = await backend.getPullRequestDetails({ session: sessionIdToUse });
       if (details) {
         if (details.headBranch) result.prBranch = details.headBranch;
         if (details.baseBranch) result.baseBranch = details.baseBranch;
@@ -286,7 +286,7 @@ export async function sessionReviewImpl(
       }
 
       // Fetch diff
-      const diffInfo = await backend.getPullRequestDiff({ session: sessionNameToUse });
+      const diffInfo = await backend.getPullRequestDiff({ session: sessionIdToUse });
       if (diffInfo) {
         result.diff = diffInfo.diff;
         if (diffInfo.stats) {
@@ -298,7 +298,7 @@ export async function sessionReviewImpl(
   } catch (error) {
     const msg = `Changeset/repository backend lookup failed: ${getErrorMessage(error)}`;
     log.debug(msg, {
-      session: sessionNameToUse,
+      session: sessionIdToUse,
       repoUrl: sessionRecord.repoUrl,
       backendType: sessionRecord.backendType,
     });

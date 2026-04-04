@@ -21,11 +21,11 @@ import {
  */
 export function createSessionPrBranchErrorMessage(
   currentBranch: string,
-  sessionName?: string,
+  sessionId?: string,
   context?: ContextInfo[],
   branchName?: string
 ): string {
-  const switchTarget = branchName || sessionName;
+  const switchTarget = branchName || sessionId;
   const suggestions: CommandSuggestion[] = [
     {
       description: "Switch to your session branch",

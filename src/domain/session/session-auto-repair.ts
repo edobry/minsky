@@ -4,7 +4,7 @@ import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
-import { isUuidSessionName, taskIdToBranchName } from "../tasks/task-id";
+import { isUuidSessionId, taskIdToBranchName } from "../tasks/task-id";
 
 export interface SessionAutoRepairDependencies {
   sessionDB: SessionProviderInterface;
@@ -33,21 +33,21 @@ export async function attemptSessionAutoRepair(
   log.debug("Attempting session auto-repair for task", { taskId, baseDir });
 
   // Generate possible session directory names based on task ID
-  const possibleSessionNames = generatePossibleSessionNames(taskId);
+  const possibleSessionIds = generatePossibleSessionIds(taskId);
 
-  log.debug("Generated possible session names", { taskId, possibleSessionNames });
+  log.debug("Generated possible session IDs", { taskId, possibleSessionIds });
 
-  // Check each possible session name for existing directory
-  for (const sessionName of possibleSessionNames) {
-    const sessionDir = join(baseDir, sessionName);
+  // Check each possible session ID for existing directory
+  for (const sessionId of possibleSessionIds) {
+    const sessionDir = join(baseDir, sessionId);
 
     if (existsSync(sessionDir)) {
-      log.debug("Found existing session directory", { sessionName, sessionDir });
+      log.debug("Found existing session directory", { sessionId, sessionDir });
 
       try {
         // Attempt to reconstruct session record from the workspace
         const reconstructedSession = await reconstructSessionRecord(
-          sessionName,
+          sessionId,
           sessionDir,
           taskId,
           deps
@@ -57,17 +57,17 @@ export async function attemptSessionAutoRepair(
           // Add the reconstructed session to the database
           await deps.sessionDB.addSession(reconstructedSession);
 
-          log.cli(`🔧 Auto-repair: Reconstructed session '${sessionName}' from existing workspace`);
+          log.cli(`🔧 Auto-repair: Reconstructed session '${sessionId}' from existing workspace`);
 
           return reconstructedSession;
         }
       } catch (error) {
         log.warn("Failed to reconstruct session from directory", {
-          sessionName,
+          sessionId,
           sessionDir,
           error: error instanceof Error ? error.message : String(error),
         });
-        // Continue to next possible session name
+        // Continue to next possible session ID
       }
     }
   }
@@ -80,11 +80,11 @@ export async function attemptSessionAutoRepair(
  * Generate possible session directory names based on task ID
  * Handles both qualified (md#123) and unqualified (123) task IDs
  */
-export function generatePossibleSessionNames(taskId: string): string[] {
+export function generatePossibleSessionIds(taskId: string): string[] {
   const names: string[] = [];
 
   // UUID session IDs are used directly as directory names — add as first candidate
-  if (isUuidSessionName(taskId)) {
+  if (isUuidSessionId(taskId)) {
     names.push(taskId);
     return names;
   }
@@ -109,7 +109,7 @@ export function generatePossibleSessionNames(taskId: string): string[] {
   // New format: task-<full-qualified-id> (e.g., "task-md#123")
   names.push(`task-${validated}`);
 
-  // Also try the exact task ID as session name (for edge cases)
+  // Also try the exact task ID as session ID (for edge cases)
   names.push(validated);
 
   // Remove duplicates while preserving order
@@ -147,7 +147,7 @@ function extractIdPart(taskId: string): string | null {
  * Reconstruct a session record from an existing workspace directory
  */
 async function reconstructSessionRecord(
-  sessionName: string,
+  sessionId: string,
   sessionDir: string,
   taskId: string,
   deps: SessionAutoRepairDependencies
@@ -163,9 +163,9 @@ async function reconstructSessionRecord(
     // Extract repo name from URL or path
     const repoName = extractRepoName(repoUrl);
 
-    // Determine default branch name from task ID if possible, otherwise fall back to session name
+    // Determine default branch name from task ID if possible, otherwise fall back to session ID
     const validatedTaskId = validateQualifiedTaskId(taskId);
-    const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionName; // UUID with no taskId — unavoidable fallback
+    const defaultBranch = validatedTaskId ? taskIdToBranchName(validatedTaskId) : sessionId; // UUID with no taskId — unavoidable fallback
 
     // Get current branch
     let branch = defaultBranch;
@@ -177,7 +177,7 @@ async function reconstructSessionRecord(
       branch = branchOutput.trim() || defaultBranch;
     } catch (branchError) {
       log.debug("Could not determine current branch, using default branch name", {
-        sessionName,
+        sessionId,
         defaultBranch,
         branchError,
       });
@@ -195,14 +195,14 @@ async function reconstructSessionRecord(
       }
     } catch (commitError) {
       log.debug("Could not determine creation date from git log", {
-        sessionName,
+        sessionId,
         commitError,
       });
     }
 
     // Create session record
     const sessionRecord: SessionRecord = {
-      session: sessionName,
+      session: sessionId,
       repoName,
       repoUrl,
       createdAt,
@@ -215,7 +215,7 @@ async function reconstructSessionRecord(
     return sessionRecord;
   } catch (error) {
     log.debug("Failed to reconstruct session record", {
-      sessionName,
+      sessionId,
       sessionDir,
       error: error instanceof Error ? error.message : String(error),
     });

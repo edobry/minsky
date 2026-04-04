@@ -164,7 +164,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       repoName: "local-minsky",
       repoUrl: "local/minsky",
     });
-    // Session name is now a UUID
+    // Session ID is now a UUID
     expect(result.session).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
@@ -174,7 +174,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     expect(branchSpy).toHaveBeenCalledTimes(1);
     expect(addSessionSpy).toHaveBeenCalledTimes(1);
 
-    // Verify session record has correct data (session name is a UUID now)
+    // Verify session record has correct data (session ID is a UUID now)
     expect(addSessionSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "md#160",
@@ -182,7 +182,7 @@ describe("Session Git Clone Bug Regression Test", () => {
         repoName: "local/minsky",
       })
     );
-    // Verify the session name in the record is a UUID
+    // Verify the session ID in the record is a UUID
     const addedRecord = (addSessionSpy.mock.calls as unknown[][])[0]![0] as any;
     expect(addedRecord.session).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -250,7 +250,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       options.description,
       options.sourceBranch || "HEAD",
       options.targetBranch || "main",
-      options.sessionName,
+      options.sessionId,
       options.isDraft
     );
 
@@ -280,7 +280,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       prIdentifier: parseInt(id),
       title: updates.title,
       body: updates.description,
-      session: updates.sessionName,
+      session: updates.sessionId,
     });
 
     const changeset = await this.get(id);

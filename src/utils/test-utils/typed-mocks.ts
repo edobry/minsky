@@ -66,7 +66,7 @@ export function createSessionProviderMock(
     deleteSession: mock((_session: string) => Promise.resolve(true)),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches getRepoPath signature that accepts any record-like object
     getRepoPath: mock((_record: SessionRecord | any) => Promise.resolve("/mock/repo/path")),
-    getSessionWorkdir: mock((_sessionName: string) => Promise.resolve("/mock/session/workdir")),
+    getSessionWorkdir: mock((_sessionId: string) => Promise.resolve("/mock/session/workdir")),
     ...overrides,
   };
 }

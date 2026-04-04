@@ -35,7 +35,7 @@ import {
  * Parameters for session commit command
  */
 interface SessionCommitParams extends BaseSessionCommandParams {
-  sessionName?: string;
+  sessionId?: string;
   message?: string;
   all?: boolean;
   amend?: boolean;
@@ -116,7 +116,7 @@ export class SessionCommitCommand extends BaseSessionCommand<
     const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
     const result = await sessionCommit({
-      session: params.sessionName ?? "",
+      session: params.sessionId ?? "",
       message: params.message ?? "",
       all: params.all,
       amend: params.amend,
@@ -125,7 +125,7 @@ export class SessionCommitCommand extends BaseSessionCommand<
 
     return this.createSuccessResult({
       success: result.success,
-      sessionName: params.sessionName,
+      sessionId: params.sessionId,
       commitHash: result.commitHash,
       shortHash: result.shortHash,
       subject: result.subject,
@@ -345,7 +345,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
     aiResult: AIReviewResult
   ): Promise<void> {
     const changeset = reviewResult.changeset as
-      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionName?: string } } }
+      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionId?: string } } }
       | undefined;
     if (!changeset) return;
 
@@ -354,7 +354,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         "../../../../domain/changeset/changeset-service"
       );
       const changesetService = await createChangesetService(
-        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionName || "unknown"
+        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
       );
 
       // Get adapter to submit comment
@@ -384,7 +384,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
     aiResult: AIReviewResult
   ): Promise<void> {
     const changeset = reviewResult.changeset as
-      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionName?: string } } }
+      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionId?: string } } }
       | undefined;
     if (!changeset || aiResult.overall.score < 8) return;
 
@@ -393,7 +393,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         "../../../../domain/changeset/changeset-service"
       );
       const changesetService = await createChangesetService(
-        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionName || "unknown"
+        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
       );
 
       // Get adapter to approve

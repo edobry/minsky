@@ -38,13 +38,13 @@ import type { Task } from "../tasks/types";
  */
 export function validateSessionApprovedForMerge(
   sessionRecord: SessionRecord,
-  sessionName: string
+  sessionId: string
 ): void {
   // For GitHub backend, presence of a recorded PR is sufficient for further checks
   if (sessionRecord.backendType === "github") {
     if (!sessionRecord.pullRequest) {
       throw new ValidationError(
-        `❌ MERGE REJECTED: Session "${sessionName}" has no GitHub pull request.\n` +
+        `❌ MERGE REJECTED: Session "${sessionId}" has no GitHub pull request.\n` +
           `   Create or repair the PR first with 'minsky session pr create' or 'minsky session pr get'`
       );
     }
@@ -55,19 +55,19 @@ export function validateSessionApprovedForMerge(
   // Local/remote backends require a PR branch and explicit approval flag
   if (!sessionRecord.prBranch) {
     throw new ValidationError(
-      `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
+      `❌ MERGE REJECTED: Session "${sessionId}" has no PR branch.\n` +
         `   Create a PR first with 'minsky session pr create'`
     );
   }
 
   if (sessionRecord.prApproved !== true) {
     throw new ValidationError(
-      `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}". PR must be approved before merging.`
+      `❌ MERGE REJECTED: Invalid approval state for session "${sessionId}". PR must be approved before merging.`
     );
   }
 
   log.debug("Session approval validation passed", {
-    sessionName,
+    sessionId,
     prBranch: sessionRecord.prBranch,
     prApproved: sessionRecord.prApproved,
   });
@@ -129,10 +129,10 @@ export async function mergeSessionPr(
   // Set up session provider
   const sessionDB = deps?.sessionDB || (await createSessionProvider());
 
-  // Resolve session name
-  let sessionNameToUse = params.session;
+  // Resolve session ID
+  let sessionIdToUse = params.session;
 
-  if (params.task && !sessionNameToUse) {
+  if (params.task && !sessionIdToUse) {
     const sessionByTask = await sessionDB.getSessionByTaskId(params.task);
     if (!sessionByTask) {
       throw new ResourceNotFoundError(
@@ -141,26 +141,26 @@ export async function mergeSessionPr(
         params.task
       );
     }
-    sessionNameToUse = sessionByTask.session;
+    sessionIdToUse = sessionByTask.session;
   }
 
-  if (!sessionNameToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+  if (!sessionIdToUse) {
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get session record
-  const sessionRecord = await sessionDB.getSession(sessionNameToUse);
+  const sessionRecord = await sessionDB.getSession(sessionIdToUse);
   if (!sessionRecord) {
     throw new ResourceNotFoundError(
-      `Session "${sessionNameToUse}" not found`,
+      `Session "${sessionIdToUse}" not found`,
       "session",
-      sessionNameToUse
+      sessionIdToUse
     );
   }
 
   // CRITICAL SECURITY VALIDATION: Use centralized approval validation
   // This ensures consistent security enforcement across all merge operations
-  validateSessionApprovedForMerge(sessionRecord, sessionNameToUse);
+  validateSessionApprovedForMerge(sessionRecord, sessionIdToUse);
 
   // Get the main repository path for task updates (not session workspace)
   // Resolve to a local filesystem path to avoid using remote URLs as workdirs
@@ -190,7 +190,7 @@ export async function mergeSessionPr(
   const backendType = sessionRecord.backendType || detectRepositoryBackendTypeFromUrl(repoUrl);
 
   // For merge operations, we still need a working directory (session workspace)
-  const workingDirectory = await sessionDB.getSessionWorkdir(sessionNameToUse);
+  const workingDirectory = await sessionDB.getSessionWorkdir(sessionIdToUse);
 
   const config: RepositoryBackendConfig = {
     type: backendType,
@@ -285,7 +285,7 @@ export async function mergeSessionPr(
     throw new ValidationError("No PR identifier available for merge");
   }
 
-  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionIdToUse);
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
@@ -302,7 +302,7 @@ export async function mergeSessionPr(
       gitService,
       mainRepoPath,
       sessionRecord.prBranch || "",
-      sessionNameToUse,
+      sessionIdToUse,
       sessionRecord.taskId
     );
 
@@ -354,7 +354,7 @@ export async function mergeSessionPr(
 
       const cleanupResult = await cleanupSessionImpl(
         {
-          sessionName: sessionNameToUse,
+          sessionId: sessionIdToUse,
           taskId: sessionRecord.taskId,
           force: true, // After successful merge, we can force cleanup
         },
@@ -378,7 +378,7 @@ export async function mergeSessionPr(
       }
     } catch (cleanupError) {
       const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
-      log.error(errorMsg, { sessionName: sessionNameToUse, error: cleanupError });
+      log.error(errorMsg, { sessionId: sessionIdToUse, error: cleanupError });
 
       sessionCleanup = {
         performed: false,
@@ -388,13 +388,13 @@ export async function mergeSessionPr(
 
       if (!params.json) {
         log.cli(`⚠️  Warning: ${errorMsg}`);
-        log.cli(`💡 You can manually clean up with: minsky session delete ${sessionNameToUse}`);
+        log.cli(`💡 You can manually clean up with: minsky session delete ${sessionIdToUse}`);
       }
     }
   }
 
   return {
-    session: sessionNameToUse,
+    session: sessionIdToUse,
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     mergeInfo,

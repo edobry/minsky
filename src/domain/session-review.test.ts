@@ -27,7 +27,7 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    const getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    const getSessionWorkdirSpy = mock((_sessionId: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
@@ -120,7 +120,7 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    const getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    const getSessionWorkdirSpy = mock((_sessionId: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 

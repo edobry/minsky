@@ -87,7 +87,7 @@ describe("Session Approve Task Status Commit", () => {
     // TEMPLATE LITERAL: Extract constants to reduce string repetition
     const TASK_ID = "md#123";
     const QUALIFIED_TASK_ID = TASK_ID;
-    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // Correct session name format (with dash)
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // Correct session ID format (with dash)
     const PR_BRANCH = `pr/${SESSION_NAME}`; // Actual PR branch format
     const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`; // TEMPLATE LITERAL: System uses qualified task ID in commit messages
 
@@ -143,21 +143,21 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB = createMockSessionProvider({
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
-          session: `task-${taskId}`, // session name from qualified id
+          session: `task-${taskId}`, // session ID from qualified id
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
           prBranch: `pr/task-${taskId}`,
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -231,7 +231,7 @@ describe("Session Approve Task Status Commit", () => {
     // TEMPLATE LITERAL: Extract constants to reduce string repetition
     const TASK_ID = "md#124";
     const QUALIFIED_TASK_ID = TASK_ID;
-    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session ID format (with dash)
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
     const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`;
 
@@ -287,14 +287,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task#${taskId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -366,7 +366,7 @@ describe("Session Approve Task Status Commit", () => {
     // TEMPLATE LITERAL: Extract constants to reduce string repetition
     const TASK_ID = "md#125";
     const QUALIFIED_TASK_ID = TASK_ID;
-    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session ID format (with dash)
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
@@ -420,14 +420,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -494,7 +494,7 @@ describe("Session Approve Task Status Commit", () => {
     // TEMPLATE LITERAL: Extract constants to reduce string repetition
     const TASK_ID = "md#266";
     const QUALIFIED_TASK_ID = TASK_ID;
-    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session ID format (with dash)
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
@@ -528,14 +528,14 @@ describe("Session Approve Task Status Commit", () => {
           taskId,
           prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
-      getSession: (sessionName: string) =>
+      getSession: (sessionId: string) =>
         Promise.resolve({
-          session: sessionName,
+          session: sessionId,
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 

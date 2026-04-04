@@ -60,15 +60,15 @@ export async function sessionReview(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
-    const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionName);
+    // Get the session details using the resolved session ID
+    const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Get session working directory
-    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionId);
 
     // Track warnings from non-fatal data-gathering failures
     const warnings: string[] = [];
@@ -190,7 +190,7 @@ export async function sessionReview(
     }
 
     const result: SessionReviewResult = {
-      session: resolvedContext.sessionName,
+      session: resolvedContext.sessionId,
       taskId: sessionRecord.taskId,
       taskSpec,
       prDescription,
@@ -212,7 +212,7 @@ export async function sessionReview(
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

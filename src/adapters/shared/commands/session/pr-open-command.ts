@@ -17,7 +17,7 @@ import { sessionPrOpen } from "../../../../domain/session/commands/pr-subcommand
  * Parameters for session PR open command
  */
 interface SessionPrOpenParams extends BaseSessionCommandParams {
-  sessionName?: string;
+  sessionId?: string;
 }
 
 export class SessionPrOpenCommand extends BaseSessionCommand<
@@ -46,16 +46,16 @@ export class SessionPrOpenCommand extends BaseSessionCommand<
   ): Promise<Record<string, unknown>> {
     try {
       const result = await sessionPrOpen({
-        sessionName: params.sessionName,
+        sessionId: params.sessionId,
         name: params.name,
         task: params.task,
         repo: params.repo,
       });
 
       return this.createSuccessResult({
-        message: `✅ Opened PR #${result.prNumber || "N/A"} for session '${result.sessionName}' in browser\n🔗 ${result.url}`,
+        message: `✅ Opened PR #${result.prNumber || "N/A"} for session '${result.sessionId}' in browser\n🔗 ${result.url}`,
         url: result.url,
-        sessionName: result.sessionName,
+        sessionId: result.sessionId,
         prNumber: result.prNumber,
       });
     } catch (error) {

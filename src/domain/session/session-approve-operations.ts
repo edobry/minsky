@@ -121,14 +121,14 @@ export async function approveSessionImpl(
     log.cli("🔄 Starting session approval...");
   }
 
-  let sessionNameToUse = params.session;
+  let sessionIdToUse = params.session;
   let taskId: string | undefined;
 
   // Set up session provider (use injected one or create default)
   const sessionDB = depsInput?.sessionDB || (await createSessionProvider());
 
   // Try to get session from task ID if provided
-  if (params.task && !sessionNameToUse) {
+  if (params.task && !sessionIdToUse) {
     if (!params.json) {
       log.cli("🔍 Resolving session from task ID...");
     }
@@ -196,11 +196,11 @@ The task exists but has no associated session to approve.
         taskIdToUse
       );
     }
-    sessionNameToUse = session.session;
+    sessionIdToUse = session.session;
   }
 
-  // Try to auto-detect session from repo path if no session name or task is provided
-  if (!sessionNameToUse && params.repo) {
+  // Try to auto-detect session from repo path if no session ID or task is provided
+  if (!sessionIdToUse && params.repo) {
     if (!params.json) {
       log.cli("🔍 Auto-detecting session from repository...");
     }
@@ -208,22 +208,22 @@ The task exists but has no associated session to approve.
     const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
     const detectedSession = await getCurrentSessionFunc(params.repo);
     if (detectedSession) {
-      sessionNameToUse = detectedSession;
+      sessionIdToUse = detectedSession;
     }
   }
 
   // Validate that we have a session to work with
-  if (!sessionNameToUse) {
-    throw new ValidationError("No session detected. Please provide a session name or task ID");
+  if (!sessionIdToUse) {
+    throw new ValidationError("No session detected. Please provide a session ID or task ID");
   }
 
   // Get the session record
-  const sessionRecord = await sessionDB.getSession(sessionNameToUse);
+  const sessionRecord = await sessionDB.getSession(sessionIdToUse);
   if (!sessionRecord) {
     throw new ResourceNotFoundError(
-      `Session "${sessionNameToUse}" not found`,
+      `Session "${sessionIdToUse}" not found`,
       "session",
-      sessionNameToUse
+      sessionIdToUse
     );
   }
 
@@ -254,7 +254,7 @@ The task exists but has no associated session to approve.
   const workingDirectory = originalRepoPath;
 
   // Determine PR branch name (local/remote only). GitHub path will delegate to backend
-  const featureBranch = sessionRecord.branch || sessionNameToUse;
+  const featureBranch = sessionRecord.branch || sessionIdToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
@@ -274,7 +274,7 @@ The task exists but has no associated session to approve.
         } catch (_branchError) {
           // PR branch doesn't exist and task is already DONE - session is complete
           log.debug(
-            `Session ${sessionNameToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`
+            `Session ${sessionIdToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`
           );
 
           // Get current HEAD info for the response
@@ -287,7 +287,7 @@ The task exists but has no associated session to approve.
           const mergeDate = new Date().toISOString();
 
           return {
-            session: sessionNameToUse,
+            session: sessionIdToUse,
             commitHash,
             mergeDate,
             mergedBy,
@@ -364,7 +364,7 @@ The task exists but has no associated session to approve.
     if (backendType === "github") {
       // For GitHub, backend will resolve PR number from session context; leave identifier undefined
       // Some backends require an identifier; we pass session via second argument
-      prIdentifier = sessionNameToUse;
+      prIdentifier = sessionIdToUse;
     }
 
     if (!params.json) {
@@ -374,7 +374,7 @@ The task exists but has no associated session to approve.
     // Use repository backend to merge the pull request
     let mergeResult;
     try {
-      mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+      mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionIdToUse);
       isNewlyApproved = true;
     } catch (mergeError) {
       const errorMessage = getErrorMessage(mergeError);
@@ -420,13 +420,13 @@ The task exists but has no associated session to approve.
     });
 
     // Update PR state to reflect merge
-    await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
+    await updatePrStateOnMerge(sessionIdToUse, deps.sessionDB);
 
     // Continue with existing cleanup and task status logic...
 
     // Create merge info
     const mergeInfo = {
-      session: sessionNameToUse,
+      session: sessionIdToUse,
       commitHash,
       mergeDate,
       mergedBy,
@@ -495,7 +495,7 @@ The task exists but has no associated session to approve.
           deps.gitService,
           workingDirectory,
           prBranch,
-          sessionNameToUse,
+          sessionIdToUse,
           taskId
         );
         log.debug("Successfully cleaned up local branches after merge");
@@ -544,7 +544,7 @@ export async function cleanupLocalBranches(
   gitService: GitServiceInterface,
   workingDirectory: string,
   prBranch: string,
-  sessionName: string,
+  sessionId: string,
   taskId?: string
 ): Promise<void> {
   // Clean up the PR branch (e.g., pr/task#265)
@@ -581,21 +581,21 @@ export async function cleanupLocalBranches(
       .map((b) => b.trim())
       .filter((b) => b && b !== prBranch);
 
-    // Extract task ID from session name if not provided and session follows task# pattern
-    const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
+    // Extract task ID from session ID if not provided and session follows task# pattern
+    const taskBranchName = taskId ? taskId.replace("#", "") : sessionId.replace("task#", "");
 
     // Build list of possible task branch names
     const possibleTaskBranches: string[] = [];
 
-    // Add sessionName if it looks like a task branch and exists
-    if (sessionName && sessionName !== prBranch && existingBranches.includes(sessionName)) {
-      possibleTaskBranches.push(sessionName);
+    // Add sessionId if it looks like a task branch and exists
+    if (sessionId && sessionId !== prBranch && existingBranches.includes(sessionId)) {
+      possibleTaskBranches.push(sessionId);
     }
 
     // Add numeric version if it exists
     if (
       taskBranchName &&
-      taskBranchName !== sessionName &&
+      taskBranchName !== sessionId &&
       existingBranches.includes(taskBranchName)
     ) {
       possibleTaskBranches.push(taskBranchName);
@@ -605,7 +605,7 @@ export async function cleanupLocalBranches(
     if (taskBranchName) {
       const taskVariants: string[] = [`task${taskBranchName}`, `task#${taskBranchName}`];
       for (const variant of taskVariants) {
-        if (variant !== sessionName && existingBranches.includes(variant)) {
+        if (variant !== sessionId && existingBranches.includes(variant)) {
           possibleTaskBranches.push(variant);
         }
       }

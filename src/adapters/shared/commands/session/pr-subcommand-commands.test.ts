@@ -8,7 +8,7 @@
  * "PR description is required for new pull request creation"
  *
  * Root Cause:
- * The checkIfPrCanBeRefreshed() method only checks for explicit session name or
+ * The checkIfPrCanBeRefreshed() method only checks for explicit session ID or
  * current working directory detection, but doesn't use the same session resolution
  * logic as the main command (resolveSessionContextWithFeedback).
  *
@@ -51,22 +51,22 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
     it("should detect existing PR when using --task parameter instead of --name", async () => {
       // Bug reproduction scenario: task has existing session with PR state
       const taskId = "md#368";
-      const sessionName = "test-session-fix-368";
+      const sessionId = "test-session-fix-368";
 
       // Mock the session provider to return an existing session with PR state
       const mockSessionProvider = {
         getSession: mock(async (name: string) => {
-          if (name === sessionName) {
+          if (name === sessionId) {
             return {
-              session: sessionName,
+              session: sessionId,
               taskId: taskId,
               prState: {
                 commitHash: "abc123",
-                branchName: `pr/${sessionName}`,
+                branchName: `pr/${sessionId}`,
                 exists: true,
                 lastChecked: new Date().toISOString(),
               },
-              prBranch: `pr/${sessionName}`,
+              prBranch: `pr/${sessionId}`,
               repoName: "local-minsky",
             };
           }
@@ -78,9 +78,9 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const mockSessionResolver = mock(async (options: any) => {
         if (options.task === taskId) {
           return {
-            sessionName: sessionName,
+            sessionId: sessionId,
             taskId: taskId,
-            autoDetectionMessage: `Auto-detected session: ${sessionName}`,
+            autoDetectionMessage: `Auto-detected session: ${sessionId}`,
           };
         }
         throw new Error("Session not found");
@@ -93,7 +93,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
             return ""; // Branch exists (empty output means success)
           }
           if (command.includes("ls-remote")) {
-            return `abc123 refs/heads/pr/${sessionName}`; // Remote branch exists
+            return `abc123 refs/heads/pr/${sessionId}`; // Remote branch exists
           }
           return "";
         }),

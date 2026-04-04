@@ -22,7 +22,7 @@ export interface SessionAssociationUpdateResult {
   sessionsFound: number;
   /** Number of sessions successfully updated */
   sessionsUpdated: number;
-  /** List of session names that were updated */
+  /** List of session IDs that were updated */
   updatedSessions: string[];
   /** Any errors that occurred during the update */
   errors: string[];
@@ -92,7 +92,7 @@ export async function updateSessionTaskAssociation(
     for (const session of matchingSessions) {
       try {
         log.debug("Updating session", {
-          sessionName: session.session,
+          sessionId: session.session,
           oldTaskId: session.taskId,
           newTaskId: newLocalId,
           dryRun,
@@ -108,14 +108,14 @@ export async function updateSessionTaskAssociation(
         result.updatedSessions.push(session.session);
 
         log.debug("Session updated successfully", {
-          sessionName: session.session,
+          sessionId: session.session,
           newTaskId: newLocalId,
         });
       } catch (error) {
         const errorMessage = `Failed to update session ${session.session}: ${error instanceof Error ? error.message : String(error)}`;
         result.errors.push(errorMessage);
         log.error("Failed to update session", {
-          sessionName: session.session,
+          sessionId: session.session,
           error: errorMessage,
         });
       }
@@ -143,7 +143,7 @@ export async function updateSessionTaskAssociation(
  *
  * @param taskId Task ID to search for (can be qualified like "md#123" or plain like "123")
  * @param sessionProvider Session provider to use
- * @returns List of session names associated with the task
+ * @returns List of session IDs associated with the task
  */
 export async function findSessionsByTaskId(
   taskId: string,

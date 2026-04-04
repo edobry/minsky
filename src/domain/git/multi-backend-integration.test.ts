@@ -64,7 +64,7 @@ function createMockDependencies() {
   return {
     sessionDb: mockSessionDb,
     execInRepository: mockExecInRepository,
-    getSessionWorkdir: mock((sessionName: string) => `/mock/sessions/${sessionName}`),
+    getSessionWorkdir: mock((sessionId: string) => `/mock/sessions/${sessionId}`),
     gitFetch: mock(async () => {}),
     gitPush: mock(async () => {}),
     execAsync: mock(async () => ({ stdout: "0\t1", stderr: "" })),
@@ -95,8 +95,8 @@ describe("Git Operations Multi-Backend Integration", () => {
       const deps = createMockDependencies();
 
       // Mock existing session record
-      deps.sessionDb.getSession = mock(async (sessionName: string) => {
-        if (sessionName === TEST_UUID) {
+      deps.sessionDb.getSession = mock(async (sessionId: string) => {
+        if (sessionId === TEST_UUID) {
           return {
             session: TEST_UUID,
             repoName: "test/repo",
@@ -126,8 +126,8 @@ describe("Git Operations Multi-Backend Integration", () => {
       const deps = createMockDependencies();
 
       // Mock existing legacy session
-      deps.sessionDb.getSession = mock(async (sessionName: string) => {
-        if (sessionName === "task123") {
+      deps.sessionDb.getSession = mock(async (sessionId: string) => {
+        if (sessionId === "task123") {
           return {
             session: "task123",
             repoName: "test/repo",

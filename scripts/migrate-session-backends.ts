@@ -21,7 +21,7 @@ import { PersistenceService } from "../src/domain/persistence/service";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MigrationRecord {
-  sessionName: string;
+  sessionId: string;
   oldBackendType: string | undefined;
   newBackendType: string;
   repoUrl: string;
@@ -100,7 +100,7 @@ async function run(execute: boolean, verbose: boolean): Promise<void> {
     report.mismatchCount++;
 
     const changeRecord: MigrationRecord = {
-      sessionName: session.session,
+      sessionId: session.session,
       oldBackendType: session.backendType,
       newBackendType: RepositoryBackendType.GITHUB,
       repoUrl: session.repoUrl,

@@ -100,9 +100,9 @@ export class GitService implements GitServiceInterface {
     return this.sessionDb;
   }
 
-  public async getSessionRecord(sessionName: string): Promise<any | undefined> {
+  public async getSessionRecord(sessionId: string): Promise<any | undefined> {
     const db = await this.getSessionDb();
-    return db.getSession(sessionName);
+    return db.getSession(sessionId);
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -224,9 +224,8 @@ export class GitService implements GitServiceInterface {
     await this.ensureBaseDir();
     return pushImpl(options, {
       execAsync,
-      getSession: async (sessionName: string) =>
-        (await this.getSessionDb()).getSession(sessionName),
-      getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName),
+      getSession: async (sessionId: string) => (await this.getSessionDb()).getSession(sessionId),
+      getSessionWorkdir: (sessionId: string) => this.getSessionWorkdir(sessionId),
     });
   }
 
