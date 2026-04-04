@@ -145,6 +145,7 @@ export function createGitServiceMock(
         conflictingFiles: [],
         safeToMerge: true,
         analysis: "No conflicts predicted",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
       } as any)
     ),
 
@@ -154,6 +155,7 @@ export function createGitServiceMock(
         behind: 0,
         diverged: false,
         commonAncestor: "abc123",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
       } as any)
     ),
     mergeWithConflictPrevention: mock(() =>
@@ -169,6 +171,7 @@ export function createGitServiceMock(
         updated: true,
         alreadyMerged: false,
         workdir: "/mock/workdir",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
       } as any)
     ),
     ...overrides,

@@ -27,6 +27,7 @@ export class RuleSimilarityService {
     config: RuleSimilarityServiceConfig = {}
   ): RuleSimilarityService {
     // Create a mock persistence provider for backward compatibility
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- deprecated factory with partial interface
     const mockPersistence = {
       capabilities: {
         vectorStorage: true,

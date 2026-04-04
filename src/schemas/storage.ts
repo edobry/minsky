@@ -108,6 +108,7 @@ export const sessionDbStateSchema = z.object({
 
 // Export type definitions
 export type TaskState = z.infer<typeof taskStateSchema>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic database result type
 export type DatabaseReadResult<T = any> = z.infer<typeof databaseReadResultSchema> & { data?: T };
 export type DatabaseWriteResult = z.infer<typeof databaseWriteResultSchema>;
 export type TaskReadOperationResult = z.infer<typeof taskReadOperationResultSchema>;
@@ -120,6 +121,7 @@ export function validateTaskState(data: unknown): TaskState {
   return taskStateSchema.parse(data);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic database result type
 export function validateDatabaseReadResult<T = any>(data: unknown): DatabaseReadResult<T> {
   return databaseReadResultSchema.parse(data) as DatabaseReadResult<T>;
 }

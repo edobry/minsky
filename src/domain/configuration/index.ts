@@ -132,11 +132,12 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       if (this.options.overrideSource) {
         this.configResult = {
           ...this.configResult,
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- deepMerge requires Record<string,unknown>; Configuration is structurally compatible but TypeScript requires an explicit bridge
+          /* eslint-disable custom/no-excessive-as-unknown -- deepMerge requires Record<string,unknown>; Configuration is structurally compatible */
           config: this.deepMerge(
             this.configResult.config as unknown as Record<string, unknown>,
             this.options.overrideSource as unknown as Record<string, unknown>
           ) as unknown as Configuration,
+          /* eslint-enable custom/no-excessive-as-unknown */
         };
       }
 
@@ -245,7 +246,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
         return (current as Record<string, unknown>)[key];
       }
       return undefined;
-    }, obj as unknown);
+    }, obj);
   }
 
   /**
@@ -265,6 +266,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
     // For arrays, replace entirely (no concatenation)
     if (Array.isArray(source)) {
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- spread of array into Record type requires double cast; TypeScript cannot infer array as Record<string,unknown>
       return [...source] as unknown as Record<string, unknown>;
     }
 

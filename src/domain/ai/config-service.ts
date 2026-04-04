@@ -147,10 +147,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   private async parseProviderConfig(
     provider: string,
-    config: any
+    config: Record<string, unknown>
   ): Promise<AIProviderConfig | null> {
     // Get provider-specific config from the unified configuration
-    const providerConfig = config.ai?.providers?.[provider];
+    const ai = config.ai as { providers?: Record<string, Record<string, unknown>> } | undefined;
+    const providerConfig = ai?.providers?.[provider];
 
     // If no provider config exists, return null
     if (!providerConfig) {
@@ -168,9 +169,9 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     // Create provider config from unified configuration (support both camelCase and snake_case)
     return {
       provider: provider as AIProvider,
-      apiKey,
-      baseURL: providerConfig.baseUrl || providerConfig.base_url,
-      defaultModel: providerConfig.model || providerConfig.default_model,
+      apiKey: String(apiKey),
+      baseURL: (providerConfig.baseUrl || providerConfig.base_url) as string | undefined,
+      defaultModel: (providerConfig.model || providerConfig.default_model) as string | undefined,
       supportedCapabilities: await this.getProviderCapabilities(provider),
     };
   }

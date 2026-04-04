@@ -34,6 +34,7 @@ export const sqliteSessions = sqliteTable("sessions", {
 
   // Backend configuration with automatic JSON parsing (will be added via migration)
   backendType: text("backendType"),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle JSON column type
   pullRequest: text("pullRequest", { mode: "json" }).$type<any>(),
 });
 

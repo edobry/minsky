@@ -29,6 +29,7 @@ async function testCompletionService(): Promise<void> {
     // Create services
     const configService = new DefaultAIConfigurationService({
       loadConfiguration: (_workingDir: string) => Promise.resolve({ resolved: config }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
     } as any);
 
     const completionService = new DefaultAICompletionService(configService);
@@ -87,6 +88,7 @@ async function testCompletionService(): Promise<void> {
       console.log("❌ Completion failed:", error instanceof Error ? error.message : String(error));
       console.log("   Error type:", error?.constructor?.name);
       if (error instanceof Error && "provider" in error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
         console.log("   Error provider:", (error as any).provider);
       }
     }

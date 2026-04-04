@@ -82,6 +82,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
 
 export type CommandExecutionHandler<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default, changing cascades to all consumers
   R = any,
 > = (
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
@@ -94,6 +95,7 @@ export type CommandExecutionHandler<
 
 export interface CommandDefinition<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default, changing cascades to all consumers
   R = any,
 > {
   /** Unique command identifier */

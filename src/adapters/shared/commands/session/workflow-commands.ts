@@ -357,7 +357,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
 
       // Get adapter to submit comment
-
+      /* eslint-disable custom/no-excessive-as-unknown -- changesetService interface doesn't expose getAdapter */
       const adapter = await (
         changesetService as unknown as {
           getAdapter?: () => Promise<{
@@ -365,6 +365,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
           } | null>;
         }
       ).getAdapter?.();
+      /* eslint-enable custom/no-excessive-as-unknown */
       if (adapter && typeof adapter.approve === "function") {
         const commentText = this.formatAIReviewComment(aiResult);
         await adapter.approve(changeset.id, commentText);
@@ -400,7 +401,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
 
       // Get adapter to approve
-
+      /* eslint-disable custom/no-excessive-as-unknown -- changesetService interface doesn't expose getAdapter */
       const adapter = await (
         changesetService as unknown as {
           getAdapter?: () => Promise<{
@@ -408,6 +409,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
           } | null>;
         }
       ).getAdapter?.();
+      /* eslint-enable custom/no-excessive-as-unknown */
       if (adapter && typeof adapter.approve === "function") {
         const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
         await adapter.approve(changeset.id, approvalText);

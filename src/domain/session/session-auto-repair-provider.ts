@@ -160,6 +160,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
     return this.baseProvider.deleteSession(session);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic session record field access
   async getRepoPath(record: SessionRecord | any): Promise<string> {
     return this.baseProvider.getRepoPath(record);
   }

@@ -42,6 +42,7 @@ export class ModularTaskCommandsManager {
    */
   async listTasksFromParams(params: TaskListParams): Promise<Task[]> {
     return await this.operations.listTasks.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.listTasks.execute>[0]
     );
   }
@@ -51,6 +52,7 @@ export class ModularTaskCommandsManager {
    */
   async getTaskFromParams(params: TaskGetParams): Promise<Task> {
     return await this.operations.getTask.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.getTask.execute>[0]
     );
   }
@@ -60,6 +62,7 @@ export class ModularTaskCommandsManager {
    */
   async getTaskStatusFromParams(params: TaskStatusGetParams): Promise<string> {
     return await this.operations.getTaskStatus.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.getTaskStatus.execute>[0]
     );
   }
@@ -69,6 +72,7 @@ export class ModularTaskCommandsManager {
    */
   async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<void> {
     return await this.operations.setTaskStatus.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.setTaskStatus.execute>[0]
     );
   }
@@ -78,6 +82,7 @@ export class ModularTaskCommandsManager {
    */
   async createTaskFromParams(params: TaskCreateParams): Promise<Task> {
     return await this.operations.createTask.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.createTask.execute>[0]
     );
   }
@@ -98,6 +103,7 @@ export class ModularTaskCommandsManager {
     };
 
     return await this.operations.createTaskFromTitleAndSpec.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.createTaskFromTitleAndSpec.execute>[0]
     );
   }
@@ -107,6 +113,7 @@ export class ModularTaskCommandsManager {
    */
   async getTaskSpecContentFromParams(params: TaskSpecContentParams): Promise<string> {
     return await this.operations.getTaskSpecContent.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.getTaskSpecContent.execute>[0]
     );
   }
@@ -118,6 +125,7 @@ export class ModularTaskCommandsManager {
     params: TaskDeleteParams
   ): Promise<{ success: boolean; taskId: string; task: Task }> {
     return await this.operations.deleteTask.execute(
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
       params as unknown as Parameters<typeof this.operations.deleteTask.execute>[0]
     );
   }

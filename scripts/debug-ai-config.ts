@@ -30,6 +30,7 @@ async function debugAIConfig(): Promise<void> {
     // Create AI config service
     const configService = new DefaultAIConfigurationService({
       loadConfiguration: (_workingDir: string) => Promise.resolve({ resolved: config }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
     } as any);
 
     // Test getProviderConfig for Morph

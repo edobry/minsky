@@ -194,7 +194,9 @@ export interface SessionApprovalDependencies {
   sessionDB?: SessionProviderInterface;
   gitService?: GitServiceInterface;
   taskService?: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session event payload varies by type
     setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session event payload varies by type
     getBackendForTask?: (taskId: string) => Promise<any>;
   };
   workspaceUtils?: WorkspaceUtilsInterface;
