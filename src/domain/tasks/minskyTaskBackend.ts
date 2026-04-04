@@ -41,6 +41,7 @@ export class MinskyTaskBackend implements TaskBackend {
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     let query = this.db.select().from(tasksTable);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder conditions require any[] for heterogeneous SQL conditions
     const conditions: any[] = [];
 
     if (options?.status && options.status !== "all") {
@@ -66,7 +67,7 @@ export class MinskyTaskBackend implements TaskBackend {
   async getTask(id: string): Promise<Task | null> {
     const rows = await this.db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
 
-    if (rows.length === 0) {
+    if (rows.length === 0 || !rows[0]) {
       return null;
     }
 
@@ -249,11 +250,11 @@ export class MinskyTaskBackend implements TaskBackend {
 
   // ---- Private Helper Methods ----
 
-  private mapDbRowToTask(row: any): Task {
+  private mapDbRowToTask(row: { id: string; title: string | null; status: string | null }): Task {
     return {
       id: row.id,
-      title: row.title,
-      status: row.status,
+      title: row.title ?? "",
+      status: row.status ?? "TODO",
       backend: this.name,
     };
   }

@@ -10,7 +10,12 @@ import { AIUsage, AICompletionError, AIProviderError } from "./types";
 /**
  * Transform Vercel AI SDK usage object to internal AIUsage format.
  */
-export function transformUsage(usage: any): AIUsage {
+export function transformUsage(usage: {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cost?: number;
+}): AIUsage {
   return {
     promptTokens: usage?.promptTokens || 0,
     completionTokens: usage?.completionTokens || 0,

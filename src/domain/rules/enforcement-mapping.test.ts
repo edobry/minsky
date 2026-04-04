@@ -6,6 +6,8 @@ import {
   getUnenforced,
 } from "./enforcement-mapping";
 
+const TEMPLATE_LITERALS_RULE_ID = "template-literals";
+
 describe("getEnforcement", () => {
   it("returns the mapping for a known rule ID", () => {
     const result = getEnforcement("file-size");
@@ -20,7 +22,7 @@ describe("getEnforcement", () => {
   });
 
   it("returned mapping contains well-formed mechanisms", () => {
-    const result = getEnforcement("template-literals");
+    const result = getEnforcement(TEMPLATE_LITERALS_RULE_ID);
     expect(result).toBeDefined();
     const mechanism = result!.mechanisms[0]!;
     expect(mechanism.type).toBe("eslint");
@@ -48,7 +50,7 @@ describe("getEnforcedRules", () => {
   it("contains known enforced rules", () => {
     const ids = getEnforcedRules();
     expect(ids).toContain("file-size");
-    expect(ids).toContain("template-literals");
+    expect(ids).toContain(TEMPLATE_LITERALS_RULE_ID);
     expect(ids).toContain("bun-test-patterns");
     expect(ids).toContain("git-usage-policy");
     expect(ids).toContain("no-skipped-tests");
@@ -62,15 +64,15 @@ describe("getEnforcedRules", () => {
 
 describe("getUnenforced", () => {
   it("returns rules that are not in ENFORCEMENT_MAPPINGS", () => {
-    const allRules = ["file-size", "template-literals", "some-unenforced-rule"];
+    const allRules = ["file-size", TEMPLATE_LITERALS_RULE_ID, "some-unenforced-rule"];
     const unenforced = getUnenforced(allRules);
     expect(unenforced).toContain("some-unenforced-rule");
     expect(unenforced).not.toContain("file-size");
-    expect(unenforced).not.toContain("template-literals");
+    expect(unenforced).not.toContain(TEMPLATE_LITERALS_RULE_ID);
   });
 
   it("returns an empty array when every supplied rule is enforced", () => {
-    const allRules = ["file-size", "template-literals"];
+    const allRules = ["file-size", TEMPLATE_LITERALS_RULE_ID];
     const unenforced = getUnenforced(allRules);
     expect(unenforced).toEqual([]);
   });

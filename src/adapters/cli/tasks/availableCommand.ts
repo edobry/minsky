@@ -25,6 +25,7 @@ export function createAvailableCommand(): Command {
       0.5
     );
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
   command.action(async (options: any) => {
     try {
       const result = await availableCommand.execute({

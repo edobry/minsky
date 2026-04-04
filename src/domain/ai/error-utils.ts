@@ -14,7 +14,7 @@ import { getErrorMessage } from "../../errors/index";
 /**
  * Handle model refresh errors with user-friendly messages
  */
-export function handleRefreshError(provider: string, error: any): void {
+export function handleRefreshError(provider: string, error: unknown): void {
   const errorMessage = getErrorMessage(error);
 
   // Handle specific known error cases

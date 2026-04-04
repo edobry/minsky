@@ -100,6 +100,7 @@ export interface AICompletionService {
 
 export interface AIObjectGenerationRequest {
   messages?: Array<{ role: string; content: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- schema is a Zod schema or JSON Schema object, no common type
   schema: any;
   model?: string;
   temperature?: number;

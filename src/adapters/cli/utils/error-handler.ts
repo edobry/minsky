@@ -271,7 +271,7 @@ function isLikelyPostgresError(err: unknown): boolean {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (result: any) => void }
+  options: { json?: boolean; formatter?: (result: unknown) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout

@@ -304,10 +304,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
 
-    const tempFile = join(
-      tempDir,
-      `task-${Buffer.from((crypto.randomBytes as any)(8)).toString("hex")}.md`
-    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- crypto dynamic import type doesn't expose randomBytes properly
+    const tempFile = join(tempDir, `task-${(crypto as any).randomBytes(8).toString("hex")}.md`);
 
     try {
       // Write current spec content to temp file

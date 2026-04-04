@@ -10,7 +10,7 @@ import {
   type BaseGitOperationParams,
 } from "./base-git-operation";
 import { type GitServiceInterface } from "../types";
-import { type PreparePrResult, type MergePrResult } from "../types";
+import { type PreparePrResult, type MergePrResult, type PrResult } from "../types";
 
 /**
  * Parameters for create pull request operation
@@ -44,7 +44,7 @@ interface MergePrParams extends BaseGitOperationParams {
  */
 export class CreatePullRequestOperation extends BaseGitOperation<
   CreatePullRequestParams,
-  { markdown: string; statusUpdateResult?: any }
+  PrResult
 > {
   getOperationName(): string {
     return "create pull request";
@@ -53,7 +53,7 @@ export class CreatePullRequestOperation extends BaseGitOperation<
   async executeOperation(
     params: CreatePullRequestParams,
     gitService: GitServiceInterface
-  ): Promise<{ markdown: string; statusUpdateResult?: any }> {
+  ): Promise<PrResult> {
     const result = await gitService.pr!({
       session: params.session,
       repoPath: params.repo,

@@ -9,7 +9,7 @@ import type { PreparePrResult } from "./prepare-pr-operations";
 import type { MergePrResult } from "./merge-pr-operations";
 import type { CloneResult } from "./clone-operations";
 import type { PushResult } from "./push-operations";
-import type { BranchResult } from "./types";
+import type { BranchResult, PrResult } from "./types";
 import type { EnhancedMergeResult } from "./conflict-detection";
 
 /**
@@ -23,7 +23,7 @@ export async function createPullRequestFromParams(params: {
   taskId?: string;
   debug?: boolean;
   noStatusUpdate?: boolean;
-}): Promise<{ markdown: string; statusUpdateResult?: any }> {
+}): Promise<PrResult> {
   return await modularGitCommandsManager.createPullRequestFromParams(params);
 }
 

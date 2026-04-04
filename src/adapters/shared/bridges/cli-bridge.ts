@@ -16,6 +16,7 @@ import {
   registerCategorizedCliCommands as modularRegisterCategorizedCliCommands,
   type ModularCliBridgeConfig,
 } from "./cli-bridge-modular";
+import type { CliCommandOptions, CategoryCommandOptions } from "./cli";
 
 // Re-export types for backward compatibility
 export type {
@@ -45,7 +46,7 @@ export class CliCommandBridge {
    * Register command customization options
    * @deprecated Use ModularCliCommandBridge directly
    */
-  registerCommandCustomization(commandId: string, options: any): void {
+  registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
     return this.modularBridge.registerCommandCustomization(commandId, options);
   }
 
@@ -53,7 +54,7 @@ export class CliCommandBridge {
    * Register category customization options
    * @deprecated Use ModularCliCommandBridge directly
    */
-  registerCategoryCustomization(category: CommandCategory, options: any): void {
+  registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
     return this.modularBridge.registerCategoryCustomization(category, options);
   }
 

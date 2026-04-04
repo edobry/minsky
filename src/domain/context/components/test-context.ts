@@ -459,7 +459,9 @@ async function detectCoverageConfig(
     const hasTestCoverage =
       packageJson.scripts?.["test:coverage"] ||
       Object.values(packageJson.scripts || {}).some(
-        (script: any) => script.includes("--coverage") || script.includes("--collect-coverage")
+        (script: unknown) =>
+          typeof script === "string" &&
+          (script.includes("--coverage") || script.includes("--collect-coverage"))
       );
 
     return {

@@ -100,7 +100,7 @@ export class SessionListCommand extends BaseSessionCommand<
       const sinceTs = parseTime(params.since);
       const untilTs = parseTime(params.until);
       sessions = filterByTimeRange(
-        sessions.map((s: any) => ({ ...s, updatedAt: s.createdAt })),
+        sessions.map((s) => ({ ...s, updatedAt: s.createdAt })),
         sinceTs,
         untilTs
       );

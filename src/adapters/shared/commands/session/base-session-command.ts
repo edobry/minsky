@@ -94,7 +94,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Log command errors with consistent format
    * Only logs for debugging purposes, not user-facing output
    */
-  protected logError(params: TParams, error: any): void {
+  protected logError(params: TParams, error: unknown): void {
     const baseParams = params as BaseSessionCommandParams;
 
     // Only log detailed error information for debugging, not to user interface

@@ -88,6 +88,7 @@ export interface DirectoryListResponse extends SessionResponse {
  * Search response interface
  */
 export interface SearchResponse extends SessionResponse {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- search results are polymorphic, each backend returns different shapes
   results?: any[];
   matchCount?: number;
   query?: string;

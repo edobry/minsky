@@ -226,6 +226,7 @@ export class DefaultConfigValidator implements ConfigValidator {
   /**
    * Validate AI provider configuration
    */
+
   private validateAIProviderConfig(
     providerName: string,
     providerConfig: any

@@ -5,6 +5,7 @@
  */
 
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
+import type { GitHubIssuesTaskBackendOptions } from "../../domain/tasks/githubIssuesTaskBackend";
 import { get, getConfiguration } from "../../domain/configuration";
 import { log } from "../../utils/logger";
 
@@ -64,7 +65,7 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     }
 
     // Step 3: Check repository detection
-    let repoConfig: any = null;
+    let repoConfig: Partial<GitHubIssuesTaskBackendOptions> | null = null;
     try {
       const workdir = process.cwd();
       repoConfig = getGitHubBackendConfig(workdir);
@@ -114,7 +115,7 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
       } else if (hasAutoDetection) {
         // No explicit config, but auto-detection works
         log.cli("✅ Using auto-detection from git remote");
-        log.cli(`   Auto-detected: ${repoConfig.owner}/${repoConfig.repo}`);
+        log.cli(`   Auto-detected: ${repoConfig!.owner}/${repoConfig!.repo}`);
         if (verbose) {
           log.cli("   Explicit configuration not required when auto-detection works");
         }

@@ -97,7 +97,15 @@ class MockPersistenceProvider extends PersistenceProvider {
   }
 
   getStorage<T, S>() {
-    const storage: any = {
+    type StorageObj = {
+      data: Map<string, T>;
+      get: (id: string) => Promise<T | null>;
+      save: (id: string, data: T) => Promise<void>;
+      update: (id: string, updates: Partial<T>) => Promise<void>;
+      delete: (id: string) => Promise<void>;
+      search: () => Promise<T[]>;
+    };
+    const storage: StorageObj = {
       data: new Map<string, T>(),
       get: async (id: string) => storage.data.get(id) || null,
       save: async (id: string, data: T) => {

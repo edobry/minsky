@@ -5,10 +5,19 @@ import { z } from "zod";
 import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";
 import { log } from "../../../utils/logger";
 
+type JsonSchema = {
+  type?: string;
+  items?: JsonSchema;
+  enum?: unknown[];
+  description?: string;
+  default?: unknown;
+  [key: string]: unknown;
+};
+
 /**
  * Convert a Zod schema to JSON Schema format like Cursor uses
  */
-function zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
+function zodToJsonSchema(zodSchema: z.ZodTypeAny): JsonSchema {
   if (zodSchema instanceof z.ZodString) {
     return { type: "string" };
   } else if (zodSchema instanceof z.ZodNumber) {

@@ -148,7 +148,7 @@ Examples:
 /**
  * Format value for display
  */
-export function formatValue(value: any): string {
+export function formatValue(value: unknown): string {
   if (value === undefined) {
     return "(not set)";
   }

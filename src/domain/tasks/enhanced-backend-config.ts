@@ -7,6 +7,7 @@
  */
 
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskBackend } from "./types";
 
 /**
  * Configuration for markdown backends with internal workspace resolution
@@ -72,7 +73,7 @@ export interface BackendManagedTaskServiceOptions {
   /**
    * Custom backend instances (for testing or advanced use cases)
    */
-  customBackends?: any[];
+  customBackends?: TaskBackend[];
 }
 
 /**

@@ -13,7 +13,7 @@ export interface ToolSimilarityCoreOptions {
 }
 
 export async function createToolSimilarityCore(options: ToolSimilarityCoreOptions = {}) {
-  const cfg: any = await getConfiguration();
+  const cfg = getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 

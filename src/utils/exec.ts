@@ -1,4 +1,4 @@
-import { exec } from "child_process";
+import { exec, type ExecOptions } from "child_process";
 import { promisify } from "util";
 
 const promisifiedExec = promisify(exec);
@@ -9,23 +9,24 @@ const promisifiedExec = promisify(exec);
  */
 export async function executeCommand(
   command: string,
-  options: any = {}
+  options: Record<string, unknown> = {}
 ): Promise<{ stdout: string; stderr: string }> {
   // Add explicit cleanup options to prevent hanging
   const execOptions = {
     encoding: "utf8" as const,
-    ...options,
+    ...(options as ExecOptions),
     // Kill child process if parent exits
-    killSignal: "SIGTERM",
+    killSignal: "SIGTERM" as const,
     // Set maximum buffer sizes to prevent memory issues
     maxBuffer: 1024 * 1024 * 10, // 10MB
   };
 
   try {
-    const result = await promisifiedExec(command, execOptions);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- promisifiedExec overload resolution requires cast when options has dynamic shape
+    const result = await promisifiedExec(command, execOptions as any);
     return {
-      stdout: typeof result.stdout === "string" ? result.stdout : result.stdout.toString(),
-      stderr: typeof result.stderr === "string" ? result.stderr : result.stderr.toString(),
+      stdout: typeof result.stdout === "string" ? result.stdout : String(result.stdout),
+      stderr: typeof result.stderr === "string" ? result.stderr : String(result.stderr),
     };
   } catch (error) {
     // Ensure any spawned processes are cleaned up on error

@@ -80,6 +80,7 @@ const sessionChangesetGetParams = composeParams(
  */
 
 async function executeSessionChangesetList(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
   params: any,
   ctx?: CommandExecutionContext
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
@@ -183,6 +184,7 @@ async function executeSessionChangesetList(
  */
 
 async function executeSessionChangesetGet(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
   params: any,
   ctx?: CommandExecutionContext
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
