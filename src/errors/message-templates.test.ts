@@ -201,7 +201,7 @@ describe("Error Message Templates", () => {
       const alternatives: CommandSuggestion[] = [
         {
           description: "Specify session",
-          command: "minsky git pr --session ID",
+          command: "minsky git pr --session <session-id>",
         },
       ];
 
@@ -210,7 +210,7 @@ describe("Error Message Templates", () => {
       expect(result).toContain("🚫 Cannot create PR - missing required information");
       expect(result).toContain("You need to specify one of these options");
       expect(result).toContain("Specify session");
-      expect(result).toContain("minsky git pr --session ID");
+      expect(result).toContain("minsky git pr --session <session-id>");
     });
   });
 
