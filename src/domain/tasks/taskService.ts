@@ -180,15 +180,18 @@ export async function createConfiguredTaskService(options: {
       if (persistenceProvider) {
         try {
           const db = await persistenceProvider.getDatabaseConnection?.();
-
-          const minskyBackend = createMinskyTaskBackend({
-            name: TaskBackend.MINSKY,
-            workspacePath: options.workspacePath,
-            db,
-          });
-          minskyBackend.prefix = "mt";
-          service.registerBackend(minskyBackend);
-          log.debug("Minsky backend registered successfully");
+          if (db) {
+            const minskyBackend = createMinskyTaskBackend({
+              name: TaskBackend.MINSKY,
+              workspacePath: options.workspacePath,
+              db,
+            });
+            minskyBackend.prefix = "mt";
+            service.registerBackend(minskyBackend);
+            log.debug("Minsky backend registered successfully");
+          } else {
+            log.debug("Skipping minsky backend - database connection not available");
+          }
         } catch (error) {
           log.warn("Minsky backend database connection failed", {
             error: getErrorMessage(error),
