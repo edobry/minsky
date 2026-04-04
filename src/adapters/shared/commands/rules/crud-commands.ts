@@ -24,6 +24,7 @@ import {
 } from "./rules-parameters";
 
 export function registerCrudCommands(targetRegistry: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command definitions use specific typed execute handlers incompatible with generic SharedCommand
   registerCommand: (cmd: any) => void;
 }): void {
   targetRegistry.registerCommand({

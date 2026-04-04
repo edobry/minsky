@@ -8,6 +8,7 @@
 import { classifyRuleType } from "../rule-classifier";
 import type { RuleService } from "../../rules";
 import type { CompileTarget, CompileResult, TargetOptions } from "./types";
+import type { Rule } from "../types";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
 import { cursorRulesTarget } from "./targets/cursor-rules";
@@ -92,7 +93,7 @@ export class CompileService {
  */
 async function compileDryRun(
   target: CompileTarget,
-  rules: any[],
+  rules: Rule[],
   options: TargetOptions,
   workspacePath: string
 ): Promise<CompileResult & { content: string }> {

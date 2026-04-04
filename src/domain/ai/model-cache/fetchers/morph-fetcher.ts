@@ -76,6 +76,7 @@ export class MorphModelFetcher implements TypedModelFetcher<"morph"> {
         }
 
         const models = await Promise.all(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Morph API response has no official TypeScript types
           data.data.map((model: any) => this.convertToCachedModel(model))
         );
 
@@ -136,6 +137,7 @@ export class MorphModelFetcher implements TypedModelFetcher<"morph"> {
   /**
    * Convert Morph API model to our cached model format
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Morph API response has no official TypeScript types
   private async convertToCachedModel(apiModel: any): Promise<CachedProviderModel> {
     const capabilities = await this.getModelCapabilities(apiModel.id);
 

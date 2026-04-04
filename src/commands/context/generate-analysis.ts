@@ -108,6 +108,7 @@ export async function analyzeGeneratedContext(
   );
 
   // Get tokenizer information
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getTokenizerInfo is an optional extension not in the base TokenizationService interface
   const tokenizerInfo = (tokenizationService as any).getTokenizerInfo?.(targetModel) || {
     name: "tiktoken",
     encoding: "cl100k_base",

@@ -323,7 +323,7 @@ function generateSimulatedHistory(context: ComponentInput): ConversationHistoryI
 async function findRelevantHistoryEntries(
   history: ConversationHistoryInputs["history"],
   userPrompt?: string,
-  task?: any
+  task?: { id?: string; title?: string }
 ): Promise<ConversationHistoryInputs["relevantEntries"]> {
   const relevantEntries: ConversationHistoryInputs["relevantEntries"] = [];
 
@@ -351,7 +351,7 @@ async function findRelevantHistoryEntries(
 function calculateRelevanceScore(
   entry: ConversationHistoryInputs["history"]["entries"][0],
   userPrompt?: string,
-  task?: any
+  task?: { id?: string; title?: string }
 ): { score: number; reason: string } {
   let score = 0;
   const reasons: string[] = [];

@@ -12,7 +12,7 @@
  * // Define formatter directly in the consuming module
  * function ruleStyleFormatter(result: EnhancedSearchResult, index: number, showScore: boolean): string {
  *   const name = result.name || result.id;
- *   const format = (result as any).format;
+ *   const format = (result as { format?: string }).format;
  *   const formatPart = format ? ` [${format}]` : "";
  *   const desc = result.description ? ` - ${result.description}` : "";
  *   const scorePart = showScore && result.score !== undefined ? `\nScore: ${result.score.toFixed(3)}` : "";

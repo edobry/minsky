@@ -58,7 +58,7 @@ export class ToolSimilarityService {
       tool.category,
       // Add parameter descriptions if available
       Object.values(tool.parameters || {})
-        .map((p: any) => p.help || "")
+        .map((p: { help?: string }) => p.help || "")
         .filter(Boolean)
         .join(" "),
     ]

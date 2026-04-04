@@ -71,7 +71,7 @@ export class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory | string, options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    this.cliBridge.registerCategoryCustomization(category as any, options);
+    this.cliBridge.registerCategoryCustomization(category as CommandCategory, options);
   }
 
   /**

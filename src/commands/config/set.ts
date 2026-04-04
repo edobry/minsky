@@ -152,7 +152,7 @@ Examples:
 /**
  * Parse configuration value from string input
  */
-export function parseConfigValue(value: string): any {
+export function parseConfigValue(value: string): unknown {
   // Handle special values
   if (value === "true") return true;
   if (value === "false") return false;
@@ -183,7 +183,7 @@ export function parseConfigValue(value: string): any {
 /**
  * Format value for display
  */
-export function formatValue(value: any): string {
+export function formatValue(value: unknown): string {
   if (value === undefined) {
     return "(not set)";
   }

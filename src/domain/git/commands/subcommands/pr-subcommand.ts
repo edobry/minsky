@@ -5,6 +5,7 @@ import {
 } from "../../../../adapters/shared/command-registry";
 import { createPullRequestFromParams } from "../pr-command";
 import { log } from "../../../../utils/logger";
+import { type PrResult } from "../../types";
 import {
   REPO_DESCRIPTION,
   SESSION_DESCRIPTION,
@@ -64,7 +65,7 @@ export async function executePrCommand(
     [K in keyof typeof prCommandParams]: z.infer<(typeof prCommandParams)[K]["schema"]>;
   },
   context: CommandExecutionContext
-): Promise<{ markdown: string; statusUpdateResult?: any }> {
+): Promise<PrResult> {
   const { session, repo, branch, task, debug, noStatusUpdate } = parameters;
 
   const result = await createPullRequestFromParams({

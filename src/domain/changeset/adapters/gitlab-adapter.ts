@@ -103,6 +103,7 @@ export class GitLabChangesetAdapterFactory implements ChangesetAdapterFactory {
     return repositoryUrl.includes("gitlab.com") || repositoryUrl.includes("gitlab.");
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
   async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
     return new GitLabChangesetAdapter(repositoryUrl, config);
   }

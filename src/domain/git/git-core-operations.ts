@@ -5,7 +5,10 @@ import { NothingToCommitError } from "../../errors/index";
 import { classifyNothingToCommit, extractCommitHash } from "./git-with-deps";
 import type { GitStatus, StashResult, PullResult } from "./types";
 
-type ExecAsyncFn = (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+type ExecAsyncFn = (
+  command: string,
+  options?: Record<string, unknown>
+) => Promise<{ stdout: string; stderr: string }>;
 
 /**
  * Get the status of a repository (modified, untracked, deleted files)

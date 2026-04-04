@@ -23,7 +23,7 @@ export async function createPullRequestFromParams(params: {
   taskId?: string;
   debug?: boolean;
   noStatusUpdate?: boolean;
-}): Promise<{ markdown: string; statusUpdateResult?: any }> {
+}): Promise<PrResult> {
   const gitService = createGitService();
   const options: PrOptions = {
     session: params.session,

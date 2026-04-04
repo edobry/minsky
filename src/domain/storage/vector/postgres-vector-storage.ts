@@ -84,6 +84,7 @@ export class PostgresVectorStorage implements VectorStorage {
 
     const cols: string[] = [this.config.idColumn, this.config.embeddingColumn];
     const placeholders: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- postgres.js sql.unsafe() requires ParameterOrJSON<never>[] which doesn't accept unknown
     const values: any[] = [];
     let paramIndex = 1;
 
@@ -182,6 +183,7 @@ export class PostgresVectorStorage implements VectorStorage {
 
     // Build WHERE clause for filters
     let whereClause = "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- postgres.js sql.unsafe() requires ParameterOrJSON<never>[] which doesn't accept unknown
     const queryParams: any[] = [vectorLiteral, limit];
     let paramIndex = 3;
 

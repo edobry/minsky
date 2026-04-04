@@ -18,6 +18,7 @@ import type {
   PreparePrResult,
   MergePrResult,
   EnhancedMergeResult,
+  PrResult,
 } from "./types";
 
 /**
@@ -65,7 +66,7 @@ export class ModularGitCommandsManager {
     taskId?: string;
     debug?: boolean;
     noStatusUpdate?: boolean;
-  }): Promise<{ markdown: string; statusUpdateResult?: any }> {
+  }): Promise<PrResult> {
     return await this.getOperations().createPullRequest.execute(params);
   }
 
@@ -255,7 +256,7 @@ export async function createPullRequestFromParams(
     noStatusUpdate?: boolean;
   },
   deps?: GitOperationDependencies
-): Promise<{ markdown: string; statusUpdateResult?: any }> {
+): Promise<PrResult> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.createPullRequestFromParams(params);
 }

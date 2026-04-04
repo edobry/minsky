@@ -14,6 +14,7 @@ export interface McpErrorContext {
   path?: string;
   session?: string;
   operation?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- context carries arbitrary diagnostic information
   [key: string]: any;
 }
 

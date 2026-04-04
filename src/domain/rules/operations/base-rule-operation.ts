@@ -182,6 +182,7 @@ export type RuleOperationFactory<TParams, TResult> = (
  * Rule operation registry for managing operation instances
  */
 export class RuleOperationRegistry {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic registry holds operations with varying type params
   private operations = new Map<string, BaseRuleOperation<any, any>>();
 
   /**

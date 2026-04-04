@@ -63,7 +63,7 @@ export interface FileOperationSuccess {
   success: true;
   path: string;
   session?: string;
-  [key: string]: any; // Allow additional properties
+  [key: string]: unknown; // Allow additional properties
 }
 
 /**
