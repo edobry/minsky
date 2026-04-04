@@ -121,13 +121,13 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Create success result with consistent structure
    */
   protected createSuccessResult(
-    data: Record<string, unknown>,
+    data: object,
     message?: string,
     additionalData: Record<string, unknown> = {}
   ): Record<string, unknown> {
     return {
       success: true,
-      ...data,
+      ...(data as Record<string, unknown>),
       ...(message && { message }),
       ...additionalData,
     };
@@ -185,6 +185,7 @@ export class SessionCommandRegistry {
   register<TParams, TResult>(id: string, command: BaseSessionCommand<TParams, TResult>): void {
     this.commands.set(
       id,
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- generic registry requires type widening to store commands with varying type params
       command as unknown as BaseSessionCommand<Record<string, unknown>, Record<string, unknown>>
     );
   }
@@ -193,6 +194,7 @@ export class SessionCommandRegistry {
    * Get a session command by ID
    */
   get<TParams, TResult>(id: string): BaseSessionCommand<TParams, TResult> | undefined {
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- narrowing generic registry back to typed command is unavoidable
     return this.commands.get(id) as unknown as BaseSessionCommand<TParams, TResult> | undefined;
   }
 

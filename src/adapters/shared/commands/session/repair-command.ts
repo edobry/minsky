@@ -64,6 +64,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
       const result = await sessionRepair(repairParams);
 
       if (params.json) {
+        // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionRepairResult is structurally compatible with Record<string,unknown> for JSON output
         return result as unknown as Record<string, unknown>;
       }
 
@@ -97,7 +98,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
         log.cli(`❌ Session repair failed for '${result.sessionId}'`);
       }
 
-      return this.createSuccessResult(result as unknown as Record<string, unknown>);
+      return this.createSuccessResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error("Session repair failed", { error: errorMessage });

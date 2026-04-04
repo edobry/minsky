@@ -44,6 +44,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): MockFunction<ReturnType<T>, Parameters<T>> & T {
   // Cast through unknown to ensure proper type mapping
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- intersection type MockFunction<R,P> & T cannot be expressed without cast; this is the canonical mock-function bridge
   return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
 

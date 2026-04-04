@@ -263,6 +263,7 @@ export async function diagnoseMergeBlocker(
       repo: gh.repo,
       pull_number: prNumber,
     });
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- Octokit response data type doesn't match internal GitHubPRExtended interface
     const pr = prResp.data as unknown as GitHubPRExtended;
 
     const reasons: string[] = [];

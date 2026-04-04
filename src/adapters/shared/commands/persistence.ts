@@ -354,6 +354,7 @@ const persistenceMigrateRegistration = defineCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- getStorage() returns abstract type; accessing writeState method not in public interface requires casting
       const targetStorage = targetProvider.getStorage() as unknown as {
         writeState: (state: unknown) => Promise<{ success: boolean; error?: { message: string } }>;
       };

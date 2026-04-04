@@ -121,7 +121,8 @@ export class ConfigurationLoader {
 
       // Validate final configuration with provenance information
       const validationResult = this.options.skipValidation
-        ? { success: true, data: mergedConfig as unknown as Configuration }
+        ? // eslint-disable-next-line custom/no-excessive-as-unknown -- mergedConfig is PartialConfiguration which is structurally compatible with Configuration; only needed when skipping validation
+          { success: true, data: mergedConfig as unknown as Configuration }
         : this.validateConfiguration(mergedConfig as PartialConfiguration, effectiveValues);
 
       // Handle validation errors
@@ -134,6 +135,7 @@ export class ConfigurationLoader {
 
       // Build result
       const result: ConfigurationLoadResult = {
+        // eslint-disable-next-line custom/no-excessive-as-unknown -- fallback to mergedConfig when validation returns no data; PartialConfiguration is structurally compatible with Configuration
         config: validationResult.data || (mergedConfig as unknown as Configuration),
         sources: sourceResults,
         validationResult,
@@ -288,6 +290,7 @@ export class ConfigurationLoader {
 
     // For arrays, replace entirely (no concatenation)
     if (Array.isArray(source)) {
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- array spread result is unknown[] which cannot be directly assigned to Record<string,unknown>; required for deepMerge recursion
       return [...source] as unknown as Record<string, unknown>;
     }
 

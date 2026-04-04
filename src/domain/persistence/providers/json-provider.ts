@@ -74,6 +74,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
         prettyPrint: true,
       };
 
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- narrowing typed JsonFileStorage to unknown generics for internal storage field
       this.storage = new JsonFileStorage(storageOptions) as unknown as JsonFileStorage<
         unknown,
         unknown
@@ -105,6 +106,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
     if (!this.storage) {
       throw new Error("JsonPersistenceProvider not initialized");
     }
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- generic narrowing from concrete storage type to typed DatabaseStorage<T,S> is unavoidable
     return this.storage as unknown as DatabaseStorage<T, S>;
   }
 

@@ -132,6 +132,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       if (this.options.overrideSource) {
         this.configResult = {
           ...this.configResult,
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- deepMerge requires Record<string,unknown>; Configuration is structurally compatible but TypeScript requires an explicit bridge
           config: this.deepMerge(
             this.configResult.config as unknown as Record<string, unknown>,
             this.options.overrideSource as unknown as Record<string, unknown>
@@ -168,7 +169,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
   get<T = unknown>(path: string): T {
     const config = this.getConfig();
-    const value = this.getNestedValue(config as unknown as Record<string, unknown>, path);
+    const value = this.getNestedValue(config, path);
 
     if (value === undefined) {
       throw new Error(`Configuration path '${path}' not found`);
@@ -180,7 +181,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
   has(path: string): boolean {
     try {
       const config = this.getConfig();
-      return this.getNestedValue(config as unknown as Record<string, unknown>, path) !== undefined;
+      return this.getNestedValue(config, path) !== undefined;
     } catch {
       return false;
     }
@@ -237,14 +238,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     };
   }
 
-  private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  private getNestedValue(obj: object, path: string): unknown {
     // Dynamic path traversal requires index access on unknown-typed nested objects
     return path.split(".").reduce<unknown>((current, key) => {
       if (current !== null && typeof current === "object") {
         return (current as Record<string, unknown>)[key];
       }
       return undefined;
-    }, obj);
+    }, obj as unknown);
   }
 
   /**

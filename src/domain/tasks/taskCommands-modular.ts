@@ -96,6 +96,7 @@ export class ModularTaskCommandsManager {
       force: false,
       ...options,
     };
+
     return await this.operations.createTaskFromTitleAndSpec.execute(
       params as unknown as Parameters<typeof this.operations.createTaskFromTitleAndSpec.execute>[0]
     );
@@ -116,7 +117,9 @@ export class ModularTaskCommandsManager {
   async deleteTaskFromParams(
     params: TaskDeleteParams
   ): Promise<{ success: boolean; taskId: string; task: Task }> {
-    return await this.operations.deleteTask.execute(params);
+    return await this.operations.deleteTask.execute(
+      params as unknown as Parameters<typeof this.operations.deleteTask.execute>[0]
+    );
   }
 
   /**
