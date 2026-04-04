@@ -39,7 +39,8 @@ export function createMockFs(
   function addParentDirectories(filePath: string, dirs: Set<string>): void {
     const parts = filePath.split("/");
     for (let i = 1; i < parts.length; i++) {
-      dirs.add(parts.slice(0, i).join("/"));
+      const dir = parts.slice(0, i).join("/");
+      if (dir) dirs.add(dir);
     }
   }
 
@@ -59,7 +60,7 @@ export function createMockFs(
     },
 
     async writeFile(path: string, data: string | Buffer): Promise<void> {
-      files.set(path, typeof data === "string" ? data : String(data));
+      files.set(path, typeof data === "string" ? data : data.toString());
       addParentDirectories(path, directories);
     },
 
