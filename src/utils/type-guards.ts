@@ -228,7 +228,9 @@ export const _ServiceUtils = {
   safeCall<T, K extends keyof T>(
     service: T,
     method: K,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- conditional type constraints require any[] for function parameter spreading
     ...args: T[K] extends (...args: any[]) => any ? Parameters<T[K]> : never[]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- conditional type constraints require any[] for function return type inference
   ): T[K] extends (...args: any[]) => any ? ReturnType<T[K]> | undefined : undefined {
     if (service && typeof service === "object" && method in service) {
       const methodFn = service[method];

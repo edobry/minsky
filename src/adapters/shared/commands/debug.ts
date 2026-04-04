@@ -131,7 +131,9 @@ export function registerDebugCommands(): void {
         const nodejsVersion = process.version;
         const platform = process.platform;
         const arch = process.arch;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.uptime() not in Node type declarations
         const uptime = Math.round((process as any).uptime?.() ?? 0);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.memoryUsage() not in Node type declarations
         const memory = (process as any).memoryUsage?.() ?? {
           rss: 0,
           heapTotal: 0,

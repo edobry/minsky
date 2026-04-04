@@ -46,6 +46,7 @@ export function getSessionCustomizations(): {
               description: "Description for auto-created task (required if --task not provided)",
             },
           },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- formatter receives dynamically-shaped session command result
           outputFormatter: (result: any) => {
             // Check if JSON output was requested
             if (result.json) {
@@ -157,6 +158,7 @@ export function getSessionCustomizations(): {
               description: "Task ID associated with the session",
             },
           },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- formatter receives dynamically-shaped session command result
           outputFormatter: (result: any) => {
             // Check if JSON output was requested
             if (result.json) {

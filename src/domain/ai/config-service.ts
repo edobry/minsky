@@ -22,6 +22,7 @@ import { processCwd } from "../../utils/process";
 type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config service interface varies between production and test implementations
   constructor(private configService: any) {} // Accept any config service for flexibility
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {

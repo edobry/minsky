@@ -301,7 +301,10 @@ export class ProjectConfigReader {
   /**
    * Detect language from package.json
    */
-  private detectLanguageFromPackageJson(packageJson: any): "typescript" | "javascript" | "other" {
+  private detectLanguageFromPackageJson(packageJson: {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  }): "typescript" | "javascript" | "other" {
     const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
 
     if (

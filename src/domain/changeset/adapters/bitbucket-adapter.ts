@@ -104,6 +104,7 @@ export class BitbucketChangesetAdapterFactory implements ChangesetAdapterFactory
     return repositoryUrl.includes("bitbucket.org") || repositoryUrl.includes("bitbucket.");
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
   async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
     return new BitbucketChangesetAdapter(repositoryUrl, config);
   }

@@ -251,10 +251,10 @@ function migrateTaskIdReferencesInText(
  * Migrate task ID references in object structures
  */
 function migrateTaskIdReferencesInObject(
-  obj: any,
+  obj: unknown,
   result: MigrationResult,
   options: MigrationOptions
-): any {
+): unknown {
   if (obj === null || typeof obj !== "object") {
     return obj;
   }
@@ -263,9 +263,9 @@ function migrateTaskIdReferencesInObject(
     return obj.map((item) => migrateTaskIdReferencesInObject(item, result, options));
   }
 
-  const updatedObj = { ...obj };
+  const updatedObj = { ...(obj as Record<string, unknown>) };
 
-  for (const [key, value] of Object.entries(obj)) {
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     // Convert task ID fields to storage format
     if ((key === "taskId" || key === "task") && typeof value === "string") {
       const normalized = normalizeTaskIdForStorage(value);

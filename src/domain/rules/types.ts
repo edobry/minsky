@@ -26,6 +26,7 @@ export interface RuleMeta {
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rules can carry arbitrary custom metadata from frontmatter
   [key: string]: any; // Allow for additional custom fields
 }
 

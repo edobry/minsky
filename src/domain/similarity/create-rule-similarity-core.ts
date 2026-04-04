@@ -15,7 +15,7 @@ export async function createRuleSimilarityCore(
   workspacePath: string,
   options: RuleSimilarityCoreOptions = {}
 ) {
-  const cfg: any = await getConfiguration();
+  const cfg = getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 

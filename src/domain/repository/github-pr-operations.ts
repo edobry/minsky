@@ -588,7 +588,10 @@ export async function getPullRequestDiff(
   });
   const files = filesResponse.data;
   const stats = files.reduce(
-    (acc: { filesChanged: number; insertions: number; deletions: number }, f: any) => {
+    (
+      acc: { filesChanged: number; insertions: number; deletions: number },
+      f: { additions?: number; deletions?: number }
+    ) => {
       acc.filesChanged += 1;
       acc.insertions += f.additions || 0;
       acc.deletions += f.deletions || 0;

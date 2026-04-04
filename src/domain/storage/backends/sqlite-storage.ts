@@ -216,6 +216,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
       // Apply filters if provided
       if (options) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder conditions require any[] for heterogeneous SQL conditions
         const conditions: any[] = [];
 
         if (options.taskId) {

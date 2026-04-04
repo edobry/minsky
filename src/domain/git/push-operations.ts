@@ -2,6 +2,7 @@ import { normalizeRepoName } from "../repo-utils";
 import { getErrorMessage } from "../../errors/index";
 import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
+import type { SessionRecord } from "../session/types";
 
 /**
  * Options for push operations
@@ -26,8 +27,11 @@ export interface PushResult {
  * Dependencies for push operations
  */
 export interface PushDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (sessionName: string) => Promise<any>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (sessionName: string) => Promise<SessionRecord | null | undefined>;
   getSessionWorkdir: (sessionName: string) => string;
 }
 

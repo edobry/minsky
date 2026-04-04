@@ -4,13 +4,14 @@ import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import { PushOptions, PushResult } from "../types";
 import type { PushChangesParams } from "./types";
+import type { GitServiceInterface } from "../types";
 
 /**
  * Push changes with dependencies (for testing)
  */
 export async function pushChanges(
   params: PushChangesParams,
-  deps?: { gitService?: any }
+  deps?: { gitService?: GitServiceInterface }
 ): Promise<PushResult> {
   const gitService = deps?.gitService || createGitService();
 

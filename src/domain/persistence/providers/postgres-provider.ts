@@ -115,8 +115,10 @@ export class PostgresPersistenceProvider
       connectTimeout: this.config.postgres!.connectTimeout || 30,
     });
     // Initialize the storage before returning
-    storage.initialize().catch((err: any) => {
-      log.error("Failed to initialize PostgreSQL storage:", err);
+    storage.initialize().catch((err: unknown) => {
+      log.error("Failed to initialize PostgreSQL storage:", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
     return storage as DatabaseStorage<T, S>;
   }

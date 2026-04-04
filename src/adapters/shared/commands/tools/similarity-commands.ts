@@ -117,7 +117,7 @@ export class ToolsSimilarCommand {
     searchResults: Array<{ id: string; score?: number }>,
     includeDetails: boolean = false
   ): Promise<EnhancedToolResult[]> {
-    const enhanced: any[] = [];
+    const enhanced: EnhancedToolResult[] = [];
 
     for (const result of searchResults) {
       try {
@@ -217,7 +217,7 @@ export class ToolsSearchCommand {
     searchResults: Array<{ id: string; score?: number }>,
     includeDetails: boolean = false
   ): Promise<EnhancedToolResult[]> {
-    const enhanced: any[] = [];
+    const enhanced: EnhancedToolResult[] = [];
 
     for (const result of searchResults) {
       try {

@@ -98,7 +98,7 @@ export async function readRulesSelectionConfig(
   workspacePath: string
 ): Promise<RulesSelectionConfig> {
   const configPath = join(workspacePath, ".minsky", "config.yaml");
-  let raw: any = {};
+  let raw: Record<string, unknown> = {};
 
   try {
     const content = String(await fs.readFile(configPath, "utf8"));
@@ -107,11 +107,11 @@ export async function readRulesSelectionConfig(
     // File doesn't exist or is unreadable — start from empty config
   }
 
-  const rules = raw?.rules || {};
+  const rules = (raw?.rules as Record<string, unknown>) || {};
   return {
-    presets: Array.isArray(rules.presets) ? rules.presets : [],
-    enabled: Array.isArray(rules.enabled) ? rules.enabled : [],
-    disabled: Array.isArray(rules.disabled) ? rules.disabled : [],
+    presets: Array.isArray(rules.presets) ? (rules.presets as string[]) : [],
+    enabled: Array.isArray(rules.enabled) ? (rules.enabled as string[]) : [],
+    disabled: Array.isArray(rules.disabled) ? (rules.disabled as string[]) : [],
   };
 }
 
@@ -125,7 +125,7 @@ export async function writeRulesSelectionConfig(
   const minskyDir = join(workspacePath, ".minsky");
   const configPath = join(minskyDir, "config.yaml");
 
-  let raw: any = {};
+  let raw: Record<string, unknown> = {};
   try {
     const content = String(await fs.readFile(configPath, "utf8"));
     raw = parseYaml(content) || {};
@@ -134,9 +134,9 @@ export async function writeRulesSelectionConfig(
   }
 
   if (!raw.rules) raw.rules = {};
-  raw.rules.presets = config.presets;
-  raw.rules.enabled = config.enabled;
-  raw.rules.disabled = config.disabled;
+  (raw.rules as Record<string, unknown>).presets = config.presets;
+  (raw.rules as Record<string, unknown>).enabled = config.enabled;
+  (raw.rules as Record<string, unknown>).disabled = config.disabled;
 
   // Ensure directory exists
   try {

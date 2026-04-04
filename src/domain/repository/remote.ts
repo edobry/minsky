@@ -299,6 +299,7 @@ Repository: ${this.repoUrl}
    * @param branch Optional branch to push (defaults to current branch)
    * @returns Result of the push operation
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- push returns various result shapes that don't all conform to the interface type
   async push(branch?: string): Promise<any> {
     try {
       // Validate repository configuration
@@ -369,6 +370,7 @@ Repository: ${this.repoUrl}
    * @param branch Optional branch to pull (defaults to current branch)
    * @returns Result of the pull operation
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pull returns various result shapes that don't all conform to the interface type
   async pull(branch?: string): Promise<any> {
     try {
       // Validate repository configuration

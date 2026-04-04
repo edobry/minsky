@@ -57,7 +57,7 @@ export interface JsonFileStorageOptions<S> {
 
 // Simple file lock implementation to prevent concurrent access
 class FileOperationLock {
-  private static locks = new Map<string, Promise<any>>();
+  private static locks = new Map<string, Promise<unknown>>();
 
   static async withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
     // If there's already a lock for this file, wait for it

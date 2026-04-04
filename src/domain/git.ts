@@ -2,7 +2,11 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { normalizeRepoName } from "./repo-utils";
 import { execAsync } from "../utils/exec";
-import { createSessionProvider, type SessionProviderInterface } from "./session";
+import {
+  createSessionProvider,
+  type SessionProviderInterface,
+  type SessionRecord,
+} from "./session";
 
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
@@ -100,7 +104,7 @@ export class GitService implements GitServiceInterface {
     return this.sessionDb;
   }
 
-  public async getSessionRecord(sessionName: string): Promise<any | undefined> {
+  public async getSessionRecord(sessionName: string): Promise<SessionRecord | null | undefined> {
     const db = await this.getSessionDb();
     return db.getSession(sessionName);
   }

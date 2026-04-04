@@ -75,12 +75,14 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       // Try to parse a helpful JSON error first
       let extra: string = "";
       try {
-        const asJson: any = await res.json();
-        const err = asJson?.error || asJson;
+        const asJson: unknown = await res.json();
+        const obj = asJson as { error?: { code?: unknown; type?: unknown; message?: unknown } };
+        const err = obj?.error || obj;
+        const errObj = err as { code?: unknown; type?: unknown; message?: unknown };
         const parts: string[] = [];
-        if (err?.code) parts.push(`code=${String(err.code)}`);
-        if (err?.type) parts.push(`type=${String(err.type)}`);
-        if (err?.message) parts.push(`message=${String(err.message)}`);
+        if (errObj?.code) parts.push(`code=${String(errObj.code)}`);
+        if (errObj?.type) parts.push(`type=${String(errObj.type)}`);
+        if (errObj?.message) parts.push(`message=${String(errObj.message)}`);
         extra = parts.length > 0 ? ` - ${parts.join(", ")}` : ` ${JSON.stringify(asJson)}`;
       } catch {
         const text = await res.text().catch(() => "");

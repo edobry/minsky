@@ -34,6 +34,7 @@ export function createRoutingCommand(): Command {
     0.5
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
   availableCmd.action(async (options: any) => {
     try {
       const result = await availableCommand.execute({
@@ -71,6 +72,7 @@ export function createRoutingCommand(): Command {
   routeCmd.option("--parallel", "Show parallel execution opportunities");
   routeCmd.option("--json", "Output in JSON format");
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
   routeCmd.action(async (target: string, options: any) => {
     try {
       const result = await routeCommand.execute({

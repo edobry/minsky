@@ -10,10 +10,10 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
 export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
     // Use dynamic import to avoid module loading issues in test environment
-    const fsPromises = await import("fs/promises").catch(() => null as any);
+    const fsPromises = await import("fs/promises").catch(() => null);
     if (!fsPromises) return contentPath;
     // Try read directly; on any error (ENOENT, EISDIR, etc.) return the input as literal content
-    const content = await fsPromises.readFile(contentPath, "utf-8").catch(() => null as any);
+    const content = await fsPromises.readFile(contentPath, "utf-8").catch(() => null);
     if (typeof content === "string") return content;
     return contentPath;
   } catch (error) {

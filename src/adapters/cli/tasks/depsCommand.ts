@@ -20,6 +20,7 @@ interface DepsCommandOptions {
   limit?: number;
   maxDepth?: number;
   status?: string;
+  type?: string;
 }
 
 /**
@@ -68,7 +69,7 @@ function addDepsAddCommand(parent: Command): void {
         {
           task: fromTask,
           dependsOn: toTask,
-          type: (options as any).type || "prerequisite",
+          type: options.type || "prerequisite",
         },
         { interface: "cli" }
       );

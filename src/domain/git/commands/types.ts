@@ -167,8 +167,11 @@ export interface GeneratePrParams {
 
 // Dependency injection interfaces
 export interface GitDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  mkdir?: (path: string, options?: any) => Promise<void>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
+  mkdir?: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   access?: (path: string) => Promise<void>;
   readdir?: (path: string) => Promise<string[]>;
 }

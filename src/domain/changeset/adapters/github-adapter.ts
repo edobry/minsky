@@ -392,6 +392,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   /**
    * Build a changeset from a GitHub PR object
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Octokit PR response type is complex and platform-specific
   private async buildChangesetFromPR(pr: any): Promise<Changeset> {
     // Get reviews and comments
     const [reviews, comments] = await Promise.all([
@@ -591,6 +592,7 @@ export class GitHubChangesetAdapterFactory implements ChangesetAdapterFactory {
   /**
    * Create a GitHub changeset adapter
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
   async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
     return new GitHubChangesetAdapter(repositoryUrl, config);
   }

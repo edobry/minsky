@@ -25,7 +25,10 @@ export interface CloneResult {
  * Dependencies for clone operations
  */
 export interface CloneDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
   mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
   access: (path: string) => Promise<void>;

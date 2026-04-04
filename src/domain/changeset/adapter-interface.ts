@@ -111,6 +111,7 @@ export interface ChangesetAdapterFactory {
   readonly platform: ChangesetPlatform;
 
   /** Create an adapter instance for the given repository */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
   createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter>;
 
   /** Check if this factory can handle the given repository */

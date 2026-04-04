@@ -1,5 +1,4 @@
 import { existsSync } from "fs";
-import { rm as rmAsync } from "fs/promises";
 import { join } from "path";
 import {
   MinskyError,
@@ -53,9 +52,11 @@ export async function startSessionImpl(
     exists: (p: string) => existsSync(p),
     rm: async (p: string, o: { recursive: boolean; force: boolean }) => {
       try {
-        const mod: any = await import("fs/promises");
-        if (typeof mod.rm === "function") return mod.rm(p, o);
-        if (typeof mod.rmdir === "function") return mod.rmdir(p, { recursive: o.recursive });
+        const fsp = await import("fs/promises");
+        if (typeof fsp.rm === "function") return fsp.rm(p, o);
+        // Node < 14.14 fallback
+        if (typeof fsp.rmdir === "function")
+          return fsp.rmdir(p, { recursive: o.recursive } as Parameters<typeof fsp.rmdir>[1]);
       } catch (_e) {
         // In mock environments, silently no-op to avoid hard failure
         void 0;

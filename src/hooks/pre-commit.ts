@@ -13,7 +13,13 @@ import { log } from "../utils/logger";
 
 export interface ESLintResult {
   filePath: string;
-  messages: any[];
+  messages: {
+    ruleId?: string;
+    severity?: number;
+    message?: string;
+    line?: number;
+    column?: number;
+  }[];
   errorCount: number;
   warningCount: number;
   fixableErrorCount: number;
