@@ -2,13 +2,16 @@
 # PostToolUse hook: run tsc --noEmit after editing TypeScript files
 # Returns additionalContext with type errors so the model sees them immediately
 
-file_path=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty')
+# Extract file path — handles both direct tools (file_path) and MCP session tools (path)
+file_path=$(jq -r '.tool_input.file_path // .tool_input.path // .tool_response.filePath // empty')
 
 # Only run for TypeScript files
 if ! echo "$file_path" | grep -qE '\.tsx?$'; then
   exit 0
 fi
 
+# For MCP session tools, the project dir is the session workspace.
+# But tsc should run from the project root where tsconfig.json lives.
 cd "$CLAUDE_PROJECT_DIR" || exit 0
 
 output=$(bunx tsc --noEmit 2>&1)

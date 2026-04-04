@@ -12,7 +12,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|mcp__minsky__session_write_file|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace",
         "hooks": [
           {
             "type": "command",
