@@ -94,7 +94,7 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   try {
     await deps.execAsync(pushCmd);
     return { workdir, pushed: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Provide helpful error messages for common issues
     const gitError = validateGitError(err);
     if (gitError.stderr && gitError.stderr.includes("[rejected]")) {

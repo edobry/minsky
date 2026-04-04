@@ -119,7 +119,7 @@ export class RepositoryMetadataCache {
 export function generateRepoKey(
   repoPath: string,
   operation: string,
-  params?: Record<string, any>
+  params?: Record<string, unknown>
 ): string {
   let key = `repo:${repoPath}:${operation}`;
 

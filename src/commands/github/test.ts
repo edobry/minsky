@@ -100,8 +100,10 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
               `   Permissions: ${repo.permissions?.admin ? "admin" : repo.permissions?.push ? "write" : "read"}`
             );
           }
-        } catch (repoError: any) {
-          log.cli(`❌ Repository access failed: ${repoError.message}`);
+        } catch (repoError: unknown) {
+          log.cli(
+            `❌ Repository access failed: ${repoError instanceof Error ? repoError.message : String(repoError)}`
+          );
           if (verbose) {
             log.cli(`   This may indicate insufficient permissions or repository not found`);
           }
@@ -113,9 +115,11 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
           log.cli("   This is normal if you're not in a GitHub repository");
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (verbose) {
-        log.cli(`⚠️  Repository detection failed: ${error.message}`);
+        log.cli(
+          `⚠️  Repository detection failed: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -145,30 +149,31 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
       log.cli("");
       log.cli("Use --verbose for detailed information");
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     log.cli("❌ GitHub connection test failed");
     log.cli("");
 
-    if (error.status === 401) {
+    const err = error as { status?: number; code?: string; message?: string };
+    if (err.status === 401) {
       log.cli("Authentication failed. Please check your GitHub token:");
       log.cli("  1. Verify token is set: echo $GITHUB_TOKEN");
       log.cli("  2. Check token permissions include 'repo' or 'public_repo'");
       log.cli("  3. Generate new token at: https://github.com/settings/tokens");
-    } else if (error.status === 403) {
+    } else if (err.status === 403) {
       log.cli("Access forbidden. This may indicate:");
       log.cli("  1. Token lacks required permissions");
       log.cli("  2. Rate limit exceeded");
       log.cli("  3. Repository access restrictions");
-    } else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+    } else if (err.code === "ENOTFOUND" || err.code === "ECONNREFUSED") {
       log.cli("Network connectivity issue:");
       log.cli("  1. Check internet connection");
       log.cli("  2. Verify GitHub is accessible");
       log.cli("  3. Check firewall/proxy settings");
     } else {
-      log.cli(`Error: ${error.message}`);
+      log.cli(`Error: ${err.message}`);
       if (verbose) {
-        log.cli(`Status: ${error.status}`);
-        log.cli(`Code: ${error.code}`);
+        log.cli(`Status: ${err.status}`);
+        log.cli(`Code: ${err.code}`);
       }
     }
 

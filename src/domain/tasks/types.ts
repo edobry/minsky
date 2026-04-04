@@ -53,7 +53,7 @@ export interface Task {
   specPath?: string;
   backend?: string;
   description?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   spec?: string;
 }
 

@@ -140,11 +140,12 @@ export class PreCommitHook {
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
-      } catch (execError: any) {
+      } catch (execError: unknown) {
         // ESLint exits with non-zero on errors/warnings but still produces valid output
-        if (execError.stdout) {
-          stdout = execError.stdout;
-          stderr = execError.stderr || "";
+        const execErr = execError as { stdout?: string; stderr?: string };
+        if (execErr.stdout) {
+          stdout = execErr.stdout;
+          stderr = execErr.stderr || "";
         } else {
           throw execError;
         }
@@ -368,8 +369,9 @@ export class PreCommitHook {
       });
       log.cli("✅ TypeScript compilation passed — no type errors.");
       return { success: true, message: "Type check passed", exitCode: 0 };
-    } catch (error: any) {
-      const output = error.stdout || error.message || String(error);
+    } catch (error: unknown) {
+      const err = error as { stdout?: string; message?: string };
+      const output = err.stdout || err.message || String(error);
       log.cli("❌ TypeScript type errors found! Commit blocked.");
       log.cli(output);
       return { success: false, message: "TypeScript type check failed", exitCode: 1 };

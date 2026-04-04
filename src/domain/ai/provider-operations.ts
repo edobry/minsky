@@ -9,6 +9,7 @@ import type { ResolvedConfig } from "../configuration/types";
 import type { DefaultAICompletionService } from "./completion-service";
 import type { DefaultAIConfigurationService } from "./config-service";
 import type { DefaultModelCacheService } from "./model-cache";
+import type { ModelFetchConfig } from "./model-cache/types";
 import { getErrorMessage, handleRefreshError } from "./error-utils";
 import { log } from "../../utils/logger";
 
@@ -147,7 +148,7 @@ export async function refreshAllProviders(
   aiConfig: NonNullable<ResolvedConfig["ai"]>,
   force: boolean
 ): Promise<RefreshResult> {
-  const providerConfigs: Record<string, any> = {};
+  const providerConfigs: Record<string, ModelFetchConfig> = {};
   const configuredProviders = Object.keys(aiConfig.providers || {});
 
   for (const providerName of configuredProviders) {

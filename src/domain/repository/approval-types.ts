@@ -63,7 +63,7 @@ export interface ApprovalInfo {
   /**
    * Platform-specific data (alternative to metadata for direct platform info)
    */
-  platformData?: Record<string, any>;
+  platformData?: Record<string, unknown>;
 }
 
 /**
@@ -98,7 +98,7 @@ export interface ApprovalStatus {
   /**
    * Platform-specific data (alternative to metadata for direct platform info)
    */
-  platformData?: Record<string, any>;
+  platformData?: Record<string, unknown>;
 
   /**
    * Platform-specific approval metadata

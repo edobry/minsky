@@ -270,7 +270,16 @@ export class OpenAIModelFetcher implements ModelFetcher {
     costPer1kTokens?: { input: number; output: number };
   } {
     // Known model specifications (these should be updated as OpenAI releases new models)
-    const modelSpecs: Record<string, any> = {
+    const modelSpecs: Record<
+      string,
+      {
+        name: string;
+        description: string;
+        contextWindow: number;
+        maxOutputTokens: number;
+        costPer1kTokens?: { input: number; output: number };
+      }
+    > = {
       "gpt-4o": {
         name: "GPT-4o",
         description: "Most advanced GPT-4 model with improved reasoning",

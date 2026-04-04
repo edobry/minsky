@@ -4,14 +4,14 @@ export class MemoryVectorStorage implements VectorStorage {
   private readonly dimension: number;
   private readonly storeMap = new Map<
     string,
-    { vector: number[]; metadata?: Record<string, any> }
+    { vector: number[]; metadata?: Record<string, unknown> }
   >();
 
   constructor(dimension: number) {
     this.dimension = dimension;
   }
 
-  async store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void> {
+  async store(id: string, vector: number[], metadata?: Record<string, unknown>): Promise<void> {
     if (vector.length !== this.dimension) {
       throw new Error(
         `Vector dimension mismatch: expected ${this.dimension}, got ${vector.length}`

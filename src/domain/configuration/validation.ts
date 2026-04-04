@@ -50,7 +50,7 @@ export interface EnhancedValidationResult {
 export interface ValidationContext {
   environment: string;
   workingDirectory: string;
-  sourceMetadata: Record<string, any>;
+  sourceMetadata: Record<string, unknown>;
 }
 
 /**
