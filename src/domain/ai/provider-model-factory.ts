@@ -46,12 +46,14 @@ export function createLanguageModel(
       return anthropic(resolvedModel, {
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI SDK provider options type does not exactly match our config shape
       } as any);
 
     case "google":
       return google(resolvedModel, {
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI SDK provider options type does not exactly match our config shape
       } as any);
 
     case "morph": {

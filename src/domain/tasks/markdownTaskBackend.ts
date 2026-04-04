@@ -155,6 +155,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- markdown parsing returns mixed types
   async createTask(specPath: string | any, _options?: CreateTaskOptions): Promise<Task> {
     const existingTasks = await this.readExistingTasks();
 

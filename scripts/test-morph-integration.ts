@@ -54,6 +54,7 @@ class MorphIntegrationTester {
 
       const configService = new DefaultAIConfigurationService({
         loadConfiguration: (_workingDir: string) => Promise.resolve({ resolved: config }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
       } as any);
 
       this.completionService = new DefaultAICompletionService(configService);

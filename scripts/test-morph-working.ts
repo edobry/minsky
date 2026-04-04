@@ -41,6 +41,7 @@ async function testMorphWorking(): Promise<void> {
     // Create config service exactly like production
     const configService = new DefaultAIConfigurationService({
       loadConfiguration: () => Promise.resolve({ resolved: config }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
     } as any);
 
     // Test getting morph config directly

@@ -154,6 +154,7 @@ export function expectToContainEqual(received: unknown[], expected: unknown): vo
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- test assertion utility cast
   return function (this: unknown, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);

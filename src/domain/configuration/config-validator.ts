@@ -229,6 +229,7 @@ export class DefaultConfigValidator implements ConfigValidator {
 
   private validateAIProviderConfig(
     providerName: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- provider config is dynamically shaped and validated within the method
     providerConfig: any
   ): { errors: ValidationError[]; warnings: ValidationWarning[] } {
     const errors: ValidationError[] = [];

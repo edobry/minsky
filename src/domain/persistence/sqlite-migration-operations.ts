@@ -53,6 +53,7 @@ interface SqliteMigrationResult {
 export async function runSqliteSchemaMigrations(
   dbPath: string,
   options: { dryRun: boolean }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by dry-run mode
 ): Promise<any> {
   const { dryRun } = options;
   const backend = "sqlite";

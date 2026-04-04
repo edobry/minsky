@@ -14,6 +14,7 @@ interface OperationTiming {
   operation: string;
   duration: number;
   success: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
   details?: any;
 }
 
@@ -27,6 +28,7 @@ class TaskOperationProfiler {
     const start = performance.now();
     let success = false;
     let result: T;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
     let error: any;
 
     try {

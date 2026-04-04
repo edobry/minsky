@@ -124,6 +124,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
 export async function runPostgresSchemaMigrations(
   connectionString: string,
   options: { dryRun: boolean }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by dry-run mode
 ): Promise<any> {
   const { dryRun } = options;
   const backend = "postgres";

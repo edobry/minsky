@@ -128,6 +128,7 @@ async function migrateTasklessSessions(
 async function analyzeSession(
   sessionRecord: SessionRecord,
   workdir: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
   gitService: any
 ): Promise<TasklessSession> {
   let hasUnmergedWork = false;
@@ -289,6 +290,7 @@ async function displayMigrationReport(report: MigrationReport): Promise<void> {
 /**
  * Perform actual cleanup of safe-to-delete sessions
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
 async function performCleanup(sessionsToDelete: TasklessSession[], sessionDB: any): Promise<void> {
   log.cli(`\n🧹 Cleaning up ${sessionsToDelete.length} empty sessions...`);
 
