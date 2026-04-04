@@ -1,26 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
 import { join } from "path";
-import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
-
-// Mock filesystem operations to prevent module loading issues in test environment
+import { createMockFs } from "../interfaces/mock-fs";
 
 describe("MarkdownTaskBackend filtering regression test", () => {
   let backend: any;
-  let mockFs: ReturnType<typeof createMockFilesystem>;
-  let tasksFileContent: string;
 
   // Static mock paths to prevent environment dependencies
   const mockTestDir = "/mock/test-workspace";
   const tasksFile = join(mockTestDir, "process", "tasks.md");
 
-  beforeEach(async () => {
-    // Create isolated mock filesystem for each test
-    mockFs = createMockFilesystem();
-
-    // Create test tasks file with mixed statuses
-    tasksFileContent = `- [x] Task 1 DONE [md#001](process/tasks/md#001-task-1.md)
+  const tasksFileContent = `- [x] Task 1 DONE [md#001](process/tasks/md#001-task-1.md)
 - [ ] Task 2 TODO [md#002](process/tasks/md#002-task-2.md)
 - [+] Task 3 IN-PROGRESS [md#003](process/tasks/md#003-task-3.md)
 - [x] Task 4 DONE [md#004](process/tasks/md#004-task-4.md)
@@ -28,36 +19,15 @@ describe("MarkdownTaskBackend filtering regression test", () => {
 - [~] Task 6 BLOCKED [md#006](process/tasks/md#006-task-6.md)
 `;
 
-    // Mock filesystem operations with state
-    mock.module("fs", () => ({
-      promises: {
-        mkdir: mock(async () => {}),
-        rm: mock(async () => {}),
-        readFile: mock(async (path: string) => {
-          if (path.includes("tasks.md")) {
-            return tasksFileContent;
-          }
-          return "";
-        }),
-        writeFile: mock(async (path: string, content: string) => {
-          if (path.includes("tasks.md")) {
-            tasksFileContent = content;
-          }
-        }),
-        readdir: mock(async () => []),
-      },
-      existsSync: mock((path: string) => path.includes("tasks.md")),
-    }));
+  beforeEach(async () => {
+    // Create isolated mock filesystem for each test pre-populated with tasks file
+    const mockFs = createMockFs({ [tasksFile]: tasksFileContent });
 
     backend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: mockTestDir,
+      fs: mockFs,
     });
-  });
-
-  afterEach(async () => {
-    // Clean up mock filesystem
-    mockFs?.cleanup();
   });
 
   it("should filter out DONE and CLOSED tasks by default (FIXED)", async () => {

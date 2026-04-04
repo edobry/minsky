@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import { join } from "path";
 
 // Simple counters to verify flow
@@ -22,31 +22,12 @@ const popStashMock = async (_workdir: string) => {
 };
 
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
-import type { TaskBackend, TaskBackendConfig } from "./types";
+import { createMockFs } from "../interfaces/mock-fs";
+import type { TaskBackend } from "./types";
 
 const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/test-uuid-423";
 
 describe("MarkdownTaskBackend - createTask auto-commit", () => {
-  // Mock the fs module to prevent actual file operations
-  mock.module("fs", () => ({
-    promises: {
-      mkdir: mock(async () => {}),
-      writeFile: mock(async () => {}),
-      readFile: mock(async () => "# Tasks\n"),
-      unlink: mock(async () => {}),
-      readdir: mock(async () => []),
-      access: mock(async () => {}),
-    },
-  }));
-
-  mock.module("fs/promises", () => ({
-    mkdir: mock(async () => {}),
-    writeFile: mock(async () => {}),
-    readFile: mock(async () => "# Tasks\n"),
-    unlink: mock(async () => {}),
-    readdir: mock(async () => []),
-    access: mock(async () => {}),
-  }));
   const testWorkspace = join(sessionRoot, "tmp", "md-backend-commit-test");
   const tasksDir = join(testWorkspace, "process");
   const tasksFile = join(tasksDir, "tasks.md");
@@ -59,9 +40,12 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
   });
 
   it("commits and pushes after creating a task from object (title/description)", async () => {
+    const mockFs = createMockFs({ [tasksFile]: "# Tasks\n" }, new Set([tasksDir, testWorkspace]));
+
     const backend: TaskBackend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: testWorkspace,
+      fs: mockFs,
 
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),
@@ -87,9 +71,12 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
   it("does not commit when there are no changes to commit", async () => {
     hasUncommitted = false;
 
+    const mockFs = createMockFs({ [tasksFile]: "# Tasks\n" }, new Set([tasksDir, testWorkspace]));
+
     const backend: TaskBackend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: testWorkspace,
+      fs: mockFs,
 
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),

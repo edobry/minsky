@@ -9,14 +9,19 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  */
 export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
-    // Use dynamic import to avoid module loading issues in test environment
-    const fsPromises = await import("fs/promises").catch(() => null);
-    if (!fsPromises) return contentPath;
-    // Try read directly; on any error (ENOENT, EISDIR, etc.) return the input as literal content
-    const content = await fsPromises.readFile(contentPath, "utf-8").catch(() => null);
+    // Only attempt file read if the input looks like a file path
+    // (contains path separators or common file extensions)
+    if (!contentPath.includes("/") && !contentPath.includes("\\") && !contentPath.includes(".")) {
+      return contentPath;
+    }
+    // Use statSync to check existence without being affected by mock.module("fs/promises")
+    // which can poison async imports globally in Bun's test runner
+    const fs = require("fs");
+    if (!fs.existsSync(contentPath)) return contentPath;
+    const content = fs.readFileSync(contentPath, "utf-8");
     if (typeof content === "string") return content;
     return contentPath;
-  } catch (error) {
+  } catch {
     // On any unexpected error, return input string to avoid test env coupling
     return contentPath;
   }

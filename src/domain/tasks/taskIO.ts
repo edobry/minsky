@@ -5,10 +5,11 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  * This module isolates side effects like file reading/writing from pure functions
  */
 
-import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { log } from "../../utils/logger";
 import { getErrorCode } from "../../schemas/error";
+import type { FsLike } from "../interfaces/fs-like";
+import { createRealFs } from "../interfaces/real-fs";
 import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
@@ -20,9 +21,12 @@ import type {
  * @param filePath Path to the tasks file
  * @returns Promise resolving to file content or error
  */
-export async function readTasksFile(filePath: string): Promise<TaskReadOperationResult> {
+export async function readTasksFile(
+  filePath: string,
+  fs: FsLike = createRealFs()
+): Promise<TaskReadOperationResult> {
   try {
-    const content = String(await fs.readFile(filePath, "utf-8")) as string;
+    const content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,
@@ -60,10 +64,11 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
  */
 export async function writeTasksFile(
   filePath: string,
-  content: string
+  content: string,
+  fs: FsLike = createRealFs()
 ): Promise<TaskWriteOperationResult> {
   try {
-    await fs.writeFile(filePath, content, "utf-8");
+    await fs.writeFile(filePath, content);
     return {
       success: true,
       filePath,
@@ -84,9 +89,12 @@ export async function writeTasksFile(
  * @param filePath Path to the task spec file
  * @returns Promise resolving to file content or error
  */
-export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperationResult> {
+export async function readTaskSpecFile(
+  filePath: string,
+  fs: FsLike = createRealFs()
+): Promise<TaskReadOperationResult> {
   try {
-    const content = String(await fs.readFile(filePath, "utf-8")) as string;
+    const content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,
@@ -111,13 +119,14 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
  */
 export async function writeTaskSpecFile(
   filePath: string,
-  content: string
+  content: string,
+  fs: FsLike = createRealFs()
 ): Promise<TaskWriteOperationResult> {
   try {
     // Create parent directories if they don't exist
-    await createDirectory(dirname(filePath));
+    await createDirectory(dirname(filePath), fs);
 
-    await fs.writeFile(filePath, content, "utf8");
+    await fs.writeFile(filePath, content);
     return {
       success: true,
       filePath,
@@ -138,7 +147,7 @@ export async function writeTaskSpecFile(
  * @param filePath Path to the file
  * @returns Promise resolving to true if file exists, false otherwise
  */
-export async function fileExists(filePath: string): Promise<boolean> {
+export async function fileExists(filePath: string, fs: FsLike = createRealFs()): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
@@ -152,7 +161,10 @@ export async function fileExists(filePath: string): Promise<boolean> {
  * @param dirPath Path to the directory
  * @returns Promise resolving to success status or error
  */
-export async function createDirectory(dirPath: string): Promise<TaskFileOperationResult> {
+export async function createDirectory(
+  dirPath: string,
+  fs: FsLike = createRealFs()
+): Promise<TaskFileOperationResult> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
     return {
@@ -175,9 +187,12 @@ export async function createDirectory(dirPath: string): Promise<TaskFileOperatio
  * @param filePath Path to the file
  * @returns Promise resolving to success status or error
  */
-export async function deleteFile(filePath: string): Promise<TaskFileOperationResult> {
+export async function deleteFile(
+  filePath: string,
+  fs: FsLike = createRealFs()
+): Promise<TaskFileOperationResult> {
   try {
-    if (await fileExists(filePath)) {
+    if (await fileExists(filePath, fs)) {
       await fs.unlink(filePath);
     }
     return {
@@ -201,7 +216,10 @@ export async function deleteFile(filePath: string): Promise<TaskFileOperationRes
  * @param pattern Optional glob pattern to filter files
  * @returns Promise resolving to array of file paths or error
  */
-export async function listFiles(dirPath: string): Promise<string[] | null> {
+export async function listFiles(
+  dirPath: string,
+  fs: FsLike = createRealFs()
+): Promise<string[] | null> {
   try {
     const files = await fs.readdir(dirPath);
     return files;

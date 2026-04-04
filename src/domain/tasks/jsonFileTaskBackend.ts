@@ -1,4 +1,3 @@
-import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import type {
   Task,
@@ -10,11 +9,8 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
-
-// Options type for JsonFileTaskBackend - extends base config with optional db file path
-export interface JsonFileTaskBackendOptions extends TaskBackendConfig {
-  dbFilePath?: string;
-}
+import type { FsLike } from "../interfaces/fs-like";
+import { createRealFs } from "../interfaces/real-fs";
 import type { TaskData } from "../../types/tasks/taskData";
 
 import { createJsonFileStorage } from "../storage/json-file-storage";
@@ -22,7 +18,6 @@ import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
 import type { TaskSpec } from "./multi-backend-service";
 import { log } from "../../utils/logger";
-import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath, readTaskSpecFile } from "./taskIO";
@@ -40,10 +35,12 @@ export class JsonFileTaskBackend implements TaskBackend {
   prefix?: string;
   private workspacePath: string;
   private tasksFilePath: string;
+  private fs: FsLike;
 
-  constructor(config: TaskBackendConfig) {
+  constructor(config: TaskBackendConfig, fs?: FsLike) {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = join(this.workspacePath, "process", "tasks", "tasks.json");
+    this.fs = fs ?? createRealFs();
   }
 
   // ---- User-Facing Operations ----
@@ -107,8 +104,8 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Create spec file
     const specPath = this.getTaskSpecPath(newId, title);
     // Write the spec content directly instead of generating a template
-    await fs.mkdir(dirname(specPath), { recursive: true });
-    await fs.writeFile(specPath, spec);
+    await this.fs.mkdir(dirname(specPath), { recursive: true });
+    await this.fs.writeFile(specPath, spec);
 
     // Create task data
     const newTask: Task = {
@@ -170,7 +167,7 @@ ${description}
       throw new Error("Spec path and parser are required");
     }
 
-    const specDataResult = await readTaskSpecFile(specPath);
+    const specDataResult = await readTaskSpecFile(specPath, this.fs);
     if (!specDataResult.success) {
       throw new Error(`Failed to load spec file: ${specDataResult.error}`);
     }
@@ -241,7 +238,7 @@ ${description}
 
     // Delete spec file if it exists
     if (task.specPath && (await this.fileExists(task.specPath))) {
-      await fs.unlink(task.specPath);
+      await this.fs.unlink(task.specPath);
     }
 
     const tasks = await this.getAllTasks();
@@ -275,7 +272,7 @@ ${description}
     }
 
     try {
-      const content = await fs.readFile(task.specPath, "utf-8");
+      const content = await this.fs.readFile(task.specPath, "utf-8");
       return {
         id: task.id,
         title: task.title,
@@ -303,7 +300,7 @@ ${description}
 
     // Update spec file
     if (metadata.spec && tasks[taskIndex]!.specPath) {
-      await fs.writeFile(tasks[taskIndex]!.specPath!, metadata.spec);
+      await this.fs.writeFile(tasks[taskIndex]!.specPath!, metadata.spec);
     }
 
     await this.saveAllTasks(tasks);
@@ -317,7 +314,7 @@ ${description}
         return [];
       }
 
-      const content = await fs.readFile(this.tasksFilePath, "utf-8");
+      const content = await this.fs.readFile(this.tasksFilePath, "utf-8");
       const data = JSON.parse(content.toString());
       return Array.isArray(data) ? data : [];
     } catch (error) {
@@ -329,10 +326,10 @@ ${description}
   private async saveAllTasks(tasks: Task[]): Promise<void> {
     try {
       // Ensure directory exists
-      await fs.mkdir(dirname(this.tasksFilePath), { recursive: true });
+      await this.fs.mkdir(dirname(this.tasksFilePath), { recursive: true });
 
       // Write tasks to file
-      await fs.writeFile(this.tasksFilePath, JSON.stringify(tasks, null, 2));
+      await this.fs.writeFile(this.tasksFilePath, JSON.stringify(tasks, null, 2));
     } catch (error) {
       throw new Error(`Failed to save tasks: ${error}`);
     }
@@ -351,7 +348,7 @@ ${description}
 
   private async fileExists(filePath: string): Promise<boolean> {
     try {
-      await fs.access(filePath);
+      await this.fs.access(filePath);
       return true;
     } catch {
       return false;

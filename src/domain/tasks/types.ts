@@ -5,6 +5,7 @@
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
 import type { GitServiceInterface } from "../git/types";
+import type { FsLike } from "../interfaces/fs-like";
 
 /**
  * Simple backend capabilities interface
@@ -133,4 +134,5 @@ export interface TaskBackendConfig {
   name: string;
   workspacePath: string;
   gitService?: GitServiceInterface;
+  fs?: FsLike;
 }

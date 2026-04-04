@@ -6,9 +6,9 @@
 
 import { join } from "path";
 import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
-import type { TaskBackend } from "./types";
+import type { TaskBackend, TaskBackendConfig } from "./types";
 import type { JsonConfig, WorkspaceResolutionResult } from "./backend-config";
-import type { JsonFileTaskBackendOptions } from "./jsonFileTaskBackend";
+import type { FsLike } from "../interfaces/fs-like";
 import { log } from "../../utils/logger";
 
 /**
@@ -45,10 +45,11 @@ function resolveWorkspacePath(
  */
 export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
   constructor(
-    config: JsonFileTaskBackendOptions,
-    private workspaceResolutionResult: WorkspaceResolutionResult
+    config: TaskBackendConfig,
+    private workspaceResolutionResult: WorkspaceResolutionResult,
+    fs?: FsLike
   ) {
-    super(config);
+    super(config, fs);
   }
 
   /**
@@ -69,7 +70,7 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
 /**
  * Create a simplified JSON backend
  */
-export function createWorkspaceResolvingJsonBackend(config: JsonConfig): TaskBackend {
+export function createWorkspaceResolvingJsonBackend(config: JsonConfig, fs?: FsLike): TaskBackend {
   // Resolve workspace path and database file path
   const resolutionResult = resolveWorkspacePath(config);
 
@@ -81,22 +82,25 @@ export function createWorkspaceResolvingJsonBackend(config: JsonConfig): TaskBac
   });
 
   // Create backend with resolved workspace and database file path
-  const backendConfig: JsonFileTaskBackendOptions = {
+  const backendConfig = {
     ...config,
     workspacePath: resolutionResult.workspacePath,
     dbFilePath: resolutionResult.dbFilePath,
   };
 
-  return new WorkspaceResolvingJsonBackend(backendConfig, resolutionResult);
+  return new WorkspaceResolvingJsonBackend(backendConfig, resolutionResult, fs);
 }
 
 /**
  * Convenience factory for common use cases
  */
-export function createSelfContainedJsonBackend(config: {
-  name: string;
-  workspacePath?: string;
-  dbFilePath?: string;
-}): TaskBackend {
-  return createWorkspaceResolvingJsonBackend(config);
+export function createSelfContainedJsonBackend(
+  config: {
+    name: string;
+    workspacePath?: string;
+    dbFilePath?: string;
+  },
+  fs?: FsLike
+): TaskBackend {
+  return createWorkspaceResolvingJsonBackend(config, fs);
 }
