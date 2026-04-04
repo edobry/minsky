@@ -14,10 +14,11 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
     if (!contentPath.includes("/") && !contentPath.includes("\\") && !contentPath.includes(".")) {
       return contentPath;
     }
-    // Use node: prefix to avoid mock.module("fs/promises") pollution from other tests
-    const { readFile } = await import("node:fs/promises");
-    // Try read directly; on any error (ENOENT, EISDIR, etc.) return the input as literal content
-    const content = await readFile(contentPath, "utf-8").catch(() => null);
+    // Use statSync to check existence without being affected by mock.module("fs/promises")
+    // which can poison async imports globally in Bun's test runner
+    const fs = require("fs");
+    if (!fs.existsSync(contentPath)) return contentPath;
+    const content = fs.readFileSync(contentPath, "utf-8");
     if (typeof content === "string") return content;
     return contentPath;
   } catch {
