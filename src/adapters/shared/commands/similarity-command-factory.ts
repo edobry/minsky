@@ -185,6 +185,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
           enhancedResults = await config.enhanceResults(results, workspacePath);
         } else {
           // Use results as-is, ensuring they have the required shape
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- mapped result type is structurally compatible with EnhancedSearchResult but not directly assignable
           enhancedResults = results.map((r) => ({
             ...r,
             name: r.id,

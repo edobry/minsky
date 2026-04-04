@@ -146,6 +146,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
           : `${process.env.HOME}/.local/state/minsky`,
       };
 
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- constructed state object is structurally TState but requires bridge due to generic constraint
       return { success: true, data: state as unknown as TState };
     } catch (error) {
       return {

@@ -36,6 +36,7 @@ import {
  * compatible but not assignable due to optional vs required field differences.
  */
 function getResolvedConfig(): ResolvedConfig {
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- Configuration is structurally compatible with ResolvedConfig but TypeScript requires bridge due to optional vs required field differences
   return getConfiguration() as unknown as ResolvedConfig;
 }
 

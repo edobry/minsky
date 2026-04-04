@@ -536,6 +536,7 @@ export async function getRule(options: GetRuleOptions): Promise<GetRuleResult> {
     format: options.format,
     debug: options.debug,
   });
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for GetRuleResult interface
   return { success: true, rule: rule as unknown as Record<string, unknown> };
 }
 
@@ -634,6 +635,7 @@ export async function createRule(options: CreateRuleOptions): Promise<CreateRule
     overwrite: options.overwrite,
   });
 
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for CreateRuleResult interface
   return { success: true, rule: rule as unknown as Record<string, unknown> };
 }
 
@@ -680,6 +682,7 @@ export async function updateRule(options: UpdateRuleOptions): Promise<UpdateRule
     { format: options.format, debug: options.debug }
   );
 
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for UpdateRuleResult interface
   return { success: true, rule: rule as unknown as Record<string, unknown> };
 }
 

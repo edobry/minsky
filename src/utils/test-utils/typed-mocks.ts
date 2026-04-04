@@ -26,6 +26,7 @@ import type { CommandExecutionContext } from "../../adapters/shared/command-regi
  * const svc = createPartialMock<MyService>({ doThing: mock(() => Promise.resolve()) });
  */
 export function createPartialMock<T>(partial: Record<string, unknown>): T {
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- createPartialMock is the canonical pattern for creating typed test mocks from partial objects
   return partial as unknown as T;
 }
 

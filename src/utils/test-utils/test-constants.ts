@@ -149,6 +149,7 @@ export const SESSION_TEST_PATTERNS = {
   ORPHANED_SESSION: "orphaned-session",
   NON_EXISTENT_SESSION: "non-existent-session",
   APPROVED_SESSION: "approved-session",
+  UNAPPROVED_SESSION: "unapproved-session",
   SESSION_WITHOUT_PR: "session-without-pr",
   PR_TEST_APPROVAL_SESSION: "pr/test-pr-approval-session",
   PR_FEATURE_BRANCH: "pr/feature-branch",

@@ -132,8 +132,11 @@ export function createTaskServiceWithMocks(): {
   const ghBackend = createMockBackend("GitHub Issues", "gh");
   const jsonBackend = createMockBackend("JSON File", "json");
 
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
   service.registerBackend(mdBackend as unknown as TaskBackend);
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
   service.registerBackend(ghBackend as unknown as TaskBackend);
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
   service.registerBackend(jsonBackend as unknown as TaskBackend);
 
   return { service, mdBackend, ghBackend, jsonBackend };

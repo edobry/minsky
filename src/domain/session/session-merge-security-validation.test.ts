@@ -169,20 +169,20 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge operation for unapproved session", async () => {
       // SECURITY TEST: Full merge operation should be blocked for unapproved PR
       const unapprovedSession: SessionRecord = {
-        session: "unapproved-session",
+        session: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
-        name: "unapproved-session",
+        name: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
         taskId: "task-456",
         repoUrl: "/test/repo",
-        prBranch: "pr/unapproved-session",
+        prBranch: `pr/${SESSION_TEST_PATTERNS.UNAPPROVED_SESSION}`,
         prApproved: false, // UNAPPROVED!
       };
 
       mockSessionProvider.getSession = mock(() => Promise.resolve(unapprovedSession));
 
       const params: SessionMergeParams = {
-        session: "unapproved-session",
+        session: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
         json: false,
       };
 

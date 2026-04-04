@@ -18,6 +18,7 @@ export async function sessionList(
       sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     };
 
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- listSessions returns SessionRecord[] which is structurally compatible but not directly assignable to Session[]
     return (await deps.sessionDB.listSessions()) as unknown as Session[];
   } catch (error) {
     throw new Error(

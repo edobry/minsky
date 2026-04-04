@@ -55,7 +55,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   /**
    * Get the Zod schema for validating parameters
    */
-  abstract getSchema(): z.ZodSchema<TParams>;
+  abstract getSchema(): z.ZodType<TParams, z.ZodTypeDef, unknown>;
 
   /**
    * Execute the operation with validated parameters

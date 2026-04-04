@@ -218,7 +218,7 @@ export class SessionInspectCommand extends BaseSessionCommand<
       json: params.json,
     });
 
-    return this.createSuccessResult(result as unknown as Record<string, unknown>);
+    return this.createSuccessResult(result ?? {});
   }
 }
 
@@ -302,21 +302,16 @@ export class SessionReviewCommand extends BaseSessionCommand<
 
         // Handle AI actions if requested
         if (params.autoComment && aiReviewResult.overall.recommendation !== "approve") {
-          await this.handleAutoComment(
-            reviewResult as unknown as Record<string, unknown>,
-            aiReviewResult
-          );
+          await this.handleAutoComment(reviewResult, aiReviewResult);
         }
 
         if (params.autoApprove && aiReviewResult.overall.score >= 8) {
-          await this.handleAutoApprove(
-            reviewResult as unknown as Record<string, unknown>,
-            aiReviewResult
-          );
+          await this.handleAutoApprove(reviewResult, aiReviewResult);
         }
 
         // Return enhanced result with AI analysis
         return this.createSuccessResult({
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionReviewResult needs bridge to spread into plain object
           ...(reviewResult as unknown as Record<string, unknown>),
           aiAnalysis: aiReviewResult,
           enhancedWithAI: true,
@@ -325,6 +320,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         // If AI analysis fails, return basic result with error info
         const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
         return this.createSuccessResult({
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionReviewResult needs bridge to spread into plain object
           ...(reviewResult as unknown as Record<string, unknown>),
           aiAnalysis: null,
           aiError: `AI analysis failed: ${errorMessage}`,
@@ -334,19 +330,22 @@ export class SessionReviewCommand extends BaseSessionCommand<
     }
 
     // Return basic review result
-    return this.createSuccessResult(reviewResult as unknown as Record<string, unknown>);
+    return this.createSuccessResult(reviewResult);
   }
 
   /**
    * Handle auto-comment action: add AI review as changeset comment
    */
   private async handleAutoComment(
-    reviewResult: Record<string, unknown>,
+    reviewResult: {
+      changeset?: {
+        id: string;
+        metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
+      };
+    },
     aiResult: AIReviewResult
   ): Promise<void> {
-    const changeset = reviewResult.changeset as
-      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionId?: string } } }
-      | undefined;
+    const changeset = reviewResult.changeset;
     if (!changeset) return;
 
     try {
@@ -358,6 +357,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
 
       // Get adapter to submit comment
+
       const adapter = await (
         changesetService as unknown as {
           getAdapter?: () => Promise<{
@@ -380,12 +380,15 @@ export class SessionReviewCommand extends BaseSessionCommand<
    * Handle auto-approve action: approve changeset if AI score is high
    */
   private async handleAutoApprove(
-    reviewResult: Record<string, unknown>,
+    reviewResult: {
+      changeset?: {
+        id: string;
+        metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
+      };
+    },
     aiResult: AIReviewResult
   ): Promise<void> {
-    const changeset = reviewResult.changeset as
-      | { id: string; metadata?: { github?: { url?: string }; local?: { sessionId?: string } } }
-      | undefined;
+    const changeset = reviewResult.changeset;
     if (!changeset || aiResult.overall.score < 8) return;
 
     try {
@@ -397,6 +400,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
       );
 
       // Get adapter to approve
+
       const adapter = await (
         changesetService as unknown as {
           getAdapter?: () => Promise<{

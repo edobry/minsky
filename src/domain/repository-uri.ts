@@ -185,6 +185,7 @@ export function convertRepositoryURI(
     // Type-safe mapping from RepositoryURIType to UriFormat
     // Since RepositoryURIType values are mapped to UriFormat values,
     // we can safely cast the string value
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- RepositoryURIType string values map directly to UriFormat enum values
     const targetFormat = targetType as unknown as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {

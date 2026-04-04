@@ -23,8 +23,8 @@ import type { Task } from "../types";
  * List tasks operation
  */
 export class ListTasksOperation extends BaseTaskOperation<TaskListParams, Task[]> {
-  getSchema(): import("zod").ZodSchema<TaskListParams> {
-    return taskListParamsSchema as unknown as import("zod").ZodSchema<TaskListParams>;
+  getSchema(): import("zod").ZodType<TaskListParams, import("zod").ZodTypeDef, unknown> {
+    return taskListParamsSchema;
   }
 
   getOperationName(): string {
@@ -49,8 +49,8 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, Task[]
  * Get task operation
  */
 export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, Task> {
-  getSchema(): import("zod").ZodSchema<TaskGetParams> {
-    return taskGetParamsSchema as unknown as import("zod").ZodSchema<TaskGetParams>;
+  getSchema(): import("zod").ZodType<TaskGetParams, import("zod").ZodTypeDef, unknown> {
+    return taskGetParamsSchema;
   }
 
   getOperationName(): string {
@@ -72,8 +72,8 @@ export class GetTaskOperation extends BaseTaskOperation<TaskGetParams, Task> {
  * Get task status operation
  */
 export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParams, string> {
-  getSchema(): import("zod").ZodSchema<TaskStatusGetParams> {
-    return taskStatusGetParamsSchema as unknown as import("zod").ZodSchema<TaskStatusGetParams>;
+  getSchema(): import("zod").ZodType<TaskStatusGetParams, import("zod").ZodTypeDef, unknown> {
+    return taskStatusGetParamsSchema;
   }
 
   getOperationName(): string {
@@ -95,8 +95,8 @@ export class GetTaskStatusOperation extends BaseTaskOperation<TaskStatusGetParam
  * Get task specification content operation
  */
 export class GetTaskSpecContentOperation extends BaseTaskOperation<TaskSpecContentParams, string> {
-  getSchema(): import("zod").ZodSchema<TaskSpecContentParams> {
-    return taskSpecContentParamsSchema as unknown as import("zod").ZodSchema<TaskSpecContentParams>;
+  getSchema(): import("zod").ZodType<TaskSpecContentParams, import("zod").ZodTypeDef, unknown> {
+    return taskSpecContentParamsSchema;
   }
 
   getOperationName(): string {

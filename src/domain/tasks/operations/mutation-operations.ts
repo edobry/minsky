@@ -27,8 +27,8 @@ import type { Task } from "../types";
  * Set task status operation
  */
 export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParams, void> {
-  getSchema(): import("zod").ZodSchema<TaskStatusSetParams> {
-    return taskStatusSetParamsSchema as unknown as import("zod").ZodSchema<TaskStatusSetParams>;
+  getSchema(): import("zod").ZodType<TaskStatusSetParams, import("zod").ZodTypeDef, unknown> {
+    return taskStatusSetParamsSchema;
   }
 
   getOperationName(): string {
@@ -51,8 +51,8 @@ export class SetTaskStatusOperation extends BaseTaskOperation<TaskStatusSetParam
  * Create task operation
  */
 export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, Task> {
-  getSchema(): import("zod").ZodSchema<TaskCreateParams> {
-    return taskCreateParamsSchema as unknown as import("zod").ZodSchema<TaskCreateParams>;
+  getSchema(): import("zod").ZodType<TaskCreateParams, import("zod").ZodTypeDef, unknown> {
+    return taskCreateParamsSchema;
   }
 
   getOperationName(): string {
@@ -91,8 +91,12 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
   TaskCreateFromTitleAndDescriptionParams,
   Task
 > {
-  getSchema(): import("zod").ZodSchema<TaskCreateFromTitleAndDescriptionParams> {
-    return taskCreateFromTitleAndDescriptionParamsSchema as unknown as import("zod").ZodSchema<TaskCreateFromTitleAndDescriptionParams>;
+  getSchema(): import("zod").ZodType<
+    TaskCreateFromTitleAndDescriptionParams,
+    import("zod").ZodTypeDef,
+    unknown
+  > {
+    return taskCreateFromTitleAndDescriptionParamsSchema;
   }
 
   getOperationName(): string {
@@ -130,8 +134,8 @@ export class DeleteTaskOperation extends BaseTaskOperation<
   TaskDeleteParams,
   { success: boolean; taskId: string; task: Task }
 > {
-  getSchema(): import("zod").ZodSchema<TaskDeleteParams> {
-    return taskDeleteParamsSchema as unknown as import("zod").ZodSchema<TaskDeleteParams>;
+  getSchema(): import("zod").ZodType<TaskDeleteParams, import("zod").ZodTypeDef, unknown> {
+    return taskDeleteParamsSchema;
   }
 
   getOperationName(): string {

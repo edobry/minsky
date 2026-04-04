@@ -91,6 +91,7 @@ export async function updateSessionFromParams(
         });
       }
 
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionRecord is structurally compatible but not directly assignable to Session
       return session as unknown as Session;
     } catch (error) {
       throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`);

@@ -118,6 +118,7 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
     if (!this.storage) {
       throw new Error("SqlitePersistenceProvider not initialized");
     }
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- generic narrowing from concrete storage type to typed DatabaseStorage<T,S> is unavoidable
     return this.storage as unknown as DatabaseStorage<T, S>;
   }
 

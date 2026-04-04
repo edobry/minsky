@@ -254,6 +254,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold =
           threshold ??
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- accessing optional config property not exposed in TaskSimilarityService public interface
           (service as unknown as { config?: { similarityThreshold?: number } })?.config
             ?.similarityThreshold ??
           "(default)";

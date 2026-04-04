@@ -216,6 +216,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
         result = state.implementation(...args);
       } else {
         // Default implementation returns undefined
+        // eslint-disable-next-line custom/no-excessive-as-unknown -- mock default must return undefined typed as ReturnType<T>; no alternative without complex overloads
         result = undefined as unknown as ReturnType<T>;
       }
 

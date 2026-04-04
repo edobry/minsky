@@ -184,6 +184,7 @@ export async function startSessionFromParams(
     force: false,
   };
 
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- sessionStartParams is structurally compatible with SessionStartParameters but param type differs
   return startSessionImpl(sessionStartParams as unknown as SessionStartParameters, deps);
 }
 
@@ -229,6 +230,7 @@ export async function updateSessionFromParams(
     sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
     getCurrentSession: depsInput?.getCurrentSession ?? getCurrentSession,
   };
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionUpdateParams needs bridge to SessionUpdateParameters due to interface mismatch
   return updateSessionImpl(params as unknown as SessionUpdateParameters, deps);
 }
 
