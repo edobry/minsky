@@ -14,10 +14,10 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
     if (!contentPath.includes("/") && !contentPath.includes("\\") && !contentPath.includes(".")) {
       return contentPath;
     }
-    const fsPromises = await import("fs/promises").catch(() => null);
-    if (!fsPromises) return contentPath;
+    // Use node: prefix to avoid mock.module("fs/promises") pollution from other tests
+    const { readFile } = await import("node:fs/promises");
     // Try read directly; on any error (ENOENT, EISDIR, etc.) return the input as literal content
-    const content = await fsPromises.readFile(contentPath, "utf-8").catch(() => null);
+    const content = await readFile(contentPath, "utf-8").catch(() => null);
     if (typeof content === "string") return content;
     return contentPath;
   } catch {
