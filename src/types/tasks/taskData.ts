@@ -4,6 +4,7 @@
  */
 
 import type { TaskStatus } from "../../domain/tasks/taskConstants";
+import type { GitServiceInterface } from "../../domain/git/types";
 
 // Re-export task status types from centralized location
 export type { TaskStatus } from "../../domain/tasks/taskConstants";
@@ -69,8 +70,8 @@ export interface TaskSpecData {
  * TaskFileFormat represents the format of a task file (e.g., Markdown)
  */
 export interface TaskFileFormat {
-  parseContent: (content: any) => TaskState;
-  formatContent: (_state: any) => string;
+  parseContent: (content: unknown) => TaskState;
+  formatContent: (_state: unknown) => string;
 }
 
 /**
@@ -81,7 +82,7 @@ export interface TaskBackendConfig {
   workspacePath: string;
   taskFilePath?: string;
   taskSpecPath?: string;
-  gitService?: any;
+  gitService?: GitServiceInterface;
 }
 
 /**
@@ -106,15 +107,15 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  * @param task Legacy Task object
  * @returns TaskData object
  */
-export function toTaskData(task: any): TaskData {
+export function toTaskData(task: Record<string, unknown>): TaskData {
   return {
-    id: task!.id,
-    title: task!.title,
-    description: task!.description,
-    status: task!.status,
-    specPath: task!.specPath,
-    worklog: task!.worklog,
-    mergeInfo: task!.mergeInfo,
+    id: task["id"] as string,
+    title: task["title"] as string,
+    description: task["description"] as string | undefined,
+    status: task["status"] as TaskData["status"],
+    specPath: task["specPath"] as string | undefined,
+    worklog: task["worklog"] as TaskData["worklog"],
+    mergeInfo: task["mergeInfo"] as TaskData["mergeInfo"],
   };
 }
 
@@ -123,7 +124,7 @@ export function toTaskData(task: any): TaskData {
  * @param taskData TaskData object
  * @returns Legacy Task object
  */
-export function fromTaskData(taskData: TaskData): any {
+export function fromTaskData(taskData: TaskData): Record<string, unknown> {
   return {
     id: taskData!.id,
     title: taskData!.title,

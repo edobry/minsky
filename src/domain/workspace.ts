@@ -299,7 +299,7 @@ export interface WorkspaceSession {
   workspacePath: string;
   session: string;
   sessionDbPath: string;
-  sessionData: any;
+  sessionData: Record<string, unknown>;
 }
 
 /**

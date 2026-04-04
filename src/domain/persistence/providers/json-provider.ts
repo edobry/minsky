@@ -21,7 +21,7 @@ import { dirname } from "path";
  */
 export class JsonPersistenceProvider extends PersistenceProvider {
   private config: PersistenceConfig;
-  private storage: JsonFileStorage<any, any> | null = null;
+  private storage: JsonFileStorage<unknown, unknown> | null = null;
   private isInitialized = false;
 
   /**
@@ -66,7 +66,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
       }
 
       // Create storage instance with session-compatible configuration
-      const storageOptions: JsonFileStorageOptions<any> = {
+      const storageOptions: JsonFileStorageOptions<{ sessions: unknown[] }> = {
         filePath,
         initializeState: () => ({ sessions: [] }),
         entitiesField: "sessions",
@@ -74,7 +74,10 @@ export class JsonPersistenceProvider extends PersistenceProvider {
         prettyPrint: true,
       };
 
-      this.storage = new JsonFileStorage(storageOptions);
+      this.storage = new JsonFileStorage(storageOptions) as unknown as JsonFileStorage<
+        unknown,
+        unknown
+      >;
       await this.storage.initialize();
 
       this.isInitialized = true;

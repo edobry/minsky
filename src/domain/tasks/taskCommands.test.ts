@@ -578,7 +578,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await listTasksFromParams(params, mockDeps as any);
-      expect(result).toEqual([mockTasks[0]]);
+      expect(result).toEqual([mockTasks[0]!]);
     });
 
     test("should filter out DONE tasks when all is false", async () => {
@@ -622,7 +622,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await listTasksFromParams(params, mockDeps as any);
-      expect(result).toEqual([mockTasks[0], mockTasks[1]]);
+      expect(result).toEqual([mockTasks[0]!, mockTasks[1]!]);
     });
   });
 

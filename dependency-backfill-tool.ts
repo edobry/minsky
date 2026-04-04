@@ -30,6 +30,7 @@ interface BackfillResult {
 }
 
 class DependencyBackfillTool {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- task service type varies by backend configuration
   private taskService: any;
   private graphService: TaskGraphService;
   private results: BackfillResult = {
@@ -40,6 +41,7 @@ class DependencyBackfillTool {
     errors: [],
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- task service type varies by backend configuration
   constructor(taskService: any, graphService: TaskGraphService) {
     this.taskService = taskService;
     this.graphService = graphService;
@@ -180,6 +182,7 @@ class DependencyBackfillTool {
   /**
    * Process a single task to find and extract dependencies
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- task object shape varies by backend
   private async processTask(task: any): Promise<void> {
     try {
       // Get full task spec content
@@ -455,6 +458,7 @@ class DependencyBackfillTool {
 
 async function main() {
   const isDryRun = process.argv.includes("--dry-run");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- database connection type varies by persistence backend
   let db: any = null;
 
   try {

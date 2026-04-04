@@ -52,7 +52,10 @@ export interface SystemHealth {
  * Local factory for creating storage backends for health checks
  */
 const StorageBackendFactory = {
-  createFromConfig(_config: SessionDbConfig): any {
+  createFromConfig(_config: SessionDbConfig): {
+    initialize: () => Promise<boolean>;
+    readState: () => Promise<{ success: boolean; data: Record<string, unknown> }>;
+  } {
     // Returns a minimal duck-typed object for health check purposes
     return {
       initialize: async () => true,
@@ -184,7 +187,11 @@ export class SessionDbHealthMonitor {
   /**
    * Test basic storage operations
    */
-  private static async testBasicOperations(storage: any): Promise<void> {
+  private static async testBasicOperations(storage: {
+    initialize: () => Promise<boolean>;
+    readState: () => Promise<{ success: boolean; error?: string }>;
+    close?: () => Promise<void>;
+  }): Promise<void> {
     // Initialize storage
     await storage.initialize();
 
@@ -443,7 +450,10 @@ export class SessionDbHealthMonitor {
     }
 
     // Backend-specific recommendations
-    if (backendHealth.backend === "json" && (backendHealth.details as any)?.fileSize > 5_000_000) {
+    if (
+      backendHealth.backend === "json" &&
+      (backendHealth.details?.["fileSize"] as number) > 5_000_000
+    ) {
       recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
     }
 
@@ -453,7 +463,7 @@ export class SessionDbHealthMonitor {
 
     if (
       backendHealth.backend === "postgres" &&
-      (backendHealth.details as any)?.activeConnections > 80
+      (backendHealth.details?.["activeConnections"] as number) > 80
     ) {
       recommendations.push("High connection count - consider connection pooling optimization");
     }

@@ -20,7 +20,7 @@ interface TestResult {
   success: boolean;
   duration: number;
   error?: string;
-  details?: any;
+  details?: unknown;
 }
 
 class MorphIntegrationTester {
@@ -29,6 +29,7 @@ class MorphIntegrationTester {
 
   constructor() {
     // This will be set up in runAllTests
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- initialized in runAllTests before first use
     this.completionService = null as any;
   }
 
@@ -50,6 +51,7 @@ class MorphIntegrationTester {
       console.log(`   Morph enabled: ${config.ai?.providers?.morph?.enabled}`);
 
       // Create a mock config service that returns our loaded configuration
+
       const configService = new DefaultAIConfigurationService({
         loadConfiguration: (_workingDir: string) => Promise.resolve({ resolved: config }),
       } as any);
@@ -279,6 +281,7 @@ Return only the updated code.`;
       try {
         await this.completionService.complete({
           prompt: "Test",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally testing invalid provider
           provider: "nonexistent-provider" as any,
           maxTokens: 10,
         });

@@ -59,7 +59,7 @@ export class RuleSuggestionError extends Error {
   constructor(
     message: string,
     public code: string,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = "RuleSuggestionError";
@@ -102,7 +102,7 @@ export interface ContextElement {
     /** MIME type or content type */
     contentType?: string;
     /** Additional properties */
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -297,7 +297,7 @@ export class ContextAnalysisError extends Error {
   constructor(
     message: string,
     public code: string,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = "ContextAnalysisError";

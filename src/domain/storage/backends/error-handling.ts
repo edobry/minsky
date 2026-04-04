@@ -471,7 +471,9 @@ export class StorageErrorRecovery {
    */
   static async attemptRecovery(
     storageError: StorageError,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic recovery wrapper must accept any operation return type
     operation: () => Promise<any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result type is determined by the operation
   ): Promise<{ success: boolean; result?: any; error?: StorageError }> {
     if (!storageError.retryable) {
       return { success: false, error: storageError };

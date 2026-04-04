@@ -83,6 +83,7 @@ export function registerInitCommands() {
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: initParams,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
     execute: async (params: any, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params

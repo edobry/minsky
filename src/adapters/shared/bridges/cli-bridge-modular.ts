@@ -27,6 +27,7 @@ export interface ModularCliBridgeConfig {
   /** Use enhanced result formatter instead of default */
   useEnhancedFormatter?: boolean;
   /** Custom result formatter instance */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result formatter type varies by implementation
   customResultFormatter?: any;
   /** Custom parameter processor instance */
   customParameterProcessor?: ParameterProcessor;
@@ -47,6 +48,7 @@ export interface ModularCliBridgeConfig {
 export class ModularCliCommandBridge {
   private customizationManager: CommandCustomizationManager;
   private parameterProcessor: ParameterProcessor;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result formatter type varies by implementation
   private resultFormatter: any;
   private commandGenerator: CommandGeneratorCore;
   private categoryHandler: CategoryCommandHandler;

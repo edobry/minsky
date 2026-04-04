@@ -113,9 +113,9 @@ export async function approveSessionPr(
     gitService?: GitServiceInterface;
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
-    resolveRepoPath?: any;
+    resolveRepoPath?: (path: string) => string;
     /** @deprecated Use createRepositoryBackend instead */
-    createRepositoryBackendForSession?: (...args: any[]) => Promise<any>;
+    createRepositoryBackendForSession?: (...args: unknown[]) => Promise<RepositoryBackend>;
   }
 ): Promise<SessionApprovalResult> {
   if (!params.json) {

@@ -84,9 +84,9 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
 
       // Verify qualified task IDs are handled correctly
       expect(tasks).toHaveLength(2);
-      expect(tasks[0].id).toBe("md#999");
-      expect(tasks[1].id).toBe("gh#888");
-      expect(tasks[0].title).toContain("Test Qualified Task md#999");
+      expect(tasks[0]!.id).toBe("md#999");
+      expect(tasks[1]!.id).toBe("gh#888");
+      expect(tasks[0]!.title).toContain("Test Qualified Task md#999");
     });
 
     test("should retrieve specific qualified task by ID", async () => {

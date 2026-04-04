@@ -34,8 +34,10 @@ export class ToolEmbeddingService {
 
     // Create embedding service and storage
     const embeddingService = await createEmbeddingServiceFromConfig();
-    const cfg: any = await getConfiguration();
-    const model = cfg?.embeddings?.model || "text-embedding-3-small";
+    const cfg = (await getConfiguration()) as Record<string, unknown>;
+    const model =
+      ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
+      "text-embedding-3-small";
     const dimension = getEmbeddingDimension(model, 1536);
     const storage = await createToolsVectorStorageFromConfig(dimension);
 
@@ -130,10 +132,12 @@ export class ToolEmbeddingService {
   /**
    * Get tool metadata for a given tool ID
    */
-  async getToolMetadata(toolId: string): Promise<any> {
+  async getToolMetadata(toolId: string): Promise<Record<string, unknown> | null> {
     try {
-      const cfg: any = await getConfiguration();
-      const model = cfg?.embeddings?.model || "text-embedding-3-small";
+      const cfg = (await getConfiguration()) as Record<string, unknown>;
+      const model =
+        ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
+        "text-embedding-3-small";
       const dimension = getEmbeddingDimension(model, 1536);
       const storage = await createToolsVectorStorageFromConfig(dimension);
 

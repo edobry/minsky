@@ -21,7 +21,7 @@ export class TaskSimilarityService {
     private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
     private readonly getTaskSpecContent: (
       id: string
-    ) => Promise<{ content: string; specPath: string; task: any }>,
+    ) => Promise<{ content: string; specPath: string; task: Task }>,
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
@@ -122,10 +122,17 @@ export class TaskSimilarityService {
     // Apply model-aware token cap if configured
     try {
       const { getConfiguration } = await import("../configuration");
-      const cfg: any = await getConfiguration();
-      const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
-      const provider = cfg?.embeddings?.provider || cfg?.ai?.defaultProvider || "openai";
-      const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+      const cfg = (await getConfiguration()) as Record<string, unknown>;
+      const embeddings = cfg?.["embeddings"] as Record<string, unknown> | undefined;
+      const model =
+        this.config.model || (embeddings?.["model"] as string) || "text-embedding-3-small";
+      const ai = cfg?.["ai"] as Record<string, unknown> | undefined;
+      const provider =
+        (embeddings?.["provider"] as string) || (ai?.["defaultProvider"] as string) || "openai";
+      const embeddingModels = embeddings?.["models"] as
+        | Record<string, Record<string, unknown>>
+        | undefined;
+      const caps = (embeddingModels && embeddingModels[model]) || {};
       // Built-in defaults by model pattern; can be overridden by config
       const defaultMaxByModel: Record<string, number> = {
         "text-embedding-3-small": 8192,
@@ -149,9 +156,14 @@ export class TaskSimilarityService {
       // If tokenization or config fails, apply a conservative char-based trim fallback
       try {
         const { getConfiguration } = await import("../configuration");
-        const cfg: any = await getConfiguration();
-        const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
-        const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+        const cfg = (await getConfiguration()) as Record<string, unknown>;
+        const embeddingsCfg = cfg?.["embeddings"] as Record<string, unknown> | undefined;
+        const model =
+          this.config.model || (embeddingsCfg?.["model"] as string) || "text-embedding-3-small";
+        const embeddingModelsCfg = embeddingsCfg?.["models"] as
+          | Record<string, Record<string, unknown>>
+          | undefined;
+        const caps = (embeddingModelsCfg && embeddingModelsCfg[model]) || {};
         const defaultMaxByModel: Record<string, number> = {
           "text-embedding-3-small": 8192,
           "text-embedding-3-large": 8192,

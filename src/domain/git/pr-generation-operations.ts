@@ -23,10 +23,17 @@ export interface PrResult {
 }
 
 export interface PrDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<any>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (
+    name: string
+  ) => Promise<{ session: string; repoUrl: string; taskId?: string } | null>;
   getSessionWorkdir: (session: string) => string;
-  getSessionByTaskId?: (taskId: string) => Promise<any>;
+  getSessionByTaskId?: (
+    taskId: string
+  ) => Promise<{ session: string; repoUrl: string; taskId?: string } | null>;
   ensureBaseDir: () => Promise<void>;
 }
 

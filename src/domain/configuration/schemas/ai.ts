@@ -12,13 +12,17 @@ import { log } from "../../../utils/logger";
 /**
  * Detect unknown fields in an object and log warnings
  */
-const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context: string): any => {
+const detectAndWarnUnknownFields = (
+  data: unknown,
+  schema: z.ZodObject<z.ZodRawShape>,
+  context: string
+): unknown => {
   if (!data || typeof data !== "object") {
     return data;
   }
 
   const knownKeys = new Set(Object.keys(schema.shape));
-  const dataKeys = Object.keys(data);
+  const dataKeys = Object.keys(data as Record<string, unknown>);
   const unknownKeys = dataKeys.filter((key) => !knownKeys.has(key));
 
   if (unknownKeys.length > 0) {
@@ -136,7 +140,7 @@ const baseAiProvidersSchema = z.object({
 });
 
 export const aiProvidersConfigSchema = z
-  .any()
+  .unknown()
   .transform((data) => detectAndWarnUnknownFields(data, baseAiProvidersSchema, "ai.providers"))
   .pipe(baseAiProvidersSchema.strip());
 

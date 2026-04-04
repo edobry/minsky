@@ -1,5 +1,6 @@
 import type { SimilarityBackend, SimilarityItem, SimilarityQuery } from "../../similarity/types";
 import { sharedCommandRegistry } from "../../../adapters/shared/command-registry";
+import type { SharedCommand } from "../../../adapters/shared/command-registry";
 import { createLogger } from "../../../utils/logger";
 
 const log = createLogger();
@@ -27,7 +28,8 @@ export class ToolKeywordBackend implements SimilarityBackend {
 
     // Get all tools from registry
     const allTools = sharedCommandRegistry.getAllCommands();
-    const scoredTools: Array<{ id: string; score: number; metadata?: any }> = [];
+    const scoredTools: Array<{ id: string; score: number; metadata?: Record<string, unknown> }> =
+      [];
 
     // Extract keywords from query
     const keywords = this.extractKeywords(queryText);
@@ -209,7 +211,7 @@ export class ToolKeywordBackend implements SimilarityBackend {
    * Calculate relevance score for a tool based on keywords and intent
    */
   private calculateToolScore(
-    tool: any,
+    tool: SharedCommand,
     keywords: string[],
     intentKeywords: Record<string, string[]>,
     originalQuery: string
