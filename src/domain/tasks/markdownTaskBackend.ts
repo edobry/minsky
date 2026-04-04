@@ -10,7 +10,7 @@ import { getErrorMessage } from "../../errors/index";
 import matter from "gray-matter";
 import { createGitService, type GitServiceInterface } from "../git";
 
-import { FsLike } from "../interfaces/fs-like";
+import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
 
 import type {
@@ -39,9 +39,15 @@ import {
   formatTaskSpecToMarkdown,
 } from "./taskFunctions";
 
-import { getTasksFilePath, getTaskSpecRelativePath } from "./taskIO";
-
-import { getErrorCode } from "../../schemas/error";
+import {
+  getTasksFilePath,
+  getTaskSpecRelativePath,
+  readTasksFile,
+  writeTasksFile,
+  readTaskSpecFile,
+  writeTaskSpecFile,
+  fileExists as checkFileExists,
+} from "./taskIO";
 
 import { taskIdMatches, findTaskIndexById } from "./markdown-backend-task-matching";
 import { withGitStashCommitPush } from "./markdown-backend-git-ops";
@@ -241,32 +247,13 @@ export class MarkdownTaskBackend implements TaskBackend {
   // ---- Data Retrieval ----
 
   async getTasksData(): Promise<TaskReadOperationResult> {
-    try {
-      const content = await this.fs.readFile(this.tasksFilePath, "utf-8");
-      return { success: true, filePath: this.tasksFilePath, content };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      const code = getErrorCode(error) || "";
-      if (code === "ENOENT") {
-        log.debug(`Tasks file not found: ${this.tasksFilePath} (normal in multi-backend mode)`);
-      } else {
-        log.error(`Failed to read tasks file: ${this.tasksFilePath}`);
-      }
-      return { success: false, filePath: this.tasksFilePath, error: err };
-    }
+    return readTasksFile(this.tasksFilePath, this.fs);
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     const pathStr = String(specPath || "");
     const fullPath = pathStr.startsWith("/") ? pathStr : join(this.workspacePath, pathStr);
-    try {
-      const content = await this.fs.readFile(fullPath, "utf-8");
-      return { success: true, filePath: fullPath, content };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Failed to read task spec file: ${fullPath}`, { error: err });
-      return { success: false, filePath: fullPath, error: err };
-    }
+    return readTaskSpecFile(fullPath, this.fs);
   }
 
   // ---- Pure Operations ----
@@ -301,28 +288,12 @@ export class MarkdownTaskBackend implements TaskBackend {
   // ---- Side Effects ----
 
   async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
-    try {
-      await this.fs.writeFile(this.tasksFilePath, content);
-      return { success: true, filePath: this.tasksFilePath };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Failed to write tasks file: ${this.tasksFilePath}`, { error: err });
-      return { success: false, filePath: this.tasksFilePath, error: err };
-    }
+    return writeTasksFile(this.tasksFilePath, content, this.fs);
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
-    try {
-      const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-      await this.fs.mkdir(dir, { recursive: true });
-      await this.fs.writeFile(fullPath, content);
-      return { success: true, filePath: fullPath };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Failed to write task spec file: ${fullPath}`, { error: err });
-      return { success: false, filePath: fullPath, error: err };
-    }
+    return writeTaskSpecFile(fullPath, content, this.fs);
   }
 
   // ---- Helper Methods ----
@@ -336,12 +307,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async fileExists(path: string): Promise<boolean> {
-    try {
-      await this.fs.access(path);
-      return true;
-    } catch {
-      return false;
-    }
+    return checkFileExists(path, this.fs);
   }
 
   async findTaskSpecFiles(taskId: string): Promise<string[]> {

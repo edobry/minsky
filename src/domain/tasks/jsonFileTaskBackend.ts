@@ -167,7 +167,7 @@ ${description}
       throw new Error("Spec path and parser are required");
     }
 
-    const specDataResult = await readTaskSpecFile(specPath);
+    const specDataResult = await readTaskSpecFile(specPath, this.fs);
     if (!specDataResult.success) {
       throw new Error(`Failed to load spec file: ${specDataResult.error}`);
     }

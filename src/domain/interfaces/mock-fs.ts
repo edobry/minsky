@@ -75,18 +75,19 @@ export function createMockFs(
     },
 
     async readdir(path: string): Promise<string[]> {
-      const entries: string[] = [];
+      if (!directories.has(path)) enoent("scandir", path);
+      const entries = new Set<string>();
       for (const [filePath] of files) {
         if (filePath.startsWith(`${path}/`) && !filePath.slice(path.length + 1).includes("/")) {
-          entries.push(filePath.slice(path.length + 1));
+          entries.add(filePath.slice(path.length + 1));
         }
       }
       for (const dirPath of directories) {
         if (dirPath.startsWith(`${path}/`) && !dirPath.slice(path.length + 1).includes("/")) {
-          entries.push(dirPath.slice(path.length + 1));
+          entries.add(dirPath.slice(path.length + 1));
         }
       }
-      return entries;
+      return Array.from(entries);
     },
 
     async stat(path: string): Promise<FsStats> {
