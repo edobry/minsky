@@ -1,59 +1,49 @@
 /**
- * Test for configuration integration with task service
+ * Integration test for configuration + task service
  *
- * These tests verify that the configuration system properly integrates
- * with task service creation and backend resolution.
+ * These tests verify that createConfiguredTaskService works end-to-end
+ * with real filesystem, configuration, and graceful fallbacks.
  *
- * NOTE: These tests depend on local environment (config files, git repo).
- * They are skipped in CI where these aren't available. The proper fix is
- * dependency injection (tracked in mt#660) — these tests should be
- * rewritten to use explicit DI once that infrastructure exists.
+ * NO MOCKS — the function is designed to handle missing config, missing
+ * persistence, and missing git gracefully via try/catch fallbacks.
+ * Previous mock-based approach caused module system poisoning (mt#660).
  */
 
 import { test, expect, describe } from "bun:test";
 import { createConfiguredTaskService } from "./taskService";
 
-// Detect CI environment — these tests require local config that CI doesn't have
-const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
-
 describe("Configuration Integration", () => {
-  test.skipIf(isCI)(
-    "createConfiguredTaskService should use configuration to resolve backend",
-    async () => {
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-      });
+  test("createConfiguredTaskService should create a working service from workspace", async () => {
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+    });
 
-      expect(taskService).toBeDefined();
-      const tasks = await taskService.listTasks();
-      expect(Array.isArray(tasks)).toBe(true);
-    }
-  );
+    expect(taskService).toBeDefined();
+    const tasks = await taskService.listTasks();
+    expect(Array.isArray(tasks)).toBe(true);
+  });
 
-  test.skipIf(isCI)(
-    "createConfiguredTaskService should handle missing config directory",
-    async () => {
-      const taskService = await createConfiguredTaskService({
-        workspacePath: "/tmp/nonexistent-dir-for-test",
-      });
+  test("createConfiguredTaskService should handle missing config directory", async () => {
+    // Use a path that exists but has no .minsky config — function should fall back gracefully
+    const emptyDir = `/tmp/minsky-test-${Date.now()}`;
 
-      expect(taskService).toBeDefined();
-      const tasks = await taskService.listTasks();
-      expect(Array.isArray(tasks)).toBe(true);
-    }
-  );
+    const taskService = await createConfiguredTaskService({
+      workspacePath: emptyDir,
+    });
 
-  test.skipIf(isCI)(
-    "createConfiguredTaskService should handle explicit backend override",
-    async () => {
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-        backend: "markdown",
-      });
+    expect(taskService).toBeDefined();
+    const tasks = await taskService.listTasks();
+    expect(Array.isArray(tasks)).toBe(true);
+  });
 
-      expect(taskService).toBeDefined();
-      const tasks = await taskService.listTasks();
-      expect(Array.isArray(tasks)).toBe(true);
-    }
-  );
+  test("createConfiguredTaskService should handle explicit backend override", async () => {
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      backend: "markdown",
+    });
+
+    expect(taskService).toBeDefined();
+    const tasks = await taskService.listTasks();
+    expect(Array.isArray(tasks)).toBe(true);
+  });
 });
