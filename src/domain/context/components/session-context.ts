@@ -117,7 +117,6 @@ export const SessionContextComponent: ContextComponent = {
       // Active session information
       content += `### Active Session\n`;
       content += `- Session ID: ${sessionInputs.sessionRecord.id}\n`;
-      content += `- Session ID: ${sessionInputs.sessionRecord.name}\n`;
 
       if (sessionInputs.sessionRecord.taskId) {
         content += `- Associated Task: ${sessionInputs.sessionRecord.taskId}\n`;

@@ -154,7 +154,7 @@ export const SESSION_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     message: "Session not found",
     solutions: [
       "Use session_list to see available sessions",
-      "Verify session ID or ID",
+      "Verify the session ID",
       "Create a new session if needed",
     ],
     retryable: false,
