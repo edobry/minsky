@@ -87,8 +87,8 @@ async function determineWorkingDirectory(
   }
 
   // Try to resolve session from taskId if provided
-  let sessionName = options.session;
-  if (!sessionName && options.taskId) {
+  let sessionId = options.session;
+  if (!sessionId && options.taskId) {
     if (!deps.getSessionByTaskId) {
       throw new Error("getSessionByTaskId dependency not available");
     }
@@ -96,20 +96,20 @@ async function determineWorkingDirectory(
     if (!sessionRecord) {
       throw new Error(`No session found for task ID "${options.taskId}"`);
     }
-    sessionName = sessionRecord.session;
+    sessionId = sessionRecord.session;
     log.debug("Resolved session from task ID", {
       taskId: options.taskId,
-      session: sessionName,
+      session: sessionId,
     });
   }
 
-  if (!sessionName) {
+  if (!sessionId) {
     throw new MinskyError(`
 🚫 Cannot create PR - missing required information
 
 You need to specify one of these options to identify the target repository:
 
-📝 Specify a session name:
+📝 Specify a session ID:
    minsky git pr --session "my-session"
 
 🎯 Use a task ID (to auto-detect session):
@@ -120,22 +120,22 @@ You need to specify one of these options to identify the target repository:
 
 💡 If you're working in a session workspace, try running from the main workspace:
    cd /path/to/main/workspace
-   minsky git pr --session "session-name"
+   minsky git pr --session "session-id"
 
 📋 To see available sessions:
    minsky sessions list
 `);
   }
 
-  const session = await deps.getSession(sessionName);
+  const session = await deps.getSession(sessionId);
   if (!session) {
     const context = createErrorContext().addCommand("minsky git pr").build();
 
-    throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
+    throw new MinskyError(createSessionNotFoundMessage(sessionId, context));
   }
-  const workdir = deps.getSessionWorkdir(sessionName);
+  const workdir = deps.getSessionWorkdir(sessionId);
 
-  log.debug("Using workdir for PR", { workdir, session: sessionName });
+  log.debug("Using workdir for PR", { workdir, session: sessionId });
   return workdir;
 }
 

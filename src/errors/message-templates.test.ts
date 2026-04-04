@@ -201,7 +201,7 @@ describe("Error Message Templates", () => {
       const alternatives: CommandSuggestion[] = [
         {
           description: "Specify session",
-          command: "minsky git pr --session name",
+          command: "minsky git pr --session <session-id>",
         },
       ];
 
@@ -210,7 +210,7 @@ describe("Error Message Templates", () => {
       expect(result).toContain("🚫 Cannot create PR - missing required information");
       expect(result).toContain("You need to specify one of these options");
       expect(result).toContain("Specify session");
-      expect(result).toContain("minsky git pr --session name");
+      expect(result).toContain("minsky git pr --session <session-id>");
     });
   });
 
@@ -266,7 +266,7 @@ describe("Error Message Templates", () => {
 
       expect(result).toContain('🚫 Session "test-session" Already Exists');
       expect(result).toContain("A session with this name already exists");
-      expect(result).toContain("Use a different session name");
+      expect(result).toContain("Use a different session ID");
       expect(result).toContain("Resume existing session");
       expect(result).toContain("Delete existing session first");
     });

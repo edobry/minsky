@@ -62,7 +62,7 @@ describe("Session Creation Bug Fix (TDD)", () => {
   it("should NOT create session directory if git operations fail", async () => {
     // Arrange: Mock session provider and git service that will fail
     const mockSessionDB = {
-      getSession: async (_sessionName: string) => null,
+      getSession: async (_sessionId: string) => null,
       listSessions: async () => [],
       addSession: async () => {
         throw new Error("Session registration failed");

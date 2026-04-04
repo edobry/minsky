@@ -103,7 +103,7 @@ export function withMcpErrorHandling<T extends Record<string, unknown>, R>(
     } catch (error) {
       return errorHandler(error, {
         path: args.path as string,
-        session: args.sessionName as string,
+        session: args.sessionId as string,
         operation: toolName,
       });
     }

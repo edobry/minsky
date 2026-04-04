@@ -142,7 +142,7 @@ describe("Session Approve Workflow", () => {
     );
 
     // Verify results (fixed interface expectations for new approval-only function)
-    expect(result.sessionName).toBe("test-session"); // Function returns sessionName, not session
+    expect(result.sessionId).toBe("test-session"); // Function returns sessionId, not session
     expect(result.taskId).toBe("md#025"); // Use qualified task ID format
     expect(result.approvalInfo).toBeDefined();
     expect(result.approvalInfo.reviewId).toBe("test-review-025");

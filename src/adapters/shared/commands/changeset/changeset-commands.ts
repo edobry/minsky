@@ -178,7 +178,7 @@ async function executeChangesetList(
     if (params.session) {
       changesets = changesets.filter(
         (changeset) =>
-          changeset.sessionName === params.session ||
+          changeset.sessionId === params.session ||
           changeset.sourceBranch === `pr/${params.session}` ||
           changeset.sourceBranch === params.session
       );
@@ -267,7 +267,7 @@ async function executeChangesetSearch(
     if (params.session) {
       changesets = changesets.filter(
         (changeset) =>
-          changeset.sessionName === params.session ||
+          changeset.sessionId === params.session ||
           changeset.sourceBranch === `pr/${params.session}` ||
           changeset.sourceBranch === params.session
       );

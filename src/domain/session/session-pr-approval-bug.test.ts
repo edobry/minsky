@@ -37,10 +37,10 @@ const TEST_PR_BRANCH = `pr/${TEST_BRANCH}`;
 
 describe("Session PR Approval Bug", () => {
   let sessionDB: any;
-  let sessionName: string;
+  let sessionId: string;
 
   beforeEach(async () => {
-    sessionName = "test-pr-approval-session";
+    sessionId = "test-pr-approval-session";
 
     // Use mock sessionDB instead of real database to avoid configuration issues
     sessionDB = {
@@ -62,9 +62,9 @@ describe("Session PR Approval Bug", () => {
               mergedAt: undefined,
             },
           });
-        } else if (name === sessionName) {
+        } else if (name === sessionId) {
           return Promise.resolve({
-            session: sessionName,
+            session: sessionId,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
@@ -110,7 +110,7 @@ describe("Session PR Approval Bug", () => {
     const prBranch = SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION;
 
     // Update session with PR branch data (this works)
-    await sessionDB.updateSession(sessionName, {
+    await sessionDB.updateSession(sessionId, {
       prBranch,
       prState: {
         branchName: prBranch,
@@ -122,7 +122,7 @@ describe("Session PR Approval Bug", () => {
     });
 
     // Try to retrieve the session
-    const session = await sessionDB.getSession(sessionName);
+    const session = await sessionDB.getSession(sessionId);
 
     // This test should fail until the database mapping bug is fixed
     expect(session).toBeDefined();
@@ -135,7 +135,7 @@ describe("Session PR Approval Bug", () => {
     // Set up session with PR branch (simulating successful PR creation)
     const prBranch = SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION;
 
-    await sessionDB.updateSession(sessionName, {
+    await sessionDB.updateSession(sessionId, {
       prBranch,
       prState: {
         branchName: prBranch,
@@ -147,7 +147,7 @@ describe("Session PR Approval Bug", () => {
     });
 
     // Get the session record
-    const session = await sessionDB.getSession(sessionName);
+    const session = await sessionDB.getSession(sessionId);
 
     // Simulate the approval validation logic
     function validateSessionHasPRBranch(sessionRecord: SessionRecord | null): boolean {

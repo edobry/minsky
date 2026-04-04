@@ -69,7 +69,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
 
       // CLI output
       if (result.success) {
-        log.cli(`✅ Session repair completed for '${result.sessionName}'`);
+        log.cli(`✅ Session repair completed for '${result.sessionId}'`);
 
         if (result.issuesFound.length === 0) {
           log.cli("No issues found - session is healthy");
@@ -94,7 +94,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
           }
         }
       } else {
-        log.cli(`❌ Session repair failed for '${result.sessionName}'`);
+        log.cli(`❌ Session repair failed for '${result.sessionId}'`);
       }
 
       return this.createSuccessResult(result as unknown as Record<string, unknown>);

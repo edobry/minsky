@@ -211,7 +211,7 @@ describe("Session Edit Tools", () => {
 
       // Simulate successful file creation
       const result = await mockSessionEditFile({
-        sessionName: "test-session",
+        sessionId: "test-session",
         path: "new-file.txt",
         instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
         content: "Hello world",
@@ -220,7 +220,7 @@ describe("Session Edit Tools", () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain("Created new file");
       expect(mockSessionEditFile).toHaveBeenCalledWith({
-        sessionName: "test-session",
+        sessionId: "test-session",
         path: "new-file.txt",
         instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
         content: "Hello world",
@@ -244,7 +244,7 @@ describe("Session Edit Tools", () => {
 
       // Simulate edit operation
       const result = await mockSessionEditFile({
-        sessionName: "test-session",
+        sessionId: "test-session",
         path: "existing-file.txt",
         instructions: "Add a new line",
         content: "// ... existing code ...\nnew line\n// ... existing code ...",
@@ -278,7 +278,7 @@ describe("Session Edit Tools", () => {
               success: true,
               timestamp: new Date().toISOString(),
               path: args.path,
-              session: args.sessionName,
+              session: args.sessionId,
               resolvedPath: "/mock/session/path/file.txt",
               dryRun: true,
               proposedContent,
@@ -297,7 +297,7 @@ describe("Session Edit Tools", () => {
         });
 
         const result = await mockDryRunEditFile({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "existing-file.txt",
           instructions: "Modify line 2",
           content: DIFF_TEST_CONTENT.MODIFIED_THREE_LINES,
@@ -332,7 +332,7 @@ describe("Session Edit Tools", () => {
               success: true,
               timestamp: new Date().toISOString(),
               path: args.path,
-              session: args.sessionName,
+              session: args.sessionId,
               resolvedPath: "/mock/session/path/new-file.txt",
               dryRun: true,
               proposedContent,
@@ -351,7 +351,7 @@ describe("Session Edit Tools", () => {
         });
 
         const result = await mockDryRunNewFile({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "new-file.txt",
           instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
           content: UI_TEST_PATTERNS.NEW_FILE_CONTENT,
@@ -393,7 +393,7 @@ describe("Session Edit Tools", () => {
         });
 
         await mockDryRunNoWrite({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "test-file.txt",
           instructions: "Test dry run",
           content: "modified content",
@@ -436,7 +436,7 @@ describe("Session Edit Tools", () => {
         });
 
         const result = await mockDryRunEditPattern({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "test-file.txt",
           instructions: "Update console.log message",
           content: "// ... existing code ...\n  console.log('new');\n// ... existing code ...",
@@ -465,7 +465,7 @@ describe("Session Edit Tools", () => {
 
         await expect(
           mockDryRunFailPattern({
-            sessionName: "test-session",
+            sessionId: "test-session",
             path: "non-existent.txt",
             instructions: "Try to edit non-existent file",
             content: "// ... existing code ...\nnew line\n// ... existing code ...",
@@ -500,7 +500,7 @@ describe("Session Edit Tools", () => {
       expect(tool).toBeDefined();
 
       const result = await mockSearchReplace({
-        sessionName: "test-session",
+        sessionId: "test-session",
         path: "test-file.txt",
         search: "old text",
         replace: "new text",
@@ -522,7 +522,7 @@ describe("Session Edit Tools", () => {
 
       await expect(
         mockSearchReplace({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "test-file.txt",
           search: "nonexistent text",
           replace: "new text",
@@ -543,7 +543,7 @@ describe("Session Edit Tools", () => {
 
       await expect(
         mockSearchReplace({
-          sessionName: "test-session",
+          sessionId: "test-session",
           path: "test-file.txt",
           search: "common text",
           replace: "new text",

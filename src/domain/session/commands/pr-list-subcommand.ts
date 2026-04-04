@@ -21,7 +21,7 @@ export async function sessionPrList(params: {
   verbose?: boolean;
 }): Promise<{
   pullRequests: Array<{
-    sessionName: string;
+    sessionId: string;
     taskId?: string;
     prNumber?: number | string;
     status: string;
@@ -71,7 +71,7 @@ export async function sessionPrList(params: {
           const status = prDetails.mergedAt ? "merged" : state;
 
           return {
-            sessionName: session.session,
+            sessionId: session.session,
             taskId: session.taskId,
             prNumber: prDetails.number,
             status,
@@ -90,7 +90,7 @@ export async function sessionPrList(params: {
 
     // Filter out sessions without PRs
     const pullRequests = pullRequestResults.filter((pr) => pr !== null) as Array<{
-      sessionName: string;
+      sessionId: string;
       taskId?: string;
       prNumber?: number | string;
       status: string;

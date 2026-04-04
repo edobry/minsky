@@ -60,16 +60,16 @@ export async function preparePr(
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
 
-    // Get current branch from repo instead of assuming session name is branch name
+    // Get current branch from repo instead of assuming session ID is branch name
     try {
       sourceBranch = await deps.execInRepository(workdir, "git branch --show-current");
       sourceBranch = sourceBranch.trim();
     } catch (branchError) {
-      log.debug("Failed to get current branch, falling back to session branch or session name", {
+      log.debug("Failed to get current branch, falling back to session branch or session ID", {
         session: options.session,
         error: branchError,
       });
-      // Try to use branch from session record, then fall back to session name
+      // Try to use branch from session record, then fall back to session ID
       sourceBranch = record?.branch || options.session;
     }
   } else if (options.repoPath) {

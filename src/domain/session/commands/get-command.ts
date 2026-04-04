@@ -32,13 +32,13 @@ export async function sessionGet(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
-    return deps.sessionDB.getSession(resolvedContext.sessionName) as Promise<Session | null>;
+    // Get the session details using the resolved session ID
+    return deps.sessionDB.getSession(resolvedContext.sessionId) as Promise<Session | null>;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

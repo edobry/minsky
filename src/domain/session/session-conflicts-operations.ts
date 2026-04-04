@@ -67,19 +67,19 @@ export async function scanSessionConflicts(
 ): Promise<SessionConflictScanResult> {
   try {
     let sessionPath: string;
-    let actualSessionName: string;
+    let actualSessionId: string;
 
     if (params.name) {
       // Get specific session by name
       const sessionDir = await getSessionDirFromParams({ session: params.name });
       sessionPath = sessionDir;
-      actualSessionName = params.name;
+      actualSessionId = params.name;
     } else if (params.task) {
       // Get session by task ID
       const sessionDir = await getSessionDirFromParams({ task: params.task });
       sessionPath = sessionDir;
-      // Derive session name from the resolved path (works for both UUID and legacy formats)
-      actualSessionName = sessionPath.split("/").pop() || params.task;
+      // Derive session ID from the resolved path (works for both UUID and legacy formats)
+      actualSessionId = sessionPath.split("/").pop() || params.task;
     } else {
       // Auto-detect current session from working directory
       const cwd = getCurrentWorkingDirectory();
@@ -87,17 +87,17 @@ export async function scanSessionConflicts(
 
       if (!context) {
         throw new Error(
-          "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+          "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
         );
       }
 
-      // Use current working directory as session path and extract session name from sessionId
+      // Use current working directory as session path and extract session ID from sessionId
       sessionPath = cwd;
-      actualSessionName = context.sessionId;
+      actualSessionId = context.sessionId;
     }
 
     log.debug("Scanning session for conflicts", {
-      sessionName: actualSessionName,
+      sessionId: actualSessionId,
       sessionPath,
       options,
     });
@@ -119,7 +119,7 @@ export async function scanSessionConflicts(
 
     const result: SessionConflictScanResult = {
       repository: sessionPath,
-      session: actualSessionName,
+      session: actualSessionId,
       timestamp: new Date().toISOString(),
       conflicts: conflictedFiles,
       summary: {

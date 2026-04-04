@@ -159,7 +159,7 @@ export const LineRangeSchema = z.object({
  * Base file operation schema (session + path)
  */
 export const BaseFileOperationSchema = z.object({
-  sessionName: SessionIdSchema,
+  sessionId: SessionIdSchema,
   path: FilePathSchema,
 });
 
@@ -167,7 +167,7 @@ export const BaseFileOperationSchema = z.object({
  * Base directory operation schema (session + directory path)
  */
 export const BaseDirectoryOperationSchema = z.object({
-  sessionName: SessionIdSchema,
+  sessionId: SessionIdSchema,
   path: OptionalDirectoryPathSchema,
 });
 
@@ -227,7 +227,7 @@ export const FileDeleteSchema = BaseFileOperationSchema;
  * File move operation schema
  */
 export const FileMoveSchema = z.object({
-  sessionName: SessionIdSchema,
+  sessionId: SessionIdSchema,
   sourcePath: SourcePathSchema,
   targetPath: TargetPathSchema,
   overwrite: OverwriteSchema,
@@ -257,7 +257,7 @@ export const DirectoryListSchema = BaseDirectoryOperationSchema.merge(
  * Directory creation schema
  */
 export const DirectoryCreateSchema = z.object({
-  sessionName: SessionIdSchema,
+  sessionId: SessionIdSchema,
   path: DirectoryPathSchema,
   recursive: RecursiveSchema,
 });
@@ -266,7 +266,7 @@ export const DirectoryCreateSchema = z.object({
  * Grep search operation schema
  */
 export const GrepSearchSchema = z.object({
-  sessionName: SessionIdSchema,
+  sessionId: SessionIdSchema,
   query: SearchPatternSchema,
   case_sensitive: CaseSensitiveSchema,
   include_pattern: IncludePatternSchema,

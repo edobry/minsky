@@ -30,7 +30,7 @@ export interface SessionRecord {
   pullRequest?: PullRequestInfo;
 
   // NEW: Simple PR approval tracking (Task #358)
-  prBranch?: string; // PR branch if one exists ("pr/session-name")
+  prBranch?: string; // PR branch if one exists ("pr/session-id")
   prApproved?: boolean; // Whether this session's PR is approved
 
   // Legacy / compatibility fields
@@ -84,7 +84,7 @@ export interface Session {
   pullRequest?: PullRequestInfo;
 
   // NEW: Simple PR approval tracking (Task #358)
-  prBranch?: string; // PR branch if one exists ("pr/session-name")
+  prBranch?: string; // PR branch if one exists ("pr/session-id")
   prApproved?: boolean; // Whether this session's PR is approved
 }
 
@@ -132,7 +132,7 @@ export interface SessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(sessionName: string): Promise<string>;
+  getSessionWorkdir(sessionId: string): Promise<string>;
 }
 
 /**
@@ -230,5 +230,5 @@ export interface SessionPrResult {
     taskId?: string;
     repoName?: string;
   };
-  sessionName?: string; // Alternative property name for formatter compatibility
+  sessionId?: string; // Alternative property name for formatter compatibility
 }

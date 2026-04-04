@@ -278,7 +278,7 @@ export async function updatePullRequest(
       try {
         const githubToken = requireGitHubToken();
         if (!options.session) {
-          throw new MinskyError("Session name is required to update PR without explicit PR number");
+          throw new MinskyError("Session ID is required to update PR without explicit PR number");
         }
         const sessionWorkdir = await sessionDB.getSessionWorkdir(options.session);
         const { GitService } = require("../git");

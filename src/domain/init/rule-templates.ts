@@ -162,7 +162,7 @@ This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
 A session MUST be created and active before any code changes. Before examining or modifying any code, you MUST:
 1. Verify task status (\`minsky tasks status get '#id'\`)
 2. Create or identify an existing session (\`minsky session start --task id\`)
-3. Enter the session directory (\`cd $(minsky session dir session-name)\`)
+3. Enter the session directory (\`cd $(minsky session dir session-id)\`)
 
 ## Repository Isolation Warning
 

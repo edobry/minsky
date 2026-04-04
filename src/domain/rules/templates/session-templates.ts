@@ -39,7 +39,7 @@ Sessions provide isolated development environments for working on specific tasks
 
 **Get session details**: ${helpers.command("session.get")}
 - Retrieves detailed information about a specific session
-- Can query by session name or task ID
+- Can query by session ID or task ID
 
 **Create new session**: ${helpers.command("session.start")}
 - Creates a new session for a task

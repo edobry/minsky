@@ -425,7 +425,7 @@ export function createPartialTestDeps(
  */
 export interface MockSessionProviderOptions {
   sessions?: SessionRecord[];
-  getSession?: (sessionName: string) => Promise<SessionRecord | null>;
+  getSession?: (sessionId: string) => Promise<SessionRecord | null>;
   getSessionByTaskId?: (taskId: string) => Promise<SessionRecord | null>;
   addSession?: () => Promise<void>;
   updateSession?: () => Promise<void>;
@@ -452,8 +452,8 @@ export function createMockSessionProvider(
 
     getSession:
       options.getSession ||
-      ((sessionName: string) => {
-        const session = sessions.find((s) => s.session === sessionName);
+      ((sessionId: string) => {
+        const session = sessions.find((s) => s.session === sessionId);
         return Promise.resolve(session || null);
       }),
 

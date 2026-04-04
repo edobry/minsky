@@ -16,32 +16,31 @@ import { createMockSessionProvider, createMockGitService } from "../utils/test-u
 
 // Mock session DB helper for this specific test's needs
 type MockSessionDBWithHelpers = SessionProviderInterface & {
-  _setSession: (sessionName: string, data: unknown) => void;
+  _setSession: (sessionId: string, data: unknown) => void;
 };
 
 const createMockSessionDBWithHelpers = (): MockSessionDBWithHelpers => {
   const sessions = new Map<string, unknown>();
 
   const mockSessionDB = createMockSessionProvider({
-    getSession: (sessionName: string) =>
+    getSession: (sessionId: string) =>
       Promise.resolve(
-        (sessions.get(sessionName) as Awaited<
-          ReturnType<SessionProviderInterface["getSession"]>
-        >) ?? null
+        (sessions.get(sessionId) as Awaited<ReturnType<SessionProviderInterface["getSession"]>>) ??
+          null
       ),
-    updateSession: ((sessionName: string, updates: unknown) => {
-      const existing = (sessions.get(sessionName) as Record<string, unknown>) || {};
-      sessions.set(sessionName, { ...existing, ...(updates as Record<string, unknown>) });
+    updateSession: ((sessionId: string, updates: unknown) => {
+      const existing = (sessions.get(sessionId) as Record<string, unknown>) || {};
+      sessions.set(sessionId, { ...existing, ...(updates as Record<string, unknown>) });
       return Promise.resolve();
     }) as any,
   });
 
   // Add helper method for test setup using typed extension
   (mockSessionDB as unknown as MockSessionDBWithHelpers)._setSession = (
-    sessionName: string,
+    sessionId: string,
     data: unknown
   ) => {
-    sessions.set(sessionName, data);
+    sessions.set(sessionId, data);
   };
 
   return mockSessionDB as unknown as MockSessionDBWithHelpers;
@@ -94,12 +93,12 @@ describe("PR State Optimization (Task #275)", () => {
 
   describe("checkPrBranchExistsOptimized", () => {
     test("should use cached PR state when available and not stale", async () => {
-      const sessionName = "test-session";
+      const sessionId = "test-session";
       const now = new Date().toISOString();
 
       // Set up session with fresh PR state
-      mockSessionDB._setSession(sessionName, {
-        session: sessionName,
+      mockSessionDB._setSession(sessionId, {
+        session: sessionId,
         prState: {
           branchName: "pr/test-session",
           commitHash: "abc123def456", // Add commitHash since implementation checks this
@@ -112,7 +111,7 @@ describe("PR State Optimization (Task #275)", () => {
       mockGitService.resetGitCallCount();
 
       const result = await checkPrBranchExistsOptimized(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface
@@ -123,12 +122,12 @@ describe("PR State Optimization (Task #275)", () => {
     });
 
     test("should refresh stale PR state", async () => {
-      const sessionName = "test-session";
+      const sessionId = "test-session";
       const staleTime = new Date(1640995200000 - 10 * 60 * 1000).toISOString(); // Static mock time - 10 minutes ago
 
       // Set up session with stale PR state
-      mockSessionDB._setSession(sessionName, {
-        session: sessionName,
+      mockSessionDB._setSession(sessionId, {
+        session: sessionId,
         prState: {
           branchName: "pr/test-session",
           exists: true,
@@ -140,7 +139,7 @@ describe("PR State Optimization (Task #275)", () => {
       mockGitService.resetGitCallCount();
 
       const result = await checkPrBranchExistsOptimized(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface
@@ -151,12 +150,12 @@ describe("PR State Optimization (Task #275)", () => {
     });
 
     test("should fall back to git operations when no session record exists", async () => {
-      const sessionName = "non-existent-session";
+      const sessionId = "non-existent-session";
 
       mockGitService.resetGitCallCount();
 
       const result = await checkPrBranchExistsOptimized(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface
@@ -167,12 +166,12 @@ describe("PR State Optimization (Task #275)", () => {
     });
 
     test("should provide significant performance improvement", async () => {
-      const sessionName = "performance-test";
+      const sessionId = "performance-test";
       const now = new Date().toISOString();
 
       // Set up session with fresh PR state
-      mockSessionDB._setSession(sessionName, {
-        session: sessionName,
+      mockSessionDB._setSession(sessionId, {
+        session: sessionId,
         prState: {
           branchName: "pr/performance-test",
           exists: true,
@@ -183,13 +182,13 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Test original function (multiple git calls)
       mockGitService.resetGitCallCount();
-      await checkPrBranchExists(sessionName, mockGitService as GitServiceInterface, "/test/dir");
+      await checkPrBranchExists(sessionId, mockGitService as GitServiceInterface, "/test/dir");
       const originalGitCalls = mockGitService.getGitCallCount();
 
       // Test optimized function (cached state)
       mockGitService.resetGitCallCount();
       await checkPrBranchExistsOptimized(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface
@@ -206,14 +205,14 @@ describe("PR State Optimization (Task #275)", () => {
 
   describe("updatePrStateOnCreation", () => {
     test("should create PR state when PR branch is created", async () => {
-      const sessionName = "new-pr-session";
+      const sessionId = "new-pr-session";
 
       // Set up session record so updatePrStateOnCreation can find it
-      mockSessionDB._setSession(sessionName, { session: sessionName });
+      mockSessionDB._setSession(sessionId, { session: sessionId });
 
-      await updatePrStateOnCreation(sessionName, mockSessionDB as SessionProviderInterface);
+      await updatePrStateOnCreation(sessionId, mockSessionDB as SessionProviderInterface);
 
-      const session = await mockSessionDB.getSession(sessionName);
+      const session = await mockSessionDB.getSession(sessionId);
       expect(session!.prState).toBeDefined();
       expect(session!.prState!.branchName).toBe("pr/new-pr-session");
       expect(session!.prState!.exists).toBe(true);
@@ -225,12 +224,12 @@ describe("PR State Optimization (Task #275)", () => {
 
   describe("updatePrStateOnMerge", () => {
     test("should update PR state when PR is merged", async () => {
-      const sessionName = "merge-test-session";
+      const sessionId = "merge-test-session";
       const now = new Date().toISOString();
 
       // Set up session with existing PR state
-      mockSessionDB._setSession(sessionName, {
-        session: sessionName,
+      mockSessionDB._setSession(sessionId, {
+        session: sessionId,
         prState: {
           branchName: "pr/merge-test-session",
           exists: true,
@@ -239,42 +238,42 @@ describe("PR State Optimization (Task #275)", () => {
         },
       });
 
-      await updatePrStateOnMerge(sessionName, mockSessionDB as SessionProviderInterface);
+      await updatePrStateOnMerge(sessionId, mockSessionDB as SessionProviderInterface);
 
-      const session = await mockSessionDB.getSession(sessionName);
+      const session = await mockSessionDB.getSession(sessionId);
       expect(session!.prState!.exists).toBe(false);
       expect(session!.prState!.mergedAt).toBeDefined();
     });
 
     test("should handle missing PR state gracefully", async () => {
-      const sessionName = "no-pr-state-session";
+      const sessionId = "no-pr-state-session";
 
       // Set up session without PR state
-      mockSessionDB._setSession(sessionName, {
-        session: sessionName,
+      mockSessionDB._setSession(sessionId, {
+        session: sessionId,
       });
 
       // Should not throw error
       await expect(async () => {
-        await updatePrStateOnMerge(sessionName, mockSessionDB as SessionProviderInterface);
+        await updatePrStateOnMerge(sessionId, mockSessionDB as SessionProviderInterface);
       }).not.toThrow();
     });
   });
 
   describe("Integration with existing workflow", () => {
     test("should maintain backward compatibility", async () => {
-      const sessionName = "backward-compat-test";
+      const sessionId = "backward-compat-test";
 
       // Test that original function still works
       const originalResult = await checkPrBranchExists(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir"
       );
 
       // Test that optimized function falls back correctly
       const optimizedResult = await checkPrBranchExistsOptimized(
-        sessionName,
+        sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface

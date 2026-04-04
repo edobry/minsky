@@ -124,7 +124,7 @@ export async function preparePrImpl(
     }
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
-    // Get current branch from repo instead of assuming session name is branch name
+    // Get current branch from repo instead of assuming session ID is branch name
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   } else if (options.repoPath) {
     workdir = options.repoPath;

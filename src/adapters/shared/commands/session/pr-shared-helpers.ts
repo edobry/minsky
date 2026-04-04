@@ -46,9 +46,9 @@ export function formatPrTitleLine(input: {
   rawTitle: string;
   prNumber?: number;
   taskId?: string;
-  sessionName?: string;
+  sessionId?: string;
 }): string {
-  const displayId = input.taskId || input.sessionName || "";
+  const displayId = input.taskId || input.sessionId || "";
   const { type, title: cleanedTitle } = parseConventionalTitle(input.rawTitle || "");
   const statusIcon = getStatusIcon(input.status);
 

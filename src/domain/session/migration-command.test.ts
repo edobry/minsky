@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import type { SessionProviderInterface, SessionRecord } from "./types";
 import { SessionMigrationService, type SessionMigrationOptions } from "./migration-command";
-import { isUuidSessionName } from "../tasks/task-id";
+import { isUuidSessionId } from "../tasks/task-id";
 
 // Mock session data for testing
 const createMockSessionData = () => {
@@ -71,7 +71,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
   return {
     listSessions: mock(async () => [...sessions]),
     getSession: mock(
-      async (sessionName: string) => sessions.find((s) => s.session === sessionName) || null
+      async (sessionId: string) => sessions.find((s) => s.session === sessionId) || null
     ),
     getSessionByTaskId: mock(
       async (taskId: string) => sessions.find((s) => s.taskId === taskId) || null
@@ -80,15 +80,15 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       sessions.push(record);
     }),
     updateSession: mock(
-      async (sessionName: string, updates: Partial<Omit<SessionRecord, "session">>) => {
-        const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+      async (sessionId: string, updates: Partial<Omit<SessionRecord, "session">>) => {
+        const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
         if (sessionIndex !== -1) {
           sessions[sessionIndex] = { ...sessions[sessionIndex]!, ...updates };
         }
       }
     ),
-    deleteSession: mock(async (sessionName: string) => {
-      const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+    deleteSession: mock(async (sessionId: string) => {
+      const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
       if (sessionIndex !== -1) {
         sessions.splice(sessionIndex, 1);
         return true;
@@ -162,13 +162,13 @@ describe("Session Migration Command", () => {
         expect(result).toBeDefined();
         expect(result.success).toBe(true);
         expect(result.original.session).toBe("task123");
-        // Migrated session name is now a UUID
-        expect(isUuidSessionName(result.migrated?.session || "")).toBe(true);
+        // Migrated session ID is now a UUID
+        expect(isUuidSessionId(result.migrated?.session || "")).toBe(true);
         expect(result.migrated?.taskId).toBe("md#123");
         expect(result.migrated?.taskBackend).toBe("md");
         expect(result.migrated?.legacyTaskId).toBe("123");
 
-        expect(result.changes.sessionNameChanged).toBe(true);
+        expect(result.changes.sessionIdChanged).toBe(true);
         expect(result.changes.taskIdChanged).toBe(true);
         expect(result.changes.backendAdded).toBe(true);
         expect(result.changes.legacyIdPreserved).toBe(true);
@@ -192,7 +192,7 @@ describe("Session Migration Command", () => {
         // Should have updated database
         expect(sessionDB.updateSession).toHaveBeenCalledTimes(3);
 
-        // Verify specific migrations — session names are now UUIDs
+        // Verify specific migrations — session IDs are now UUIDs
         expect(sessionDB.updateSession).toHaveBeenCalledWith(
           "task123",
           expect.objectContaining({
@@ -201,9 +201,9 @@ describe("Session Migration Command", () => {
             legacyTaskId: "123",
           })
         );
-        // Verify the migrated session name is a UUID
+        // Verify the migrated session ID is a UUID
         const firstCall = (sessionDB.updateSession as any).mock.calls[0];
-        expect(isUuidSessionName(firstCall[1].session)).toBe(true);
+        expect(isUuidSessionId(firstCall[1].session)).toBe(true);
       });
 
       it("should handle batch processing", async () => {
@@ -308,7 +308,7 @@ describe("Session Migration Command", () => {
         expect(report.results[0]!.original.session).toBe("task123");
       });
 
-      it("should filter by session name pattern", async () => {
+      it("should filter by session ID pattern", async () => {
         const mockData = createMockSessionData();
         const sessionDB = createMockSessionDB(mockData.legacy);
         const migrationService = new SessionMigrationService(sessionDB);

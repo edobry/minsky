@@ -27,7 +27,7 @@ export interface RepositoryResolutionOptions {
   uri?: string;
 
   /**
-   * Session name to resolve the repository from
+   * Session ID to resolve the repository from
    */
   session?: string;
 

@@ -34,7 +34,7 @@ export const optionalBoolean = (description: string) =>
 // ------------------------------------------------------------------
 
 /**
- * Parameter for session name
+ * Parameter for session ID
  */
 export const sessionParam = optionalString(descriptions.SESSION_DESCRIPTION);
 

@@ -30,13 +30,13 @@ export async function getSessionDirFromParams(
       allowAutoDetection: true,
     });
 
-    // Get the session directory using the resolved session name
-    return await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    // Get the session directory using the resolved session ID
+    return await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionId);
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

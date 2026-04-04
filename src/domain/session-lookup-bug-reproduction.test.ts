@@ -121,7 +121,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
   describe("🐛 Session Creation Bug", () => {
     it("should NOT register session in database if git operations fail", async () => {
       const sessionParams = {
-        sessionName: "test-bug-session",
+        sessionId: "test-bug-session",
         repoUrl: "https://github.com/test/repo.git",
         branch: "main",
       };

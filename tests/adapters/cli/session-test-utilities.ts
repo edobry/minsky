@@ -145,8 +145,8 @@ export function createSessionTestData(): SessionTestData {
   (mockSessionDB.addSession as any) = mock(() => Promise.resolve(undefined));
   (mockSessionDB.updateSession as any) = mock(() => Promise.resolve(undefined));
   (mockSessionDB.deleteSession as any) = mock(() => Promise.resolve(true));
-  (mockSessionDB.getSessionWorkdir as any) = mock((sessionName: string) => {
-    const session = mockSessions.find((s) => s.session === sessionName);
+  (mockSessionDB.getSessionWorkdir as any) = mock((sessionId: string) => {
+    const session = mockSessions.find((s) => s.session === sessionId);
     return Promise.resolve(session?.repoPath || "/default/workdir");
   });
 

@@ -21,7 +21,7 @@ import {
 export const sessionConflictsCommandParams = {
   name: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session ID",
     required: false,
   },
   task: {

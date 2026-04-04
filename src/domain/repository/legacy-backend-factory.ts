@@ -145,11 +145,11 @@ export async function createRepositoryBackend(
             throw new Error("No session found for this repository");
           }
 
-          const sessionName = repoSession.session;
-          const workdir = gitService.getSessionWorkdir(sessionName);
+          const sessionId = repoSession.session;
+          const workdir = gitService.getSessionWorkdir(sessionId);
 
           await gitService.push({
-            session: sessionName,
+            session: sessionId,
             repoPath: workdir,
           });
           return { success: true, message: "Successfully pushed to repository" };

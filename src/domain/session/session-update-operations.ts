@@ -49,7 +49,7 @@ export async function updateSessionImpl(
   log.debug("updateSessionImpl called", { params });
 
   // Use unified session context resolver for consistent auto-detection
-  let sessionName: string;
+  let sessionId: string;
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: name,
@@ -58,13 +58,13 @@ export async function updateSessionImpl(
       sessionProvider: deps.sessionDB,
       allowAutoDetection: !name, // Only allow auto-detection if no name provided
     });
-    sessionName = resolvedContext.sessionName;
-    log.debug("Session resolved", { sessionName, resolvedBy: resolvedContext.resolvedBy });
+    sessionId = resolvedContext.sessionId;
+    log.debug("Session resolved", { sessionId, resolvedBy: resolvedContext.resolvedBy });
   } catch (error) {
     log.debug("Failed to resolve session", { error, name, task: params.task });
     if (error instanceof ValidationError) {
       throw new ValidationError(
-        "Session name is required. Either provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -76,7 +76,7 @@ export async function updateSessionImpl(
   });
 
   log.debug("Session update requested", {
-    sessionName,
+    sessionId,
     branch,
     remote,
     noStash,
@@ -86,18 +86,18 @@ export async function updateSessionImpl(
 
   try {
     // Get session record
-    log.debug("Getting session record", { name: sessionName });
-    let sessionRecord = await deps.sessionDB.getSession(sessionName);
+    log.debug("Getting session record", { name: sessionId });
+    let sessionRecord = await deps.sessionDB.getSession(sessionId);
 
     // TASK #168 FIX: Self-repair logic for orphaned sessions
-    if (!sessionRecord && sessionName) {
-      log.debug("Session not found in database, attempting self-repair", { sessionName });
+    if (!sessionRecord && sessionId) {
+      log.debug("Session not found in database, attempting self-repair", { sessionId });
       const currentDir = process.cwd();
 
       // Check if we're in a session workspace
-      if (currentDir.includes("/sessions/") && currentDir.includes(sessionName)) {
+      if (currentDir.includes("/sessions/") && currentDir.includes(sessionId)) {
         log.debug("Detected orphaned session workspace, attempting to register", {
-          sessionName,
+          sessionId,
           currentDir,
         });
 
@@ -114,12 +114,12 @@ export async function updateSessionImpl(
             ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown"
             : "local-minsky";
 
-          // Extract task ID from session name - simpler and more reliable approach
-          const taskId = sessionName.startsWith("task#") ? sessionName : undefined;
+          // Extract task ID from session ID - simpler and more reliable approach
+          const taskId = sessionId.startsWith("task#") ? sessionId : undefined;
 
           // Create session record (branch no longer persisted)
           const newSessionRecord: SessionRecord = {
-            session: sessionName,
+            session: sessionId,
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),
@@ -129,10 +129,10 @@ export async function updateSessionImpl(
           await deps.sessionDB.addSession(newSessionRecord);
           sessionRecord = newSessionRecord;
 
-          log.cli(`🔧 Self-repair: Registered orphaned session '${sessionName}' in database`);
+          log.cli(`🔧 Self-repair: Registered orphaned session '${sessionId}' in database`);
         } catch (repairError) {
           log.warn("Failed to self-repair orphaned session", {
-            sessionName,
+            sessionId,
             error: repairError instanceof Error ? repairError.message : String(repairError),
           });
         }
@@ -140,13 +140,13 @@ export async function updateSessionImpl(
     }
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${sessionName}' not found`, "session", sessionName);
+      throw new ResourceNotFoundError(`Session '${sessionId}' not found`, "session", sessionId);
     }
 
     log.debug("Session record found", { sessionRecord });
 
     // Get session workdir
-    const workdir = await deps.sessionDB.getSessionWorkdir(sessionName);
+    const workdir = await deps.sessionDB.getSessionWorkdir(sessionId);
     log.debug("Session workdir resolved", { workdir });
 
     // Get current branch
@@ -195,7 +195,7 @@ export async function updateSessionImpl(
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
           return {
-            session: sessionName,
+            session: sessionId,
             repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
             createdAt: sessionRecord.createdAt,
@@ -228,7 +228,7 @@ export async function updateSessionImpl(
           }
 
           return {
-            session: sessionName,
+            session: sessionId,
             repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
             createdAt: sessionRecord.createdAt,
@@ -296,10 +296,10 @@ export async function updateSessionImpl(
         }
       }
 
-      log.cli(`Session '${sessionName}' updated successfully`);
+      log.cli(`Session '${sessionId}' updated successfully`);
 
       return {
-        session: sessionName,
+        session: sessionId,
         repoName: sessionRecord.repoName || "unknown",
         repoUrl: sessionRecord.repoUrl,
         createdAt: sessionRecord.createdAt,
@@ -322,7 +322,7 @@ export async function updateSessionImpl(
   } catch (error) {
     log.error("Session update failed", {
       error: getErrorMessage(error),
-      name: sessionName,
+      name: sessionId,
     });
     if (error instanceof MinskyError) {
       throw error;
@@ -338,12 +338,12 @@ export async function updateSessionImpl(
  * For backend-aware checks, use checkPrBranchExistsOptimized
  */
 export async function checkPrBranchExists(
-  sessionName: string,
+  sessionId: string,
   gitService: GitServiceInterface,
   currentDir: string,
   branch?: string
 ): Promise<boolean> {
-  const prBranch = `pr/${branch || sessionName}`;
+  const prBranch = `pr/${branch || sessionId}`;
 
   try {
     // Check if branch exists locally
@@ -369,7 +369,7 @@ export async function checkPrBranchExists(
     log.debug("Error checking PR branch existence", {
       error: getErrorMessage(error),
       prBranch,
-      sessionName,
+      sessionId,
     });
     return false;
   }
@@ -389,23 +389,23 @@ function isPrStateStale(prState: { lastChecked: string }): boolean {
  * Optimized PR branch existence check using cached state
  */
 export async function checkPrBranchExistsOptimized(
-  sessionName: string,
+  sessionId: string,
   gitService: GitServiceInterface,
   currentDir: string,
   sessionDB: SessionProviderInterface
 ): Promise<boolean> {
-  const sessionRecord = await sessionDB.getSession(sessionName);
+  const sessionRecord = await sessionDB.getSession(sessionId);
 
   // If no session record, fall back to git operations (legacy pr/ format)
   if (!sessionRecord) {
-    log.debug("No session record found, falling back to git operations", { sessionName });
-    return checkPrBranchExists(sessionName, gitService, currentDir);
+    log.debug("No session record found, falling back to git operations", { sessionId });
+    return checkPrBranchExists(sessionId, gitService, currentDir);
   }
 
   // Check if we have cached PR state and it's not stale
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
     log.debug("Using cached PR state", {
-      sessionName,
+      sessionId,
       exists: !!sessionRecord.prState.commitHash,
       lastChecked: sessionRecord.prState.lastChecked,
     });
@@ -414,17 +414,12 @@ export async function checkPrBranchExistsOptimized(
 
   // Cache is stale or missing, perform git operations and update cache
   log.debug("PR state cache is stale or missing, refreshing", {
-    sessionName,
+    sessionId,
     hasState: !!sessionRecord.prState,
     isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false,
   });
 
-  const exists = await checkPrBranchExists(
-    sessionName,
-    gitService,
-    currentDir,
-    sessionRecord.branch
-  );
+  const exists = await checkPrBranchExists(sessionId, gitService, currentDir, sessionRecord.branch);
 
   // Get commit hash if branch exists
   let commitHash = sessionRecord.prState?.commitHash;
@@ -433,8 +428,8 @@ export async function checkPrBranchExistsOptimized(
       // Use backend-aware branch name for commit hash lookup
       const branchName =
         sessionRecord.backendType === "github"
-          ? sessionName
-          : `pr/${sessionRecord.branch || sessionName}`;
+          ? sessionId
+          : `pr/${sessionRecord.branch || sessionId}`;
 
       const hashResult = await gitService.execInRepository(
         currentDir,
@@ -444,8 +439,8 @@ export async function checkPrBranchExistsOptimized(
     } catch (error) {
       const branchName =
         sessionRecord.backendType === "github"
-          ? sessionName
-          : `pr/${sessionRecord.branch || sessionName}`;
+          ? sessionId
+          : `pr/${sessionRecord.branch || sessionId}`;
       log.debug(`Could not get commit hash for ${branchName}`, { error });
     }
   } else {
@@ -454,9 +449,7 @@ export async function checkPrBranchExistsOptimized(
 
   // Update the session record with fresh PR state
   const prBranch =
-    sessionRecord.backendType === "github"
-      ? sessionName
-      : `pr/${sessionRecord.branch || sessionName}`;
+    sessionRecord.backendType === "github" ? sessionId : `pr/${sessionRecord.branch || sessionId}`;
   const updatedPrState = {
     branchName: prBranch,
     commitHash,
@@ -465,10 +458,10 @@ export async function checkPrBranchExistsOptimized(
     mergedAt: sessionRecord.prState?.mergedAt,
   };
 
-  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+  await sessionDB.updateSession(sessionId, { prState: updatedPrState });
 
   log.debug("Updated PR state cache", {
-    sessionName,
+    sessionId,
     exists,
     lastChecked: updatedPrState.lastChecked,
   });
@@ -480,21 +473,19 @@ export async function checkPrBranchExistsOptimized(
  * Update PR state when a PR branch is created
  */
 export async function updatePrStateOnCreation(
-  sessionName: string,
+  sessionId: string,
   sessionDB: SessionProviderInterface
 ): Promise<void> {
   // Get session record to determine backend type
-  const sessionRecord = await sessionDB.getSession(sessionName);
+  const sessionRecord = await sessionDB.getSession(sessionId);
   if (!sessionRecord) {
-    log.warn(`Cannot update PR state: session '${sessionName}' not found`);
+    log.warn(`Cannot update PR state: session '${sessionId}' not found`);
     return;
   }
 
   // Determine correct branch name based on backend type
   const prBranch =
-    sessionRecord.backendType === "github"
-      ? sessionName
-      : `pr/${sessionRecord.branch || sessionName}`;
+    sessionRecord.backendType === "github" ? sessionId : `pr/${sessionRecord.branch || sessionId}`;
 
   const now = new Date().toISOString();
 
@@ -506,13 +497,13 @@ export async function updatePrStateOnCreation(
     mergedAt: undefined,
   };
 
-  await sessionDB.updateSession(sessionName, {
+  await sessionDB.updateSession(sessionId, {
     prBranch,
     prState,
   });
 
   log.debug("Updated PR state on creation", {
-    sessionName,
+    sessionId,
     prBranch,
     backendType: sessionRecord.backendType,
     createdAt: now,
@@ -523,14 +514,14 @@ export async function updatePrStateOnCreation(
  * Update PR state when a PR branch is merged
  */
 export async function updatePrStateOnMerge(
-  sessionName: string,
+  sessionId: string,
   sessionDB: SessionProviderInterface
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  const sessionRecord = await sessionDB.getSession(sessionName);
+  const sessionRecord = await sessionDB.getSession(sessionId);
   if (!sessionRecord?.prState) {
-    log.debug("No PR state found for session, cannot update merge state", { sessionName });
+    log.debug("No PR state found for session, cannot update merge state", { sessionId });
     return;
   }
 
@@ -541,10 +532,10 @@ export async function updatePrStateOnMerge(
     mergedAt: now,
   };
 
-  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+  await sessionDB.updateSession(sessionId, { prState: updatedPrState });
 
   log.debug("Updated PR state on merge", {
-    sessionName,
+    sessionId,
     mergedAt: now,
   });
 }
@@ -554,16 +545,16 @@ export async function updatePrStateOnMerge(
  * Fixed to prevent title duplication in body content
  */
 export async function extractPrDescription(
-  sessionName: string,
+  sessionId: string,
   gitService: GitServiceInterface,
   currentDir: string,
   sessionDB?: SessionProviderInterface
 ): Promise<{ title: string; body: string } | null> {
   // Resolve the actual branch name from session record if sessionDB is available
-  let branchComponent = sessionName;
+  let branchComponent = sessionId;
   if (sessionDB) {
     try {
-      const record = await sessionDB.getSession(sessionName);
+      const record = await sessionDB.getSession(sessionId);
       if (record?.branch) {
         branchComponent = record.branch;
       }
@@ -626,7 +617,7 @@ export async function extractPrDescription(
       if (firstBodyLine === title.trim()) {
         body = bodyLines.slice(1).join("\n").trim();
         log.debug("Removed duplicate title from PR body", {
-          sessionName,
+          sessionId,
           originalTitle: title,
           duplicatedLine: firstBodyLine,
         });
@@ -640,7 +631,7 @@ export async function extractPrDescription(
     log.debug("Error extracting PR description", {
       error: getErrorMessage(error),
       prBranch,
-      sessionName,
+      sessionId,
     });
     return null;
   }

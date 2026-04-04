@@ -5,7 +5,7 @@ import {
   SessionBackwardCompatibility,
   type MultiBackendSessionRecord,
 } from "./multi-backend-integration";
-import { isUuidSessionName, generateSessionId } from "../tasks/task-id";
+import { isUuidSessionId, generateSessionId } from "../tasks/task-id";
 
 /**
  * Migration command options
@@ -68,7 +68,7 @@ export interface SessionMigrationResult {
   error?: string;
   /** Changes made during migration */
   changes: {
-    sessionNameChanged: boolean;
+    sessionIdChanged: boolean;
     taskIdChanged: boolean;
     backendAdded: boolean;
     legacyIdPreserved: boolean;
@@ -196,9 +196,9 @@ export class SessionMigrationService {
   private migrateSession(session: SessionRecord): SessionMigrationResult {
     try {
       const enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
-      // Strict-only: perform a minimal migration that upgrades legacy task IDs and session names
+      // Strict-only: perform a minimal migration that upgrades legacy task IDs and session IDs
       let migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
-      let sessionNameChanged = false;
+      let sessionIdChanged = false;
       let taskIdChanged = false;
       let backendAdded = false;
       let legacyIdPreserved = false;
@@ -216,17 +216,17 @@ export class SessionMigrationService {
         }
       }
 
-      // If session name is already a UUID, skip rename — it's already in the new format
-      if (isUuidSessionName(session.session)) {
+      // If session ID is already a UUID, skip rename — it's already in the new format
+      if (isUuidSessionId(session.session)) {
         // No rename needed
       } else if (migrated.taskId && /^[a-z-]+#\d+$/.test(migrated.taskId)) {
-        // Session is legacy format; assign a new UUID as session name
+        // Session is legacy format; assign a new UUID as session ID
         migrated.session = generateSessionId();
-        sessionNameChanged = true;
+        sessionIdChanged = true;
       }
 
       const changes = {
-        sessionNameChanged,
+        sessionIdChanged,
         taskIdChanged,
         backendAdded,
         legacyIdPreserved,
@@ -244,7 +244,7 @@ export class SessionMigrationService {
         success: false,
         error: error instanceof Error ? error.message : String(error),
         changes: {
-          sessionNameChanged: false,
+          sessionIdChanged: false,
           taskIdChanged: false,
           backendAdded: false,
           legacyIdPreserved: false,
@@ -278,7 +278,7 @@ export class SessionMigrationService {
             success: false,
             error: error instanceof Error ? error.message : String(error),
             changes: {
-              sessionNameChanged: false,
+              sessionIdChanged: false,
               taskIdChanged: false,
               backendAdded: false,
               legacyIdPreserved: false,
@@ -374,7 +374,7 @@ export class SessionMigrationService {
 
     // Step 7: Generate summary
     const summary = {
-      sessionsRenamed: results.filter((r) => r.changes.sessionNameChanged).length,
+      sessionsRenamed: results.filter((r) => r.changes.sessionIdChanged).length,
       taskIdsUpgraded: results.filter((r) => r.changes.taskIdChanged).length,
       backendsAdded: results.filter((r) => r.changes.backendAdded).length,
       legacyIdsPreserved: results.filter((r) => r.changes.legacyIdPreserved).length,
