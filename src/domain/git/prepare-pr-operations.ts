@@ -81,7 +81,7 @@ export interface PreparePrDependencies {
   gitFetch?: (workdir: string, timeout?: number) => Promise<void>;
   gitPush?: (workdir: string, branch: string, timeout?: number) => Promise<void>;
   execAsync?: (command: string) => Promise<{ stdout: string; stderr: string }>;
-  push?: (options: any) => Promise<any>;
+  push?: (options: Record<string, unknown>) => Promise<unknown>;
 }
 
 /**
@@ -239,13 +239,17 @@ export async function preparePrImpl(
           session: options.session,
         },
         {
-          execGitWithTimeout: async (operation: string, command: string, options: any) => {
-            const result = await deps.execInRepository(options.workdir, `git ${command}`);
+          execGitWithTimeout: async (
+            operation: string,
+            command: string,
+            options?: { workdir?: string; timeout?: number }
+          ) => {
+            const result = await deps.execInRepository(options?.workdir ?? "", `git ${command}`);
             return {
               stdout: result,
               stderr: "",
               command: `git ${command}`,
-              workdir: options.workdir,
+              workdir: options?.workdir,
               executionTimeMs: 0,
             };
           },

@@ -4,6 +4,7 @@
  * Centralized type definitions for the tasks domain.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
+import type { GitServiceInterface } from "../git/types";
 
 /**
  * Simple backend capabilities interface
@@ -53,7 +54,7 @@ export interface Task {
   specPath?: string;
   backend?: string;
   description?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   spec?: string;
 }
 
@@ -81,7 +82,7 @@ export interface TaskBackend {
 
   // ---- Optional Methods ----
   // createTask: legacy method for creating from a spec file path; only some backends support it
-  createTask?(specPath: string | any, options?: any): Promise<Task>;
+  createTask?(specPath: string | unknown, options?: unknown): Promise<Task>;
   // getTaskSpecPath: returns relative path for a task's spec file; only file-based backends implement it
   getTaskSpecPath?(taskId: string, title: string): string;
   // getTaskMetadata/setTaskMetadata: rich metadata access; only database-backed backends implement it
@@ -96,6 +97,7 @@ export interface TaskListOptions {
   status?: string;
   backend?: string;
   all?: boolean;
+  limit?: number;
 }
 
 /**
@@ -104,6 +106,7 @@ export interface TaskListOptions {
 export interface CreateTaskOptions {
   force?: boolean;
   spec?: string; // This is the spec content for creation
+  description?: string; // Alternative to spec for description-based creation
   id?: string; // Specific ID to use instead of generating one
   status?: string; // Specific status to use instead of defaulting to TODO
 }
@@ -129,5 +132,5 @@ export interface TaskServiceOptions {
 export interface TaskBackendConfig {
   name: string;
   workspacePath: string;
-  gitService?: any;
+  gitService?: GitServiceInterface;
 }

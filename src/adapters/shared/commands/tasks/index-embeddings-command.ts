@@ -66,7 +66,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
       while (true) {
         const idx = i++;
         if (idx >= tasks.length) break;
-        const t = tasks[idx];
+        const t = tasks[idx]!;
         const changed = await service.indexTask(t.id);
         if (!(params.json || ctx.format === "json")) {
           log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);

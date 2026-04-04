@@ -16,7 +16,7 @@ import type { CompileTarget, CompileResult, TargetOptions } from "../types";
  * Serialize a Rule back to .mdc format (YAML frontmatter + markdown content)
  */
 function serializeRuleToMdc(rule: Rule): string {
-  const frontmatter: Record<string, any> = {};
+  const frontmatter: Record<string, unknown> = {};
 
   if (rule.name) frontmatter.name = rule.name;
   if (rule.description) frontmatter.description = rule.description;

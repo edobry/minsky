@@ -1,6 +1,7 @@
 import type { SessionUpdateParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
+import type { GitServiceInterface } from "../../git/types";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { Session, SessionProviderInterface, SessionDependencies } from "../types";
@@ -20,7 +21,7 @@ export async function updateSessionFromParams(
   params: SessionUpdateParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
-    gitService?: any;
+    gitService?: GitServiceInterface;
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {

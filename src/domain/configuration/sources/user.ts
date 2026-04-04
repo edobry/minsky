@@ -38,7 +38,7 @@ export function getUserConfigDir(): string {
 /**
  * Load user configuration from available files
  */
-export function loadUserConfiguration(): any {
+export function loadUserConfiguration(): Record<string, unknown> {
   const userConfigDir = getUserConfigDir();
 
   // Try each configuration file in order
@@ -66,7 +66,7 @@ export function loadUserConfiguration(): any {
 /**
  * Load configuration from a specific file
  */
-function loadConfigFile(filePath: string): any {
+function loadConfigFile(filePath: string): Record<string, unknown> | null {
   try {
     const content = readFileSync(filePath, "utf8") as string;
     const extension = filePath.split(".").pop()?.toLowerCase();
@@ -95,7 +95,7 @@ function loadConfigFile(filePath: string): any {
  * Get user configuration with metadata
  */
 export function getUserConfiguration(): {
-  config: any;
+  config: Record<string, unknown>;
   metadata: {
     configDir: string;
     configFile: string | null;
@@ -105,7 +105,7 @@ export function getUserConfiguration(): {
   const configDir = getUserConfigDir();
   const searchedPaths: string[] = [];
   let configFile: string | null = null;
-  let config: any = {};
+  let config: Record<string, unknown> = {};
 
   // Try each configuration file and track searched paths
   for (const relativeConfigFile of userConfigFiles) {
@@ -206,7 +206,10 @@ export function ensureUserConfigDir(): string {
 /**
  * Create a user configuration file with default content
  */
-export function createUserConfigFile(config: any, format: "json" | "yaml" = "yaml"): string {
+export function createUserConfigFile(
+  config: Record<string, unknown>,
+  format: "json" | "yaml" = "yaml"
+): string {
   const configDir = ensureUserConfigDir();
   const fileName = format === "json" ? "config.json" : "config.yaml";
   const filePath = join(configDir, fileName);
@@ -230,7 +233,7 @@ ${objectToYaml(config)}`;
 /**
  * Simple object to YAML converter (basic implementation)
  */
-function objectToYaml(obj: any, indent: number = 0): string {
+function objectToYaml(obj: Record<string, unknown>, indent: number = 0): string {
   const spaces = " ".repeat(indent);
   let result = "";
 
@@ -241,13 +244,13 @@ function objectToYaml(obj: any, indent: number = 0): string {
 
     if (typeof value === "object" && !Array.isArray(value)) {
       result += `${spaces}${key}:\n`;
-      result += objectToYaml(value, indent + 2);
+      result += objectToYaml(value as Record<string, unknown>, indent + 2);
     } else if (Array.isArray(value)) {
       result += `${spaces}${key}:\n`;
       for (const item of value) {
-        if (typeof item === "object") {
+        if (typeof item === "object" && item !== null) {
           result += `${spaces}  - `;
-          result += objectToYaml(item, indent + 4).replace(/^\s+/, "");
+          result += objectToYaml(item as Record<string, unknown>, indent + 4).replace(/^\s+/, "");
         } else {
           result += `${spaces}  - ${JSON.stringify(item)}\n`;
         }

@@ -59,7 +59,7 @@ export function createMcpErrorResponse(error: unknown, context: McpErrorContext)
 /**
  * Creates a standardized success response for MCP operations
  */
-export function createMcpSuccessResponse<T extends Record<string, any>>(
+export function createMcpSuccessResponse<T extends Record<string, unknown>>(
   context: { path?: string; session: string; resolvedPath?: string },
   additionalData: T
 ): FileMcpResponse & T {
@@ -91,7 +91,7 @@ export function createMcpErrorHandler(toolName: string) {
 /**
  * Wraps an MCP handler with standardized error handling
  */
-export function withMcpErrorHandling<T extends Record<string, any>, R>(
+export function withMcpErrorHandling<T extends Record<string, unknown>, R>(
   toolName: string,
   handler: (args: T) => Promise<R>
 ): (args: T) => Promise<R | FileMcpResponse> {

@@ -315,12 +315,12 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       await this.ensureConnection();
 
-      const result = (await this.drizzle!.select()
+      const result = await this.drizzle!.select()
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
-        .limit(1)) as any;
+        .limit(1);
 
-      return result.length > 0 ? fromPostgresSelect(result[0]) : null;
+      return result.length > 0 ? fromPostgresSelect(result[0]!) : null;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to get session from PostgreSQL: ${typedError.message}`);
@@ -334,11 +334,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     try {
       await this.ensureConnection();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results = (await this.drizzle!.select().from(postgresSessions)) as any;
+      const results = await this.drizzle!.select().from(postgresSessions);
       log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
       log.debug(`Sample raw record: ${JSON.stringify(results[0], null, 2)}`);
-      const mapped = results.map((record: any, index: number) => {
+      const mapped = results.map((record, index: number) => {
         try {
           return fromPostgresSelect(record);
         } catch (mappingError) {
@@ -421,10 +420,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       await this.ensureConnection();
 
-      const result = (await this.drizzle!.select({ session: postgresSessions.session })
+      const result = await this.drizzle!.select({ session: postgresSessions.session })
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
-        .limit(1)) as any;
+        .limit(1);
 
       return result.length > 0;
     } catch (error) {

@@ -24,7 +24,7 @@ export enum CommandCategory {
 export interface CommandResult {
   success: boolean;
   message?: string;
-  data?: any;
+  data?: unknown;
 }
 
 // Add credential config interface that was missing

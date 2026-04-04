@@ -81,7 +81,7 @@ export async function executeSessionStartCommand(
     >;
   },
   context: CommandExecutionContext
-): Promise<any> {
+): Promise<unknown> {
   const {
     name,
     task,

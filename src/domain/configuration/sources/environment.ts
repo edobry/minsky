@@ -72,7 +72,7 @@ const typeConverters = {
     const normalized = value.toLowerCase();
     return normalized === "true" || normalized === "1" || normalized === "yes";
   },
-  json: (value: string): any => {
+  json: (value: string): unknown => {
     try {
       return JSON.parse(value);
     } catch {
@@ -127,7 +127,7 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
  * Load configuration from environment variables
  */
 export function loadEnvironmentConfiguration(): PartialConfiguration {
-  const config: any = {};
+  const config: Record<string, unknown> = {};
 
   // Process explicit mappings
   for (const [envVar, configPath] of Object.entries(environmentMappings)) {
@@ -210,9 +210,9 @@ function camelCase(str: string): string {
 /**
  * Set a nested configuration value using dot notation path
  */
-function setConfigValue(config: any, path: string, value: string): void {
+function setConfigValue(config: Record<string, unknown>, path: string, value: string): void {
   const parts = path.split(".");
-  let current = config;
+  let current: Record<string, unknown> = config;
 
   // Navigate to the parent object
   for (let i = 0; i < parts.length - 1; i++) {
@@ -220,7 +220,7 @@ function setConfigValue(config: any, path: string, value: string): void {
     if (!(part in current)) {
       current[part] = {};
     }
-    current = current[part];
+    current = current[part] as Record<string, unknown>;
   }
 
   // Set the final value with type conversion

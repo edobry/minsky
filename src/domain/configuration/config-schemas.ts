@@ -62,7 +62,7 @@ export const LoggerConfigSchema = z.object({
 });
 
 // Backend configuration schema
-export const BackendConfigSchema = z.record(z.string(), z.any());
+export const BackendConfigSchema = z.record(z.string(), z.unknown());
 
 // Main configuration schema
 export const ConfigSchema = z.object({
@@ -119,17 +119,17 @@ export interface ValidationResult {
 export interface ValidationError {
   path: string;
   message: string;
-  value?: any;
+  value?: unknown;
 }
 
 export interface ValidationWarning {
   path: string;
   message: string;
-  value?: any;
+  value?: unknown;
 }
 
 // Validation functions
-export function validateConfig(config: any): ValidationResult {
+export function validateConfig(config: unknown): ValidationResult {
   const result = ConfigSchema.safeParse(config);
 
   if (result.success) {
@@ -145,7 +145,7 @@ export function validateConfig(config: any): ValidationResult {
   return { valid: false, errors, warnings: [] };
 }
 
-export function validateRepositoryConfig(config: any): ValidationResult {
+export function validateRepositoryConfig(config: unknown): ValidationResult {
   const result = RepositoryConfigSchema.safeParse(config);
 
   if (result.success) {
@@ -161,7 +161,7 @@ export function validateRepositoryConfig(config: any): ValidationResult {
   return { valid: false, errors, warnings: [] };
 }
 
-export function validateGlobalUserConfig(config: any): ValidationResult {
+export function validateGlobalUserConfig(config: unknown): ValidationResult {
   const result = GlobalUserConfigSchema.safeParse(config);
 
   if (result.success) {

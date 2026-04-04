@@ -164,7 +164,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
       );
 
       // Do not surface local prBranch in CLI result; GitHub backend does not use it
-      const { prBranch, ...rest } = result as any;
+      const { prBranch: _prBranch, ...rest } = result as Record<string, unknown>;
       return this.createSuccessResult(rest);
     } catch (error) {
       throw this.handlePrError(error, params);
@@ -172,7 +172,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
   }
 
   // Exposed for testing: validate absence of existing PR (previously private)
-  async validateNoPrExists(params: any): Promise<void> {
+  async validateNoPrExists(params: SessionPrCreateParams): Promise<void> {
     // Check if there's already an existing PR and fail if so
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -241,7 +241,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
   }
 
   // Exposed for testing: method used by tests to check refresh decision
-  async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
+  async checkIfPrCanBeRefreshed(params: SessionPrCreateParams): Promise<boolean> {
     try {
       // Resolve via task or explicit name; do not depend on cwd for testability
       let sessionId: string | undefined = params.name;
@@ -272,7 +272,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
     }
   }
 
-  private handlePrError(error: any, params: any): Error {
+  private handlePrError(error: unknown, params: SessionPrCreateParams): Error {
     const errorMessage = getErrorMessage(error);
 
     // Handle specific error types with friendly messages

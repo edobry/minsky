@@ -7,7 +7,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
-import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
+import {
+  createTemplateContext,
+  type RuleGenerationConfig,
+  type TemplateContext,
+} from "./template-system";
 import type { RuleFormat } from "./types";
 import * as grayMatterNamespace from "gray-matter";
 import { log } from "../../utils/logger";
@@ -36,14 +40,14 @@ export interface RuleTemplate {
    * @param context Template context with configuration and helpers
    * @returns Generated content as a string
    */
-  generateContent: (context: any) => string;
+  generateContent: (context: TemplateContext) => string;
 
   /**
    * Generate metadata for the rule (optional)
    * @param context Template context with configuration and helpers
    * @returns Rule metadata object
    */
-  generateMeta?: (context: any) => RuleMetadata;
+  generateMeta?: (context: TemplateContext) => RuleMetadata;
 }
 
 /**
@@ -200,7 +204,7 @@ export class RuleTemplateService {
    */
   private async generateRule(
     template: RuleTemplate,
-    context: any,
+    context: TemplateContext,
     overwrite: boolean,
     dryRun: boolean
   ): Promise<{
@@ -252,7 +256,13 @@ export class RuleTemplateService {
     }
 
     // Create the base rule object
-    const rule: any = {
+    const rule: {
+      id: string;
+      path: string;
+      content: string;
+      meta: RuleMetadata | null;
+      [key: string]: unknown;
+    } = {
       id: template.id,
       path: rulePath,
       content,
@@ -401,7 +411,7 @@ export class RuleTemplateService {
         name: "Minsky Workflow",
         description: "Minsky workflow orchestration guide",
         tags: ["workflow"],
-        generateContent: (context) => {
+        generateContent: (_context: TemplateContext) => {
           return "# Minsky Workflow\n\nThis is a fallback template due to an error loading templates.";
         },
       });

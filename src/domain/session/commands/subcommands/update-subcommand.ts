@@ -10,7 +10,9 @@ export const updateSessionSubcommand: CommandExecutionHandler = async (params) =
   }
 
   try {
-    const result = await updateSession({ name: sessionId ?? "" } as any);
+    const result = await updateSession({
+      name: sessionId ?? "",
+    } as Parameters<typeof updateSession>[0]);
     return {
       success: true,
       message: "Session updated successfully",

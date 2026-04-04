@@ -139,7 +139,7 @@ export async function scanSessionConflicts(
       (options.context && options.context !== 3);
 
     if (hasSessionParams || hasCustomOptions) {
-      const logContext: Record<string, any> = {};
+      const logContext: Record<string, unknown> = {};
 
       if (hasSessionParams) {
         logContext.sessionParams = {

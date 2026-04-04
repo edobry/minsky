@@ -27,7 +27,7 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams> {
   readonly description = "Import markdown task specs/metadata into DB (dry-run by default)";
   readonly parameters = tasksMigrateParams;
 
-  async execute(params: MigrateParams, context: CommandExecutionContext): Promise<any> {
+  async execute(params: MigrateParams, context: CommandExecutionContext): Promise<unknown> {
     const p = migrateParamsSchema.parse(params);
     const dryRun = !p.execute;
 
@@ -63,7 +63,16 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams> {
     };
   }
 
-  private display(result: any, dryRun: boolean): void {
+  private display(
+    result: {
+      total: number;
+      inserted?: number;
+      updated?: number;
+      skipped?: number;
+      errors?: number;
+    },
+    dryRun: boolean
+  ): void {
     log.cli("\n📊 RESULTS:");
     log.cli(`📝 Total: ${result.total}`);
     if (result.inserted) log.cli(`➕ Inserted: ${result.inserted}`);

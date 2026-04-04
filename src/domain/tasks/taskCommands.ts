@@ -69,7 +69,7 @@ export async function listTasksFromParams(
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
-): Promise<any[]> {
+): Promise<Task[]> {
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
@@ -517,7 +517,7 @@ export async function getTaskSpecContentFromParams(
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
-): Promise<{ task: any; specPath: string; content: string; section?: string }> {
+): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
     const validParams = taskSpecContentParamsSchema.parse(params);
@@ -632,7 +632,7 @@ export async function deleteTaskFromParams(
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
-): Promise<{ success: boolean; taskId: string; task?: any }> {
+): Promise<{ success: boolean; taskId: string; task?: Task }> {
   try {
     // Normalize taskId before validation
     const qualifiedTaskId = normalizeTaskIdInput(params.taskId);

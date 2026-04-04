@@ -62,12 +62,13 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
     const backend: TaskBackend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: testWorkspace,
+
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),
         hasUncommittedChanges: async (wd: string) => hasUncommittedChangesMock(),
         stashChanges: async (wd: string) => stashChangesMock(wd),
         popStash: async (wd: string) => popStashMock(wd),
-      },
+      } as any,
     });
 
     const title = "Auto-commit test task";
@@ -89,12 +90,13 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
     const backend: TaskBackend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: testWorkspace,
+
       gitService: {
         execInRepository: async (wd: string, _cmd: string) => execInRepositoryMock(),
         hasUncommittedChanges: async (wd: string) => hasUncommittedChangesMock(),
         stashChanges: async (wd: string) => stashChangesMock(wd),
         popStash: async (wd: string) => popStashMock(wd),
-      },
+      } as any,
     });
 
     const title = "No-change commit suppression";

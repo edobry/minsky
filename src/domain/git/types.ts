@@ -177,7 +177,10 @@ export interface GitServiceInterface {
 
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
   getSession: (name: string) => Promise<SessionRecord | null>;
   getSessionWorkdir: (session: string) => string;
   getSessionByTaskId?: (taskId: string) => Promise<SessionRecord | null>;
@@ -187,13 +190,16 @@ export interface PrTestDependencies {
 export interface PrDependencies extends PrTestDependencies {}
 
 export interface BasicGitDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
 }
 
 export interface ExtendedGitDependencies extends BasicGitDependencies {
   getSession: (name: string) => Promise<SessionRecord | null>;
   getSessionWorkdir: (session: string) => string;
-  mkdir: (path: string, options?: any) => Promise<void>;
+  mkdir: (path: string, options?: Record<string, unknown>) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
   access: (path: string) => Promise<void>;
 }

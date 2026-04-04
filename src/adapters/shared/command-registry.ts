@@ -79,6 +79,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
 /**
  * Represents a command execution handler function
  */
+
 export type CommandExecutionHandler<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
   R = any,
@@ -90,6 +91,7 @@ export type CommandExecutionHandler<
 /**
  * Represents a command registration in the shared registry
  */
+
 export interface CommandDefinition<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
   R = any,
@@ -144,6 +146,7 @@ export type InferParams<T extends CommandParameterMap> = {
  * });
  * ```
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type for command flexibility
 export function defineCommand<T extends CommandParameterMap, R = any>(
   def: CommandDefinition<T, R>
 ): CommandDefinition<T, R> {
@@ -153,6 +156,7 @@ export function defineCommand<T extends CommandParameterMap, R = any>(
 /**
  * Shared command interface that preserves type information
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type for command flexibility
 export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> {
   id: string;
   category: CommandCategory;
@@ -173,6 +177,7 @@ export interface CommandRegistry {
    */
   registerCommand<
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type
     R = any,
   >(
     commandDef: CommandDefinition<T, R>
@@ -217,6 +222,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    */
   registerCommand<
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type
     R = any,
   >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
     // Validate the command definition using schema validation

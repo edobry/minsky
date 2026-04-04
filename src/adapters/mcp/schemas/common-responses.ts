@@ -111,7 +111,7 @@ export function createErrorResponse(
 /**
  * Creates a success response with standardized structure
  */
-export function createSuccessResponse<T extends Record<string, any>>(
+export function createSuccessResponse<T extends Record<string, unknown>>(
   context: { path?: string; session: string; resolvedPath?: string },
   additionalData: T
 ): FileResponse & T {

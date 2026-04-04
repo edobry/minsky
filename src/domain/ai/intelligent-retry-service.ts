@@ -211,7 +211,10 @@ export class IntelligentRetryService {
       nextAttemptTime?: Date;
     }
   > {
-    const health: Record<string, any> = {};
+    const health: Record<
+      string,
+      { isHealthy: boolean; state: string; failureCount: number; nextAttemptTime?: Date }
+    > = {};
 
     for (const [provider, state] of this.circuitBreaker.entries()) {
       health[provider] = {

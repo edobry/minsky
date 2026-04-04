@@ -50,7 +50,7 @@ export interface EnhancedValidationResult {
 export interface ValidationContext {
   environment: string;
   workingDirectory: string;
-  sourceMetadata: Record<string, any>;
+  sourceMetadata: Record<string, unknown>;
 }
 
 /**
@@ -338,15 +338,20 @@ export class ConfigurationValidator {
   /**
    * Check if a configuration object has a value at the given path
    */
-  private hasValueAtPath(config: any, path: string): boolean {
+  private hasValueAtPath(config: Record<string, unknown>, path: string): boolean {
     const parts = path.split(".");
-    let current = config;
+    let current: unknown = config;
 
     for (const part of parts) {
-      if (current === null || current === undefined || !(part in current)) {
+      if (
+        current === null ||
+        current === undefined ||
+        typeof current !== "object" ||
+        !(part in current)
+      ) {
         return false;
       }
-      current = current[part];
+      current = (current as Record<string, unknown>)[part];
     }
 
     return current !== undefined;

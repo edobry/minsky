@@ -65,7 +65,8 @@ export async function createToolsVectorStorageFromConfig(
  * (for testing or when you need to specify a particular provider)
  */
 export async function createVectorStorage(
-  provider: any, // Using any to avoid circular dependency with PersistenceProvider
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- using any to avoid circular dependency with PersistenceProvider
+  provider: any,
   dimension: number
 ): Promise<VectorStorage> {
   if (!provider.capabilities?.vectorStorage) {

@@ -85,7 +85,8 @@ describe("TaskService with Real MarkdownTaskBackend", () => {
     mockFs.ensureDirectoryExists(join(mockTempDir, ".tmp"));
 
     // Create mock git service to prevent real git operations
-    const mockGitService = {
+
+    const mockGitService: any = {
       execInRepository: mock(async () => ""),
       hasUncommittedChanges: mock(async () => false),
       stashChanges: mock(async () => ({ stashed: false, workdir: mockTempDir })),

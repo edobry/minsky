@@ -8,6 +8,7 @@ export function exit(code: number): never {
   // In the future, we could adapt this to use Bun-specific APIs if needed
 
   // Use type assertion to access process.exit in Bun environment
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.exit typing differs from Node
   (process as any).exit(code);
 
   // This line should never be reached, but satisfies TypeScript's never return type
@@ -23,6 +24,7 @@ export function processExit(code: number): never {
 
 // Store the original process.cwd() function to allow resetting
 let currentWorkingDirectoryImpl = () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.cwd typing differs from Node
   return (process as any).cwd();
 };
 
@@ -49,6 +51,7 @@ export function processCwd(): string {
  * @param directory The directory to change to
  */
 export function processChdir(directory: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.chdir typing differs from Node
   (process as any).chdir(directory);
 }
 

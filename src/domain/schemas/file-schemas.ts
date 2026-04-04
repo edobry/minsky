@@ -441,7 +441,7 @@ export type GrepSearchResponse = z.infer<typeof GrepSearchResponseSchema>;
  */
 export function createFileOperationResponse(
   context: { path: string; session: string; resolvedPath?: string },
-  operationData: Record<string, any> = {}
+  operationData: Record<string, unknown> = {}
 ) {
   return {
     success: true,

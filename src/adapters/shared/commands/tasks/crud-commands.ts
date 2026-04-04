@@ -292,7 +292,6 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
       {
         success: result.success,
         taskId: validatedTaskId,
-        task: (result as any).task,
         message,
       },
       params.json

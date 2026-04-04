@@ -11,6 +11,11 @@ import { mock } from "bun:test";
 import type { SessionRecord, SessionProviderInterface } from "../../domain/session/types";
 import type { GitServiceInterface } from "../../domain/git/types";
 import type { TaskServiceInterface } from "../../domain/tasks/taskService";
+import type {
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+} from "../../domain/tasks/types";
 import type { CommandExecutionContext } from "../../adapters/shared/command-registry";
 
 /**
@@ -59,6 +64,7 @@ export function createSessionProviderMock(
       Promise.resolve()
     ),
     deleteSession: mock((_session: string) => Promise.resolve(true)),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches getRepoPath signature that accepts any record-like object
     getRepoPath: mock((_record: SessionRecord | any) => Promise.resolve("/mock/repo/path")),
     getSessionWorkdir: mock((_sessionId: string) => Promise.resolve("/mock/session/workdir")),
     ...overrides,
@@ -73,17 +79,18 @@ export function createTaskServiceMock(
   overrides: Partial<TaskServiceInterface> = {}
 ): TaskServiceInterface {
   return {
-    listTasks: mock((_options?: any) => Promise.resolve([])),
+    listTasks: mock((_options?: TaskListOptions) => Promise.resolve([])),
     getTask: mock((_taskId: string) => Promise.resolve(null)),
     getTaskStatus: mock((_taskId: string) => Promise.resolve(undefined)),
     setTaskStatus: mock((_taskId: string, _status: string) => Promise.resolve()),
-    createTask: mock((_specPath: string, _options?: any) =>
+    createTask: mock((_specPath: string, _options?: CreateTaskOptions) =>
       Promise.resolve({ id: "#test", title: "Test Task", status: "TODO" })
     ),
-    createTaskFromTitleAndSpec: mock((_title: string, _spec: string, _options?: any) =>
-      Promise.resolve({ id: "#test", title: "Test Task", status: "TODO" })
+    createTaskFromTitleAndSpec: mock(
+      (_title: string, _spec: string, _options?: CreateTaskOptions) =>
+        Promise.resolve({ id: "#test", title: "Test Task", status: "TODO" })
     ),
-    deleteTask: mock((_taskId: string, _options?: any) => Promise.resolve(false)),
+    deleteTask: mock((_taskId: string, _options?: DeleteTaskOptions) => Promise.resolve(false)),
     getTaskSpecContent: mock((_taskId: string, _section?: string) =>
       Promise.resolve({
         task: { id: "#test", title: "Test Task", status: "TODO" },
@@ -130,6 +137,7 @@ export function createGitServiceMock(
     getCurrentBranch: mock((_repoPath: string) => Promise.resolve("main")),
     hasUncommittedChanges: mock((_repoPath: string) => Promise.resolve(false)),
     fetchDefaultBranch: mock((_repoPath: string) => Promise.resolve("main")),
+
     predictMergeConflicts: mock(() =>
       Promise.resolve({
         hasConflicts: false,
@@ -138,6 +146,7 @@ export function createGitServiceMock(
         analysis: "No conflicts predicted",
       } as any)
     ),
+
     analyzeBranchDivergence: mock(() =>
       Promise.resolve({
         ahead: 0,
@@ -151,8 +160,9 @@ export function createGitServiceMock(
         merged: true,
         conflicts: false,
         workdir: "/mock/workdir",
-      } as any)
+      })
     ),
+
     smartSessionUpdate: mock(() =>
       Promise.resolve({
         updated: true,

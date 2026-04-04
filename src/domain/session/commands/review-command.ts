@@ -28,10 +28,11 @@ export async function sessionReview(
   params: SessionReviewParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- git service extensions (pr) not in base interface
     gitService?: any;
-    taskService?: any & {
-      getTaskSpecData?: (taskId: string) => Promise<string>;
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- task service extensions (getTaskSpecData) not in base interface
+    taskService?: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- workspace utils shape varies from module exports
     workspaceUtils?: any;
     getCurrentSession?: typeof getCurrentSession;
   }

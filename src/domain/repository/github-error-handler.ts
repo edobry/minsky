@@ -17,7 +17,7 @@ export interface OctokitErrorInfo {
   /** Lowercased message for quick substring checks */
   messageLower: string;
   /** Array of structured GitHub error objects (from response.data.errors) */
-  ghErrors: any[];
+  ghErrors: Record<string, unknown>[];
   /** Concatenated, lowercased text of ghMessage + ghErrors fields */
   ghErrorsText: string;
   /** GitHub response message (response.data.message) */
@@ -39,9 +39,9 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
     | undefined;
   const ghData = anyErr?.response?.data;
   const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
-  const ghErrors: any[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
+  const ghErrors: Record<string, unknown>[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
   const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
-    .map((e: any) => [e?.message, e?.code, e?.field].filter(Boolean).join(" "))
+    .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" "))
     .join(" ")}`.toLowerCase();
 
   return {
@@ -225,8 +225,8 @@ export function handleCreatePR422(info: OctokitErrorInfo, ctx: ErrorContext): vo
   // PR already exists
   if (
     text.includes("already exists") ||
-    info.ghErrors.some((e: any) =>
-      String(e?.message || e?.code || "")
+    info.ghErrors.some((e) =>
+      String(e?.["message"] || e?.["code"] || "")
         .toLowerCase()
         .includes("already exists")
     )

@@ -91,8 +91,11 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract getConnectionInfo(): string;
 
   // Optional capability methods — implemented by SQL/vector-capable subclasses
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses; callers cast via SqlCapablePersistenceProvider
   getDatabaseConnection?(): Promise<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
   getRawSqlConnection?(): Promise<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
   getVectorStorage?(dimension: number): any;
 }
 

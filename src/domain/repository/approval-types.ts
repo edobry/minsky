@@ -57,13 +57,13 @@ export interface ApprovalInfo {
       taskId?: string;
     };
 
-    [key: string]: any;
+    [key: string]: unknown;
   };
 
   /**
    * Platform-specific data (alternative to metadata for direct platform info)
    */
-  platformData?: Record<string, any>;
+  platformData?: Record<string, unknown>;
 }
 
 /**
@@ -98,7 +98,7 @@ export interface ApprovalStatus {
   /**
    * Platform-specific data (alternative to metadata for direct platform info)
    */
-  platformData?: Record<string, any>;
+  platformData?: Record<string, unknown>;
 
   /**
    * Platform-specific approval metadata
@@ -141,7 +141,7 @@ export interface ApprovalStatus {
       approvalSource: "manual" | "automatic";
     };
 
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 

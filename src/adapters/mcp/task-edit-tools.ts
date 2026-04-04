@@ -89,7 +89,7 @@ If you plan on deleting a section, you must provide context before and after to 
 
 Make edits to a task spec in a single edit_file call instead of multiple edit_file calls to the same task. The apply model can handle many distinct edits at once.`,
     parameters: TaskEditSchema,
-    handler: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, unknown>> => {
       const typedArgs = args as TaskEditArgs;
       try {
         log.debug("Starting task edit_file operation", { taskId: typedArgs.taskId });
@@ -188,7 +188,7 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
     description:
       "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
     parameters: TaskSearchReplaceSchema,
-    handler: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, unknown>> => {
       const typedArgs = args as TaskSearchReplaceArgs;
       try {
         // Validate required parameters to catch parameter naming mismatches early

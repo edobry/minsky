@@ -271,11 +271,13 @@ export function validateFileStats(stats: unknown): FileStats {
 
   // Fallback for test environments and simplified stat objects
   if (typeof stats === "object" && stats !== null) {
-    const obj = stats as Record<string, any>;
+    const obj = stats as Record<string, unknown>;
 
     // Extract available functions, creating no-op functions if not available
-    const isFile = typeof obj.isFile === "function" ? obj.isFile : () => false;
-    const isDirectory = typeof obj.isDirectory === "function" ? obj.isDirectory : () => false;
+    const isFile: () => boolean =
+      typeof obj.isFile === "function" ? (obj.isFile as () => boolean) : () => false;
+    const isDirectory: () => boolean =
+      typeof obj.isDirectory === "function" ? (obj.isDirectory as () => boolean) : () => false;
 
     // Create a minimal stats object that satisfies the interface
     return {
@@ -286,24 +288,24 @@ export function validateFileStats(stats: unknown): FileStats {
       isSymbolicLink: () => false,
       isFIFO: () => false,
       isSocket: () => false,
-      dev: obj.dev || 0,
-      ino: obj.ino || 0,
-      mode: obj.mode || 0,
-      nlink: obj.nlink || 0,
-      uid: obj.uid || 0,
-      gid: obj.gid || 0,
-      rdev: obj.rdev || 0,
-      size: obj.size || 0,
-      blksize: obj.blksize || 0,
-      blocks: obj.blocks || 0,
-      atimeMs: obj.atimeMs || 0,
-      mtimeMs: obj.mtimeMs || 0,
-      ctimeMs: obj.ctimeMs || 0,
-      birthtimeMs: obj.birthtimeMs || 0,
-      atime: obj.atime || new Date(0),
-      mtime: obj.mtime || new Date(0),
-      ctime: obj.ctime || new Date(0),
-      birthtime: obj.birthtime || new Date(0),
+      dev: (obj.dev as number) || 0,
+      ino: (obj.ino as number) || 0,
+      mode: (obj.mode as number) || 0,
+      nlink: (obj.nlink as number) || 0,
+      uid: (obj.uid as number) || 0,
+      gid: (obj.gid as number) || 0,
+      rdev: (obj.rdev as number) || 0,
+      size: (obj.size as number) || 0,
+      blksize: (obj.blksize as number) || 0,
+      blocks: (obj.blocks as number) || 0,
+      atimeMs: (obj.atimeMs as number) || 0,
+      mtimeMs: (obj.mtimeMs as number) || 0,
+      ctimeMs: (obj.ctimeMs as number) || 0,
+      birthtimeMs: (obj.birthtimeMs as number) || 0,
+      atime: (obj.atime as Date) || new Date(0),
+      mtime: (obj.mtime as Date) || new Date(0),
+      ctime: (obj.ctime as Date) || new Date(0),
+      birthtime: (obj.birthtime as Date) || new Date(0),
     };
   }
 
@@ -363,7 +365,10 @@ export function validateCommandDefinition(def: unknown): CommandDefinition {
       description: typeof obj.description === "string" ? obj.description : "No description",
       parameters:
         typeof obj.parameters === "object" && obj.parameters !== null
-          ? (obj.parameters as Record<string, any>)
+          ? (obj.parameters as Record<
+              string,
+              { required?: boolean; description?: string; schema?: unknown; defaultValue?: unknown }
+            >)
           : {},
     };
   }

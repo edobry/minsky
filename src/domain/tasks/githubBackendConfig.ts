@@ -145,6 +145,7 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Octokit type comes from optional @octokit/rest package
   octokit: any,
   owner: string,
   repo: string,

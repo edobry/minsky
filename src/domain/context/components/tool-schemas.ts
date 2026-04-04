@@ -100,7 +100,8 @@ export const ToolSchemasComponent: ContextComponent = {
       };
 
       // Use custom registry if provided (for testing), otherwise use shared registry
-      const registry = context.commandRegistry || sharedCommandRegistry;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- commandRegistry is unknown in ComponentInput for polymorphism; cast to registry interface
+      const registry = (context.commandRegistry as any) || sharedCommandRegistry;
 
       // Check if query-aware filtering should be applied
       const userQuery = context.userQuery || context.userPrompt;

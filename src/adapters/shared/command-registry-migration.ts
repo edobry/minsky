@@ -21,12 +21,12 @@ import { MinskyError } from "../../errors/index";
 type NewSharedCommandRegistry = SharedCommandRegistry;
 type NewCommandDefinition<
   T extends CommandParameterMap = CommandParameterMap,
-  R = any,
+  R = unknown,
 > = CommandDefinition<T, R>;
-type NewSharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> = SharedCommand<
-  T,
-  R
->;
+type NewSharedCommand<
+  T extends CommandParameterMap = CommandParameterMap,
+  R = unknown,
+> = SharedCommand<T, R>;
 
 /**
  * Migration adapter that wraps both registries and provides compatibility
@@ -47,7 +47,7 @@ export class CommandRegistryMigrationAdapter {
    * @param commandDef Command definition
    * @param options Registration options
    */
-  registerCommand<T extends CommandParameterMap = CommandParameterMap, R = any>(
+  registerCommand<T extends CommandParameterMap = CommandParameterMap, R = unknown>(
     commandDef: NewCommandDefinition<T, R>,
     options: { allowOverwrite?: boolean } = {}
   ): void {
@@ -62,7 +62,7 @@ export class CommandRegistryMigrationAdapter {
    * @param options Registration options
    * @deprecated Use registerCommand instead
    */
-  registerLegacyCommand<T extends CommandParameterMap = CommandParameterMap, R = any>(
+  registerLegacyCommand<T extends CommandParameterMap = CommandParameterMap, R = unknown>(
     commandDef: CommandDefinition<T, R>,
     options: { allowOverwrite?: boolean } = {}
   ): void {
