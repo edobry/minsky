@@ -45,7 +45,7 @@ export const TEST_PATHS = {
   TEST_BASE_DIR_SESSIONS: "/test/base/dir/sessions/test-session-1",
   TMP_TEST_SESSION: "/tmp/test-session",
   PASSWD_PATH: "../../../etc/passwd",
-  TEST_USER_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-name",
+  TEST_USER_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-id",
 } as const;
 
 // Task and session test data
@@ -145,7 +145,7 @@ export const SESSION_TEST_PATTERNS = {
   WORKSPACE_SESSION: "workspace-session",
   DIRECTORY_SESSION: "directory-session",
   URL_TEST_SESSION: "url-test-session",
-  TEST_USERS_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-name",
+  TEST_USERS_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-id",
   ORPHANED_SESSION: "orphaned-session",
   NON_EXISTENT_SESSION: "non-existent-session",
   APPROVED_SESSION: "approved-session",

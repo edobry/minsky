@@ -37,13 +37,13 @@ export async function getSessionImpl(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
-    return deps.sessionDB.getSession(resolvedContext.sessionName) as Promise<Session | null>;
+    // Get the session details using the resolved session ID
+    return deps.sessionDB.getSession(resolvedContext.sessionId) as Promise<Session | null>;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -85,13 +85,13 @@ export async function deleteSessionImpl(
       allowAutoDetection: true,
     });
 
-    // Delete the session using the resolved session name
-    return deps.sessionDB.deleteSession(resolvedContext.sessionName);
+    // Delete the session using the resolved session ID
+    return deps.sessionDB.deleteSession(resolvedContext.sessionId);
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -108,7 +108,7 @@ export async function getSessionDirImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<string> {
-  let sessionName: string;
+  let sessionId: string;
 
   if (params.task && !params.name) {
     // Find session by task ID
@@ -119,18 +119,18 @@ export async function getSessionDirImpl(
       throw new ResourceNotFoundError(`No session found for task ID "${validatedTaskId}"`);
     }
 
-    sessionName = session.session;
+    sessionId = session.session;
   } else if (params.name) {
-    sessionName = params.name;
+    sessionId = params.name;
   } else {
     throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
 
-You must provide either a session name or task ID to get the session directory.
+You must provide either a session ID or task ID to get the session directory.
 
 📖 Usage Examples:
 
-  # Get directory by session name
-  minsky session dir <session-name>
+  # Get directory by session ID
+  minsky session dir <session-id>
 
   # Get directory by task ID
   minsky session dir --task <task-id>
@@ -142,10 +142,10 @@ You must provide either a session name or task ID to get the session directory.
   • Check current session: minsky session inspect`);
   }
 
-  const session = await deps.sessionDB.getSession(sessionName);
+  const session = await deps.sessionDB.getSession(sessionId);
 
   if (!session) {
-    throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
+    throw new ResourceNotFoundError(`Session "${sessionId}" not found`);
   }
 
   // Get repo path from session using the getRepoPath method which has fallback logic
@@ -181,7 +181,7 @@ export async function inspectSessionImpl(
  */
 export async function cleanupSessionImpl(
   params: {
-    sessionName: string;
+    sessionId: string;
     taskId?: string;
     force?: boolean;
     dryRun?: boolean;
@@ -194,21 +194,21 @@ export async function cleanupSessionImpl(
   directoriesRemoved: string[];
   errors: string[];
 }> {
-  const { sessionName, taskId, force = false, dryRun = false } = params;
+  const { sessionId, taskId, force = false, dryRun = false } = params;
   const directoriesRemoved: string[] = [];
   const errors: string[] = [];
 
-  log.debug("Starting session cleanup", { sessionName, taskId, force, dryRun });
+  log.debug("Starting session cleanup", { sessionId, taskId, force, dryRun });
 
   try {
     // 1. Get session record before deletion
-    const sessionRecord = await deps.sessionDB.getSession(sessionName);
+    const sessionRecord = await deps.sessionDB.getSession(sessionId);
     if (!sessionRecord) {
-      log.debug(`Session ${sessionName} not found in database, skipping database cleanup`);
+      log.debug(`Session ${sessionId} not found in database, skipping database cleanup`);
     }
 
     // 2. Determine session directories to clean up
-    const sessionDirectories = await getSessionDirectoriesToCleanup(sessionName, taskId);
+    const sessionDirectories = await getSessionDirectoriesToCleanup(sessionId, taskId);
 
     if (dryRun) {
       log.debug("Dry run mode: would remove directories", { directories: sessionDirectories });
@@ -221,7 +221,7 @@ export async function cleanupSessionImpl(
 
     // 3. Safety validation (unless force flag is used)
     if (!force) {
-      await validateSessionSafeForCleanup(sessionRecord as Session | null, sessionName, taskId);
+      await validateSessionSafeForCleanup(sessionRecord as Session | null, sessionId, taskId);
     }
 
     // 4. Remove session directories
@@ -246,21 +246,21 @@ export async function cleanupSessionImpl(
     let sessionDeleted = false;
     if (sessionRecord) {
       try {
-        sessionDeleted = await deps.sessionDB.deleteSession(sessionName);
+        sessionDeleted = await deps.sessionDB.deleteSession(sessionId);
         if (sessionDeleted) {
-          log.debug(`Successfully removed session record: ${sessionName}`);
+          log.debug(`Successfully removed session record: ${sessionId}`);
         } else {
-          log.warn(`Failed to remove session record: ${sessionName}`);
+          log.warn(`Failed to remove session record: ${sessionId}`);
         }
       } catch (error) {
         const errorMsg = `Failed to remove session from database: ${getErrorMessage(error)}`;
-        log.error(errorMsg, { sessionName, error });
+        log.error(errorMsg, { sessionId, error });
         errors.push(errorMsg);
       }
     }
 
     log.debug("Session cleanup completed", {
-      sessionName,
+      sessionId,
       sessionDeleted,
       directoriesRemoved: directoriesRemoved.length,
       errors: errors.length,
@@ -273,7 +273,7 @@ export async function cleanupSessionImpl(
     };
   } catch (error) {
     const errorMsg = `Session cleanup failed: ${getErrorMessage(error)}`;
-    log.error(errorMsg, { sessionName, error });
+    log.error(errorMsg, { sessionId, error });
     throw new ValidationError(errorMsg);
   }
 }
@@ -282,7 +282,7 @@ export async function cleanupSessionImpl(
  * Get all session directories that should be cleaned up
  */
 async function getSessionDirectoriesToCleanup(
-  sessionName: string,
+  sessionId: string,
   taskId?: string
 ): Promise<string[]> {
   const directories: string[] = [];
@@ -291,10 +291,10 @@ async function getSessionDirectoriesToCleanup(
   const baseSessionPath = getSessionsDir();
 
   // Try different naming patterns that might exist.
-  // The sessionName entry handles UUID session names directly.
+  // The sessionId entry handles UUID session IDs directly.
   // Legacy patterns use the taskId to find old-style directories.
   const possibleDirs = [
-    `${baseSessionPath}/${sessionName}`,
+    `${baseSessionPath}/${sessionId}`,
     taskId ? `${baseSessionPath}/task-${taskId}` : null,
     taskId ? `${baseSessionPath}/task#${taskId}` : null,
   ].filter(Boolean) as string[];
@@ -308,7 +308,7 @@ async function getSessionDirectoriesToCleanup(
     }
   }
 
-  log.debug("Found session directories for cleanup", { sessionName, taskId, directories });
+  log.debug("Found session directories for cleanup", { sessionId, taskId, directories });
   return directories;
 }
 
@@ -317,7 +317,7 @@ async function getSessionDirectoriesToCleanup(
  */
 async function validateSessionSafeForCleanup(
   sessionRecord: Session | null,
-  sessionName: string,
+  sessionId: string,
   taskId?: string
 ): Promise<void> {
   // For now, we'll implement basic validation
@@ -327,10 +327,10 @@ async function validateSessionSafeForCleanup(
   // - Check for uncommitted changes
 
   if (!sessionRecord) {
-    log.debug(`Session ${sessionName} not found in database, allowing cleanup`);
+    log.debug(`Session ${sessionId} not found in database, allowing cleanup`);
     return;
   }
 
   // Add more validation rules here in the future
-  log.debug("Session validation passed for cleanup", { sessionName, taskId });
+  log.debug("Session validation passed for cleanup", { sessionId, taskId });
 }

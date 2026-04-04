@@ -30,7 +30,7 @@ export interface SessionRepairParameters {
 }
 
 export interface SessionRepairResult {
-  sessionName: string;
+  sessionId: string;
   issuesFound: RepairIssue[];
   repairsApplied: RepairAction[];
   repairsSkipped: RepairAction[];
@@ -78,19 +78,19 @@ export async function sessionRepair(
     allowAutoDetection: true,
   });
 
-  const sessionName = resolvedContext.sessionName;
-  log.debug("Resolved session for repair", { sessionName });
+  const sessionId = resolvedContext.sessionId;
+  log.debug("Resolved session for repair", { sessionId });
 
   // Get session record
-  const sessionRecord = await sessionDB.getSession(sessionName);
+  const sessionRecord = await sessionDB.getSession(sessionId);
   if (!sessionRecord) {
-    throw new Error(`Session '${sessionName}' not found`);
+    throw new Error(`Session '${sessionId}' not found`);
   }
 
   // Analyze session for issues
   const issuesFound = await analyzeSessionIssues(sessionRecord, sessionDB, gitService, params);
 
-  log.cli(`🔍 Found ${issuesFound.length} potential issues in session '${sessionName}'`);
+  log.cli(`🔍 Found ${issuesFound.length} potential issues in session '${sessionId}'`);
 
   if (params.debug) {
     issuesFound.forEach((issue) => {
@@ -101,7 +101,7 @@ export async function sessionRepair(
   // If dry run, just report issues
   if (params.dryRun) {
     return {
-      sessionName,
+      sessionId,
       issuesFound,
       repairsApplied: [],
       repairsSkipped: [],
@@ -157,7 +157,7 @@ export async function sessionRepair(
   );
 
   return {
-    sessionName,
+    sessionId,
     issuesFound,
     repairsApplied,
     repairsSkipped,

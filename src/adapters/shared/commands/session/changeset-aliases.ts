@@ -93,9 +93,9 @@ async function executeSessionChangesetList(
     let sessionFilter: string | undefined;
     if (!params.all) {
       try {
-        const currentSessionName = await getCurrentSession(process.cwd());
-        if (currentSessionName) {
-          sessionFilter = currentSessionName;
+        const currentSessionId = await getCurrentSession(process.cwd());
+        if (currentSessionId) {
+          sessionFilter = currentSessionId;
         } else {
           log.cliWarn("No current session detected. Use --all to see changesets for all sessions.");
           return { success: true };
@@ -119,7 +119,7 @@ async function executeSessionChangesetList(
     if (sessionFilter) {
       changesets = allChangesets.filter(
         (changeset) =>
-          changeset.sessionName === sessionFilter ||
+          changeset.sessionId === sessionFilter ||
           changeset.sourceBranch === `pr/${sessionFilter}` ||
           changeset.sourceBranch === sessionFilter
       );
@@ -162,8 +162,8 @@ async function executeSessionChangesetList(
         `   Author: ${changeset.author.username} | Target: ${changeset.targetBranch} | Status: ${changeset.status}`
       );
 
-      if (changeset.sessionName) {
-        log.cli(`   Session: ${changeset.sessionName}`);
+      if (changeset.sessionId) {
+        log.cli(`   Session: ${changeset.sessionId}`);
       }
 
       log.cli(""); // Empty line
@@ -198,12 +198,12 @@ async function executeSessionChangesetGet(
     // If no ID specified, try to find current session's changeset
     if (!changesetId) {
       try {
-        const currentSessionName = await getCurrentSession(process.cwd());
-        if (currentSessionName) {
+        const currentSessionId = await getCurrentSession(process.cwd());
+        if (currentSessionId) {
           const { createSessionProvider } = await import("../../../../domain/session");
           const sessionProvider = await createSessionProvider();
-          const sessionRecord = await sessionProvider.getSession(currentSessionName);
-          const branchOrSession = sessionRecord?.branch || currentSessionName;
+          const sessionRecord = await sessionProvider.getSession(currentSessionId);
+          const branchOrSession = sessionRecord?.branch || currentSessionId;
           changesetId = `pr/${branchOrSession}`;
         } else {
           const errorMsg = "No changeset ID specified and no current session detected";
@@ -247,8 +247,8 @@ async function executeSessionChangesetGet(
     log.cli(`Status: ${changeset.status}`);
     log.cli(`Target: ${changeset.targetBranch} ← ${changeset.sourceBranch || "HEAD"}`);
 
-    if (changeset.sessionName) {
-      log.cli(`Session: ${changeset.sessionName}`);
+    if (changeset.sessionId) {
+      log.cli(`Session: ${changeset.sessionId}`);
     }
     if (changeset.taskId) {
       log.cli(`Task: ${changeset.taskId}`);

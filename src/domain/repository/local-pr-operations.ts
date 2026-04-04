@@ -132,7 +132,7 @@ export async function updatePullRequest(
 
   await sessionPr(
     {
-      sessionName: options.session!,
+      sessionId: options.session!,
       title: options.title ?? "Update PR",
       body: options.body,
       skipConflictCheck: false,
@@ -211,29 +211,29 @@ export async function getPullRequestDetails(
   updatedAt?: string;
   mergedAt?: string;
 }> {
-  let sessionName: string | undefined = options.session;
+  let sessionId: string | undefined = options.session;
 
-  if (!sessionName && options.prIdentifier) {
+  if (!sessionId && options.prIdentifier) {
     const prId = String(options.prIdentifier);
     const sessionDB = await ctx.getSessionDB();
     const sessions = await sessionDB.listSessions();
     const record = sessions.find(
       (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
     );
-    sessionName = record?.session;
+    sessionId = record?.session;
   }
 
-  if (!sessionName) {
+  if (!sessionId) {
     throw new MinskyError("Local backend requires session or prIdentifier to resolve PR details");
   }
 
   const sessionDB = await ctx.getSessionDB();
-  const record = await sessionDB.getSession(sessionName);
+  const record = await sessionDB.getSession(sessionId);
   if (!record) {
-    throw new MinskyError(`Session '${sessionName}' not found`);
+    throw new MinskyError(`Session '${sessionId}' not found`);
   }
 
-  const number = record.prBranch || `pr/${record.branch || sessionName}`;
+  const number = record.prBranch || `pr/${record.branch || sessionId}`;
   const prInfo = record.pullRequest;
   return {
     number,
@@ -262,31 +262,31 @@ export async function getPullRequestDiff(
   diff: string;
   stats?: { filesChanged: number; insertions: number; deletions: number };
 }> {
-  let sessionName: string | undefined = options.session;
+  let sessionId: string | undefined = options.session;
   let prBranch: string | undefined;
 
-  if (!sessionName && options.prIdentifier) {
+  if (!sessionId && options.prIdentifier) {
     const prId = String(options.prIdentifier);
     const sessionDB = await ctx.getSessionDB();
     const sessions = await sessionDB.listSessions();
     const record = sessions.find(
       (s) => s.prBranch === prId || `pr/${s.branch || s.session}` === prId
     );
-    sessionName = record?.session;
+    sessionId = record?.session;
     prBranch = prId;
   }
 
-  if (!sessionName) {
+  if (!sessionId) {
     throw new MinskyError("Local backend requires session or prIdentifier to resolve PR diff");
   }
 
-  const workdir = ctx.getSessionWorkdir(sessionName);
+  const workdir = ctx.getSessionWorkdir(sessionId);
   const baseBranch = "main";
 
   if (!prBranch) {
     const sessionDB = await ctx.getSessionDB();
-    const sessionRecord = await sessionDB.getSession(sessionName);
-    prBranch = sessionRecord?.prBranch || `pr/${sessionRecord?.branch || sessionName}`;
+    const sessionRecord = await sessionDB.getSession(sessionId);
+    prBranch = sessionRecord?.prBranch || `pr/${sessionRecord?.branch || sessionId}`;
   }
 
   await execGitWithTimeout("fetch", "fetch origin", { workdir });

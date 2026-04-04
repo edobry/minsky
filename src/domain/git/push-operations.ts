@@ -31,8 +31,8 @@ export interface PushDependencies {
     command: string,
     options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (sessionName: string) => Promise<SessionRecord | null | undefined>;
-  getSessionWorkdir: (sessionName: string) => string;
+  getSession: (sessionId: string) => Promise<SessionRecord | null | undefined>;
+  getSessionWorkdir: (sessionId: string) => string;
 }
 
 /**

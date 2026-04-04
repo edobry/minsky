@@ -6,8 +6,8 @@ import {
   formatTaskId,
   extractBackend,
   extractLocalId,
-  taskIdToSessionName,
-  sessionNameToTaskId,
+  taskIdToSessionId,
+  sessionIdToTaskId,
 } from "./task-id";
 
 describe("Unified Task ID System", () => {
@@ -150,32 +150,32 @@ describe("Unified Task ID System", () => {
 });
 
 describe("Session/Branch Conversion", () => {
-  describe("taskIdToSessionName", () => {
-    it("should convert qualified task IDs to session names", () => {
-      expect(taskIdToSessionName("md#123")).toBe("task-md#123");
-      expect(taskIdToSessionName("gh#456")).toBe("task-gh#456");
-      expect(taskIdToSessionName("json#789")).toBe("task-json#789");
+  describe("taskIdToSessionId", () => {
+    it("should convert qualified task IDs to session IDs", () => {
+      expect(taskIdToSessionId("md#123")).toBe("task-md#123");
+      expect(taskIdToSessionId("gh#456")).toBe("task-gh#456");
+      expect(taskIdToSessionId("json#789")).toBe("task-json#789");
     });
 
     it("should return unqualified IDs as-is", () => {
-      expect(taskIdToSessionName("123")).toBe("123");
-      expect(taskIdToSessionName("456")).toBe("456");
+      expect(taskIdToSessionId("123")).toBe("123");
+      expect(taskIdToSessionId("456")).toBe("456");
     });
 
     it("should handle complex local IDs", () => {
-      expect(taskIdToSessionName("gh#issue-456")).toBe("task-gh#issue-456");
+      expect(taskIdToSessionId("gh#issue-456")).toBe("task-gh#issue-456");
     });
   });
 
-  describe("sessionNameToTaskId", () => {
-    it("should convert session names to task IDs", () => {
-      expect(sessionNameToTaskId("task-md#123")).toBe("md#123");
-      expect(sessionNameToTaskId("task-gh#456")).toBe("gh#456");
-      expect(sessionNameToTaskId("task-json#789")).toBe("json#789");
+  describe("sessionIdToTaskId", () => {
+    it("should convert session IDs to task IDs", () => {
+      expect(sessionIdToTaskId("task-md#123")).toBe("md#123");
+      expect(sessionIdToTaskId("task-gh#456")).toBe("gh#456");
+      expect(sessionIdToTaskId("task-json#789")).toBe("json#789");
     });
 
     it("should handle complex local IDs", () => {
-      expect(sessionNameToTaskId("task-gh#issue-456")).toBe("gh#issue-456");
+      expect(sessionIdToTaskId("task-gh#issue-456")).toBe("gh#issue-456");
     });
   });
 
@@ -184,8 +184,8 @@ describe("Session/Branch Conversion", () => {
       const taskIds = ["md#123", "gh#456", "json#789", "gh#issue-456"];
 
       for (const taskId of taskIds) {
-        const sessionName = taskIdToSessionName(taskId);
-        const backToTaskId = sessionNameToTaskId(sessionName);
+        const sessionId = taskIdToSessionId(taskId);
+        const backToTaskId = sessionIdToTaskId(sessionId);
         expect(backToTaskId).toBe(taskId);
       }
     });
@@ -227,9 +227,9 @@ describe("Edge Cases and Error Handling", () => {
   });
 
   it("should handle conversion edge cases", () => {
-    expect(taskIdToSessionName("")).toBe("");
-    expect(sessionNameToTaskId("")).toBeNull();
-    expect(taskIdToSessionName("invalid")).toBe("invalid");
-    expect(sessionNameToTaskId("invalid")).toBeNull();
+    expect(taskIdToSessionId("")).toBe("");
+    expect(sessionIdToTaskId("")).toBeNull();
+    expect(taskIdToSessionId("invalid")).toBe("invalid");
+    expect(sessionIdToTaskId("invalid")).toBeNull();
   });
 });

@@ -34,7 +34,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session ID (optional, alternative to --task)",
             },
             task: {
               alias: "t",
@@ -103,7 +103,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session ID (optional, alternative to --task)",
             },
             task: {
               alias: "t",
@@ -115,7 +115,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name",
+              description: "Session ID",
             },
             task: {
               alias: "t",
@@ -127,7 +127,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name",
+              description: "Session ID",
             },
             task: {
               alias: "t",
@@ -139,7 +139,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name",
+              description: "Session ID",
             },
             task: {
               alias: "t",
@@ -151,7 +151,7 @@ export function getSessionCustomizations(): {
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name",
+              description: "Session ID",
             },
             task: {
               alias: "t",
@@ -227,7 +227,7 @@ export function getSessionCustomizations(): {
               description: "Path to file containing PR body text",
             },
             name: {
-              description: "Session name (auto-detected from workspace if not provided)",
+              description: "Session ID (auto-detected from workspace if not provided)",
             },
             task: {
               alias: "t",
@@ -262,7 +262,7 @@ export function getSessionCustomizations(): {
           useFirstRequiredParamAsArgument: false,
           parameters: {
             session: {
-              description: "Filter PRs by specific session name",
+              description: "Filter PRs by specific session ID",
             },
             task: {
               alias: "t",
@@ -286,11 +286,11 @@ export function getSessionCustomizations(): {
         "session.pr.get": {
           useFirstRequiredParamAsArgument: false,
           parameters: {
-            sessionName: {
-              description: "Session name to look up PR for (positional)",
+            sessionId: {
+              description: "Session ID to look up PR for (positional)",
             },
             name: {
-              description: "Session name",
+              description: "Session ID",
             },
             task: {
               alias: "t",
@@ -312,7 +312,7 @@ export function getSessionCustomizations(): {
           parameters: {
             session: {
               alias: "s",
-              description: "Session name (auto-detected from workspace if not provided)",
+              description: "Session ID (auto-detected from workspace if not provided)",
             },
             path: {
               description: "Path to the file within the session workspace",

@@ -5,7 +5,7 @@
  *
  * This script was written to normalize task IDs that predate the qualified-ID
  * format (e.g., "md#123"). Current sessions use qualified task IDs and UUID
- * session names; this script is unlikely to be needed for modern data.
+ * session IDs; this script is unlikely to be needed for modern data.
  *
  * Normalize Session Task IDs
  *
@@ -18,7 +18,7 @@ import { createSessionProvider, type SessionRecord } from "../src/domain/session
 import { log } from "../src/utils/logger";
 
 interface TaskIdNormalization {
-  sessionName: string;
+  sessionId: string;
   oldTaskId: string;
   newTaskId: string;
   record: SessionRecord;
@@ -53,7 +53,7 @@ async function normalizeSessionTaskIds(
         const normalizedTaskId = `#${session.taskId}`;
 
         sessionsToNormalize.push({
-          sessionName: session.session,
+          sessionId: session.session,
           oldTaskId: session.taskId,
           newTaskId: normalizedTaskId,
           record: session,
@@ -82,7 +82,7 @@ async function normalizeSessionTaskIds(
 
   log.cli("\n🔧 SESSIONS TO NORMALIZE:");
   for (const session of sessionsToNormalize) {
-    log.cli(`  • ${session.sessionName}: "${session.oldTaskId}" -> "${session.newTaskId}"`);
+    log.cli(`  • ${session.sessionId}: "${session.oldTaskId}" -> "${session.newTaskId}"`);
   }
 
   if (dryRun) {
@@ -99,17 +99,15 @@ async function normalizeSessionTaskIds(
     for (const session of sessionsToNormalize) {
       try {
         // Update the session record with the normalized task ID
-        await sessionDB.updateSession(session.sessionName, {
+        await sessionDB.updateSession(session.sessionId, {
           taskId: session.newTaskId,
         });
 
         successCount++;
-        log.cli(
-          `✅ Normalized ${session.sessionName}: ${session.oldTaskId} -> ${session.newTaskId}`
-        );
+        log.cli(`✅ Normalized ${session.sessionId}: ${session.oldTaskId} -> ${session.newTaskId}`);
       } catch (error) {
         errorCount++;
-        log.error(`❌ Failed to normalize ${session.sessionName}: ${error}`);
+        log.error(`❌ Failed to normalize ${session.sessionId}: ${error}`);
       }
     }
 

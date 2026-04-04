@@ -24,30 +24,30 @@ async function getOrCreateProvider(): Promise<SessionProviderInterface> {
 }
 
 /**
- * Resolve a session name to its absolute filesystem directory path.
+ * Resolve a session ID to its absolute filesystem directory path.
  *
- * This is the single canonical way to go from a session name (e.g. "task-mt#123")
+ * This is the single canonical way to go from a session ID (e.g. "task-mt#123")
  * to the absolute path of its working directory on disk. It handles:
  *   1. Lazy async creation of the session provider
  *   2. Session record lookup (with clear error if not found)
  *   3. Filesystem path resolution via getRepoPath
  *
- * @param sessionName - The session identifier (e.g. "task-mt#123")
+ * @param sessionId - The session identifier (e.g. "task-mt#123")
  * @returns The absolute filesystem path to the session's working directory
  * @throws Error if the session is not found or the path cannot be resolved
  */
-export async function resolveSessionDirectory(sessionName: string): Promise<string> {
-  log.debug(`Resolving session directory for: ${sessionName}`);
+export async function resolveSessionDirectory(sessionId: string): Promise<string> {
+  log.debug(`Resolving session directory for: ${sessionId}`);
 
   const provider = await getOrCreateProvider();
 
-  const session = await provider.getSession(sessionName);
+  const session = await provider.getSession(sessionId);
   if (!session) {
-    throw new Error(`Session "${sessionName}" not found`);
+    throw new Error(`Session "${sessionId}" not found`);
   }
 
   const repoPath = await provider.getRepoPath(session);
-  log.debug(`Resolved session "${sessionName}" to path: ${repoPath}`);
+  log.debug(`Resolved session "${sessionId}" to path: ${repoPath}`);
 
   return repoPath;
 }

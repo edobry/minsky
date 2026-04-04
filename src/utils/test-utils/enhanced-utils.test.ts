@@ -186,8 +186,8 @@ describe("Enhanced Test Utilities", () => {
       );
 
       // Verify the result matches our temporary override
-      return result.then((_sessionName: unknown) => {
-        expect(_sessionName).toBe("temp-session");
+      return result.then((_sessionId: unknown) => {
+        expect(_sessionId).toBe("temp-session");
       });
     });
   });

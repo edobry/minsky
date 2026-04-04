@@ -190,20 +190,20 @@ export const GitParameters = {
  */
 export const SessionParameters = {
   /**
-   * Session name parameter
+   * Session ID parameter
    */
   name: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session ID",
     required: false,
   } as CommandParameterDefinition,
 
   /**
-   * Session name (with minimum length requirement)
+   * Session ID (with minimum length requirement)
    */
-  sessionName: {
+  sessionId: {
     schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
+    description: "Session identifier (ID or task ID)",
     required: false,
   } as CommandParameterDefinition,
 

@@ -17,13 +17,13 @@ import { sessionPrGet } from "./pr-get-subcommand";
  * Opens the pull request in the default web browser (GitHub backend only)
  */
 export async function sessionPrOpen(params: {
-  sessionName?: string;
+  sessionId?: string;
   name?: string;
   task?: string;
   repo?: string;
 }): Promise<{
   url: string;
-  sessionName: string;
+  sessionId: string;
   prNumber?: number;
 }> {
   const sessionDB = await createSessionProvider();
@@ -31,7 +31,7 @@ export async function sessionPrOpen(params: {
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionName || params.name,
+      session: params.sessionId || params.name,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
@@ -39,10 +39,10 @@ export async function sessionPrOpen(params: {
     });
 
     // Get the session record
-    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionName);
+    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Check if this is a GitHub repository backend
@@ -57,7 +57,7 @@ export async function sessionPrOpen(params: {
 
     // Get PR details using the existing sessionPrGet function
     const prResult = await sessionPrGet({
-      sessionName: resolvedContext.sessionName,
+      sessionId: resolvedContext.sessionId,
       task: params.task,
       repo: params.repo,
     });
@@ -67,7 +67,7 @@ export async function sessionPrOpen(params: {
     // Check if PR has a URL
     if (!pr.url) {
       throw new MinskyError(
-        `No pull request URL found for session '${resolvedContext.sessionName}'. ` +
+        `No pull request URL found for session '${resolvedContext.sessionId}'. ` +
           `PR status: ${pr.status}. Please ensure a PR has been created for this session.`
       );
     }
@@ -93,7 +93,7 @@ export async function sessionPrOpen(params: {
 
     return {
       url: pr.url,
-      sessionName: resolvedContext.sessionName,
+      sessionId: resolvedContext.sessionId,
       prNumber: pr.number,
     };
   } catch (error) {

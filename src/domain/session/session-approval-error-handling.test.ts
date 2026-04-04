@@ -143,14 +143,14 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     }
   });
 
-  test("should require session name or task ID", async () => {
-    // Test Case 3: No session name or task ID provided
+  test("should require session ID or task ID", async () => {
+    // Test Case 3: No session ID or task ID provided
     await expect(
       approveSessionPr({
         json: false,
         // No session or task provided
       })
-    ).rejects.toThrow("No session detected. Please provide a session name or task ID");
+    ).rejects.toThrow("No session detected. Please provide a session ID or task ID");
   });
 
   test("should provide clear error message for missing session", async () => {

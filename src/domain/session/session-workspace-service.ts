@@ -11,7 +11,7 @@ import { getErrorMessage } from "../../errors/index";
 
 export interface SessionWorkspaceInfo {
   sessionId: string;
-  sessionName: string;
+  session: string;
   workspaceDir: string;
   taskId?: string;
 }
@@ -33,7 +33,7 @@ export class SessionWorkspaceService {
 
   /**
    * Get session workspace information
-   * @param sessionId Session identifier (can be session name, task ID, etc.)
+   * @param sessionId Session identifier (can be session ID, task ID, etc.)
    * @returns Session workspace information
    * @throws SessionNotFoundError if session doesn't exist
    */
@@ -65,14 +65,14 @@ export class SessionWorkspaceService {
 
       log.debug("Retrieved session workspace info", {
         sessionId,
-        sessionName: session.session,
+        session: session.session,
         workspaceDir: sessionDir,
         taskId: session.taskId,
       });
 
       return {
         sessionId,
-        sessionName: session.session,
+        session: session.session,
         workspaceDir: sessionDir,
         taskId: session.taskId,
       };
@@ -108,7 +108,7 @@ export class SessionWorkspaceService {
 
     log.debug("Reading file from session workspace", {
       sessionId,
-      sessionName: workspace.sessionName,
+      session: workspace.session,
       relativePath,
       validatedPath,
     });
@@ -136,7 +136,7 @@ export class SessionWorkspaceService {
 
     log.debug("Writing file to session workspace", {
       sessionId,
-      sessionName: workspace.sessionName,
+      session: workspace.session,
       relativePath,
       validatedPath,
       contentLength: content.length,
@@ -160,7 +160,7 @@ export class SessionWorkspaceService {
 
     log.debug("Deleting file from session workspace", {
       sessionId,
-      sessionName: workspace.sessionName,
+      session: workspace.session,
       relativePath,
       validatedPath,
     });
@@ -182,7 +182,7 @@ export class SessionWorkspaceService {
 
     log.debug("Listing directory in session workspace", {
       sessionId,
-      sessionName: workspace.sessionName,
+      session: workspace.session,
       relativePath,
       validatedPath,
     });
@@ -233,7 +233,7 @@ export class SessionWorkspaceService {
 
     log.debug("Creating directory in session workspace", {
       sessionId,
-      sessionName: workspace.sessionName,
+      session: workspace.session,
       relativePath,
       validatedPath,
     });

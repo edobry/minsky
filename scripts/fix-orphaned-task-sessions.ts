@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
 /**
- * LEGACY SCRIPT — matches bare-integer session names only (/^(\d+)$/).
+ * LEGACY SCRIPT — matches bare-integer session IDs only (/^(\d+)$/).
  *
- * This script will NOT match UUID session names (e.g., "550e8400-e29b-41d4-a716-446655440000")
- * or "task-" prefixed session names (e.g., "task-md#123"). It is only useful for
- * very old session databases that stored session names as plain integers.
+ * This script will NOT match UUID session IDs (e.g., "550e8400-e29b-41d4-a716-446655440000")
+ * or "task-" prefixed session IDs (e.g., "task-md#123"). It is only useful for
+ * very old session databases that stored session IDs as plain integers.
  *
  * Fix Orphaned Task Sessions
  *
@@ -19,7 +19,7 @@ import { TaskService } from "../src/domain/tasks/taskService";
 import { log } from "../src/utils/logger";
 
 interface OrphanedSession {
-  sessionName: string;
+  sessionId: string;
   inferredTaskId: string;
   taskExists: boolean;
   record: SessionRecord;
@@ -52,7 +52,7 @@ async function fixOrphanedTaskSessions(
 
   for (const session of allSessions) {
     if (!session.taskId) {
-      // Check if session name is just a number (task ID)
+      // Check if session ID is just a number (task ID)
       const numericMatch = session.session.match(/^(\d+)$/);
       if (numericMatch) {
         const taskNumber = numericMatch[1];
@@ -62,7 +62,7 @@ async function fixOrphanedTaskSessions(
         const taskExists = (await taskService.getTask(taskId)) !== null;
 
         orphanedSessions.push({
-          sessionName: session.session,
+          sessionId: session.session,
           inferredTaskId: taskId,
           taskExists,
           record: session,
@@ -94,14 +94,14 @@ async function fixOrphanedTaskSessions(
   if (validOrphans.length > 0) {
     log.cli("\n✅ VALID ORPHANED SESSIONS (task exists):");
     for (const session of validOrphans) {
-      log.cli(`  • ${session.sessionName} -> ${session.inferredTaskId}`);
+      log.cli(`  • ${session.sessionId} -> ${session.inferredTaskId}`);
     }
   }
 
   if (invalidOrphans.length > 0) {
     log.cli("\n⚠️  INVALID ORPHANED SESSIONS (task doesn't exist):");
     for (const session of invalidOrphans) {
-      log.cli(`  • ${session.sessionName} -> ${session.inferredTaskId} (task not found)`);
+      log.cli(`  • ${session.sessionId} -> ${session.inferredTaskId} (task not found)`);
     }
   }
 
@@ -118,13 +118,13 @@ async function fixOrphanedTaskSessions(
       for (const session of validOrphans) {
         try {
           // Update the session record with the task ID
-          await sessionDB.updateSession(session.sessionName, {
+          await sessionDB.updateSession(session.sessionId, {
             taskId: session.inferredTaskId,
           });
 
-          log.cli(`✅ Fixed ${session.sessionName} -> ${session.inferredTaskId}`);
+          log.cli(`✅ Fixed ${session.sessionId} -> ${session.inferredTaskId}`);
         } catch (error) {
-          log.error(`❌ Failed to fix ${session.sessionName}: ${error}`);
+          log.error(`❌ Failed to fix ${session.sessionId}: ${error}`);
         }
       }
 

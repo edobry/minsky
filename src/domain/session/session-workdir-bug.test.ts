@@ -37,7 +37,7 @@ describe("Session Workdir Interface Completeness", () => {
     expect(typeof adapter.getSessionWorkdir).toBe("function");
 
     // Verify method signature
-    expect(adapter.getSessionWorkdir.length).toBe(1); // (sessionName)
+    expect(adapter.getSessionWorkdir.length).toBe(1); // (sessionId)
   });
 
   test("SessionAutoRepairProvider interface documentation", () => {
@@ -45,9 +45,9 @@ describe("Session Workdir Interface Completeness", () => {
     // The actual implementation test would require fixing the import issues first
 
     type SessionProviderInterface = {
-      getSessionWorkdir(sessionName: string): Promise<string | undefined>;
+      getSessionWorkdir(sessionId: string): Promise<string | undefined>;
       listSessions(): Promise<any[]>;
-      getSession(sessionName: string): Promise<any>;
+      getSession(sessionId: string): Promise<any>;
       getSessionByTaskId(taskId: string): Promise<any>;
     };
 
@@ -64,12 +64,12 @@ describe("Session Workdir Interface Completeness", () => {
   test("getSessionWorkdir interface contract", () => {
     // This documents the expected method signature
     type SessionProviderInterface = {
-      getSessionWorkdir(sessionName: string): Promise<string | undefined>;
+      getSessionWorkdir(sessionId: string): Promise<string | undefined>;
     };
 
     // This should compile if the interface is correct
     const mockProvider: SessionProviderInterface = {
-      getSessionWorkdir: async (sessionName: string) => "/test/workdir",
+      getSessionWorkdir: async (sessionId: string) => "/test/workdir",
     };
 
     expect(typeof mockProvider.getSessionWorkdir).toBe("function");

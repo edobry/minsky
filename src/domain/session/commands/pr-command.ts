@@ -45,27 +45,27 @@ export async function sessionPr(
       allowAutoDetection: true,
     });
 
-    // Get the session details using the resolved session name
-    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionName);
+    // Get the session details using the resolved session ID
+    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Get session working directory
-    const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionId);
 
     // Check if PR already exists based on session record
     if (sessionRecord.prState?.commitHash) {
       log.debug(
-        `PR already exists for session '${resolvedContext.sessionName}' with commit ${sessionRecord.prState.commitHash}`
+        `PR already exists for session '${resolvedContext.sessionId}' with commit ${sessionRecord.prState.commitHash}`
       );
       // Force recreation by clearing the prState and deleting git branch
       try {
         const branchToDelete =
           sessionRecord.backendType === "github"
-            ? sessionRecord.branch || resolvedContext.sessionName
-            : `pr/${sessionRecord.branch || resolvedContext.sessionName}`;
+            ? sessionRecord.branch || resolvedContext.sessionId
+            : `pr/${sessionRecord.branch || resolvedContext.sessionId}`;
 
         await gitService.execInRepository(workdir, `git branch -D ${branchToDelete}`);
         log.debug(`Deleted existing PR branch ${branchToDelete} to force recreation`);
@@ -74,7 +74,7 @@ export async function sessionPr(
       }
 
       // Clear prState to allow recreation
-      await sessionDB.updateSession(resolvedContext.sessionName, {
+      await sessionDB.updateSession(resolvedContext.sessionId, {
         ...sessionRecord,
         prBranch: undefined, // Clear prBranch field too
         prState: undefined,
@@ -104,7 +104,7 @@ export async function sessionPr(
     // Prepare PR using session operations layer (proper architecture)
     const result = await sessionPrImpl(
       {
-        session: resolvedContext.sessionName,
+        session: resolvedContext.sessionId,
         task: params.task,
         repo: params.repo,
         title,
@@ -133,13 +133,13 @@ export async function sessionPr(
         taskId: sessionRecord.taskId,
         repoName: sessionRecord.repoName,
       },
-      sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
+      sessionId: sessionRecord.session, // Alternative property name for formatter compatibility
     };
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;
@@ -150,13 +150,13 @@ export async function sessionPr(
  * Check if PR branch exists for a session
  */
 async function checkPrBranchExists(
-  sessionName: string,
+  sessionId: string,
   gitService: GitServiceInterface,
   currentDir: string,
   branchName?: string
 ): Promise<boolean> {
   try {
-    const prBranchName = `pr/${branchName || sessionName}`;
+    const prBranchName = `pr/${branchName || sessionId}`;
     const branches = await gitService.execInRepository(currentDir, "git branch -a");
     return branches.includes(prBranchName);
   } catch (error) {

@@ -139,12 +139,12 @@ function fixRemainingParams(content: string): { content: string; changeCount: nu
       replacement: "createMock((name) =>$1name$2)",
     },
     {
-      pattern: /createMock\(\(_sessionName: unknown\) =>([^}]*?)sessionName([^}]*?)\)/g,
-      replacement: "createMock((sessionName: unknown) =>$1sessionName$2)",
+      pattern: /createMock\(\(_sessionId: unknown\) =>([^}]*?)sessionId([^}]*?)\)/g,
+      replacement: "createMock((sessionId: unknown) =>$1sessionId$2)",
     },
     {
-      pattern: /createMockFn\(async \(_sessionName: unknown\) => {([^}]*?)sessionName([^}]*?)}\)/g,
-      replacement: "createMockFn(async (sessionName: unknown) => {$1sessionName$2})",
+      pattern: /createMockFn\(async \(_sessionId: unknown\) => {([^}]*?)sessionId([^}]*?)}\)/g,
+      replacement: "createMockFn(async (sessionId: unknown) => {$1sessionId$2})",
     },
     {
       pattern: /createMockFn\(async \(_options\) => {([^}]*?)options([^}]*?)}\)/g,

@@ -9,10 +9,10 @@ import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
 
 // Mock SessionPathResolver
 class MockSessionPathResolver {
-  async resolvePath(sessionName: string, path: string): Promise<string> {
+  async resolvePath(sessionId: string, path: string): Promise<string> {
     // Basic path traversal protection
     if (path.includes("..")) {
-      const mockSessionPath = `/mock/sessions/${sessionName}`;
+      const mockSessionPath = `/mock/sessions/${sessionId}`;
       const resolvedPath = require("path").resolve(mockSessionPath, path);
       if (!resolvedPath.startsWith(mockSessionPath)) {
         throw new Error(
@@ -20,7 +20,7 @@ class MockSessionPathResolver {
         );
       }
     }
-    return `${sessionName}/${path}`;
+    return `${sessionId}/${path}`;
   }
 }
 
@@ -263,12 +263,12 @@ require("fs/promises").writeFile = async (
   console.log(`📝 Mock wrote file: ${path} (${data.length} chars)`);
   const content = typeof data === "string" ? data : data.toString();
 
-  // Extract session name from path
+  // Extract session ID from path
   const sessionMatch = path.match(/^([^/]+)\//);
-  const sessionName = sessionMatch ? (sessionMatch[1] ?? "") : "";
+  const sessionId = sessionMatch ? (sessionMatch[1] ?? "") : "";
   const filePath = sessionMatch ? path.substring(sessionMatch[1]!.length + 1) : path;
 
-  createMockFile(sessionName, filePath, content);
+  createMockFile(sessionId, filePath, content);
   return Promise.resolve();
 };
 
@@ -304,7 +304,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
     inputSchema: {
       type: "object",
       properties: {
-        sessionName: { type: "string", description: "Session identifier" },
+        sessionId: { type: "string", description: "Session identifier" },
         path: { type: "string", description: "Path to the file within the session workspace" },
         instructions: {
           type: "string",
@@ -320,18 +320,18 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           default: true,
         },
       },
-      required: ["sessionName", "path", "content"],
+      required: ["sessionId", "path", "content"],
     },
     handler: async (args: any) => {
       try {
-        const resolvedPath = await mockPathResolver.resolvePath(args.sessionName, args.path);
+        const resolvedPath = await mockPathResolver.resolvePath(args.sessionId, args.path);
 
         // Check if file exists
         let originalContent = "";
         let fileExists = false;
 
         try {
-          originalContent = getMockFile(args.sessionName, args.path) || "";
+          originalContent = getMockFile(args.sessionId, args.path) || "";
           fileExists = !!originalContent;
         } catch (error) {
           fileExists = false;
@@ -370,7 +370,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         }
 
         // Write the file using mock file system
-        createMockFile(args.sessionName, args.path, finalContent);
+        createMockFile(args.sessionId, args.path, finalContent);
 
         console.log(`✅ Edit completed in ${duration}ms`);
 
@@ -378,7 +378,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           success: true,
           timestamp: new Date().toISOString(),
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           edited: fileExists,
           created: !fileExists,
           bytesWritten: finalContent.length,
@@ -386,7 +386,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         };
       } catch (error) {
         console.log("Mock session file edit failed", {
-          session: args.sessionName,
+          session: args.sessionId,
           path: args.path,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -395,7 +395,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           success: false,
           timestamp: new Date().toISOString(),
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           error: error instanceof Error ? error.message : String(error),
         };
       }
@@ -408,30 +408,30 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
     inputSchema: {
       type: "object",
       properties: {
-        sessionName: { type: "string", description: "Session identifier" },
+        sessionId: { type: "string", description: "Session identifier" },
         path: { type: "string", description: "Path to the file within the session workspace" },
         search: { type: "string", description: "Text to search for" },
         replace: { type: "string", description: "Text to replace with" },
       },
-      required: ["sessionName", "path", "search", "replace"],
+      required: ["sessionId", "path", "search", "replace"],
     },
     handler: async (args: any) => {
       try {
-        const resolvedPath = await mockPathResolver.resolvePath(args.sessionName, args.path);
+        const resolvedPath = await mockPathResolver.resolvePath(args.sessionId, args.path);
 
-        const originalContent = getMockFile(args.sessionName, args.path);
+        const originalContent = getMockFile(args.sessionId, args.path);
         if (!originalContent) {
           throw new Error(`File not found: ${args.path}`);
         }
 
         const newContent = originalContent.replace(args.search, args.replace);
-        createMockFile(args.sessionName, args.path, newContent);
+        createMockFile(args.sessionId, args.path, newContent);
 
         return {
           success: true,
           timestamp: new Date().toISOString(),
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           replacements: originalContent === newContent ? 0 : 1,
         };
       } catch (error) {
@@ -439,7 +439,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           success: false,
           timestamp: new Date().toISOString(),
           path: args.path,
-          session: args.sessionName,
+          session: args.sessionId,
           error: error instanceof Error ? error.message : String(error),
         };
       }

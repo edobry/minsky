@@ -35,7 +35,7 @@ describe("Session Lookup Bug Integration Test", () => {
   it("should NOT create session directories when git clone fails", async () => {
     // Arrange: Mock a scenario where git clone fails
     const invalidRepoUrl = "https://github.com/fail/repo.git"; // triggers failure in mock
-    const sessionName = "test-session";
+    const sessionId = "test-session";
 
     // Act: Try to clone using mock service (should fail)
     let cloneFailed = false;
@@ -59,7 +59,7 @@ describe("Session Lookup Bug Integration Test", () => {
   it("should create session directories when git clone succeeds", async () => {
     // Arrange: Mock a successful git clone scenario
     const validRepoUrl = "https://github.com/valid/repo.git";
-    const sessionName = "test-session";
+    const sessionId = "test-session";
 
     // Act: Simulate successful clone
     let cloneSucceeded = false;

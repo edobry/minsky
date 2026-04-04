@@ -32,9 +32,9 @@ const mockSessionDB = {
       },
     ])
   ),
-  getSession: mock((sessionName: unknown) =>
+  getSession: mock((sessionId: unknown) =>
     Promise.resolve({
-      _session: sessionName,
+      _session: sessionId,
       repoName: "github/test-repo",
       repoUrl: "https://github.com/github/test-repo.git",
       _branch: "main",
@@ -121,7 +121,7 @@ describe("GitHub Repository Backend", () => {
     // Act
     const path = await githubBackend.getPath("test-session");
 
-    // Assert - should include the repository and session name
+    // Assert - should include the repository and session ID
     expect(path).toContain("test-repo");
     expect(path).toContain("test-session");
     expect(path).toContain("sessions");

@@ -381,7 +381,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
                 oldTaskId: taskId,
                 newTaskId,
                 sessionsFound: sessionUpdateResult.sessionsFound,
-                sessionNames: sessionUpdateResult.updatedSessions,
+                sessionIds: sessionUpdateResult.updatedSessions,
               });
             }
           } catch (error) {

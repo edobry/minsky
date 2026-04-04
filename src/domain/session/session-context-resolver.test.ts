@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   resolveSessionContext,
-  resolveSessionName,
+  resolveSessionId,
   resolveSessionContextWithFeedback,
   validateSessionContext,
   type SessionContextOptions,
@@ -47,7 +47,7 @@ describe("resolveSessionContext", () => {
         allowAutoDetection: false,
       });
 
-      expect(result.sessionName).toBe("test-session");
+      expect(result.sessionId).toBe("test-session");
       expect(result.taskId).toBe("md#123");
       expect(result.resolvedBy).toBe("explicit-session");
       expect(result.workingDirectory).toBeDefined(); // Don't hard-code environment-dependent path
@@ -72,7 +72,7 @@ describe("resolveSessionContext", () => {
         allowAutoDetection: false,
       });
 
-      expect(result.sessionName).toBe("task#456");
+      expect(result.sessionId).toBe("task#456");
       expect(result.taskId).toBe("md#456");
       expect(result.resolvedBy).toBe("explicit-task");
       expect(result.workingDirectory).toBeDefined(); // Don't hard-code environment-dependent path
@@ -109,14 +109,14 @@ describe("resolveSessionContext", () => {
         allowAutoDetection: false,
       });
 
-      expect(result.sessionName).toBe("test-session");
+      expect(result.sessionId).toBe("test-session");
       expect(result.resolvedBy).toBe("explicit-session");
     });
   });
 });
 
-describe("resolveSessionName", () => {
-  test("returns just the session name", async () => {
+describe("resolveSessionId", () => {
+  test("returns just the session ID", async () => {
     const mockSessionProvider = createMockSessionProvider({
       sessions: [
         {
@@ -129,13 +129,13 @@ describe("resolveSessionName", () => {
       ],
     });
 
-    const sessionName = await resolveSessionName({
+    const sessionId = await resolveSessionId({
       session: "test-session",
       sessionProvider: mockSessionProvider,
       allowAutoDetection: false,
     });
 
-    expect(sessionName).toBe("test-session");
+    expect(sessionId).toBe("test-session");
   });
 });
 

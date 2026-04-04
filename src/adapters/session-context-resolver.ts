@@ -108,8 +108,8 @@ export class MCPSessionContextResolver {
       `Session parameter required for MCP interface.
 
 Please provide one of:
-  session: "task#158"     // Session name
-  name: "task#158"        // Session name (alternative)
+  session: "task#158"     // Session ID
+  name: "task#158"        // Session ID (alternative)
   task: "158"            // Task ID
 
 Examples:

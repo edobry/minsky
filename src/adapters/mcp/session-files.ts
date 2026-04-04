@@ -183,11 +183,11 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       const typedArgs = args as FileMoveParameters;
       try {
         const sourceResolvedPath = await pathResolver.resolvePath(
-          typedArgs.sessionName,
+          typedArgs.sessionId,
           typedArgs.sourcePath
         );
         const targetResolvedPath = await pathResolver.resolvePath(
-          typedArgs.sessionName,
+          typedArgs.sessionId,
           typedArgs.targetPath
         );
 
@@ -228,7 +228,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         await rename(sourceResolvedPath, targetResolvedPath);
 
         log.debug("Session file move successful", {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           sourcePath: typedArgs.sourcePath,
           targetPath: typedArgs.targetPath,
           sourceResolvedPath,
@@ -238,17 +238,17 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         });
 
         const sourceResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionId),
           sourceResolvedPath
         );
         const targetResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionId),
           targetResolvedPath
         );
 
         return createSuccessResponse({
           path: typedArgs.targetPath,
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           sourcePath: typedArgs.sourcePath,
           targetPath: typedArgs.targetPath,
           sourceResolvedPath: sourceResolvedPath_rel,
@@ -260,19 +260,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "move_file",
           path: `${typedArgs.sourcePath} -> ${typedArgs.targetPath}`,
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           createDirs: typedArgs.createDirs,
         };
 
         log.error("Session file move failed", {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           sourcePath: typedArgs.sourcePath,
           targetPath: typedArgs.targetPath,
           error: getErrorMessage(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           path: typedArgs.sourcePath,
         });
       }
@@ -287,7 +287,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     handler: async (args): Promise<FileOperationResponse> => {
       const typedArgs = args as FileRenameParameters;
       try {
-        const resolvedPath = await pathResolver.resolvePath(typedArgs.sessionName, typedArgs.path);
+        const resolvedPath = await pathResolver.resolvePath(typedArgs.sessionId, typedArgs.path);
 
         // Validate source file exists
         await pathResolver.validatePathExists(resolvedPath);
@@ -306,7 +306,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const targetPath = join(dirname(typedArgs.path), typedArgs.newName);
 
         // Validate that target path is still within session workspace
-        await pathResolver.resolvePath(typedArgs.sessionName, targetPath);
+        await pathResolver.resolvePath(typedArgs.sessionId, targetPath);
 
         // Check if target already exists and handle overwrite logic
         let targetExists = false;
@@ -328,7 +328,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         await rename(resolvedPath, targetResolvedPath);
 
         log.debug("Session file rename successful", {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           originalPath: typedArgs.path,
           newName: typedArgs.newName,
           targetPath,
@@ -338,17 +338,17 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         });
 
         const originalResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionId),
           resolvedPath
         );
         const newResolvedPath_rel = relative(
-          await pathResolver.getSessionWorkspacePath(typedArgs.sessionName),
+          await pathResolver.getSessionWorkspacePath(typedArgs.sessionId),
           targetResolvedPath
         );
 
         return createSuccessResponse({
           path: targetPath,
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           originalPath: typedArgs.path,
           newPath: targetPath,
           newName: typedArgs.newName,
@@ -361,18 +361,18 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "rename_file",
           path: `${typedArgs.path} -> ${typedArgs.newName}`,
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
         };
 
         log.error("Session file rename failed", {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           path: typedArgs.path,
           newName: typedArgs.newName,
           error: getErrorMessage(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {
-          session: typedArgs.sessionName,
+          session: typedArgs.sessionId,
           path: typedArgs.path,
         });
       }

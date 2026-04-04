@@ -51,7 +51,7 @@ export async function approvePullRequest(
 
   log.info("Local PR approved - session record updated", {
     prIdentifier: prId,
-    sessionName: sessionRecord.session,
+    sessionId: sessionRecord.session,
     approver,
   });
 
@@ -64,7 +64,7 @@ export async function approvePullRequest(
     platformData: {
       platform: "local",
       prIdentifier: prId,
-      sessionName: sessionRecord.session,
+      sessionId: sessionRecord.session,
     },
   };
 }
@@ -104,7 +104,7 @@ export async function getPullRequestApprovalStatus(
 
   log.debug("Local PR approval status", {
     prIdentifier: prId,
-    sessionName: sessionRecord.session,
+    sessionId: sessionRecord.session,
     isApproved,
   });
 
@@ -117,7 +117,7 @@ export async function getPullRequestApprovalStatus(
             approvedBy: "local-user",
             approvedAt: new Date().toISOString(),
             prNumber: prId,
-            platformData: { platform: "local", sessionName: sessionRecord.session },
+            platformData: { platform: "local", sessionId: sessionRecord.session },
           },
         ]
       : [],
@@ -126,7 +126,7 @@ export async function getPullRequestApprovalStatus(
     platformData: {
       platform: "local",
       prIdentifier: prId,
-      sessionName: sessionRecord.session,
+      sessionId: sessionRecord.session,
     },
   };
 }

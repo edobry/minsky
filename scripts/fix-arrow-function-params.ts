@@ -20,11 +20,11 @@ const patterns: FixPattern[] = [
     pattern: /(\w+:\s*(?:async\s*)?\()(_path)(\s*:\s*unknown\s*\)\s*=>\s*[^}]*?)\bpath\b/g,
     replacement: "$1path$3path",
   },
-  // _sessionName parameter used as sessionName
+  // _sessionId parameter used as sessionId
   {
     pattern:
-      /(\w+:\s*(?:async\s*)?\()(_sessionName)(\s*:\s*unknown\s*\)\s*=>\s*[^}]*?)\bsessionName\b/g,
-    replacement: "$1sessionName$3sessionName",
+      /(\w+:\s*(?:async\s*)?\()(_sessionId)(\s*:\s*unknown\s*\)\s*=>\s*[^}]*?)\bsessionId\b/g,
+    replacement: "$1sessionId$3sessionId",
   },
   // _taskId parameter used as taskId
   {
@@ -55,8 +55,8 @@ const simplePatterns: FixPattern[] = [
     replacement: "$1path$3path",
   },
   {
-    pattern: /(\(\s*)(_sessionName)(\s*:\s*unknown\s*\)\s*=>\s*[^{;]*?)\bsessionName\b/,
-    replacement: "$1sessionName$3sessionName",
+    pattern: /(\(\s*)(_sessionId)(\s*:\s*unknown\s*\)\s*=>\s*[^{;]*?)\bsessionId\b/,
+    replacement: "$1sessionId$3sessionId",
   },
   {
     pattern: /(\(\s*)(_taskId)(\s*:\s*unknown\s*\)\s*=>\s*[^{;]*?)\btaskId\b/,

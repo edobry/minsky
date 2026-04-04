@@ -85,26 +85,26 @@ export class SessionPrListCommand extends BaseSessionCommand<
 
       const lines: string[] = [];
       sorted.forEach((pr) => {
-        const displayId = pr.taskId || pr.sessionName || "";
+        const displayId = pr.taskId || pr.sessionId || "";
         const titleLine = formatPrTitleLine({
           status: pr.status,
           rawTitle: pr.title || "",
           prNumber: pr.prNumber !== undefined ? Number(pr.prNumber) : undefined,
           taskId: pr.taskId,
-          sessionName: pr.sessionName,
+          sessionId: pr.sessionId,
         });
         lines.push(titleLine);
 
         // Second line: Session, Branch (if different from session), PR number, Updated
         const details: string[] = [];
-        if (pr.sessionName) {
+        if (pr.sessionId) {
           const shouldShowSession =
-            pr.sessionName !== displayId && !(pr.taskId && pr.sessionName.includes(pr.taskId));
+            pr.sessionId !== displayId && !(pr.taskId && pr.sessionId.includes(pr.taskId));
           if (shouldShowSession) {
-            details.push(`Session: ${pr.sessionName}`);
+            details.push(`Session: ${pr.sessionId}`);
           }
         }
-        if (pr.branch && pr.branch !== pr.sessionName) details.push(`Branch: ${pr.branch}`);
+        if (pr.branch && pr.branch !== pr.sessionId) details.push(`Branch: ${pr.branch}`);
         if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
         if (details.length > 0) lines.push(details.join("  "));
 

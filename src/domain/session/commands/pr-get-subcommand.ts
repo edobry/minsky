@@ -38,7 +38,7 @@ interface GitHubLivePr {
  * Gets detailed information about a specific PR
  */
 export async function sessionPrGet(params: {
-  sessionName?: string;
+  sessionId?: string;
   name?: string;
   task?: string;
   repo?: string;
@@ -52,7 +52,7 @@ export async function sessionPrGet(params: {
   pullRequest: {
     number?: number;
     title: string;
-    sessionName: string;
+    sessionId: string;
     taskId?: string;
     branch: string;
     status: string;
@@ -72,7 +72,7 @@ export async function sessionPrGet(params: {
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionName || params.name,
+      session: params.sessionId || params.name,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
@@ -80,10 +80,10 @@ export async function sessionPrGet(params: {
     });
 
     // Get the session record
-    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionName);
+    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
 
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
     // Check if session has PR information
@@ -96,7 +96,7 @@ export async function sessionPrGet(params: {
     // If no PR data in session record, try to discover and repair from GitHub API
     if (!pr && sessionRecord.backendType === "github") {
       log.info(
-        `No GitHub PR data in session record for ${resolvedContext.sessionName}, querying GitHub API for repair...`
+        `No GitHub PR data in session record for ${resolvedContext.sessionId}, querying GitHub API for repair...`
       );
 
       try {
@@ -107,7 +107,7 @@ export async function sessionPrGet(params: {
         // Query GitHub API to find PR by current branch
         const { GitService } = require("../../git");
         const gitService = new GitService(sessionDB);
-        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionId);
         currentBranch = (
           await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
         ).trim();
@@ -160,7 +160,7 @@ export async function sessionPrGet(params: {
             ...sessionRecord,
             pullRequest: repairedPrData,
           };
-          await sessionDB.updateSession(resolvedContext.sessionName, updatedSession);
+          await sessionDB.updateSession(resolvedContext.sessionId, updatedSession);
 
           log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
           finalPullRequest = repairedPrData;
@@ -216,7 +216,7 @@ export async function sessionPrGet(params: {
             // REMOVED: title, body, updatedAt - fetched live from GitHub API
           };
 
-          await sessionDB.updateSession(resolvedContext.sessionName, {
+          await sessionDB.updateSession(resolvedContext.sessionId, {
             ...sessionRecord,
             pullRequest: enriched,
           });
@@ -231,7 +231,7 @@ export async function sessionPrGet(params: {
     // If still no PR data after repair attempt, throw error
     if (!finalPullRequest && !prState?.commitHash) {
       throw new ResourceNotFoundError(
-        `No pull request found for session '${resolvedContext.sessionName}'. ` +
+        `No pull request found for session '${resolvedContext.sessionId}'. ` +
           `Use 'minsky session pr create' to create a PR first.`
       );
     }
@@ -241,7 +241,7 @@ export async function sessionPrGet(params: {
       try {
         const { GitService } = require("../../git");
         const gitService = new GitService(sessionDB);
-        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionId);
         currentBranch = (
           await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
         ).trim();
@@ -288,7 +288,7 @@ export async function sessionPrGet(params: {
     const pullRequest = {
       number: fp?.number,
       title: livePrData?.title || fp?.title || `PR for ${sessionRecord.session}`,
-      sessionName: sessionRecord.session,
+      sessionId: sessionRecord.session,
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"

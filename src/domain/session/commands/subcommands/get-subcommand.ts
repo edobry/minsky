@@ -12,7 +12,7 @@ import { log } from "../../../../utils/logger";
 export const sessionGetCommandParams = {
   name: {
     schema: z.string().min(1),
-    description: "Session name",
+    description: "Session ID",
     required: false,
   },
   task: {
