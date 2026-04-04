@@ -204,10 +204,8 @@ export class PreCommitHook {
         };
       }
 
-      // WARNING THRESHOLD: Block if warnings exceed baseline.
-      // Baseline is high due to @typescript-eslint/no-explicit-any ratchet (2,217 on 2026-04-01).
-      // Ratchet this number DOWN as `as any` casts are eliminated.
-      const MAX_LINT_WARNINGS = 2300;
+      // WARNING THRESHOLD: Zero warnings enforced since 2026-04-04.
+      const MAX_LINT_WARNINGS = 0;
       if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
