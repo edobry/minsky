@@ -5,40 +5,29 @@
  * eliminating noise in test output while preserving the ability to test logging behavior.
  */
 
-import { type LoggerConfig, LogMode } from "../logger";
+import { type LoggerConfig, LogMode, type LogContext } from "../logger";
 
 export interface LogEntry {
   level: string;
   message: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  metadata?: any;
+  metadata?: LogContext;
   timestamp: number;
 }
 
 export interface MockLoggerInterface {
   // Core logging methods
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  agent: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  debug: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  info: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  warn: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  error: (message: string | Error, metadata?: any) => void;
+  agent: (message: string, metadata?: LogContext) => void;
+  debug: (message: string, metadata?: LogContext) => void;
+  info: (message: string, metadata?: LogContext) => void;
+  warn: (message: string, metadata?: LogContext) => void;
+  error: (message: string | Error, metadata?: LogContext) => void;
 
   // CLI-specific methods
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cli: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cliDebug: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cliWarn: (message: string, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cliError: (message: string | Error, metadata?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  systemDebug: (message: string, metadata?: any) => void;
+  cli: (message: string, metadata?: LogContext) => void;
+  cliDebug: (message: string, metadata?: LogContext) => void;
+  cliWarn: (message: string, metadata?: LogContext) => void;
+  cliError: (message: string | Error, metadata?: LogContext) => void;
+  systemDebug: (message: string, metadata?: LogContext) => void;
 
   // Configuration and mode
   mode: string;
@@ -46,12 +35,10 @@ export interface MockLoggerInterface {
   isHumanMode: () => boolean;
   config: LoggerConfig;
 
-  // Internal for testing
+  // Internal for testing - use unknown to avoid depending on winston internals
   _internal: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    programLogger: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    agentLogger: any;
+    programLogger: unknown;
+    agentLogger: unknown;
   };
 
   // Mock-specific methods for testing
@@ -82,8 +69,7 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
 
   const currentLogMode: LogMode = LogMode.HUMAN; // Default to human mode in tests
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function addLog(level: string, message: string | Error, metadata?: any) {
+  function addLog(level: string, message: string | Error, metadata?: LogContext) {
     const entry: LogEntry = {
       level,
       message: message instanceof Error ? message.message : message,
@@ -93,31 +79,30 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
     logs.push(entry);
   }
 
+  // Create in-memory logger methods that share the addLog function
+  const internalLogger = {
+    error: (message: string, error?: LogContext) => addLog("error", message, error),
+    warn: (message: string, metadata?: LogContext) => addLog("warn", message, metadata),
+    info: (message: string, metadata?: LogContext) => addLog("info", message, metadata),
+    debug: (message: string, metadata?: LogContext) => addLog("debug", message, metadata),
+  };
+
   // Create mock logger methods
   const mockLogger: MockLoggerInterface = {
     // Core logging methods
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    agent: (message: string, metadata?: any) => addLog("info", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    debug: (message: string, metadata?: any) => addLog("debug", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    info: (message: string, metadata?: any) => addLog("info", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    warn: (message: string, metadata?: any) => addLog("warn", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    error: (message: string | Error, metadata?: any) => addLog("error", message, metadata),
+    agent: (message: string, metadata?: LogContext) => addLog("info", message, metadata),
+    debug: (message: string, metadata?: LogContext) => addLog("debug", message, metadata),
+    info: (message: string, metadata?: LogContext) => addLog("info", message, metadata),
+    warn: (message: string, metadata?: LogContext) => addLog("warn", message, metadata),
+    error: (message: string | Error, metadata?: LogContext) => addLog("error", message, metadata),
 
     // CLI-specific methods
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cli: (message: string, metadata?: any) => addLog("info", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cliDebug: (message: string, metadata?: any) => addLog("debug", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cliWarn: (message: string, metadata?: any) => addLog("warn", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cliError: (message: string | Error, metadata?: any) => addLog("error", message, metadata),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    systemDebug: (message: string, metadata?: any) => addLog("debug", message, metadata),
+    cli: (message: string, metadata?: LogContext) => addLog("info", message, metadata),
+    cliDebug: (message: string, metadata?: LogContext) => addLog("debug", message, metadata),
+    cliWarn: (message: string, metadata?: LogContext) => addLog("warn", message, metadata),
+    cliError: (message: string | Error, metadata?: LogContext) =>
+      addLog("error", message, metadata),
+    systemDebug: (message: string, metadata?: LogContext) => addLog("debug", message, metadata),
 
     // Configuration and mode
     mode: (currentLogMode as LogMode) === LogMode.STRUCTURED ? "STRUCTURED" : "HUMAN",
@@ -127,26 +112,8 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
 
     // Internal (empty mocks for compatibility)
     _internal: {
-      programLogger: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        error: (message: string, error?: any) => addLog("error", message, error),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        warn: (message: string, metadata?: any) => addLog("warn", message, metadata),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        info: (message: string, metadata?: any) => addLog("info", message, metadata),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        debug: (message: string, metadata?: any) => addLog("debug", message, metadata),
-      },
-      agentLogger: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        error: (message: string, error?: any) => addLog("error", message, error),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        warn: (message: string, metadata?: any) => addLog("warn", message, metadata),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        info: (message: string, metadata?: any) => addLog("info", message, metadata),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        debug: (message: string, metadata?: any) => addLog("debug", message, metadata),
-      },
+      programLogger: internalLogger,
+      agentLogger: internalLogger,
     },
 
     // Mock-specific testing methods

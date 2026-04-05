@@ -38,7 +38,6 @@ export function setupTestMocksWithCleanup(): void {
  * - Resetting command registries
  * - Clearing CLI bridge customizations
  * - Resetting error handler state
- * - Cleaning up mock compatibility layer state
  * - Resetting Jest-like globals
  * - Restoring any global test state
  */
@@ -76,40 +75,6 @@ export function resetTestState(): void {
     if (errorHandlerModule?.cliErrorHandler) {
       // Reset any cached error state
       // Note: Most error handlers are stateless, but included for completeness
-    }
-  } catch (error) {
-    // Ignore errors if the module doesn't exist
-  }
-
-  try {
-    // Reset global invocation counter from mock compatibility layer
-    const compatModule = require("./compatibility/mock-function");
-    if (compatModule?.resetAllMocks) {
-      compatModule.resetAllMocks();
-    }
-  } catch (error) {
-    // Ignore errors if the module doesn't exist
-  }
-
-  try {
-    // Reset Jest-like globals if they exist
-    const jestCompatModule = require("./compatibility/index");
-    if (jestCompatModule?.jest?.resetModules) {
-      jestCompatModule.jest.resetModules();
-    }
-  } catch (error) {
-    // Ignore errors if the module doesn't exist
-  }
-
-  try {
-    // Reset any global test state
-    if (typeof global !== "undefined") {
-      // Reset date functions if they were mocked
-      const testUtilsModule = require("../test-utils");
-      if (testUtilsModule?.mockDateFunctions && global.Date !== Date) {
-        // If Date was mocked, restore it
-        // Note: This is defensive - proper tests should restore their own mocks
-      }
     }
   } catch (error) {
     // Ignore errors if the module doesn't exist
