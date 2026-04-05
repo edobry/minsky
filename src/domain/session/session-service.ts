@@ -49,7 +49,10 @@ import type { SessionStartParameters, SessionUpdateParameters } from "../schemas
 export interface SessionDeps {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
-  taskService: TaskServiceInterface;
+  taskService: TaskServiceInterface & {
+    /** Optional — available on backends that support spec retrieval */
+    getTaskSpecData?: (taskId: string) => Promise<string>;
+  };
   workspaceUtils: WorkspaceUtilsInterface;
   getCurrentSession: (repoPath: string) => Promise<string | null>;
   getRepositoryBackend: () => Promise<{
@@ -162,7 +165,8 @@ export class SessionService {
     return updateSessionImpl(params as unknown as SessionUpdateParameters, {
       gitService: this.deps.gitService,
       sessionDB: this.deps.sessionDB,
-      getCurrentSession: this.deps.getCurrentSession as typeof getCurrentSession,
+      getCurrentSession: async (repoPath?: string) =>
+        (await this.deps.getCurrentSession(repoPath ?? process.cwd())) ?? undefined,
     });
   }
 
@@ -182,7 +186,8 @@ export class SessionService {
       gitService: this.deps.gitService,
       taskService: this.deps.taskService,
       workspaceUtils: this.deps.workspaceUtils,
-      getCurrentSession: this.deps.getCurrentSession as typeof getCurrentSession,
+      getCurrentSession: async (repoPath?: string) =>
+        (await this.deps.getCurrentSession(repoPath ?? process.cwd())) ?? undefined,
     });
   }
 

@@ -19,7 +19,7 @@ import {
   type RepositoryBackendConfig,
   type MergeInfo,
 } from "../repository/index";
-import { createConfiguredTaskService } from "../tasks/taskService";
+import { createConfiguredTaskService, type TaskServiceInterface } from "../tasks/taskService";
 import { createGitService } from "../git";
 import type { GitServiceInterface } from "../git/types";
 import { TASK_STATUS } from "../tasks/taskConstants";
@@ -28,7 +28,6 @@ import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
-import type { Task } from "../tasks/types";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -105,12 +104,7 @@ export interface SessionMergeResult {
  */
 export interface SessionMergeDependencies {
   sessionDB: SessionProviderInterface;
-  taskService?: {
-    setTaskStatus?: (taskId: string, status: string) => Promise<void>;
-    getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-    getBackendForTask?: (taskId: string) => Promise<string>;
-    getTask?: (taskId: string) => Promise<Task | null>;
-  };
+  taskService?: TaskServiceInterface;
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
 }
