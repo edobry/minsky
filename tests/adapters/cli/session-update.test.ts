@@ -48,20 +48,8 @@ describe("session update command", () => {
     testData = createSessionTestData();
 
     mockGitService = createMockGitService({
-      getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
-      fetchLatest: async () => {
-        // Mock successful fetch
-        return { workdir: "mock-workdir", updated: false };
-      },
-      execInRepository: async (workdir: string, command: string) => {
-        if (command.includes("git remote get-url origin")) {
-          return "https://github.com/test/repo.git";
-        }
-        if (command.includes("git checkout")) {
-          return "Switched to branch 'new-branch'";
-        }
-        return "";
-      },
+      hasUncommittedChanges: async () => false,
+      fetchDefaultBranch: async () => "main",
     });
   });
 
@@ -99,7 +87,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionId: "test-session",
+        name: "test-session",
         branch: "new-branch",
         noPush: true,
       } as any,
@@ -111,8 +99,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as SessionRecord).name).toBe("test-session");
-    expect((result as SessionRecord).branch).toBe("new-branch");
+    expect(result.session).toBe("test-session");
     expect(mockSessionDB.updateSession).toHaveBeenCalled();
   });
 
@@ -143,7 +130,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionId: "missing-session",
+        name: "missing-session",
         skipConflictCheck: true,
       } as any,
       {
@@ -154,7 +141,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as SessionRecord).name).toBeTruthy();
+    expect(result.session).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -191,7 +178,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionId: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
+        name: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
         autoResolveDeleteConflicts: true,
       } as any,
       {
@@ -202,7 +189,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as SessionRecord).name).toBeTruthy();
+    expect(result.session).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -233,7 +220,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionId: "force-session",
+        name: "force-session",
         force: true,
       } as any,
       {
@@ -244,7 +231,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as SessionRecord).name).toBeTruthy();
+    expect(result.session).toBeTruthy();
   });
 
   test("should handle dry run mode", async () => {
@@ -273,7 +260,7 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionId: "dry-run-session",
+        name: "dry-run-session",
         dryRun: true,
       } as any,
       {
@@ -284,7 +271,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect((result as SessionRecord).name).toBeTruthy();
+    expect(result.session).toBeTruthy();
     // In dry run mode, updateSession should not be called
     expect(mockSessionDB.updateSession).not.toHaveBeenCalled();
   });

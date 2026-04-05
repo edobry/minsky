@@ -255,7 +255,7 @@ describe("Session CLI Commands", () => {
 
       const result = await updateSessionFromParams(
         {
-          sessionId: "update-session",
+          name: "update-session",
           branch: "new-branch",
           force: false,
           noStash: false,
@@ -320,7 +320,7 @@ describe("Session CLI Commands", () => {
 
       const result = await updateSessionFromParams(
         {
-          sessionId: "git-session",
+          name: "git-session",
           autoResolveDeleteConflicts: true,
           force: false,
           noStash: false,

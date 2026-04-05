@@ -195,13 +195,7 @@ export async function updateSessionImpl(
           );
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
-          return {
-            session: sessionId,
-            repoName: sessionRecord.repoName || "unknown",
-            repoUrl: sessionRecord.repoUrl,
-            createdAt: sessionRecord.createdAt,
-            taskId: sessionRecord.taskId,
-          };
+          return sessionRecord as Session;
         }
       }
 
@@ -228,13 +222,7 @@ export async function updateSessionImpl(
             log.cli("\n💡 Your session changes are already merged. Proceeding with PR creation...");
           }
 
-          return {
-            session: sessionId,
-            repoName: sessionRecord.repoName || "unknown",
-            repoUrl: sessionRecord.repoUrl,
-            createdAt: sessionRecord.createdAt,
-            taskId: sessionRecord.taskId,
-          };
+          return sessionRecord as Session;
         }
 
         if (!updateResult.updated && updateResult.conflictDetails) {
@@ -299,13 +287,7 @@ export async function updateSessionImpl(
 
       log.cli(`Session '${sessionId}' updated successfully`);
 
-      return {
-        session: sessionId,
-        repoName: sessionRecord.repoName || "unknown",
-        repoUrl: sessionRecord.repoUrl,
-        createdAt: sessionRecord.createdAt,
-        taskId: sessionRecord.taskId,
-      };
+      return sessionRecord as Session;
     } catch (error) {
       // If there's an error during update, try to clean up any stashed changes
       if (!noStash) {
