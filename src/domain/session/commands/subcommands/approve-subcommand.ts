@@ -1,5 +1,6 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
 import { approveSessionPr } from "../../session-approval-operations";
+import { createSessionProvider } from "../../session-db-adapter";
 
 /**
  * Session approve subcommand (Task #358 - Updated)
@@ -18,11 +19,15 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
   const reviewComment = options?.comment || options?.reviewComment;
 
   try {
-    const result = await approveSessionPr({
-      session: sessionId,
-      json,
-      reviewComment,
-    });
+    const sessionDB = await createSessionProvider();
+    const result = await approveSessionPr(
+      {
+        session: sessionId,
+        json,
+        reviewComment,
+      },
+      { sessionDB }
+    );
 
     return {
       success: true,

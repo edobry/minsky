@@ -104,11 +104,16 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
   log.debug("Pure session approve command", { session: params.session });
 
   const { approveSessionPr } = await import("./session-approval-operations.js");
+  const { createSessionProvider } = await import("./session-db-adapter.js");
 
   try {
-    const result = await approveSessionPr({
-      session: params.session,
-    });
+    const sessionDB = await createSessionProvider();
+    const result = await approveSessionPr(
+      {
+        session: params.session,
+      },
+      { sessionDB }
+    );
 
     return {
       success: true,

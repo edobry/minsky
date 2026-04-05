@@ -86,10 +86,13 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     ).rejects.toThrow(ResourceNotFoundError);
 
     try {
-      await approveSessionPr({
-        task: "md#3283",
-        json: false,
-      });
+      await approveSessionPr(
+        {
+          task: "md#3283",
+          json: false,
+        },
+        { sessionDB: mockSessionProvider as unknown as SessionProviderInterface }
+      );
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         // Verify error message is clear and indicates missing session
@@ -145,21 +148,35 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
 
   test("should require session ID or task ID", async () => {
     // Test Case 3: No session ID or task ID provided
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSessionByTaskId: async () => null,
+      getSession: async () => null,
+    });
     await expect(
-      approveSessionPr({
-        json: false,
-        // No session or task provided
-      })
+      approveSessionPr(
+        {
+          json: false,
+          // No session or task provided
+        },
+        { sessionDB: mockSessionDB }
+      )
     ).rejects.toThrow("No session detected. Please provide a session ID or task ID");
   });
 
   test("should provide clear error message for missing session", async () => {
     // Test that error messages are clear and concise for the new approve function
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSessionByTaskId: async () => null,
+      getSession: async () => null,
+    });
     try {
-      await approveSessionPr({
-        task: "md#9999",
-        json: false,
-      });
+      await approveSessionPr(
+        {
+          task: "md#9999",
+          json: false,
+        },
+        { sessionDB: mockSessionDB }
+      );
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         const message = error.message;

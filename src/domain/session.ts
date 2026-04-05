@@ -5,32 +5,21 @@
  * a stable public API. Most logic lives in the sub-modules under ./session/.
  */
 
-import { createGitService } from "./git";
 import {
   detectRepositoryBackendTypeFromUrl,
   getRepositoryBackendFromConfig,
 } from "./session/repository-backend-detection";
 import { createSessionProvider } from "./session/session-db-adapter";
+import { createGitService } from "./git";
 import { type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 
 import {
   type SessionReviewParams,
   type SessionReviewResult,
-  sessionReviewImpl,
 } from "./session/session-review-operations";
-import { type WorkspaceUtilsInterface, getCurrentSession } from "./workspace";
-import * as WorkspaceUtils from "./workspace";
-import { approveSessionPr } from "./session/session-approval-operations";
+import { type WorkspaceUtilsInterface, getCurrentSession, createWorkspaceUtils } from "./workspace";
 import { sessionCommit } from "./session/session-commands";
-import {
-  getSessionImpl,
-  listSessionsImpl,
-  deleteSessionImpl,
-  getSessionDirImpl,
-  inspectSessionImpl,
-} from "./session/session-lifecycle-operations";
-import { updateSessionImpl } from "./session/session-update-operations";
 import { startSessionImpl } from "./session/start-session-operations";
 import type { RepositoryBackend } from "./repository/index";
 import type { SessionRecord } from "./session/types";
@@ -44,8 +33,9 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
 } from "../schemas/session";
-import type { SessionStartParameters, SessionUpdateParameters } from "./schemas";
 import type { GitServiceInterface } from "./git";
+
+import { SessionService, type SessionDeps, createSessionDeps } from "./session/session-service";
 
 // Re-export canonical types from sub-modules
 export type { Session, SessionProviderInterface, SessionRecord } from "./session/types";
@@ -69,9 +59,32 @@ export {
 // Re-export new session-scoped git commands
 export { sessionCommit };
 
+// Re-export SessionService and related types for consumers
+export { SessionService, createSessionDeps };
+export type { SessionDeps };
+export { createSessionService } from "./session/session-service";
+
 // ---- Param-based facade functions (thin wrappers that inject defaults) ----
 
 import type { SessionProviderInterface } from "./session/types";
+
+/**
+ * Resolves a partial deps object into a full SessionDeps, filling in any
+ * missing fields with real implementations.
+ */
+async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<SessionDeps> {
+  if (!partial) return createSessionDeps();
+  return {
+    sessionDB: partial.sessionDB ?? (await createSessionProvider()),
+    gitService: partial.gitService ?? createGitService(),
+    taskService:
+      partial.taskService ?? (await createConfiguredTaskService({ workspacePath: process.cwd() })),
+    workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(),
+    getCurrentSession:
+      partial.getCurrentSession ?? (async (p: string) => (await getCurrentSession(p)) ?? null),
+    getRepositoryBackend: partial.getRepositoryBackend ?? getRepositoryBackendFromConfig,
+  };
+}
 
 /**
  * Gets session details based on parameters.
@@ -81,10 +94,8 @@ export async function getSessionFromParams(
   params: SessionGetParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<import("./session/types").Session | null> {
-  const deps = {
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-  };
-  return getSessionImpl(params, deps);
+  const service = new SessionService(await resolvePartialDeps(depsInput));
+  return service.get(params);
 }
 
 /**
@@ -94,10 +105,8 @@ export async function listSessionsFromParams(
   params: SessionListParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<import("./session/types").Session[]> {
-  const deps = {
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-  };
-  return listSessionsImpl(params, deps);
+  const service = new SessionService(await resolvePartialDeps(depsInput));
+  return service.list(params);
 }
 
 /**
@@ -158,34 +167,41 @@ export async function startSessionFromParams(
     getRepositoryBackendDep = getRepositoryBackendFromConfig;
   }
 
-  const deps = {
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-    gitService: depsInput?.gitService ?? createGitService(),
-    taskService:
-      depsInput?.taskService ??
-      (await createConfiguredTaskService({ workspacePath: process.cwd() })),
-    workspaceUtils: depsInput?.workspaceUtils ?? WorkspaceUtils.createWorkspaceUtils(),
+  const resolvedDeps = await resolvePartialDeps({
+    sessionDB: depsInput?.sessionDB,
+    gitService: depsInput?.gitService,
+    taskService: depsInput?.taskService,
+    workspaceUtils: depsInput?.workspaceUtils,
     getRepositoryBackend: getRepositoryBackendDep,
-    fs: depsInput?.fs,
-  } as const;
+  });
 
-  const sessionStartParams = {
-    name: params.name,
-    task: params.task,
-    description: params.description || "",
-    branch: params.branch,
-    packageManager: params.packageManager || "bun",
-    skipInstall: params.skipInstall || false,
-    noStatusUpdate: params.noStatusUpdate || false,
-    quiet: params.quiet || false,
-    repo: params.repo,
-    debug: false,
-    format: "text" as const,
-    force: false,
-  };
+  if (depsInput?.fs) {
+    // `fs` is not part of SessionDeps but startSessionImpl accepts it directly.
+    // Fall back to lower-level call when an fs override is provided.
+    const sessionStartParams = {
+      name: params.name,
+      task: params.task,
+      description: params.description || "",
+      branch: params.branch,
+      packageManager: params.packageManager || "bun",
+      skipInstall: params.skipInstall || false,
+      noStatusUpdate: params.noStatusUpdate || false,
+      quiet: params.quiet || false,
+      repo: params.repo,
+      debug: false,
+      format: "text" as const,
+      force: false,
+    };
 
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- sessionStartParams is structurally compatible with SessionStartParameters but param type differs
-  return startSessionImpl(sessionStartParams as unknown as SessionStartParameters, deps);
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- param schemas are structurally compatible but have optional vs required field mismatches
+    const typedParams = sessionStartParams as unknown as import("./schemas").SessionStartParameters;
+    return startSessionImpl(typedParams, {
+      ...resolvedDeps,
+      fs: depsInput.fs,
+    });
+  }
+
+  return new SessionService(resolvedDeps).start(params);
 }
 
 /**
@@ -195,10 +211,8 @@ export async function deleteSessionFromParams(
   params: SessionDeleteParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<boolean> {
-  const deps = {
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-  };
-  return deleteSessionImpl(params, deps);
+  const service = new SessionService(await resolvePartialDeps(depsInput));
+  return service.delete(params);
 }
 
 /**
@@ -208,10 +222,8 @@ export async function getSessionDirFromParams(
   params: SessionDirParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<string> {
-  const deps = {
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-  };
-  return getSessionDirImpl(params, deps);
+  const service = new SessionService(await resolvePartialDeps(depsInput));
+  return service.getDir(params);
 }
 
 /**
@@ -225,13 +237,23 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<import("./session/types").Session> {
-  const deps = {
-    gitService: depsInput?.gitService ?? createGitService(),
-    sessionDB: depsInput?.sessionDB ?? (await createSessionProvider()),
-    getCurrentSession: depsInput?.getCurrentSession ?? getCurrentSession,
-  };
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionUpdateParams needs bridge to SessionUpdateParameters due to interface mismatch
-  return updateSessionImpl(params as unknown as SessionUpdateParameters, deps);
+  // getCurrentSession from workspace has signature (path: string) => Promise<string | undefined>
+  // but SessionDeps.getCurrentSession returns Promise<string | null>. Wrap if provided.
+  const wrappedGetCurrentSession = depsInput?.getCurrentSession
+    ? async (p: string) => {
+        const result = await depsInput.getCurrentSession!(p);
+        return result ?? null;
+      }
+    : undefined;
+
+  const service = new SessionService(
+    await resolvePartialDeps({
+      sessionDB: depsInput?.sessionDB,
+      gitService: depsInput?.gitService,
+      getCurrentSession: wrappedGetCurrentSession,
+    })
+  );
+  return service.update(params);
 }
 
 /**
@@ -240,13 +262,13 @@ export async function updateSessionFromParams(
 export async function inspectSessionFromParams(params: {
   json?: boolean;
 }): Promise<import("./session/types").Session | null> {
-  const sessionProvider = await createSessionProvider();
-  return inspectSessionImpl(params, { sessionDB: sessionProvider });
+  const service = new SessionService(await resolvePartialDeps());
+  return service.inspect(params);
 }
 
 /**
  * Reviews a session PR.
- * Delegates to sessionReviewImpl in session-review-operations sub-module.
+ * Delegates to SessionService.review().
  */
 export async function sessionReviewFromParams(
   params: SessionReviewParams,
@@ -260,7 +282,25 @@ export async function sessionReviewFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<SessionReviewResult> {
-  return sessionReviewImpl(params, depsInput);
+  // getCurrentSession from workspace has signature (path: string) => Promise<string | undefined>
+  // but SessionDeps.getCurrentSession returns Promise<string | null>. Wrap if provided.
+  const wrappedGetCurrentSession = depsInput?.getCurrentSession
+    ? async (p: string) => {
+        const result = await depsInput.getCurrentSession!(p);
+        return result ?? null;
+      }
+    : undefined;
+
+  const service = new SessionService(
+    await resolvePartialDeps({
+      sessionDB: depsInput?.sessionDB,
+      gitService: depsInput?.gitService,
+      taskService: depsInput?.taskService,
+      workspaceUtils: depsInput?.workspaceUtils,
+      getCurrentSession: wrappedGetCurrentSession,
+    })
+  );
+  return service.review(params);
 }
 
 /**
@@ -297,16 +337,20 @@ export async function approveSessionFromParams(
   approvalInfo: ApprovalInfo;
   wasAlreadyApproved: boolean;
 }> {
-  let sessionToUse = params.session;
+  // When deprecated createRepositoryBackendForSession is provided (test compat),
+  // call approveSessionPr directly to pass it through
+  const { approveSessionPr } = await import("./session/session-approval-operations");
 
-  // Handle session detection from repo path (CLI interface concern)
+  let sessionToUse = params.session;
   if (!sessionToUse && !params.task && params.repo) {
-    const getCurrentSessionFunc = depsInput?.getCurrentSession ?? getCurrentSession;
-    const detectedSession = await getCurrentSessionFunc(params.repo);
-    if (detectedSession) {
-      sessionToUse = detectedSession;
-    }
+    const getCurrentSessionFunc =
+      depsInput?.getCurrentSession ?? (async (p: string) => (await getCurrentSession(p)) ?? null);
+    const detected = await getCurrentSessionFunc(params.repo);
+    if (detected) sessionToUse = detected;
   }
+
+  const { createSessionProvider } = await import("./session/session-db-adapter");
+  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionProvider());
 
   const result = await approveSessionPr(
     {
@@ -317,7 +361,7 @@ export async function approveSessionFromParams(
       reviewComment: params.reviewComment,
     },
     {
-      sessionDB: depsInput?.sessionDB,
+      sessionDB: resolvedSessionDB,
       gitService: depsInput?.gitService,
       taskService: depsInput?.taskService,
       workspaceUtils: depsInput?.workspaceUtils,
