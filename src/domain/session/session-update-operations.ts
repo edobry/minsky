@@ -57,6 +57,7 @@ export async function updateSessionImpl(
       repo: params.repo,
       sessionProvider: deps.sessionDB,
       allowAutoDetection: !name, // Only allow auto-detection if no name provided
+      getCurrentSessionFn: deps.getCurrentSession,
     });
     sessionId = resolvedContext.sessionId;
     log.debug("Session resolved", { sessionId, resolvedBy: resolvedContext.resolvedBy });
