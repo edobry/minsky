@@ -7,7 +7,7 @@
 
 import { log } from "../../utils/logger";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import { type SessionProviderInterface } from "./session-db-adapter";
 import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
 import {
   createRepositoryBackend,
@@ -98,6 +98,21 @@ export interface SessionApprovalResult {
 }
 
 /**
+ * Dependencies required by approveSessionPr.
+ * sessionDB, gitService, taskService, and workspaceUtils are required.
+ * createRepositoryBackendForSession is optional (used for testing/legacy compat).
+ */
+export interface SessionApprovalDependencies {
+  sessionDB: SessionProviderInterface;
+  gitService?: GitServiceInterface;
+  taskService?: TaskServiceInterface;
+  workspaceUtils?: WorkspaceUtilsInterface;
+  resolveRepoPath?: (path: string) => string;
+  /** @deprecated Use createRepositoryBackend instead */
+  createRepositoryBackendForSession?: (...args: unknown[]) => Promise<RepositoryBackend>;
+}
+
+/**
  * Approve a session's pull request (Task #358)
  *
  * This function:
@@ -108,22 +123,13 @@ export interface SessionApprovalResult {
  */
 export async function approveSessionPr(
   params: SessionApprovalParams,
-  deps?: {
-    sessionDB?: SessionProviderInterface;
-    gitService?: GitServiceInterface;
-    taskService?: TaskServiceInterface;
-    workspaceUtils?: WorkspaceUtilsInterface;
-    resolveRepoPath?: (path: string) => string;
-    /** @deprecated Use createRepositoryBackend instead */
-    createRepositoryBackendForSession?: (...args: unknown[]) => Promise<RepositoryBackend>;
-  }
+  deps: SessionApprovalDependencies
 ): Promise<SessionApprovalResult> {
   if (!params.json) {
     log.cli("🔍 Starting session approval...");
   }
 
-  // Set up session provider
-  const sessionDB = deps?.sessionDB || (await createSessionProvider());
+  const sessionDB = deps.sessionDB;
 
   // Resolve session ID
   let sessionIdToUse = params.session;

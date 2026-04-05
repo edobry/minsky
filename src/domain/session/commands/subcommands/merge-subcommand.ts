@@ -1,5 +1,6 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
 import { mergeSessionPr } from "../../session-merge-operations";
+import { createSessionProvider } from "../../session-db-adapter";
 
 /**
  * Session merge subcommand (Task #358)
@@ -20,12 +21,16 @@ export const mergeSessionSubcommand: CommandExecutionHandler = async (params) =>
   const cleanup = options?.["skip-cleanup"] !== true;
 
   try {
-    const result = await mergeSessionPr({
-      session: sessionId,
-      task: taskId,
-      json,
-      cleanupSession: cleanup,
-    });
+    const sessionDB = await createSessionProvider();
+    const result = await mergeSessionPr(
+      {
+        session: sessionId,
+        task: taskId,
+        json,
+        cleanupSession: cleanup,
+      },
+      { sessionDB }
+    );
 
     return {
       success: true,

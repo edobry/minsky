@@ -358,6 +358,9 @@ export async function approveSessionFromParams(
     if (detected) sessionToUse = detected;
   }
 
+  const { createSessionProvider } = await import("./session/session-db-adapter");
+  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionProvider());
+
   const result = await approveSessionPr(
     {
       session: sessionToUse,
@@ -367,7 +370,7 @@ export async function approveSessionFromParams(
       reviewComment: params.reviewComment,
     },
     {
-      sessionDB: depsInput?.sessionDB,
+      sessionDB: resolvedSessionDB,
       gitService: depsInput?.gitService,
       taskService: depsInput?.taskService,
       workspaceUtils: depsInput?.workspaceUtils,
