@@ -167,26 +167,17 @@ export async function startSessionFromParams(
     getRepositoryBackendDep = getRepositoryBackendFromConfig;
   }
 
-  const service = new SessionService(
-    await resolvePartialDeps({
-      sessionDB: depsInput?.sessionDB,
-      gitService: depsInput?.gitService,
-      taskService: depsInput?.taskService,
-      workspaceUtils: depsInput?.workspaceUtils,
-      getRepositoryBackend: getRepositoryBackendDep,
-    })
-  );
+  const resolvedDeps = await resolvePartialDeps({
+    sessionDB: depsInput?.sessionDB,
+    gitService: depsInput?.gitService,
+    taskService: depsInput?.taskService,
+    workspaceUtils: depsInput?.workspaceUtils,
+    getRepositoryBackend: getRepositoryBackendDep,
+  });
 
   if (depsInput?.fs) {
     // `fs` is not part of SessionDeps but startSessionImpl accepts it directly.
     // Fall back to lower-level call when an fs override is provided.
-    const baseDeps = await resolvePartialDeps({
-      sessionDB: depsInput?.sessionDB,
-      gitService: depsInput?.gitService,
-      taskService: depsInput?.taskService,
-      workspaceUtils: depsInput?.workspaceUtils,
-      getRepositoryBackend: getRepositoryBackendDep,
-    });
     const sessionStartParams = {
       name: params.name,
       task: params.task,
@@ -205,12 +196,12 @@ export async function startSessionFromParams(
     // eslint-disable-next-line custom/no-excessive-as-unknown -- param schemas are structurally compatible but have optional vs required field mismatches
     const typedParams = sessionStartParams as unknown as import("./schemas").SessionStartParameters;
     return startSessionImpl(typedParams, {
-      ...baseDeps,
+      ...resolvedDeps,
       fs: depsInput.fs,
     });
   }
 
-  return service.start(params);
+  return new SessionService(resolvedDeps).start(params);
 }
 
 /**
