@@ -20,7 +20,6 @@ import {
   getCurrentSession,
   getCurrentSessionContext,
 } from "../workspace";
-import * as WorkspaceUtils from "../workspace";
 import { type SessionProviderInterface } from "./session-db-adapter";
 import { gitFetchWithTimeout } from "../../utils/git-exec";
 
