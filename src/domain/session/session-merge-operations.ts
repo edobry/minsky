@@ -7,7 +7,7 @@
 
 import { log } from "../../utils/logger";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import { type SessionProviderInterface } from "./session-db-adapter";
 import {
   detectRepositoryBackendTypeFromUrl,
   extractGitHubInfoFromUrl,
@@ -100,6 +100,22 @@ export interface SessionMergeResult {
 }
 
 /**
+ * Dependencies required by mergeSessionPr.
+ * sessionDB is required. Other deps are optional with internal fallbacks.
+ */
+export interface SessionMergeDependencies {
+  sessionDB: SessionProviderInterface;
+  taskService?: {
+    setTaskStatus?: (taskId: string, status: string) => Promise<void>;
+    getTaskStatus?: (taskId: string) => Promise<string | undefined>;
+    getBackendForTask?: (taskId: string) => Promise<string>;
+    getTask?: (taskId: string) => Promise<Task | null>;
+  };
+  gitService?: GitServiceInterface;
+  createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
+}
+
+/**
  * Merge a session's approved pull request (Task #358)
  *
  * This function:
@@ -112,22 +128,11 @@ export interface SessionMergeResult {
  */
 export async function mergeSessionPr(
   params: SessionMergeParams,
-  deps?: {
-    sessionDB?: SessionProviderInterface;
-    taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<void>;
-      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-      getBackendForTask?: (taskId: string) => Promise<string>;
-      getTask?: (taskId: string) => Promise<Task | null>;
-    };
-    gitService?: GitServiceInterface;
-    createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
-  }
+  deps: SessionMergeDependencies
 ): Promise<SessionMergeResult> {
   // Removed noise padding - operation speaks for itself
 
-  // Set up session provider
-  const sessionDB = deps?.sessionDB || (await createSessionProvider());
+  const sessionDB = deps.sessionDB;
 
   // Resolve session ID
   let sessionIdToUse = params.session;

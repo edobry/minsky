@@ -252,16 +252,31 @@ export class SessionReviewCommand extends BaseSessionCommand<
     const { sessionReviewImpl } = await import(
       "../../../../domain/session/session-review-operations"
     );
+    const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+    const { createGitService } = await import("../../../../domain/git");
+    const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+    const { getCurrentSession, createWorkspaceUtils } = await import(
+      "../../../../domain/workspace"
+    );
 
     // Get basic session review data (with changeset integration)
-    const reviewResult = await sessionReviewImpl({
-      session: params.session || params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
-      output: params.output,
-      prBranch: params.prBranch,
-    });
+    const reviewResult = await sessionReviewImpl(
+      {
+        session: params.session || params.name,
+        task: params.task,
+        repo: params.repo,
+        json: params.json,
+        output: params.output,
+        prBranch: params.prBranch,
+      },
+      {
+        sessionDB: await createSessionProvider(),
+        gitService: createGitService(),
+        taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
+        workspaceUtils: createWorkspaceUtils(),
+        getCurrentSession,
+      }
+    );
 
     // If AI analysis is requested, enhance with AI review
     if (params.ai && reviewResult.changeset) {
@@ -531,17 +546,23 @@ export class SessionPrMergeCommand extends BaseSessionCommand<
     context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
+    const { createSessionProvider: createSessionProviderForMerge } = await import(
+      "../../../../domain/session/session-db-adapter"
+    );
 
     // Cleanup is enabled by default, but can be disabled with --skip-cleanup
     const shouldCleanup = params.skipCleanup !== true;
 
-    const result = await mergeSessionPr({
-      session: params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
-      cleanupSession: shouldCleanup,
-    });
+    const result = await mergeSessionPr(
+      {
+        session: params.name,
+        task: params.task,
+        repo: params.repo,
+        json: params.json,
+        cleanupSession: shouldCleanup,
+      },
+      { sessionDB: await createSessionProviderForMerge() }
+    );
 
     return this.createSuccessResult({ result, printed: true });
   }
