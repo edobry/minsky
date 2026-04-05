@@ -132,8 +132,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (target as any)[prop];
+        return (target as Record<string | symbol, unknown>)[prop];
       }
 
       // For methods that don't exist, create a mock function

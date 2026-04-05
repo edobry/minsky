@@ -16,7 +16,7 @@ import type {
 import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
-import type { PersistenceProvider } from "../../domain/persistence/types";
+import type { PersistenceProvider, PersistenceCapabilities } from "../../domain/persistence/types";
 
 /**
  * Basic domain dependencies structure for common domain functions
@@ -484,6 +484,16 @@ export function createMockSessionProvider(
 }
 
 /**
+ * Extended GitServiceInterface mock with call-counting utilities
+ * Tests that need to verify the number of git operations can use these methods
+ * without casting to any.
+ */
+export interface MockGitServiceWithCallCount extends GitServiceInterface {
+  getGitCallCount: () => number;
+  resetGitCallCount: () => void;
+}
+
+/**
  * Options for configuring GitServiceInterface mock behavior
  */
 export interface MockGitServiceOptions {
@@ -509,9 +519,11 @@ export interface MockGitServiceOptions {
  * Provides realistic mock responses and supports command-specific overrides
  *
  * @param options Configuration options for mock behavior
- * @returns A complete mock GitServiceInterface
+ * @returns A complete mock GitServiceInterface with optional call-counting methods
  */
-export function createMockGitService(options: MockGitServiceOptions = {}): GitServiceInterface {
+export function createMockGitService(
+  options: MockGitServiceOptions = {}
+): MockGitServiceWithCallCount {
   const { branchExists = true } = options;
   let gitCallCount = 0;
 
@@ -574,15 +586,24 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
     fetchDefaultBranch: options.fetchDefaultBranch || (() => Promise.resolve("main")),
   });
 
-  // Add additional utility methods that some tests expect
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockGitService as any).getGitCallCount = () => gitCallCount;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockGitService as any).resetGitCallCount = () => {
+  // Add call-counting utility methods (available via MockGitServiceWithCallCount interface)
+  const mockGitServiceWithCount = mockGitService as MockGitServiceWithCallCount;
+  mockGitServiceWithCount.getGitCallCount = () => gitCallCount;
+  mockGitServiceWithCount.resetGitCallCount = () => {
     gitCallCount = 0;
   };
 
-  return mockGitService;
+  return mockGitServiceWithCount;
+}
+
+/**
+ * Extended TaskServiceInterface mock with internal test utilities.
+ * Tests that need to inspect backend configuration can use these properties
+ * without casting to any.
+ */
+export interface MockTaskServiceWithInternals extends TaskServiceInterface {
+  backends: string[];
+  currentBackend: string;
 }
 
 /**
@@ -611,9 +632,11 @@ export interface MockTaskServiceOptions {
  * Provides consistent task data responses and supports task state management
  *
  * @param options Configuration options for mock behavior
- * @returns A complete mock TaskServiceInterface
+ * @returns A complete mock TaskServiceInterface with optional internal utility properties
  */
-export function createMockTaskService(options: MockTaskServiceOptions = {}): TaskServiceInterface {
+export function createMockTaskService(
+  options: MockTaskServiceOptions = {}
+): MockTaskServiceWithInternals {
   const mockTaskService = createPartialMock<TaskServiceInterface>({
     getTask: options.getTask || (() => Promise.resolve(null)),
 
@@ -634,7 +657,7 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
 
     deleteTask: options.deleteTask || (() => Promise.resolve(false)),
 
-    getWorkspacePath: options.getWorkspacePath || (() => "/test/workspace/path"),
+    getWorkspacePath: options.getWorkspacePath || (() => "/mock/workspace/path"),
 
     getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
 
@@ -648,16 +671,12 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
         })),
   });
 
-  // Add additional properties that some tests expect
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockTaskService as any).backends = options.backends || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockTaskService as any).currentBackend = options.currentBackend || "test";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockTaskService as any).getWorkspacePath =
-    options.getWorkspacePath || (() => "/mock/workspace/path");
+  // Add internal utility properties (available via MockTaskServiceWithInternals interface)
+  const mockTaskServiceWithInternals = mockTaskService as MockTaskServiceWithInternals;
+  mockTaskServiceWithInternals.backends = options.backends || [];
+  mockTaskServiceWithInternals.currentBackend = options.currentBackend || "test";
 
-  return mockTaskService;
+  return mockTaskServiceWithInternals;
 }
 
 /**
@@ -695,36 +714,45 @@ export interface MockPersistenceProviderOptions {
 export function createMockPersistenceProvider(
   options: MockPersistenceProviderOptions = {}
 ): PersistenceProvider {
+  const defaultCapabilities: PersistenceCapabilities = {
+    sql: true,
+    transactions: true,
+    jsonb: true,
+    vectorStorage: true,
+    migrations: true,
+  };
+  // Merge partial capability overrides with defaults to get a complete PersistenceCapabilities object
+  const capabilities: PersistenceCapabilities = options.capabilities
+    ? { ...defaultCapabilities, ...options.capabilities }
+    : defaultCapabilities;
+
+  // getDatabaseConnection and getStorage return Drizzle ORM types that are deeply parameterized
+  // and impractical to type in a mock context. The `any` casts here are justified because:
+  // 1. Drizzle's PostgresJsDatabase<Schema> is parameterized by the full schema type
+  // 2. The mock query builder only needs to satisfy the structural interface at runtime
+  // 3. Tests using this mock don't care about the specific Drizzle types
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createQueryChain = (): any => ({
+    from: () => createQueryChain(),
+    where: () => createQueryChain(),
+    limit: () => Promise.resolve([]),
+    offset: () => createQueryChain(),
+    orderBy: () => createQueryChain(),
+    leftJoin: () => createQueryChain(),
+    innerJoin: () => createQueryChain(),
+    select: () => createQueryChain(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    then: (fn: (result: any[]) => any) => fn([]), // Make it thenable
+    [Symbol.iterator]: () => [][Symbol.iterator](), // Make it iterable
+  });
+
   return createPartialMock<PersistenceProvider>({
-    capabilities: (options.capabilities || {
-      sql: true,
-      transactions: true,
-      jsonb: true,
-      vectorStorage: true,
-      migrations: true,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test dependency mock
-    }) as any,
+    capabilities,
     initialize: options.initialize || (() => Promise.resolve()),
     getDatabaseConnection:
       options.getDatabaseConnection ||
-      ((() => {
-        // Create a comprehensive mock query builder that always returns empty arrays
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const createQueryChain = (): any => ({
-          from: () => createQueryChain(),
-          where: () => createQueryChain(),
-          limit: () => Promise.resolve([]),
-          offset: () => createQueryChain(),
-          orderBy: () => createQueryChain(),
-          leftJoin: () => createQueryChain(),
-          innerJoin: () => createQueryChain(),
-          select: () => createQueryChain(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          then: (fn: (result: any[]) => any) => fn([]), // Make it thenable
-          [Symbol.iterator]: () => [][Symbol.iterator](), // Make it iterable
-        });
-
-        return Promise.resolve({
+      ((() =>
+        Promise.resolve({
           select: () => createQueryChain(),
           insert: () => ({
             values: () => Promise.resolve({ insertId: "test" }),
@@ -740,10 +768,9 @@ export function createMockPersistenceProvider(
             where: () => Promise.resolve(),
             returning: () => Promise.resolve([]),
           }),
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle ORM return types are impractical to mock with full type fidelity
+        })) as any),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- VectorStorage type is similarly complex
     getStorage: options.getStorage || (() => ({}) as any),
     close: options.close || (() => Promise.resolve()),
     getCapabilities:
@@ -755,7 +782,7 @@ export function createMockPersistenceProvider(
         jsonb: true,
         migrations: true,
       })),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- createPartialMock<PersistenceProvider> requires any for abstract class instantiation
   } as any);
 }
 

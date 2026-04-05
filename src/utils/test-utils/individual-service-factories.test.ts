@@ -5,25 +5,13 @@ import {
   createMockTaskService,
   type MockSessionProviderOptions,
   type MockGitServiceOptions,
+  type MockGitServiceWithCallCount,
   type MockTaskServiceOptions,
+  type MockTaskServiceWithInternals,
 } from "./dependencies";
 import type { SessionRecord } from "../../domain/session";
-import { TEST_DESC_PATTERNS } from "./test-constants";
 import type { Task } from "../../domain/tasks";
-import type { GitServiceInterface } from "../../domain/git";
-import type { TaskServiceInterface } from "../../domain/tasks/taskService";
-
-// Extended types for internal mock properties
-type MockGitServiceWithCallCount = GitServiceInterface & {
-  getGitCallCount: () => number;
-  resetGitCallCount: () => void;
-};
-
-type MockTaskServiceWithInternals = TaskServiceInterface & {
-  backends: string[];
-  currentBackend: string;
-  getWorkspacePath: () => string;
-};
+import { TEST_DESC_PATTERNS } from "./test-constants";
 
 describe("Individual Service Mock Factories", () => {
   describe("createMockSessionProvider", () => {
