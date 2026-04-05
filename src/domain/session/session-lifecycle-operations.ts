@@ -88,11 +88,14 @@ export async function deleteSessionImpl(
     // Delete the session using the resolved session ID
     return deps.sessionDB.deleteSession(resolvedContext.sessionId);
   } catch (error) {
-    // If error is about missing session requirements, provide better user guidance
+    // Non-existent session is not an error for delete — return false
+    if (error instanceof ResourceNotFoundError) {
+      log.debug(`Session not found for deletion: ${name || task || repo}`);
+      return false;
+    }
     if (error instanceof ValidationError) {
-      throw new ResourceNotFoundError(
-        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
-      );
+      log.debug(`No session context resolved for deletion: ${name || task || repo}`);
+      return false;
     }
     throw error;
   }
@@ -148,10 +151,7 @@ You must provide either a session ID or task ID to get the session directory.
     throw new ResourceNotFoundError(`Session "${sessionId}" not found`);
   }
 
-  // Get repo path from session using the getRepoPath method which has fallback logic
-  const repoPath = await deps.sessionDB.getRepoPath(session);
-
-  return repoPath;
+  return deps.sessionDB.getSessionWorkdir(sessionId);
 }
 
 /**
