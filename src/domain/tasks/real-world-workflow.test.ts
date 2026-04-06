@@ -69,14 +69,6 @@ describe("Real-World Workflow Testing", () => {
     }),
   }));
 
-  // Mock path module
-  mock.module("path", () => ({
-    join: mock((...parts: string[]) => parts.join("/")),
-    dirname: mock((path: string) => {
-      const parts = path.split("/");
-      return parts.slice(0, -1).join("/") || "/";
-    }),
-  }));
   const testBaseDir = "/tmp/test-workspace";
   const testProcessDir = "/tmp/test-workspace/process";
   const testJsonPath = "/tmp/test-workspace/process/tasks.json";

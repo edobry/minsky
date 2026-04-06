@@ -38,14 +38,6 @@ const mockRepositoryBackend = {
 };
 
 describe("Session Merge Security Validation", () => {
-  // Mock modules for Bun test
-  mock.module("./session-db-adapter", () => ({
-    createSessionProvider: () => mockSessionProvider,
-  }));
-
-  mock.module("./repository-backend-detection", () => ({
-    createRepositoryBackendForSession: () => mockRepositoryBackend,
-  }));
   beforeEach(() => {
     // Reset mock call counts for each test
     mockSessionProvider.getSession.mockClear?.();
