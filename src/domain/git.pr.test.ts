@@ -19,15 +19,6 @@ describe("GitService PR Functionality", () => {
           "# Mock PR Description\n\nThis is a mock PR description generated for testing.\n\n## Changes\n\n- Mock change 1\n- Mock change 2\n\n## Testing\n\nTested with mock tests.",
       };
     });
-
-    // Mock the child_process module to prevent any actual command execution
-    mock.module("node:child_process", () => ({
-      execSync: () => Buffer.from("mocked output"),
-      exec: (_command: unknown, callback: (err: null, stdout: string, stderr: string) => void) => {
-        callback(null, "mocked output", "");
-        return { _command };
-      },
-    }));
   });
 
   afterEach(() => {

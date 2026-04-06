@@ -166,11 +166,12 @@ export async function analyzeConflictRegions(
 export async function checkSessionChangesInBase(
   repoPath: string,
   sessionBranch: string,
-  baseBranch: string
+  baseBranch: string,
+  exec: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
     // Get session commits not in base
-    const { stdout: sessionCommits } = await execAsync(
+    const { stdout: sessionCommits } = await exec(
       `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
     );
 
@@ -179,13 +180,11 @@ export async function checkSessionChangesInBase(
     }
 
     // Check if the content changes are already in base by comparing trees
-    const { stdout: sessionTree } = await execAsync(
+    const { stdout: sessionTree } = await exec(
       `git -C ${repoPath} rev-parse ${sessionBranch}^{tree}`
     );
 
-    const { stdout: baseTree } = await execAsync(
-      `git -C ${repoPath} rev-parse ${baseBranch}^{tree}`
-    );
+    const { stdout: baseTree } = await exec(`git -C ${repoPath} rev-parse ${baseBranch}^{tree}`);
 
     return sessionTree.toString().trim() === baseTree.toString().trim();
   } catch (error) {
