@@ -16,8 +16,6 @@ import {
   createPartialMock,
 } from "../../../src/utils/test-utils/mocking";
 import { initializeConfiguration } from "../../../src/domain/configuration";
-import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
-
 import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
@@ -45,25 +43,6 @@ describe("Session CLI Commands", () => {
   beforeEach(() => {
     // Create isolated mock filesystem for each test
     mockFs = createMockFilesystem();
-
-    // Use mock.module() to mock filesystem operations
-    const mockFsAny = mockFs as any;
-    mock.module("fs", () => ({
-      promises: {
-        mkdir: mockFs.mkdir,
-        rmdir: mockFsAny.rmdir ?? mockFs.mkdir,
-        rm: mockFs.fsPromises.rm,
-        readFile: mockFs.readFile,
-        writeFile: mockFs.writeFile,
-        readdir: mockFs.fsPromises.readdir,
-        stat: mockFsAny.stat ?? mockFs.statSync,
-      },
-      existsSync: mockFs.existsSync,
-      mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
-    }));
 
     testData = createSessionTestData();
 
