@@ -34,8 +34,7 @@ export interface TaskCommandResult {
 /**
  * Abstract base class for task commands
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- TResult default must be any to allow subclasses to return varied result shapes without requiring full generic threading
-export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
+export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknown> {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
@@ -112,8 +111,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = any> {
   /**
    * Format command results for output
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result type varies by command; callers use type-specific wrappers
-  protected formatResult(result: unknown, json: boolean = false): any {
+  protected formatResult(result: unknown, json: boolean = false): unknown {
     if (json) {
       // Return structured data for programmatic use
       return result;

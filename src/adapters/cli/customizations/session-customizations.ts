@@ -46,8 +46,7 @@ export function getSessionCustomizations(): {
               description: "Description for auto-created task (required if --task not provided)",
             },
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- formatter receives dynamically-shaped session command result
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             // Check if JSON output was requested
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
@@ -58,7 +57,8 @@ export function getSessionCustomizations(): {
             if (result.quiet) {
               // In quiet mode, only output session directory path
               if (result.session) {
-                const sessionDir = `${getMinskyStateDir()}/sessions/${result.session.session}`;
+                const session = result.session as Record<string, unknown>;
+                const sessionDir = `${getMinskyStateDir()}/sessions/${session.session}`;
                 log.cli(sessionDir);
               }
               return;
@@ -66,24 +66,25 @@ export function getSessionCustomizations(): {
 
             // Format the session start success message
             if (result.success && result.session) {
+              const session = result.session as Record<string, unknown>;
               // Display a user-friendly success message for session creation
               log.cli("✅ Session started successfully!");
               log.cli("");
 
-              if (result.session.taskId) {
-                log.cli(`🎯 Task: ${result.session.taskId}`);
+              if (session.taskId) {
+                log.cli(`🎯 Task: ${session.taskId}`);
               }
 
-              if (result.session.branch) {
-                log.cli(`🌿 Branch: ${result.session.branch}`);
+              if (session.branch) {
+                log.cli(`🌿 Branch: ${session.branch}`);
               }
 
-              if (result.session.session) {
-                log.cli(`📁 Session ID: ${result.session.session}`);
+              if (session.session) {
+                log.cli(`📁 Session ID: ${session.session}`);
               }
 
-              if (result.session.repoName) {
-                log.cli(`📦 Repository: ${result.session.repoName}`);
+              if (session.repoName) {
+                log.cli(`📦 Repository: ${session.repoName}`);
               }
 
               log.cli("");
@@ -158,8 +159,7 @@ export function getSessionCustomizations(): {
               description: "Task ID associated with the session",
             },
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- formatter receives dynamically-shaped session command result
-          outputFormatter: (result: any) => {
+          outputFormatter: (result: Record<string, unknown>) => {
             // Check if JSON output was requested
             if (result.json) {
               log.cli(JSON.stringify(result, null, 2));
@@ -168,7 +168,7 @@ export function getSessionCustomizations(): {
 
             // Format the session approval result
             if (result.success) {
-              const data = result.data;
+              const data = result.data as Record<string, unknown> | undefined;
 
               if (data && data.isNewlyApproved) {
                 log.cli("✅ Session approved and merged successfully!");
@@ -191,13 +191,13 @@ export function getSessionCustomizations(): {
                 }
                 log.cli(`   Session ID: ${data.session}`);
                 log.cli(`   Merged by: ${data.mergedBy}`);
-                log.cli(`   Merge date: ${new Date(data.mergeDate).toLocaleString()}`);
+                log.cli(`   Merge date: ${new Date(data.mergeDate as string).toLocaleString()}`);
 
                 log.cli("");
                 log.cli("🔧 Technical Details:");
                 log.cli(`   Base branch: ${data.baseBranch}`);
                 log.cli(`   PR branch: ${data.prBranch}`);
-                log.cli(`   Commit hash: ${data.commitHash.substring(0, 8)}`);
+                log.cli(`   Commit hash: ${(data.commitHash as string).substring(0, 8)}`);
 
                 log.cli("");
                 if (data.isNewlyApproved) {

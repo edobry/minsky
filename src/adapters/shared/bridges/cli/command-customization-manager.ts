@@ -25,8 +25,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- output formatters handle heterogeneous command results; callers provide narrower types
-  outputFormatter?: (result: any) => void;
+  outputFormatter?: (result: Record<string, unknown>) => void;
 }
 
 /**

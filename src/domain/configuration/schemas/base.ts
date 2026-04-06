@@ -132,8 +132,7 @@ export const schemaUtils = {
   /**
    * Create a deeply partial version of an object schema (for configuration overrides)
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- z.ZodObject requires any generic parameter for the shape; no more specific bound is available
-  deepPartial: (schema: z.ZodObject<any>) => schema.deepPartial(),
+  deepPartial: (schema: z.ZodObject<z.ZodRawShape>) => schema.deepPartial(),
 
   /**
    * Create a schema that validates environment variable format and converts to the target type
