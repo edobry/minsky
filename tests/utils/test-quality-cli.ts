@@ -8,8 +8,6 @@
  */
 
 import { testMonitor } from "./test-monitor";
-// Use mock.module() to mock filesystem operations
-// import { mockExistsSync, mockReadFileSync, mockWriteFileSync } from "fs";
 import { join } from "path";
 
 // Use mock path instead of process.cwd() to prevent environment dependencies

@@ -65,16 +65,13 @@ export function createMockObject<T extends string>(
  *
  * @example
  * // In your test setup
- * import { mockModule, createMockExecSync } from "../utils/test-utils";
+ * import { createMockExecSync } from "../utils/test-utils";
  *
- * mockModule("child_process", () => ({
- *   execSync: createMockExecSync({
- *     "ls": "file1.txt\\nfile2.txt",
- *     "git status": "On _branch main\\nnothing to commit",
- *     "git log": "commit abc123\\nAuthor: Test User"
- *   }),
- *   // other exports if needed...
- * }));
+ * const mockExecSync = createMockExecSync({
+ *   "ls": "file1.txt\\nfile2.txt",
+ *   "git status": "On _branch main\\nnothing to commit",
+ *   "git log": "commit abc123\\nAuthor: Test User"
+ * });
  *
  * @example
  * // Now in your test, any child_process.execSync calls will return the matching response

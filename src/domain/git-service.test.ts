@@ -5,40 +5,11 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "./git";
-import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();
-
-// Mock the logger module to avoid winston dependency issues
-mockModule("../../utils/logger", () => ({
-  log: {
-    agent: mock(),
-    debug: mock(),
-    warn: mock(),
-    error: mock(),
-    cli: mock(),
-    cliWarn: mock(),
-    cliError: mock(),
-    setLevel: mock(),
-    cliDebug: mock(),
-  },
-}));
-
-// Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = mock();
-mockModule("../../utils/exec", () => ({
-  execAsync: mockExecAsync,
-}));
-
-// Mock the git-exec module to prevent real git execution
-mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitMergeWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-}));
 
 describe("GitService", () => {
   let gitService: GitService;

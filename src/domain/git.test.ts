@@ -7,12 +7,7 @@ const TEST_VALUE = 123;
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "./git";
-import {
-  createMock,
-  setupTestMocks,
-  mockModule,
-  createMockFileSystem,
-} from "../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
@@ -20,70 +15,6 @@ import { commitChangesFromParams, pushFromParams } from "./git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
-
-// Mock the logger module to avoid winston dependency issues
-mockModule("../utils/logger", () => ({
-  log: {
-    agent: mock(),
-    debug: mock(),
-    warn: mock(),
-    error: mock(),
-    cli: mock(),
-    cliWarn: mock(),
-    cliError: mock(),
-    setLevel: mock(),
-    cliDebug: mock(),
-  },
-}));
-
-// Mock the centralized execAsync module at the top level for proper module interception
-let mockExecAsync = mock(async () => ({ stdout: "", stderr: "" }));
-mockModule("../utils/exec", () => ({
-  execAsync: mockExecAsync,
-}));
-
-// Mock child_process to prevent real command execution
-mockModule("child_process", () => ({
-  exec: mock((command: string, callback: any) => {
-    callback(null, { stdout: "", stderr: "" });
-  }),
-  execSync: mock(() => ""),
-  spawn: mock(() => ({
-    on: mock(),
-    stdout: { on: mock() },
-    stderr: { on: mock() },
-  })),
-}));
-
-// Mock filesystem operations to prevent real filesystem access
-mockModule("fs", () => ({
-  existsSync: mock(() => true),
-  mkdirSync: mock(),
-  readdirSync: mock(() => []),
-  accessSync: mock(),
-}));
-
-mockModule("fs/promises", () => ({
-  access: mock(async () => undefined),
-  mkdir: mock(async () => undefined),
-  readdir: mock(async () => []),
-  writeFile: mock(async () => undefined),
-  readFile: mock(async () => ""),
-}));
-
-// Mock the git-exec module to prevent real git execution
-mockModule("../utils/git-exec", () => ({
-  execGitWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitMergeWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-}));
-
-// Mock paths module to prevent real path resolution
-mockModule("../utils/paths", () => ({
-  getSessionDir: mock((session: string) => `/mocked/sessions/${session}`),
-  getSessionsBaseDir: mock(() => "/mocked/sessions"),
-}));
 
 describe("GitService", () => {
   let gitService: GitService;
@@ -431,6 +362,10 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     beforeEach(() => {
       gitService = new GitService("/test/base/dir");
+      // Prevent ensureBaseDir from hitting real filesystem
+      spyOn(gitService as any, "ensureBaseDir").mockImplementation(() =>
+        Promise.resolve(undefined)
+      );
     });
 
     test("should handle commit operations with proper hash extraction", async () => {
