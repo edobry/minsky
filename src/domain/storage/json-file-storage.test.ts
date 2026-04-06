@@ -41,22 +41,13 @@ describe("JsonFileStorage Core Tests", () => {
 
   let storage: DatabaseStorage<TestEntity, TestState>;
   let mockFs: ReturnType<typeof createMockFilesystem>;
+  let syncFs: Record<string, unknown>;
   let testDirPath: string;
   let testDbPath: string;
 
   beforeEach(() => {
     // Create isolated mock filesystem for each test
     mockFs = createMockFilesystem();
-
-    // Use mock.module() to mock filesystem operations
-    const mockFsAny = mockFs as any;
-    mock.module("fs", () => ({
-      existsSync: mockFs.existsSync,
-      mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
-    }));
 
     // Static mock test directory path
     testDirPath = join(
@@ -65,7 +56,20 @@ describe("JsonFileStorage Core Tests", () => {
     );
     testDbPath = join(testDirPath, "test-storage.json");
 
-    // Create storage instance with correct configuration
+    // Build a SyncFsLike from the mock filesystem — injected via options, no mock.module() needed
+    const mockFsAny = mockFs as any;
+    syncFs = {
+      existsSync: mockFs.existsSync,
+      readFileSync: mockFs.readFileSync,
+      writeFileSync: mockFs.writeFileSync,
+      mkdirSync: mockFs.mkdirSync,
+      statSync:
+        mockFsAny.statSync ??
+        (() => ({ size: 0, mtime: new Date(), isFile: () => true, isDirectory: () => false })),
+      readdirSync: mockFsAny.readdirSync ?? (() => []),
+    };
+
+    // Create storage instance with injected mock fs
     storage = createJsonFileStorage<TestEntity, TestState>({
       filePath: testDbPath,
       initializeState: () => ({
@@ -74,6 +78,7 @@ describe("JsonFileStorage Core Tests", () => {
         lastUpdated: new Date().toISOString(),
       }),
       entitiesField: "entities",
+      fs: syncFs as any,
     });
 
     log.debug(`Setting up test with mock storage path: ${testDirPath}`);
@@ -255,6 +260,7 @@ describe("JsonFileStorage Core Tests", () => {
           count: 0,
           lastUpdated: new Date().toISOString(),
         }),
+        fs: syncFs as any,
       });
 
       await storage2.initialize();

@@ -6,7 +6,8 @@
  * serialized to JSON.
  */
 import { dirname } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import type { SyncFsLike } from "../interfaces/fs-like";
+import { createRealSyncFs } from "../interfaces/fs-like";
 import { log } from "../../utils/logger";
 import type {
   DatabaseReadResult,
@@ -53,6 +54,11 @@ export interface JsonFileStorageOptions<S> {
    * Optional schema validator function for type-safe JSON parsing
    */
   validateState?: SchemaValidator<S>;
+
+  /**
+   * Filesystem implementation (for testing / DI). Defaults to real fs.
+   */
+  fs?: SyncFsLike;
 }
 
 // Simple file lock implementation to prevent concurrent access
@@ -91,6 +97,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   private readonly entitiesField: string;
   private readonly prettyPrint: boolean;
   private readonly validateState?: SchemaValidator<S>;
+  private readonly fs: SyncFsLike;
 
   /**
    * Create a new JsonFileStorage instance
@@ -102,6 +109,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     this.idField = options.idField || "id";
     this.entitiesField = options.entitiesField;
     this.prettyPrint = options.prettyPrint !== false;
+    this.validateState = options.validateState || undefined;
+    this.fs = options.fs ?? createRealSyncFs();
   }
 
   /**
@@ -110,13 +119,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async readState(): Promise<DatabaseReadResult<S>> {
     try {
-      if (!existsSync(this.filePath)) {
+      if (!this.fs.existsSync(this.filePath)) {
         // Return initialized state if file doesn't exist
         const state = this.initializeState();
         return { success: true, data: state };
       }
 
-      const data = readFileSync(this.filePath, "utf8");
+      const data = this.fs.readFileSync(this.filePath, "utf8");
       const dataStr = typeof data === "string" ? data : String(data);
 
       // Validate JSON before parsing to prevent stack overflow
@@ -183,7 +192,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       // Write to file
-      writeFileSync(this.filePath, json, "utf8");
+      this.fs.writeFileSync(this.filePath, json, "utf8");
 
       return {
         success: true,
@@ -394,7 +403,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       this.ensureDirectory();
 
       // If file doesn't exist, create it with initial state
-      if (!existsSync(this.filePath)) {
+      if (!this.fs.existsSync(this.filePath)) {
         const state = this.initializeState();
         const writeResult = await this.writeState(state);
         return writeResult.success;
@@ -414,7 +423,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
-    mkdirSync(dir, { recursive: true });
+    this.fs.mkdirSync(dir, { recursive: true });
   }
 
   /**
