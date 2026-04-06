@@ -3,10 +3,31 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { analyzeConflictRegions } from "../../conflict-analysis-operations";
-import { log } from "../../../../utils/logger";
-import { getCurrentWorkingDirectory } from "../../../../utils/process";
-import { execAsync } from "../../../../utils/exec";
+import { analyzeConflictRegions as defaultAnalyzeConflictRegions } from "../../conflict-analysis-operations";
+import type { ConflictRegion } from "../../conflict-detection-types";
+import { log as defaultLog } from "../../../../utils/logger";
+import { getCurrentWorkingDirectory as defaultGetCwd } from "../../../../utils/process";
+import { execAsync as defaultExecAsync } from "../../../../utils/exec";
+
+/**
+ * Dependencies for the conflicts subcommand, injectable for testing
+ */
+export interface ConflictsSubcommandDeps {
+  getCurrentWorkingDirectory: () => string;
+  analyzeConflictRegions: (repoPath: string, filePath: string) => Promise<ConflictRegion[]>;
+  execAsync: typeof defaultExecAsync;
+  log: {
+    debug: (message: string, context?: Record<string, unknown>) => void;
+    error: (message: string, context?: Record<string, unknown>) => void;
+  };
+}
+
+const defaultDeps: ConflictsSubcommandDeps = {
+  getCurrentWorkingDirectory: defaultGetCwd,
+  analyzeConflictRegions: defaultAnalyzeConflictRegions,
+  execAsync: defaultExecAsync,
+  log: defaultLog,
+};
 
 /**
  * Parameters for the conflicts command
@@ -40,16 +61,17 @@ export async function executeConflictsCommand(
       (typeof conflictsCommandParams)[K]["schema"]
     >;
   },
-  context: CommandExecutionContext
+  context: CommandExecutionContext,
+  deps: ConflictsSubcommandDeps = defaultDeps
 ): Promise<string> {
   const { format, context: contextLines, files } = parameters;
 
   try {
     // Get current working directory as repository path
-    const repoPath = getCurrentWorkingDirectory();
+    const repoPath = deps.getCurrentWorkingDirectory();
 
     if (context.debug) {
-      log.debug("Executing conflicts command", {
+      deps.log.debug("Executing conflicts command", {
         repoPath,
         format,
         contextLines,
@@ -57,13 +79,17 @@ export async function executeConflictsCommand(
       });
     }
 
-    return await executeConflictsDetection(repoPath, {
-      format: format as "json" | "text",
-      context: contextLines,
-      files,
-    });
+    return await executeConflictsDetection(
+      repoPath,
+      {
+        format: format as "json" | "text",
+        context: contextLines,
+        files,
+      },
+      deps
+    );
   } catch (error) {
-    log.error("Error executing conflicts command", { error, parameters });
+    deps.log.error("Error executing conflicts command", { error, parameters });
 
     if (format === "text") {
       return `Error: ${error instanceof Error ? error.message : String(error)}`;
@@ -89,17 +115,18 @@ async function executeConflictsDetection(
     format: "json" | "text";
     context?: number;
     files?: string;
-  }
+  },
+  deps: ConflictsSubcommandDeps = defaultDeps
 ): Promise<string> {
   try {
-    const files = await findFilesToScan(repoPath, options.files);
+    const files = await findFilesToScan(repoPath, options.files, deps);
     const conflictedFiles: Array<{
       file: string;
       conflicts: number;
     }> = [];
 
     for (const file of files) {
-      const regions = await analyzeConflictRegions(repoPath, file);
+      const regions = await deps.analyzeConflictRegions(repoPath, file);
       if (regions.length > 0) {
         conflictedFiles.push({
           file,
@@ -125,7 +152,7 @@ async function executeConflictsDetection(
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    log.error("Error in conflicts detection", { error: errorMsg, repoPath });
+    deps.log.error("Error in conflicts detection", { error: errorMsg, repoPath });
 
     if (options.format === "text") {
       return `Error: ${errorMsg}`;
@@ -177,7 +204,11 @@ function formatConflictResults(result: {
 /**
  * Find files to scan based on pattern or default git files
  */
-async function findFilesToScan(repoPath: string, pattern?: string): Promise<string[]> {
+async function findFilesToScan(
+  repoPath: string,
+  pattern?: string,
+  deps: ConflictsSubcommandDeps = defaultDeps
+): Promise<string[]> {
   try {
     let command: string;
 
@@ -189,7 +220,7 @@ async function findFilesToScan(repoPath: string, pattern?: string): Promise<stri
       command = "git ls-files";
     }
 
-    const { stdout } = await execAsync(command, { cwd: repoPath });
+    const { stdout } = await deps.execAsync(command, { cwd: repoPath });
     const files = stdout
       .toString()
       .trim()
@@ -198,10 +229,10 @@ async function findFilesToScan(repoPath: string, pattern?: string): Promise<stri
       .filter((file) => !file.startsWith(".git/"))
       .filter((file) => isTextFile(file));
 
-    log.debug("Found files to scan", { count: files.length, pattern });
+    deps.log.debug("Found files to scan", { count: files.length, pattern });
     return files;
   } catch (error) {
-    log.error("Error finding files to scan", { error, repoPath, pattern });
+    deps.log.error("Error finding files to scan", { error, repoPath, pattern });
     return [];
   }
 }
@@ -285,30 +316,37 @@ function isTextFile(fileName: string): boolean {
 /**
  * FromParams wrapper for the conflicts command to match existing patterns
  */
-export async function conflictsFromParams(params: {
-  format?: "json" | "text";
-  context?: number;
-  files?: string;
-}): Promise<{
+export async function conflictsFromParams(
+  params: {
+    format?: "json" | "text";
+    context?: number;
+    files?: string;
+  },
+  deps: ConflictsSubcommandDeps = defaultDeps
+): Promise<{
   success: boolean;
   data?: string;
   error?: string;
 }> {
   try {
-    const repoPath = getCurrentWorkingDirectory();
+    const repoPath = deps.getCurrentWorkingDirectory();
 
-    const output = await executeConflictsDetection(repoPath, {
-      format: params.format || "json",
-      context: params.context || 3,
-      files: params.files,
-    });
+    const output = await executeConflictsDetection(
+      repoPath,
+      {
+        format: params.format || "json",
+        context: params.context || 3,
+        files: params.files,
+      },
+      deps
+    );
 
     return {
       success: true,
       data: output,
     };
   } catch (error) {
-    log.error("Error executing conflicts command", { error, params });
+    deps.log.error("Error executing conflicts command", { error, params });
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

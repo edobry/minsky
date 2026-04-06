@@ -7,35 +7,39 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { DatabaseIntegrityChecker } from "./database-integrity-checker";
+import { DatabaseIntegrityChecker, type DatabaseConstructor } from "./database-integrity-checker";
 import type { SyncFsLike } from "../interfaces/fs-like";
 type StorageBackendType = "sqlite" | "postgres" | "json";
 
-// Mock bun:sqlite Database
-const mockDatabase = {
-  exec: mock(() => {}),
-  close: mock(() => {}),
-  prepare: mock((sql: string) => ({
-    get: mock(() => {
-      if (sql.includes("PRAGMA integrity_check")) {
-        return { integrity_check: "ok" };
-      }
-      if (sql.includes("SELECT name FROM sqlite_master")) {
-        return null; // Return null for tables query
-      }
-      if (sql.includes("SELECT COUNT(*) as count FROM sessions")) {
-        return { count: 0 };
-      }
-      return null;
-    }),
-    all: mock(() => {
-      if (sql.includes("SELECT name FROM sqlite_master")) {
-        return [{ name: "sessions" }]; // Return sessions table exists
-      }
-      return [];
-    }),
-  })),
+// Mock bun:sqlite Database via injectable constructor
+const createMockDatabase = () => {
+  const mockDb = {
+    exec: mock(() => {}),
+    close: mock(() => {}),
+    prepare: mock((sql: string) => ({
+      get: mock(() => {
+        if (sql.includes("PRAGMA integrity_check")) {
+          return { integrity_check: "ok" };
+        }
+        if (sql.includes("SELECT COUNT(*) as count FROM sessions")) {
+          return { count: 0 };
+        }
+        return null;
+      }),
+      all: mock(() => {
+        if (sql.includes("SELECT name FROM sqlite_master")) {
+          return [{ name: "sessions" }];
+        }
+        return [];
+      }),
+    })),
+  };
+  return mockDb;
 };
+
+const MockDatabaseConstructor = mock((_path: string) =>
+  createMockDatabase()
+) as unknown as DatabaseConstructor;
 
 // Test data
 const VALID_JSON_DATA = {
@@ -57,110 +61,40 @@ const INVALID_JSON_DATA = '{"invalid": json, missing quote}';
 const SQLITE_MAGIC_HEADER = "SQLite format 3\x00";
 
 // Mock filesystem operations
-const mockFileSystem = new Map<string, any>();
+const mockFileSystem = new Map<string, string>();
 const mockDirectories = new Set<string>();
 
-const mockFs = {
-  existsSync: mock((path: string) => mockFileSystem.has(path) || mockDirectories.has(path)),
-  mkdirSync: mock((path: string) => {
-    mockDirectories.add(path);
-  }),
-  rmSync: mock((path: string) => {
-    mockFileSystem.delete(path);
-    mockDirectories.delete(path);
-  }),
-  writeFileSync: mock((path: string, data: string) => {
-    mockFileSystem.set(path, data);
-  }),
-  readFileSync: mock((path: string, options?: any) => {
-    if (!mockFileSystem.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-    }
-    const data = mockFileSystem.get(path);
-
-    // Handle binary reading for SQLite format detection
-    if (options && options.encoding === null) {
-      // Return as buffer for binary data
-      return Buffer.from(data, "binary");
-    }
-
-    // Default string return
-    return data;
-  }),
-  statSync: mock((path: string) => {
-    if (!mockFileSystem.has(path) && !mockDirectories.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
-    }
-    return {
-      size: mockFileSystem.get(path)?.length || 0,
-      mtime: new Date(),
-      isDirectory: () => mockDirectories.has(path),
-      isFile: () => mockFileSystem.has(path),
-    };
-  }),
-  readdirSync: mock((path: string) => {
-    if (!mockDirectories.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
-    }
-    // Return files that start with this directory path
-    const files = Array.from(mockFileSystem.keys())
-      .filter((filePath) => filePath.startsWith(`${path}/`))
-      .map((filePath) => filePath.substring(path.length + 1))
-      .filter((fileName) => !fileName.includes("/")) // Only direct children
-      .concat(
-        Array.from(mockDirectories)
-          .filter((dirPath) => dirPath.startsWith(`${path}/`))
-          .map((dirPath) => dirPath.substring(path.length + 1))
-          .filter((dirName) => !dirName.includes("/")) // Only direct children
-      );
-    return files;
-  }),
-};
-
-describe("DatabaseIntegrityChecker", () => {
-  // Mock bun:sqlite only — fs is injected via DI
-  mock.module("bun:sqlite", () => ({
-    Database: mock(() => mockDatabase),
-  }));
-
-  let mockDbPath: string;
-  let mockBackupDir: string;
-
-  beforeEach(() => {
-    // Reset mock filesystem state
-    mockFileSystem.clear();
-    mockDirectories.clear();
-
-    // Reset filesystem mocks
-    mockFs.existsSync = mock(
-      (path: string) => mockFileSystem.has(path) || mockDirectories.has(path)
-    );
-    mockFs.mkdirSync = mock((path: string) => {
+const createMockFs = (): SyncFsLike =>
+  ({
+    existsSync: mock((path: string) => mockFileSystem.has(path) || mockDirectories.has(path)),
+    mkdirSync: mock((path: string) => {
       mockDirectories.add(path);
-    });
-    mockFs.rmSync = mock((path: string) => {
+    }),
+    rmSync: mock((path: string) => {
       mockFileSystem.delete(path);
       mockDirectories.delete(path);
-    });
-    mockFs.writeFileSync = mock((path: string, data: string) => {
+    }),
+    writeFileSync: mock((path: string, data: string) => {
       mockFileSystem.set(path, data);
-    });
-    mockFs.readFileSync = mock((path: string, options?: any) => {
-      if (!mockFileSystem.has(path)) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-      }
-      const data = mockFileSystem.get(path);
+    }),
+    readFileSync: mock(
+      (path: string, options?: { encoding: BufferEncoding | null } | BufferEncoding) => {
+        if (!mockFileSystem.has(path)) {
+          throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+        }
+        const data = mockFileSystem.get(path)!;
 
-      // Handle binary reading for SQLite format detection
-      if (options && options.encoding === null) {
-        // Return as buffer for binary data
-        return Buffer.from(data, "binary");
-      }
+        // Handle binary reading for SQLite format detection
+        const encoding =
+          typeof options === "object" && options !== null ? options.encoding : options;
+        if (encoding === null) {
+          return Buffer.from(data, "binary");
+        }
 
-      // Default string return
-      return data;
-    });
-    mockFs.statSync = mock((path: string) => {
+        return data;
+      }
+    ),
+    statSync: mock((path: string) => {
       if (!mockFileSystem.has(path) && !mockDirectories.has(path)) {
         throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
       }
@@ -170,24 +104,36 @@ describe("DatabaseIntegrityChecker", () => {
         isDirectory: () => mockDirectories.has(path),
         isFile: () => mockFileSystem.has(path),
       };
-    });
-    mockFs.readdirSync = mock((path: string) => {
+    }),
+    readdirSync: mock((path: string) => {
       if (!mockDirectories.has(path)) {
         throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
       }
-      // Return files that start with this directory path
       const files = Array.from(mockFileSystem.keys())
         .filter((filePath) => filePath.startsWith(`${path}/`))
         .map((filePath) => filePath.substring(path.length + 1))
-        .filter((fileName) => !fileName.includes("/")) // Only direct children
+        .filter((fileName) => !fileName.includes("/"))
         .concat(
           Array.from(mockDirectories)
             .filter((dirPath) => dirPath.startsWith(`${path}/`))
             .map((dirPath) => dirPath.substring(path.length + 1))
-            .filter((dirName) => !dirName.includes("/")) // Only direct children
+            .filter((dirName) => !dirName.includes("/"))
         );
       return files;
-    });
+    }),
+  }) as unknown as SyncFsLike;
+
+describe("DatabaseIntegrityChecker", () => {
+  let mockFs: SyncFsLike;
+  let mockDbPath: string;
+  let mockBackupDir: string;
+
+  beforeEach(() => {
+    // Reset mock filesystem state
+    mockFileSystem.clear();
+    mockDirectories.clear();
+
+    mockFs = createMockFs();
 
     // Use mock paths
     mockDbPath = "/mock/test-db.json";
@@ -206,7 +152,8 @@ describe("DatabaseIntegrityChecker", () => {
       mockFileSystem.set(sqlitePath, testData);
 
       const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", sqlitePath, {
-        fs: mockFs as unknown as SyncFsLike,
+        fs: mockFs,
+        Database: MockDatabaseConstructor,
       });
 
       expect(result).toBeDefined();
@@ -221,7 +168,8 @@ describe("DatabaseIntegrityChecker", () => {
       mockFileSystem.set(corruptedPath, `${SQLITE_MAGIC_HEADER}corrupted data`);
 
       const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", corruptedPath, {
-        fs: mockFs as unknown as SyncFsLike,
+        fs: mockFs,
+        Database: MockDatabaseConstructor,
       });
 
       expect(result).toBeDefined();

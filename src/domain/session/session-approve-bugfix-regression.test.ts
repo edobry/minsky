@@ -7,20 +7,7 @@ import {
 } from "../../utils/test-utils/dependencies";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 
-// Mock logger to avoid console noise in tests
-const mockLog = {
-  debug: mock(() => {}),
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  cli: mock(() => {}),
-};
-
 describe("Session Approve - Bug Regression Tests", () => {
-  mock.module("../../utils/logger", () => ({
-    log: mockLog,
-  }));
-
   describe("Bug #1: Untracked Files Auto-Stash", () => {
     // Bug Report: Session approve fails with untracked files that would be overwritten by merge
     // Original Error: "error: The following untracked working tree files would be overwritten by merge"

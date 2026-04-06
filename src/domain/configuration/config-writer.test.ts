@@ -24,14 +24,6 @@ describe("ConfigWriter", () => {
     originalEnv = { ...process.env };
     mockFs = createMockFilesystem();
 
-    // Provide deterministic available config files via module mock
-    mock.module("./sources/user", () => ({
-      getUserConfigDir: () => mockConfigDir,
-      userConfigFiles: ["config.yaml", "config.json"],
-    }));
-
-    // Remove mock.module("fs") — inject mock fs via DI instead
-
     writer = createConfigWriter(
       {
         createBackup: true,
@@ -39,7 +31,11 @@ describe("ConfigWriter", () => {
         validate: false, // Disable validation for focused testing
         configDir: mockConfigDir,
       },
-      { fs: mockFs as unknown as SyncFs }
+      {
+        fs: mockFs as unknown as SyncFs,
+        getUserConfigDir: () => mockConfigDir,
+        userConfigFiles: ["config.yaml", "config.json"],
+      }
     );
   });
 

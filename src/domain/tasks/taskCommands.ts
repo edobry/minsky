@@ -3,7 +3,8 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
-import { resolveRepoPath } from "../repo-utils";
+import { resolveRepoPath as resolveRepoPathBase } from "../repo-utils";
+import { createSessionProvider } from "../session";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -17,6 +18,15 @@ import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readTextFile } from "../../utils/fs";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
 import { resolve, join } from "path";
+
+/**
+ * Module-level wrapper that lazily creates a sessionProvider for bare resolveRepoPath calls.
+ * This is a composition boundary — domain functions above should receive deps injected.
+ */
+async function resolveRepoPath(options: { repo?: string; session?: string }): Promise<string> {
+  const sessionProvider = await createSessionProvider();
+  return resolveRepoPathBase(options, { sessionProvider });
+}
 
 // Re-export task data types
 export type {} from "../../types/tasks/taskData";

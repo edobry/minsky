@@ -269,13 +269,18 @@ export class SessionReviewCommand extends BaseSessionCommand<
         output: params.output,
         prBranch: params.prBranch,
       },
-      {
-        sessionDB: await createSessionProvider(),
-        gitService: createGitService(),
-        taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
-        workspaceUtils: createWorkspaceUtils(),
-        getCurrentSession,
-      }
+      await (async () => {
+        const sessionDB = await createSessionProvider();
+        const { execAsync } = await import("../../../../utils/exec");
+        return {
+          sessionDB,
+          gitService: createGitService(),
+          taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
+          workspaceUtils: createWorkspaceUtils(sessionDB),
+          getCurrentSession: async (repoPath: string) =>
+            getCurrentSession(repoPath, execAsync, sessionDB),
+        };
+      })()
     );
 
     // If AI analysis is requested, enhance with AI review

@@ -11,7 +11,7 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "prevent global mock.module() usage outside test blocks",
+      description: "ban mock.module() usage — use dependency injection instead",
       category: "Best Practices",
       recommended: true,
     },
@@ -31,7 +31,7 @@ export default {
     ],
     messages: {
       globalModuleMock:
-        "Global mock.module() detected. Use test-scoped mocking in test-utils or within describe blocks to prevent cross-test interference.",
+        "mock.module() is banned. Use dependency injection instead — pass mock dependencies via function/constructor parameters.",
     },
   },
 
@@ -64,36 +64,22 @@ export default {
     }
 
     return {
-      // Check for mock.module() calls
+      // Check for mock.module() and mockModule() calls — all are banned
       CallExpression(node) {
         if (
           node.callee.type === "MemberExpression" &&
           node.callee.object.name === "mock" &&
           node.callee.property.name === "module"
         ) {
-          // Check if this is at module level (not within describe/test blocks)
-          let parent = node.parent;
-          let isInTestBlock = false;
+          context.report({
+            node,
+            messageId: "globalModuleMock",
+          });
+        }
 
-          while (parent) {
-            if (
-              parent.type === "CallExpression" &&
-              parent.callee &&
-              parent.callee.name &&
-              ["describe", "it", "test", "beforeEach", "afterEach"].includes(parent.callee.name)
-            ) {
-              isInTestBlock = true;
-              break;
-            }
-            parent = parent.parent;
-          }
-
-          if (!isInTestBlock) {
-            context.report({
-              node,
-              messageId: "globalModuleMock",
-            });
-          }
+        // Also catch wrapper functions like mockModule()
+        if (node.callee.type === "Identifier" && node.callee.name === "mockModule") {
+          context.report({ node, messageId: "globalModuleMock" });
         }
       },
     };

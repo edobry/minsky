@@ -15,7 +15,6 @@ import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
-import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
 import { createPartialMock } from "../../../src/utils/test-utils/mocking";
 
 describe("session update command", () => {
@@ -26,24 +25,6 @@ describe("session update command", () => {
   beforeEach(() => {
     // Create isolated mock filesystem for each test
     mockFs = createMockFilesystem();
-
-    // Use mock.module() to mock filesystem operations
-    const mockFsAny = mockFs as any;
-    mock.module("fs", () => ({
-      promises: {
-        mkdir: mockFs.mkdir,
-        rm: mockFs.fsPromises.rm,
-        readFile: mockFs.readFile,
-        writeFile: mockFs.writeFile,
-        readdir: mockFs.fsPromises.readdir,
-        stat: mockFsAny.stat ?? mockFs.statSync,
-      },
-      existsSync: mockFs.existsSync,
-      mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFsAny.rmSync ?? mockFs.rmAsync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
-    }));
 
     testData = createSessionTestData();
 

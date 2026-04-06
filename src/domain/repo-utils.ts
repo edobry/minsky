@@ -1,4 +1,4 @@
-import { createSessionProvider, type SessionProviderInterface } from "./session";
+import { type SessionProviderInterface } from "./session";
 import { getCurrentWorkingDirectory } from "../utils/process";
 import { normalizeRepoName } from "./repository-uri";
 import { execAsync } from "../utils/exec";
@@ -15,6 +15,15 @@ export interface RepoUtilsDependencies {
 }
 
 /**
+ * Partial deps where sessionProvider is required but other fields can be defaulted
+ */
+export interface RepoUtilsPartialDeps {
+  sessionProvider: SessionProviderInterface;
+  execCwd?: (command: string) => Promise<{ stdout: string; stderr: string }>;
+  getCurrentDirectory?: () => string;
+}
+
+/**
  * @deprecated Use normalizeRepositoryURI from repository-uri.ts instead
  */
 export { normalizeRepoName };
@@ -25,11 +34,11 @@ export { normalizeRepoName };
  */
 export async function resolveRepoPath(
   options: RepoResolutionOptions,
-  deps: Partial<RepoUtilsDependencies> = {}
+  deps: RepoUtilsPartialDeps
 ): Promise<string> {
-  // Set up default dependencies if not provided
+  // Set up default dependencies, sessionProvider is required from caller
   const resolvedDeps: RepoUtilsDependencies = {
-    sessionProvider: deps.sessionProvider ?? (await createSessionProvider()),
+    sessionProvider: deps.sessionProvider,
     execCwd: deps.execCwd ?? execAsync,
     getCurrentDirectory: deps.getCurrentDirectory ?? getCurrentWorkingDirectory,
   };

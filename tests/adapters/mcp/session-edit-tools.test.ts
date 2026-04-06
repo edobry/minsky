@@ -3,141 +3,17 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { CommandMapper } from "../../../src/mcp/command-mapper";
-import { createMock, setupTestMocks, mockModule } from "../../../src/utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import {
   DIFF_TEST_CONTENT,
   UI_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
 } from "../../../src/utils/test-utils/test-constants";
-// Use mock.module() to mock filesystem operations
-// import { readFile, writeFile } from "fs/promises";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Mock session provider with test-session data
-const mockSessionProvider = {
-  getSession: mock((id: string) => {
-    if (id === "test-session") {
-      return Promise.resolve({
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/test/repo",
-        createdAt: "2024-01-01T00:00:00.000Z",
-        taskId: null,
-        branch: "main",
-        repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      });
-    }
-    return Promise.resolve(null);
-  }),
-  addSession: createMock(),
-  updateSession: createMock(),
-  deleteSession: createMock(),
-  listSessions: createMock(),
-  getSessionByTaskId: createMock(),
-};
-
-mockModule("../../../src/domain/session", () => ({
-  createSessionProvider: () => mockSessionProvider,
-}));
-
-// Mock the session database I/O operations directly
-mockModule("../../../src/domain/session/session-db-io", () => ({
-  readSessionDbFile: mock(() => ({
-    sessions: [
-      {
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/test/repo",
-        createdAt: "2024-01-01T00:00:00.000Z",
-        taskId: null,
-        branch: "main",
-        repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      },
-    ],
-    baseDir: "/tmp",
-  })),
-  writeSessionsToFile: mock(() => Promise.resolve()),
-}));
-
-// Mock storage backend factory to return mock storage
-mockModule("../../../src/domain/storage/storage-backend-factory", () => ({
-  createStorageBackend: mock(() => ({
-    getEntity: mock((id: string) => {
-      if (id === "test-session") {
-        return Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/test/repo",
-          createdAt: "2024-01-01T00:00:00.000Z",
-          taskId: null,
-          branch: "main",
-          repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
-          backendType: "local",
-          remote: { authMethod: "ssh", depth: 1 },
-        });
-      }
-      return Promise.resolve(null);
-    }),
-    getEntities: mock(() => Promise.resolve([])),
-    addEntity: mock(() => Promise.resolve()),
-    updateEntity: mock(() => Promise.resolve()),
-    deleteEntity: mock(() => Promise.resolve()),
-  })),
-}));
-
-// Mock fs operations - use dynamic mocks that can be reconfigured
-let mockReadFile = mock(() => Promise.resolve("default content"));
-let mockWriteFile = mock(() => Promise.resolve(undefined));
-let mockMkdir = mock(() => Promise.resolve(undefined));
-let mockStat = mock(() => Promise.resolve({ isFile: () => true }));
-
-mockModule("fs/promises", () => ({
-  readFile: mockReadFile,
-  writeFile: mockWriteFile,
-  mkdir: mockMkdir,
-  stat: mockStat,
-}));
-
-// Mock the logger module
-mockModule("../../../src/utils/logger", () => ({
-  log: {
-    debug: createMock(),
-    warn: createMock(),
-    error: createMock(),
-    cli: createMock(),
-  },
-}));
-
-// CRITICAL: Mock SessionPathResolver at module level to control its behavior
-let mockResolvePath = createMock();
-let mockValidatePath = createMock();
-let mockValidatePathExists = createMock();
-let mockGetSessionWorkspacePath = createMock();
-
-mockModule("../../../src/adapters/mcp/session-files", () => ({
-  SessionPathResolver: class MockSessionPathResolver {
-    resolvePath = mockResolvePath;
-    validatePath = mockValidatePath;
-    validatePathExists = mockValidatePathExists;
-    getSessionWorkspacePath = mockGetSessionWorkspacePath;
-
-    constructor() {
-      // Set default successful behavior
-      this.resolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
-      this.validatePath = mock(() => true);
-      this.validatePathExists = mock(() => Promise.resolve(undefined));
-      this.getSessionWorkspacePath = mock(() => Promise.resolve("/mock/session/workspace"));
-    }
-  },
-}));
-
-// Import after mocking to ensure mocks are applied
+// Import after setup
 import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
 
 describe("Session Edit Tools", () => {
@@ -145,22 +21,6 @@ describe("Session Edit Tools", () => {
   let registeredTools: any;
 
   beforeEach(() => {
-    // Reset mocks
-    mockReadFile.mockReset();
-    mockWriteFile.mockReset();
-    mockMkdir.mockReset();
-    mockStat.mockReset();
-    mockResolvePath.mockReset();
-    mockValidatePath.mockReset();
-    mockValidatePathExists.mockReset();
-
-    // Set up default successful behavior for most tests
-    mockReadFile = mock(() => Promise.resolve("original content with oldText"));
-    mockWriteFile = mock(() => Promise.resolve(undefined));
-    mockResolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
-    mockValidatePath = mock(() => true);
-    mockValidatePathExists = mock(() => Promise.resolve(undefined));
-
     // Create mock command mapper
     registeredTools = {};
 
@@ -265,10 +125,6 @@ describe("Session Edit Tools", () => {
       });
 
       test("should return proposed content and diff for existing file in dry-run mode", async () => {
-        // Mock existing file content
-        mockStat = mock(() => Promise.resolve({ isFile: () => true }));
-        mockReadFile = mock(() => Promise.resolve(DIFF_TEST_CONTENT.THREE_LINES));
-
         // Mock the tool handler directly for dry-run testing
         const mockDryRunEditFile = mock(async (args: any) => {
           if (args.dryRun) {
@@ -322,9 +178,6 @@ describe("Session Edit Tools", () => {
       });
 
       test("should return proposed content for new file in dry-run mode", async () => {
-        // Mock file doesn't exist
-        mockStat = mock(() => Promise.reject(new Error("File not found")));
-
         const mockDryRunNewFile = mock(async (args: any) => {
           if (args.dryRun) {
             const proposedContent = UI_TEST_PATTERNS.NEW_FILE_CONTENT;
@@ -370,13 +223,8 @@ describe("Session Edit Tools", () => {
       });
 
       test("should not write to disk in dry-run mode", async () => {
-        // Mock existing file
-        mockStat = mock(() => Promise.resolve({ isFile: () => true }));
-        mockReadFile = mock(() => Promise.resolve("original content"));
-
-        // Reset write mocks to track calls
-        mockWriteFile.mockReset();
-        mockMkdir.mockReset();
+        const mockWriteFile = mock(() => Promise.resolve(undefined));
+        const mockMkdir = mock(() => Promise.resolve(undefined));
 
         const mockDryRunNoWrite = mock(async (args: any) => {
           if (args.dryRun) {
@@ -407,12 +255,6 @@ describe("Session Edit Tools", () => {
       });
 
       test("should handle edit patterns correctly in dry-run mode", async () => {
-        // Mock existing file with content that has existing code markers
-        mockStat = mock(() => Promise.resolve({ isFile: () => true }));
-        mockReadFile = mock(() =>
-          Promise.resolve("function test() {\n  console.log('old');\n  return true;\n}")
-        );
-
         const mockDryRunEditPattern = mock(async (args: any) => {
           if (args.dryRun && args.content.includes("// ... existing code ...")) {
             const originalContent = "function test() {\n  console.log('old');\n  return true;\n}";
@@ -451,9 +293,6 @@ describe("Session Edit Tools", () => {
       });
 
       test("should fail dry-run when trying to apply edit patterns to non-existent file", async () => {
-        // Mock file doesn't exist
-        mockStat = mock(() => Promise.reject(new Error("File not found")));
-
         const mockDryRunFailPattern = mock(async (args: any) => {
           if (args.dryRun && args.content.includes("// ... existing code ...")) {
             throw new Error(

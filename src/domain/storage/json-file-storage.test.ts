@@ -56,7 +56,7 @@ describe("JsonFileStorage Core Tests", () => {
     );
     testDbPath = join(testDirPath, "test-storage.json");
 
-    // Build a SyncFsLike from the mock filesystem — injected via options, no mock.module() needed
+    // Build a SyncFsLike from the mock filesystem — injected via options
     const mockFsAny = mockFs as any;
     syncFs = {
       existsSync: mockFs.existsSync,

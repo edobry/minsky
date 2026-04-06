@@ -34,7 +34,7 @@ export async function startSessionImpl(
     gitService: GitServiceInterface;
     taskService: TaskServiceInterface;
     workspaceUtils: WorkspaceUtilsInterface;
-    resolveRepoPath: typeof resolveRepoPath;
+    resolveRepoPath: (options: { repo?: string; session?: string }) => Promise<string>;
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)

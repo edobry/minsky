@@ -10,7 +10,7 @@ import {
 } from "../../command-registry";
 import { type RuleFormat } from "../../../../domain/rules";
 import { log } from "../../../../utils/logger";
-import { resolveWorkspacePath } from "../../../../domain/workspace";
+import { resolveWorkspacePath as defaultResolveWorkspacePath } from "../../../../domain/workspace";
 import {
   indexRuleEmbeddings,
   searchRulesEnhanced,
@@ -25,9 +25,20 @@ import {
   type RulesSearchParams,
 } from "./rules-parameters";
 
-export function registerListSearchCommands(targetRegistry: {
-  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
-}): void {
+/**
+ * Dependencies for rules list/search commands (injectable for testing)
+ */
+export interface RulesListSearchCommandsDeps {
+  resolveWorkspacePath?: typeof defaultResolveWorkspacePath;
+}
+
+export function registerListSearchCommands(
+  targetRegistry: {
+    registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
+  },
+  deps?: RulesListSearchCommandsDeps
+): void {
+  const resolveWorkspacePath = deps?.resolveWorkspacePath ?? defaultResolveWorkspacePath;
   targetRegistry.registerCommand({
     id: "rules.index-embeddings",
     category: CommandCategory.RULES,

@@ -1,8 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { log } from "../../utils/logger";
-// Removed tmpdir import - using mock paths instead
-// Use mock.module() to mock filesystem operations
-// import { promises as fs } from "fs";
 import path from "path";
 import {
   RuleTemplateService,
@@ -25,30 +22,29 @@ import {
 } from "./template-system";
 import { CLI_COMMANDS, CODE_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
+// Mock default templates injected via DI (no mock.module needed)
+const MOCK_DEFAULT_TEMPLATES = [
+  {
+    id: "mock-default",
+    name: "Mock Default Template",
+    description: "Mock template for testing",
+    generateContent: () => "# Mock Default\n\nThis is a mock template.",
+  },
+  {
+    id: "minsky-workflow",
+    name: "Minsky Workflow",
+    description: "Mock minsky workflow template",
+    generateContent: () => "# Minsky Workflow\n\nMock workflow content.",
+  },
+  {
+    id: "test-template",
+    name: "Test Template",
+    description: "Another mock template",
+    generateContent: () => "# Test Template\n\nTest content.",
+  },
+];
+
 describe("RuleTemplateService", () => {
-  // Mock default templates to avoid command registry conflicts
-  mock.module("./default-templates", () => ({
-    DEFAULT_TEMPLATES: [
-      {
-        id: "mock-default",
-        name: "Mock Default Template",
-        description: "Mock template for testing",
-        generateContent: () => "# Mock Default\n\nThis is a mock template.",
-      },
-      {
-        id: "minsky-workflow",
-        name: "Minsky Workflow",
-        description: "Mock minsky workflow template",
-        generateContent: () => "# Minsky Workflow\n\nMock workflow content.",
-      },
-      {
-        id: "test-template",
-        name: "Test Template",
-        description: "Another mock template",
-        generateContent: () => "# Test Template\n\nTest content.",
-      },
-    ],
-  }));
   let testDir: string;
   let service: RuleTemplateService;
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
@@ -139,7 +135,7 @@ describe("RuleTemplateService", () => {
       }
     }
 
-    service = new RuleTemplateService(testDir);
+    service = new RuleTemplateService(testDir, { defaultTemplates: MOCK_DEFAULT_TEMPLATES });
 
     // Register a test template used by factory and file system tests
     service.registerTemplate({
@@ -559,16 +555,23 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
 
   describe("Factory Functions", () => {
     test("createRuleTemplateService creates service correctly", () => {
-      const factoryService = createRuleTemplateService(testDir);
+      const factoryService = createRuleTemplateService(testDir, {
+        defaultTemplates: MOCK_DEFAULT_TEMPLATES,
+      });
       expect(factoryService).toBeInstanceOf(RuleTemplateService);
       expect(factoryService.getTemplates().length).toBeGreaterThanOrEqual(3); // Should have 3 default templates
     });
 
     test("generateRulesWithConfig generates rules correctly", async () => {
-      const result = await generateRulesWithConfig(testDir, DEFAULT_CLI_CONFIG, {
-        selectedRules: ["minsky-workflow"],
-        dryRun: true,
-      });
+      const result = await generateRulesWithConfig(
+        testDir,
+        DEFAULT_CLI_CONFIG,
+        {
+          selectedRules: ["minsky-workflow"],
+          dryRun: true,
+        },
+        { defaultTemplates: MOCK_DEFAULT_TEMPLATES }
+      );
 
       if (!result.success) {
         log.error("generateRulesWithConfig failed:", { errors: result.errors });

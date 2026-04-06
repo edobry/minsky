@@ -22,7 +22,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
   sessionDB: SessionProviderInterface;
-  getCurrentSession: typeof getCurrentSession;
+  getCurrentSession: (repoPath?: string) => Promise<string | undefined>;
 }
 
 /**

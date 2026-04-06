@@ -9,4 +9,4 @@
  *   - rules/compile-migrate-commands.ts — compile, migrate
  *   - rules/selection-commands.ts — enable, disable, config, presets
  */
-export { registerRulesCommands } from "./rules/index";
+export { registerRulesCommands, type RulesCommandsDeps } from "./rules/index";

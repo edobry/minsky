@@ -140,18 +140,13 @@ export default [
         },
       ], // Filesystem interference prevention
       "custom/no-global-module-mocks": [
-        "warn",
+        "error",
         {
           allowInFiles: [
             "**/tests/setup.ts", // Global test setup only
-            "**/migrate-backend-validation.test.ts",
-            "**/postgres-provider.test.ts",
-            "**/repository-backend-config.test.ts",
-            "**/session-db-adapter.test.ts",
-            "**/local-git-adapter.test.ts",
           ],
         },
-      ], // Prevent cross-test interference from global mocking
+      ], // Ban mock.module() — use dependency injection instead
       "custom/no-unreliable-factory-mocks": "warn", // Prevent race conditions from async factory patterns
       "custom/no-cli-execution-in-tests": "warn", // Warn about architectural violations
       "custom/no-magic-string-duplication": [

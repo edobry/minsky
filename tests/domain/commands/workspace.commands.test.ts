@@ -147,9 +147,12 @@ describe("Workspace Domain Methods", () => {
       // Arrange
       const repoPath = "/Users/test/projects/non-session-repo";
       const execAsyncMock = mockGitRootExecAsync(repoPath);
+      const mockSessionDB = createPartialMock<SessionProviderInterface>({
+        getSession: mock(() => Promise.resolve(null)),
+      });
 
       // Act
-      const result = await getSessionFromWorkspace(repoPath, execAsyncMock);
+      const result = await getSessionFromWorkspace(repoPath, execAsyncMock, mockSessionDB);
 
       // Assert
       expect(result).toBeNull();
@@ -253,9 +256,12 @@ describe("Workspace Domain Methods", () => {
       // Arrange
       const notSessionPath = "/Users/test/projects/non-session";
       const execAsyncMock = mockGitRootExecAsync(notSessionPath);
+      const mockSessionDB = createPartialMock<SessionProviderInterface>({
+        getSession: mock(() => Promise.resolve(null)),
+      });
 
       // Act
-      const result = await getCurrentSession(notSessionPath, execAsyncMock);
+      const result = await getCurrentSession(notSessionPath, execAsyncMock, mockSessionDB);
 
       // Assert
       expect(result).toBeFalsy();

@@ -1,21 +1,16 @@
 /**
  * Layer 2: Domain Layer Tests
- * Test that domain layer calls persistence layer correctly with mocked persistence services
+ * Test that domain layer calls persistence layer correctly with mocked persistence services.
+ * Uses dependency injection instead of mock.module().
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { createSessionProvider, SessionDbAdapter } from "./session-db-adapter";
-import { PersistenceService } from "../persistence/service";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
+import {
+  createSessionProvider,
+  SessionDbAdapter,
+  type CreateSessionProviderDeps,
+} from "./session-db-adapter";
 import type { PersistenceProvider } from "../persistence/types";
 import type { SessionRecord } from "./types";
-
-const SESSION_DB_ADAPTER_MODULE = "./session-db-adapter";
-
-// Mock the PersistenceService
-const mockPersistenceService = {
-  initialize: mock(() => Promise.resolve()),
-  getProvider: mock(() => mockPersistenceProvider),
-  isInitialized: mock(() => true), // Should be a function, not property
-};
 
 const mockStorage = {
   initialize: mock(() => Promise.resolve()),
@@ -52,32 +47,20 @@ const mockPersistenceProvider = {
   isInitialized: true,
 } as unknown as PersistenceProvider;
 
-// Mock both PersistenceService and createSessionProvider at module level
-mock.module("../../persistence/service", () => ({
-  PersistenceService: mockPersistenceService,
-}));
+const mockPersistenceService = {
+  isInitialized: mock(() => true),
+  getProvider: mock(() => mockPersistenceProvider),
+};
 
-// Mock the createSessionProvider function directly
-const mockCreateSessionProvider = mock(async () => {
-  // Return a SessionAutoRepairProvider that wraps our SessionDbAdapter
-  const { SessionDbAdapter } = await import(SESSION_DB_ADAPTER_MODULE);
-  const { SessionAutoRepairProvider } = await import("./session-auto-repair-provider");
-  const adapter = new SessionDbAdapter(mockPersistenceProvider);
-  return new SessionAutoRepairProvider(adapter);
-});
-
-// Mock the module
-mock.module(SESSION_DB_ADAPTER_MODULE, () => ({
-  createSessionProvider: mockCreateSessionProvider,
-  SessionDbAdapter: require(SESSION_DB_ADAPTER_MODULE).SessionDbAdapter,
-}));
+const testDeps: CreateSessionProviderDeps = {
+  persistenceService: mockPersistenceService,
+};
 
 describe("createSessionProvider", () => {
   beforeEach(async () => {
     // Reset mock call counts
-    mockPersistenceService.initialize.mockClear();
-    mockPersistenceService.getProvider.mockClear();
     mockPersistenceService.isInitialized.mockClear();
+    mockPersistenceService.getProvider.mockClear();
     mockStorage.readState.mockClear();
     mockStorage.getEntities.mockClear();
 
@@ -91,9 +74,7 @@ describe("createSessionProvider", () => {
   });
 
   test("properly initializes PersistenceService", async () => {
-    // Our mocked createSessionProvider doesn't go through PersistenceService
-    // but the real implementation does. This test validates the contract.
-    const provider = await createSessionProvider();
+    const provider = await createSessionProvider(undefined, testDeps);
 
     // Verify we get a valid provider (structure test)
     expect(provider).toBeDefined();
@@ -102,7 +83,7 @@ describe("createSessionProvider", () => {
   });
 
   test("returns SessionProvider instance", async () => {
-    const provider = await createSessionProvider();
+    const provider = await createSessionProvider(undefined, testDeps);
 
     // createSessionProvider returns SessionAutoRepairProvider wrapping SessionDbAdapter
     expect(provider.listSessions).toBeDefined();
@@ -113,7 +94,7 @@ describe("createSessionProvider", () => {
   });
 
   test("SessionDbAdapter.listSessions() calls storage correctly", async () => {
-    const provider = await createSessionProvider();
+    const provider = await createSessionProvider(undefined, testDeps);
 
     const sessions = await provider.listSessions();
 
@@ -124,7 +105,7 @@ describe("createSessionProvider", () => {
   });
 
   test("SessionDbAdapter.getSessionByTaskId() filters correctly", async () => {
-    const provider = await createSessionProvider();
+    const provider = await createSessionProvider(undefined, testDeps);
 
     const session = await provider.getSessionByTaskId("mt#123");
 
@@ -135,7 +116,7 @@ describe("createSessionProvider", () => {
   });
 
   test("SessionDbAdapter.getSessionByTaskId() returns null for non-existent task", async () => {
-    const provider = await createSessionProvider();
+    const provider = await createSessionProvider(undefined, testDeps);
 
     const session = await provider.getSessionByTaskId("mt#999");
 

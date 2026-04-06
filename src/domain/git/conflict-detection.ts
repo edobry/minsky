@@ -4,9 +4,9 @@
  * Thin orchestrator that delegates to focused sub-modules for conflict detection,
  * analysis, resolution strategies, merge simulation, and rebase prediction.
  */
-import { execAsync } from "../../utils/exec";
-import { log } from "../../utils/logger";
-import { gitFetchWithTimeout } from "../../utils/git-exec";
+import { execAsync as defaultExecAsync } from "../../utils/exec";
+import { log as defaultLog } from "../../utils/logger";
+import { gitFetchWithTimeout as defaultGitFetchWithTimeout } from "../../utils/git-exec";
 import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
 import { generateAdvancedResolutionStrategiesImpl } from "./advanced-resolution-strategies";
 import { simulateMergeImpl } from "./merge-simulation";
@@ -38,6 +38,25 @@ import {
   ConflictSeverity,
 } from "./conflict-detection-types";
 
+/**
+ * Dependencies for ConflictDetectionService, injectable for testing
+ */
+export interface ConflictDetectionDeps {
+  execAsync: typeof defaultExecAsync;
+  gitFetchWithTimeout: typeof defaultGitFetchWithTimeout;
+  log: {
+    debug: (message: string, context?: Record<string, unknown>) => void;
+    warn: (message: string, context?: Record<string, unknown>) => void;
+    error: (message: string, context?: Record<string, unknown>) => void;
+  };
+}
+
+const defaultConflictDetectionDeps: ConflictDetectionDeps = {
+  execAsync: defaultExecAsync,
+  gitFetchWithTimeout: defaultGitFetchWithTimeout,
+  log: defaultLog,
+};
+
 // Re-export key types for external use
 export { FileConflictStatus, ConflictSeverity, ConflictType } from "./conflict-detection-types";
 export type {
@@ -52,15 +71,22 @@ export type {
 } from "./conflict-detection-types";
 
 export class ConflictDetectionService {
+  private readonly deps: ConflictDetectionDeps;
+
+  constructor(deps: ConflictDetectionDeps = defaultConflictDetectionDeps) {
+    this.deps = deps;
+  }
+
   /**
    * Static method to predict merge conflicts
    */
   static async predictConflicts(
     repoPath: string,
     sourceBranch: string,
-    targetBranch: string
+    targetBranch: string,
+    deps?: ConflictDetectionDeps
   ): Promise<ConflictPrediction> {
-    const service = new ConflictDetectionService();
+    const service = new ConflictDetectionService(deps);
     return service.predictMergeConflicts(repoPath, sourceBranch, targetBranch);
   }
 
@@ -70,9 +96,10 @@ export class ConflictDetectionService {
   static async analyzeBranchDivergence(
     repoPath: string,
     sessionBranch: string,
-    baseBranch: string
+    baseBranch: string,
+    deps?: ConflictDetectionDeps
   ): Promise<BranchDivergenceAnalysis> {
-    const service = new ConflictDetectionService();
+    const service = new ConflictDetectionService(deps);
     return service.analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
   }
 
@@ -161,7 +188,7 @@ export class ConflictDetectionService {
     sourceBranch: string,
     targetBranch: string
   ): Promise<ConflictPrediction> {
-    log.debug("Predicting merge conflicts", {
+    this.deps.log.debug("Predicting merge conflicts", {
       repoPath,
       sourceBranch,
       targetBranch,
@@ -224,7 +251,7 @@ export class ConflictDetectionService {
         recoveryCommands,
       };
     } catch (error) {
-      log.error("Error predicting merge conflicts", {
+      this.deps.log.error("Error predicting merge conflicts", {
         error,
         repoPath,
         sourceBranch,
@@ -239,7 +266,7 @@ export class ConflictDetectionService {
     sessionBranch: string,
     baseBranch: string
   ): Promise<BranchDivergenceAnalysis> {
-    return analyzeBranchDivergenceImpl(repoPath, sessionBranch, baseBranch);
+    return analyzeBranchDivergenceImpl(repoPath, sessionBranch, baseBranch, this.deps);
   }
 
   async mergeWithConflictPrevention(
@@ -252,7 +279,7 @@ export class ConflictDetectionService {
       dryRun?: boolean;
     }
   ): Promise<EnhancedMergeResult> {
-    log.debug("Enhanced merge with conflict prevention", {
+    this.deps.log.debug("Enhanced merge with conflict prevention", {
       repoPath,
       sourceBranch,
       targetBranch,
@@ -288,13 +315,13 @@ export class ConflictDetectionService {
 
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
-        const beforeHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
+        const beforeHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
         const beforeHash = beforeHashResult?.stdout?.toString().trim() || "";
 
         try {
-          await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
+          await this.deps.execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
 
-          const afterHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
+          const afterHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
           const afterHash = afterHashResult?.stdout?.toString().trim() || "";
           const merged = beforeHash.toString().trim() !== afterHash.toString().trim();
 
@@ -306,7 +333,7 @@ export class ConflictDetectionService {
           };
         } catch (mergeError) {
           // Check for conflicts
-          const statusResult = await execAsync(`git -C ${repoPath} status --porcelain`);
+          const statusResult = await this.deps.execAsync(`git -C ${repoPath} status --porcelain`);
           const status = String(statusResult?.stdout || "");
           const hasConflicts =
             status.includes("UU") || status.includes("AA") || status.includes("DD");
@@ -334,7 +361,7 @@ export class ConflictDetectionService {
         prediction,
       };
     } catch (error) {
-      log.error("Error in enhanced merge", {
+      this.deps.log.error("Error in enhanced merge", {
         error,
         repoPath,
         sourceBranch,
@@ -353,7 +380,7 @@ export class ConflictDetectionService {
       autoResolveConflicts?: boolean;
     }
   ): Promise<SmartUpdateResult> {
-    log.debug("Smart session update", {
+    this.deps.log.debug("Smart session update", {
       repoPath,
       sessionBranch,
       baseBranch,
@@ -390,8 +417,8 @@ export class ConflictDetectionService {
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
         // Simple fast-forward - merge from the remote branch we analyzed against
-        await gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
-        await execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
+        await this.deps.gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
+        await this.deps.execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
           workdir: repoPath,
@@ -421,7 +448,7 @@ export class ConflictDetectionService {
         };
       }
     } catch (error) {
-      log.error("Error in smart session update", {
+      this.deps.log.error("Error in smart session update", {
         error,
         repoPath,
         sessionBranch,
@@ -438,7 +465,7 @@ export class ConflictDetectionService {
     targetRef?: string
   ): Promise<GitOperationPreview> {
     // Placeholder implementation
-    log.debug("Previewing git operation (not yet implemented)", {
+    this.deps.log.debug("Previewing git operation (not yet implemented)", {
       repoPath,
       operation,
       sourceRef,
@@ -468,7 +495,7 @@ export class ConflictDetectionService {
     repoPath: string,
     targetBranch: string
   ): Promise<BranchSwitchWarning> {
-    return checkBranchSwitchConflictsImpl(repoPath, targetBranch);
+    return checkBranchSwitchConflictsImpl(repoPath, targetBranch, this.deps);
   }
 
   async predictRebaseConflicts(

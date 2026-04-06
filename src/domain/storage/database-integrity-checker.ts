@@ -6,11 +6,23 @@
  */
 
 import { join, dirname, basename } from "path";
-import { Database } from "bun:sqlite";
+import { Database as DefaultDatabase } from "bun:sqlite";
 import type { SyncFsLike } from "../interfaces/fs-like";
 import { createRealSyncFs } from "../interfaces/fs-like";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+
+/**
+ * Minimal interface for a sqlite Database constructor (injectable for testing)
+ */
+export type DatabaseConstructor = new (path: string) => {
+  exec: (sql: string) => void;
+  close: () => void;
+  prepare: (sql: string) => {
+    get: () => unknown;
+    all: () => unknown[];
+  };
+};
 
 type StorageBackendType = "sqlite" | "postgres" | "json";
 
@@ -61,9 +73,10 @@ export class DatabaseIntegrityChecker {
   static async checkIntegrity(
     expectedFormat: StorageBackendType,
     filePath: string,
-    deps?: { fs?: SyncFsLike }
+    deps?: { fs?: SyncFsLike; Database?: DatabaseConstructor }
   ): Promise<DatabaseIntegrityResult> {
     const fs = deps?.fs ?? createRealSyncFs();
+    const DatabaseCtor = deps?.Database ?? DefaultDatabase;
     const result: DatabaseIntegrityResult = {
       isValid: false,
       expectedFormat,
@@ -107,13 +120,18 @@ export class DatabaseIntegrityChecker {
       }
 
       // Check file format
-      const actualFormat = await this.detectFileFormat(filePath, fs);
+      const actualFormat = await this.detectFileFormat(filePath, fs, DatabaseCtor);
       result.actualFormat = actualFormat;
 
       // Validate format matches expectation
       if (actualFormat === expectedFormat) {
         // Format matches - do deeper validation
-        const validationResult = await this.validateFileContent(filePath, expectedFormat, fs);
+        const validationResult = await this.validateFileContent(
+          filePath,
+          expectedFormat,
+          fs,
+          DatabaseCtor
+        );
         result.isValid = validationResult.isValid;
         result.issues.push(...validationResult.issues);
         result.warnings.push(...validationResult.warnings);
@@ -184,7 +202,8 @@ export class DatabaseIntegrityChecker {
    */
   private static async detectFileFormat(
     filePath: string,
-    fs: SyncFsLike
+    fs: SyncFsLike,
+    DatabaseCtor: DatabaseConstructor = DefaultDatabase
   ): Promise<"json" | "sqlite" | "empty" | "corrupted" | "unknown"> {
     try {
       const stats = fs.statSync(filePath);
@@ -202,7 +221,7 @@ export class DatabaseIntegrityChecker {
           if (header.startsWith("SQLite format 3")) {
             // It's a SQLite file - verify it's not corrupted
             try {
-              const db = new Database(filePath);
+              const db = new DatabaseCtor(filePath);
               db.exec("SELECT 1");
               db.close();
               return "sqlite";
@@ -242,7 +261,8 @@ export class DatabaseIntegrityChecker {
   private static async validateFileContent(
     filePath: string,
     format: StorageBackendType,
-    fs: SyncFsLike
+    fs: SyncFsLike,
+    DatabaseCtor: DatabaseConstructor = DefaultDatabase
   ): Promise<{ isValid: boolean; issues: string[]; warnings: string[] }> {
     const result: { isValid: boolean; issues: string[]; warnings: string[] } = {
       isValid: true,
@@ -252,7 +272,7 @@ export class DatabaseIntegrityChecker {
 
     try {
       if (format === "sqlite") {
-        const db = new Database(filePath);
+        const db = new DatabaseCtor(filePath);
         try {
           // Check database integrity
           const integrityResult = db.prepare("PRAGMA integrity_check").get() as {

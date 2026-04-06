@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Task } from "../types";
 import { resolveRepoPath } from "../../repo-utils";
 import { resolveMainWorkspacePath } from "../../workspace";
+import { createSessionProvider } from "../../session";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
@@ -21,17 +22,31 @@ import {
  * Common dependencies for task operations
  */
 export interface TaskOperationDependencies {
-  resolveRepoPath: typeof resolveRepoPath;
-  resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+  resolveRepoPath: (options: { repo?: string; session?: string }) => Promise<string>;
+  resolveMainWorkspacePath: () => Promise<string>;
   createConfiguredTaskService: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
 }
 
 /**
  * Default dependencies for task operations
  */
+/**
+ * Creates default task operation dependencies.
+ * Note: This is a composition boundary — sessionProvider is created here.
+ */
+export async function createDefaultTaskOperationDependencies(): Promise<TaskOperationDependencies> {
+  const sessionDB = await createSessionProvider();
+  return {
+    resolveRepoPath: (options) => resolveRepoPath(options, { sessionProvider: sessionDB }),
+    resolveMainWorkspacePath: () => resolveMainWorkspacePath(sessionDB),
+    createConfiguredTaskService: async (options) => await createConfiguredTaskService(options),
+  };
+}
+
+// Kept for backward-compat; callers should migrate to createDefaultTaskOperationDependencies()
 export const defaultTaskOperationDependencies: TaskOperationDependencies = {
-  resolveRepoPath,
-  resolveMainWorkspacePath,
+  resolveRepoPath: (options) => resolveRepoPath(options, { sessionProvider: null as never }),
+  resolveMainWorkspacePath: () => resolveMainWorkspacePath(null as never),
   createConfiguredTaskService: async (options) => await createConfiguredTaskService(options),
 };
 

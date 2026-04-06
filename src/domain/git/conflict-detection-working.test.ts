@@ -1,59 +1,47 @@
 import { test, expect, describe, mock, beforeEach } from "bun:test";
-import { ConflictDetectionService } from "./conflict-detection";
+import { ConflictDetectionService, type ConflictDetectionDeps } from "./conflict-detection";
 import { ConflictType } from "./conflict-detection-types";
-import { mockFunction } from "../../utils/test-utils";
-// Note: Simplified version focusing on working tests only
 
-// Mock git utilities (which is what the service actually uses)
-let mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
-let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+function createMockDeps(): ConflictDetectionDeps & {
+  mockExecAsyncImpl: () => Promise<{ stdout: string; stderr: string }>;
+  setExecAsyncImpl: (impl: () => Promise<{ stdout: string; stderr: string }>) => void;
+} {
+  let execAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
+  const mockExecAsync = mock((...args: unknown[]) => execAsyncImpl());
+  const mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
-// Create a configurable mock implementation that tests can modify
-let mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
-let mockExecAsync = mock(() => mockExecAsyncImpl());
-
-describe("ConflictDetectionService", () => {
-  // Override the imports with mocks
-  mock.module("../../utils/git-exec", () => ({
-    execGitWithTimeout: mockExecGitWithTimeout,
-    gitFetchWithTimeout: mockGitFetchWithTimeout,
-  }));
-
-  // Mock the exec utility that conflict detection actually uses
-  mock.module("../../utils/exec", () => ({
-    execAsync: mockExecAsync,
-  }));
-
-  mock.module("../../utils/logger", () => ({
+  return {
+    execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
+    gitFetchWithTimeout:
+      mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
     log: {
       debug: mock(() => {}),
-      info: mock(() => {}),
       warn: mock(() => {}),
       error: mock(() => {}),
-      cli: mock(() => {}), // Fix: Add missing cli function
-      cliWarn: mock(() => {}),
-      cliError: mock(() => {}),
-      cliDebug: mock(() => {}),
-      setLevel: mock(() => {}),
     },
-  }));
+    mockExecAsyncImpl: () => execAsyncImpl(),
+    setExecAsyncImpl: (impl: () => Promise<{ stdout: string; stderr: string }>) => {
+      execAsyncImpl = impl;
+    },
+  };
+}
+
+describe("ConflictDetectionService", () => {
   const testRepoPath = "/test/repo";
   const sessionBranch = "session-branch";
   const baseBranch = "main";
 
+  let deps: ReturnType<typeof createMockDeps>;
+
   beforeEach(() => {
-    // Recreate mocks to reset them (bun:test pattern)
-    mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
-    mockExecAsync = mock(() => mockExecAsyncImpl());
-    // Reset mock implementation to default
-    mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
+    deps = createMockDeps();
   });
 
   describe("analyzeBranchDivergence", () => {
     test("should detect when session is ahead of base", async () => {
       // Setup: session has 2 commits ahead, 0 behind
       let callCount = 0;
-      mockExecAsyncImpl = () => {
+      deps.setExecAsyncImpl(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({ stdout: "0\t2", stderr: "" }); // rev-list output: 0 behind, 2 ahead
@@ -62,7 +50,10 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "abc123", stderr: "" }); // merge-base output
         }
         if (callCount === 3) {
-          return Promise.resolve({ stdout: "commit1\ncommit2", stderr: "" }); // session commits
+          return Promise.resolve({
+            stdout: "commit1\ncommit2",
+            stderr: "",
+          }); // session commits
         }
         if (callCount === 4) {
           return Promise.resolve({ stdout: "tree-session", stderr: "" }); // session tree
@@ -71,12 +62,13 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "tree-base", stderr: "" }); // base tree (different)
         }
         return Promise.resolve({ stdout: "", stderr: "" });
-      };
+      });
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath,
         sessionBranch,
-        baseBranch
+        baseBranch,
+        deps
       );
 
       expect(result).toEqual({
@@ -94,7 +86,7 @@ describe("ConflictDetectionService", () => {
     test("should detect when session changes are already in base", async () => {
       // Setup: session changes are already merged to base
       let callCount = 0;
-      mockExecAsyncImpl = () => {
+      deps.setExecAsyncImpl(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({ stdout: "0\t1", stderr: "" }); // rev-list output: 0 behind, 1 ahead
@@ -112,12 +104,13 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "tree1", stderr: "" }); // base tree (same = changes already in base)
         }
         return Promise.resolve({ stdout: "", stderr: "" });
-      };
+      });
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath,
         sessionBranch,
-        baseBranch
+        baseBranch,
+        deps
       );
 
       expect(result.sessionChangesInBase).toBe(true);
@@ -127,7 +120,7 @@ describe("ConflictDetectionService", () => {
     test("should detect when session is behind base", async () => {
       // Setup: session is 1 commit behind base
       let callCount = 0;
-      mockExecAsyncImpl = () => {
+      deps.setExecAsyncImpl(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({ stdout: "1\t0", stderr: "" }); // rev-list output: 1 behind, 0 ahead
@@ -136,12 +129,13 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "abc123", stderr: "" }); // merge-base output
         }
         return Promise.resolve({ stdout: "", stderr: "" });
-      };
+      });
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath,
         sessionBranch,
-        baseBranch
+        baseBranch,
+        deps
       );
 
       expect(result.divergenceType).toBe("behind");
@@ -151,7 +145,7 @@ describe("ConflictDetectionService", () => {
     test("should detect when branches have diverged", async () => {
       // Setup: branches have diverged (session has commits, base has different commits)
       let callCount = 0;
-      mockExecAsyncImpl = () => {
+      deps.setExecAsyncImpl(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({ stdout: "2\t3", stderr: "" }); // rev-list output: 2 behind, 3 ahead
@@ -160,12 +154,13 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "abc123", stderr: "" }); // merge-base output
         }
         return Promise.resolve({ stdout: "", stderr: "" });
-      };
+      });
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath,
         sessionBranch,
-        baseBranch
+        baseBranch,
+        deps
       );
 
       expect(result.divergenceType).toBe("diverged");
@@ -177,7 +172,7 @@ describe("ConflictDetectionService", () => {
     test("should return no conflicts when already merged", async () => {
       // Setup: already merged scenario
       let callCount = 0;
-      mockExecAsyncImpl = () => {
+      deps.setExecAsyncImpl(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({ stdout: "0\t1", stderr: "" }); // rev-list
@@ -195,12 +190,13 @@ describe("ConflictDetectionService", () => {
           return Promise.resolve({ stdout: "tree1", stderr: "" }); // base tree (same)
         }
         return Promise.resolve({ stdout: "", stderr: "" });
-      };
+      });
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath,
         sessionBranch,
-        baseBranch
+        baseBranch,
+        deps
       );
 
       expect(result.hasConflicts).toBe(false);

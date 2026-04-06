@@ -4,8 +4,8 @@
  * Operations for analyzing branch divergence and branch switching conflicts.
  * Extracted from ConflictDetectionService for focused responsibility.
  */
-import { execAsync } from "../../utils/exec";
-import { log } from "../../utils/logger";
+import { execAsync as defaultExecAsync } from "../../utils/exec";
+import { log as defaultLog } from "../../utils/logger";
 import {
   checkSessionChangesInBase,
   parseMergeConflictOutput,
@@ -13,14 +13,32 @@ import {
 import type { BranchDivergenceAnalysis, BranchSwitchWarning } from "./conflict-detection-types";
 
 /**
+ * Dependencies for branch analysis operations, injectable for testing
+ */
+export interface BranchAnalysisDeps {
+  execAsync: typeof defaultExecAsync;
+  log: {
+    debug: (message: string, context?: Record<string, unknown>) => void;
+    warn: (message: string, context?: Record<string, unknown>) => void;
+    error: (message: string, context?: Record<string, unknown>) => void;
+  };
+}
+
+const defaultDeps: BranchAnalysisDeps = {
+  execAsync: defaultExecAsync,
+  log: defaultLog,
+};
+
+/**
  * Analyzes how two branches have diverged from each other
  */
 export async function analyzeBranchDivergenceImpl(
   repoPath: string,
   sessionBranch: string,
-  baseBranch: string
+  baseBranch: string,
+  deps: BranchAnalysisDeps = defaultDeps
 ): Promise<BranchDivergenceAnalysis> {
-  log.debug("Analyzing branch divergence", {
+  deps.log.debug("Analyzing branch divergence", {
     repoPath,
     sessionBranch,
     baseBranch,
@@ -28,13 +46,13 @@ export async function analyzeBranchDivergenceImpl(
 
   try {
     // Get commit counts
-    const result = await execAsync(
+    const result = await deps.execAsync(
       `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
     );
 
     // Check if result is valid before destructuring
     if (!result || !result.stdout) {
-      log.warn("Git rev-list command returned invalid result", {
+      deps.log.warn("Git rev-list command returned invalid result", {
         result,
         repoPath,
         baseBranch,
@@ -58,7 +76,7 @@ export async function analyzeBranchDivergenceImpl(
     const ahead = Number(aheadStr) || 0;
 
     // Get last common commit
-    const commonCommitResult = await execAsync(
+    const commonCommitResult = await deps.execAsync(
       `git -C ${repoPath} merge-base ${baseBranch} ${sessionBranch}`
     );
 
@@ -68,7 +86,8 @@ export async function analyzeBranchDivergenceImpl(
     const sessionChangesInBase = await checkSessionChangesInBase(
       repoPath,
       sessionBranch,
-      baseBranch
+      baseBranch,
+      deps.execAsync
     );
 
     // Determine divergence type
@@ -100,7 +119,7 @@ export async function analyzeBranchDivergenceImpl(
       recommendedAction,
     };
   } catch (error) {
-    log.error("Error analyzing branch divergence", {
+    deps.log.error("Error analyzing branch divergence", {
       error,
       repoPath,
       sessionBranch,
@@ -115,12 +134,13 @@ export async function analyzeBranchDivergenceImpl(
  */
 export async function checkBranchSwitchConflictsImpl(
   repoPath: string,
-  targetBranch: string
+  targetBranch: string,
+  deps: BranchAnalysisDeps = defaultDeps
 ): Promise<BranchSwitchWarning> {
-  log.debug("Checking branch switch conflicts", { repoPath, targetBranch });
+  deps.log.debug("Checking branch switch conflicts", { repoPath, targetBranch });
 
   try {
-    const { stdout: currentBranch } = await execAsync(
+    const { stdout: currentBranch } = await deps.execAsync(
       `git -C ${repoPath} rev-parse --abbrev-ref HEAD`
     );
     const fromBranch = currentBranch.toString().trim();
@@ -136,7 +156,7 @@ export async function checkBranchSwitchConflictsImpl(
       };
     }
 
-    const statusOutputResult = await execAsync(`git -C ${repoPath} status --porcelain`);
+    const statusOutputResult = await deps.execAsync(`git -C ${repoPath} status --porcelain`);
     const statusOutput = statusOutputResult?.stdout || "";
     const uncommittedChanges = statusOutput.toString().trim().split("\n").filter(Boolean);
 
@@ -146,7 +166,7 @@ export async function checkBranchSwitchConflictsImpl(
 
     if (uncommittedChanges.length > 0) {
       try {
-        await execAsync(
+        await deps.execAsync(
           `git -C ${repoPath} merge-tree $(git -C ${repoPath} write-tree) HEAD ${targetBranch}`
         );
       } catch (error) {
@@ -171,7 +191,7 @@ export async function checkBranchSwitchConflictsImpl(
       recommendedAction,
     };
   } catch (error) {
-    log.error("Error checking branch switch conflicts", {
+    deps.log.error("Error checking branch switch conflicts", {
       error,
       repoPath,
       targetBranch,

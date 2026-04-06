@@ -7,7 +7,7 @@ import { PostgresPersistenceProvider } from "./postgres-provider";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 
-// Mock SQL client — injected via initialize(), no mock.module() needed
+// Mock SQL client — injected via initialize()
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
   const queryString = strings[0]!;

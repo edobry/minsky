@@ -135,6 +135,9 @@ export interface ChangesetAdapterConfig {
   /** Working directory for local git operations */
   workdir?: string;
 
+  /** Dependency injection for local git adapter */
+  deps?: Record<string, unknown>;
+
   /** Default options for operations */
   defaults?: {
     targetBranch?: string;

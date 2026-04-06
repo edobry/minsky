@@ -25,10 +25,21 @@ import type {
 
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
-import { createSessionProvider, type SessionProviderInterface } from "../../session/index";
+import {
+  createSessionProvider as defaultCreateSessionProvider,
+  type SessionProviderInterface,
+} from "../../session/index";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
-import { execSync } from "child_process";
+import { execSync as defaultExecSync } from "child_process";
+
+/**
+ * Dependencies for LocalGitChangesetAdapter (injectable for testing)
+ */
+export interface LocalGitAdapterDeps {
+  execSync?: typeof defaultExecSync;
+  createSessionProvider?: typeof defaultCreateSessionProvider;
+}
 
 /**
  * Local Git changeset adapter that maps pr/ branch workflow to changeset abstraction
@@ -39,18 +50,24 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
 
   private repositoryBackend!: RepositoryBackend;
   private sessionProvider: SessionProviderInterface | null = null;
+  private readonly execSync: typeof defaultExecSync;
+  private readonly createSessionProvider: typeof defaultCreateSessionProvider;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
-      this.sessionProvider = await createSessionProvider();
+      this.sessionProvider = await this.createSessionProvider();
     }
     return this.sessionProvider;
   }
 
   constructor(
     private repositoryUrl: string,
-    private workdir?: string
-  ) {}
+    private workdir?: string,
+    deps?: LocalGitAdapterDeps
+  ) {
+    this.execSync = deps?.execSync ?? defaultExecSync;
+    this.createSessionProvider = deps?.createSessionProvider ?? defaultCreateSessionProvider;
+  }
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -80,7 +97,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       const workdir = this.workdir || this.repositoryUrl;
 
       // Get all pr/ branches
-      const branchesOutput = execSync("git branch -a", {
+      const branchesOutput = this.execSync("git branch -a", {
         cwd: workdir,
         encoding: "utf8",
       });
@@ -133,7 +150,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
 
       // Check if branch exists
       try {
-        execSync(`git show-ref --verify --quiet refs/heads/${prBranch}`, {
+        this.execSync(`git show-ref --verify --quiet refs/heads/${prBranch}`, {
           cwd: workdir,
         });
       } catch {
@@ -267,13 +284,13 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
 
     try {
       // Get diff stats
-      const diffStats = execSync(`git diff --stat main...${prBranch}`, {
+      const diffStats = this.execSync(`git diff --stat main...${prBranch}`, {
         cwd: workdir,
         encoding: "utf8",
       });
 
       // Get full diff
-      const fullDiff = execSync(`git diff main...${prBranch}`, {
+      const fullDiff = this.execSync(`git diff main...${prBranch}`, {
         cwd: workdir,
         encoding: "utf8",
       });
@@ -388,11 +405,11 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       let status: "open" | "merged" | "closed" = "open";
       try {
         // Check if branch is merged
-        const mergeBase = execSync(`git merge-base main ${prBranch}`, {
+        const mergeBase = this.execSync(`git merge-base main ${prBranch}`, {
           cwd: workdir,
           encoding: "utf8",
         });
-        const branchTip = execSync(`git rev-parse ${prBranch}`, {
+        const branchTip = this.execSync(`git rev-parse ${prBranch}`, {
           cwd: workdir,
           encoding: "utf8",
         });
@@ -451,7 +468,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
   ): Promise<import("../types").ChangesetCommit[]> {
     try {
       // Get commits that are in this branch but not in main
-      const commitOutput = execSync(`git log main..${branch} --format="%H|%s|%an|%ae|%ci"`, {
+      const commitOutput = this.execSync(`git log main..${branch} --format="%H|%s|%an|%ae|%ci"`, {
         cwd: workdir,
         encoding: "utf8",
       });
@@ -465,7 +482,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
           const [sha, message, authorName, authorEmail, timestamp] = line.split("|");
 
           // Get files changed in this commit
-          const filesOutput = execSync(`git show --name-only --format="" ${sha}`, {
+          const filesOutput = this.execSync(`git show --name-only --format="" ${sha}`, {
             cwd: workdir,
             encoding: "utf8",
           });
@@ -523,6 +540,10 @@ export class LocalGitChangesetAdapterFactory implements ChangesetAdapterFactory 
     repositoryUrl: string,
     config?: ChangesetAdapterConfig
   ): Promise<ChangesetAdapter> {
-    return new LocalGitChangesetAdapter(repositoryUrl, config?.workdir);
+    return new LocalGitChangesetAdapter(
+      repositoryUrl,
+      config?.workdir,
+      config?.deps as LocalGitAdapterDeps | undefined
+    );
   }
 }

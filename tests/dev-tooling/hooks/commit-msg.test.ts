@@ -48,16 +48,6 @@ describe("CommitMsgHook", () => {
   beforeEach(() => {
     testCommitContent = "";
 
-    // Only mock logger — fs and child_process are injected via constructor DI
-    mock.module("../../../src/utils/logger", () => ({
-      log: {
-        cli: mock(() => {}),
-        error: mock(() => {}),
-        warn: mock(() => {}),
-        debug: mock(() => {}),
-      },
-    }));
-
     // Reset git command behavior
     currentExecSyncBehavior = (command: string) => {
       if (command.includes(GIT_BRANCH_COMMAND)) {

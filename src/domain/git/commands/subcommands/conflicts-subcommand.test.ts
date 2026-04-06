@@ -3,45 +3,35 @@
  * Tests the simplified, general-purpose git conflicts detection command
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import type { CommandExecutionContext } from "../../../../adapters/shared/command-registry";
 
-// Import after mocking
 import {
   executeConflictsCommand,
   conflictsFromParams,
   conflictsCommandParams,
+  type ConflictsSubcommandDeps,
 } from "./conflicts-subcommand";
-import { getCurrentWorkingDirectory } from "../../../../utils/process";
-import { analyzeConflictRegions } from "../../conflict-analysis-operations";
-import { execAsync } from "../../../../utils/exec";
-import { log } from "../../../../utils/logger";
 
-describe("Git Conflicts Command", () => {
-  // Mock the modules using Bun's mock.module
-  mock.module("../../../../utils/process", () => ({
+function createMockDeps(overrides?: Partial<ConflictsSubcommandDeps>): ConflictsSubcommandDeps {
+  return {
     getCurrentWorkingDirectory: mock(() => "/test/repo"),
-  }));
-
-  mock.module("../../conflict-analysis-operations", () => ({
     analyzeConflictRegions: mock(async (_repoPath: string, _filePath: string) => []),
-  }));
-
-  mock.module("../../../../utils/exec", () => ({
     execAsync: mock(async (command: string) => {
       if (command === "git ls-files") {
         return { stdout: "src/file1.ts\nsrc/file2.js\nREADME.md\n", stderr: "" };
       }
       return { stdout: "", stderr: "" };
-    }),
-  }));
-
-  mock.module("../../../../utils/logger", () => ({
+    }) as ConflictsSubcommandDeps["execAsync"],
     log: {
       debug: mock(() => {}),
       error: mock(() => {}),
     },
-  }));
+    ...overrides,
+  };
+}
+
+describe("Git Conflicts Command", () => {
   const mockContext: CommandExecutionContext = {
     debug: false,
     verbose: false,
@@ -49,13 +39,14 @@ describe("Git Conflicts Command", () => {
 
   describe("executeConflictsCommand", () => {
     test("should execute conflicts detection with default parameters", async () => {
+      const deps = createMockDeps();
       const parameters = {
         format: "json" as const,
         context: 3,
         files: undefined,
       };
 
-      const result = await executeConflictsCommand(parameters, mockContext);
+      const result = await executeConflictsCommand(parameters, mockContext, deps);
 
       expect(result).toContain('"repository": "/test/repo"');
       expect(result).toContain('"conflicts": []');
@@ -65,13 +56,14 @@ describe("Git Conflicts Command", () => {
     });
 
     test("should handle text format output", async () => {
+      const deps = createMockDeps();
       const parameters = {
         format: "text" as const,
         context: 3,
         files: undefined,
       };
 
-      const result = await executeConflictsCommand(parameters, mockContext);
+      const result = await executeConflictsCommand(parameters, mockContext, deps);
 
       expect(result).toContain("Git Conflict Scan Results");
       expect(result).toContain("Repository: /test/repo");
@@ -81,7 +73,8 @@ describe("Git Conflicts Command", () => {
 
   describe("conflictsFromParams", () => {
     test("should return success result with default parameters", async () => {
-      const result = await conflictsFromParams({});
+      const deps = createMockDeps();
+      const result = await conflictsFromParams({}, deps);
 
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
@@ -90,11 +83,15 @@ describe("Git Conflicts Command", () => {
     });
 
     test("should handle custom parameters", async () => {
-      const result = await conflictsFromParams({
-        format: "text",
-        context: 5,
-        files: "*.js",
-      });
+      const deps = createMockDeps();
+      const result = await conflictsFromParams(
+        {
+          format: "text",
+          context: 5,
+          files: "*.js",
+        },
+        deps
+      );
 
       expect(result.success).toBe(true);
       expect(result.data).toContain("Git Conflict Scan Results");

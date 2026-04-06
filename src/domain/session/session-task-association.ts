@@ -6,15 +6,14 @@
  */
 
 import { log } from "../../utils/logger";
-import { createSessionProvider } from "../session";
 import type { SessionProviderInterface } from "./types";
 import { extractLocalId, isQualifiedTaskId } from "../tasks/task-id";
 
 export interface SessionAssociationUpdateOptions {
   /** Whether to run in dry-run mode (show what would be updated without making changes) */
   dryRun?: boolean;
-  /** Session provider to use (defaults to the default provider) */
-  sessionProvider?: SessionProviderInterface;
+  /** Session provider — required, must be injected by caller */
+  sessionProvider: SessionProviderInterface;
 }
 
 export interface SessionAssociationUpdateResult {
@@ -39,10 +38,9 @@ export interface SessionAssociationUpdateResult {
 export async function updateSessionTaskAssociation(
   oldTaskId: string,
   newTaskId: string,
-  options: SessionAssociationUpdateOptions = {}
+  options: SessionAssociationUpdateOptions
 ): Promise<SessionAssociationUpdateResult> {
-  const { dryRun = false } = options;
-  const sessionProvider = options.sessionProvider || (await createSessionProvider());
+  const { dryRun = false, sessionProvider } = options;
 
   const result: SessionAssociationUpdateResult = {
     sessionsFound: 0,
@@ -147,10 +145,9 @@ export async function updateSessionTaskAssociation(
  */
 export async function findSessionsByTaskId(
   taskId: string,
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<string[]> {
-  // Lazy-initialize session provider if not provided
-  const provider = sessionProvider || (await createSessionProvider());
+  const provider = sessionProvider;
   const localId = isQualifiedTaskId(taskId) ? extractLocalId(taskId) : taskId;
 
   if (!localId) {
@@ -173,7 +170,7 @@ export async function findSessionsByTaskId(
  */
 export async function hasSessionsForTask(
   taskId: string,
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<boolean> {
   const sessions = await findSessionsByTaskId(taskId, sessionProvider);
   return sessions.length > 0;

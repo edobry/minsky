@@ -6,102 +6,64 @@ import {
   DEFAULT_HYBRID_CONFIG,
   type RuleGenerationConfig,
   type TemplateContext,
+  type TemplateContextDeps,
 } from "./template-system";
 
 describe("Template System", () => {
-  // Mock the command generator
-  mock.module("./command-generator", () => {
-    const mockCommandSyntax = (commandId: string, config: any) => {
-      const isCli =
-        config.interfaceMode === "cli" || (config.interfaceMode === "hybrid" && !config.preferMcp);
-      if (isCli) {
-        return `minsky ${commandId.replace(/\./g, " ")}`;
-      }
-      return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
-    };
-
-    const mockDocumentation = (commandId: string) => {
-      return `Documentation for ${commandId}`;
-    };
-
-    // Mock the service class
-    class MockCommandGeneratorService {
-      private config: any;
-
-      constructor(config: any) {
-        this.config = config;
-      }
-
-      getCommandSyntax(commandId: string): string | null {
-        return mockCommandSyntax(commandId, this.config);
-      }
-
-      getCommandsByCategory() {
-        return [];
-      }
-
-      getParameterDocumentation(commandId: string): string {
-        return mockDocumentation(commandId);
-      }
-
-      updateConfig() {
-        // Mock implementation
-      }
-    }
+  // Build a mock createCommandGeneratorService that returns a mock service
+  const mockCreateCommandGeneratorService = (config: {
+    interfaceMode: string;
+    mcpEnabled: boolean;
+    preferMcp: boolean;
+  }) => {
+    const isCli =
+      config.interfaceMode === "cli" || (config.interfaceMode === "hybrid" && !config.preferMcp);
 
     return {
-      createCommandGeneratorService: mock((config: any) => new MockCommandGeneratorService(config)),
-      CommandGeneratorService: MockCommandGeneratorService,
-      getCommandSyntax: mock(mockCommandSyntax),
-      getParameterDocumentation: mock(mockDocumentation),
+      config,
+      getCommandSyntax: (commandId: string): string | null => {
+        if (isCli) {
+          return `minsky ${commandId.replace(/\./g, " ")}`;
+        }
+        return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
+      },
+      getCommandsByCategory: () => [],
+      getParameterDocumentation: (commandId: string): string => {
+        return `Documentation for ${commandId}`;
+      },
+      updateConfig: () => {},
     };
-  });
+  };
 
-  // Mock the shared command registry
-  mock.module("../../adapters/shared/command-registry", () => {
-    return {
-      CommandCategory: {
-        CORE: "CORE",
-        GIT: "GIT",
-        TASKS: "TASKS",
-        SESSION: "SESSION",
-        SESSIONDB: "SESSIONDB",
-        RULES: "RULES",
-        INIT: "INIT",
-        CONFIG: "CONFIG",
-        DEBUG: "DEBUG",
-        AI: "AI",
-      },
-      sharedCommandRegistry: {
-        getCommand: mock(),
-        getCommandsByCategory: mock(),
-        clear: mock(),
-        getCommandCount: mock(() => 0),
-        registerCommand: mock(),
-      },
-    };
-  });
+  const deps: TemplateContextDeps = {
+    createCommandGeneratorService:
+      mockCreateCommandGeneratorService as unknown as TemplateContextDeps["createCommandGeneratorService"],
+  };
+
   let cliContext: TemplateContext;
   let mcpContext: TemplateContext;
   let hybridContext: TemplateContext;
 
   beforeEach(() => {
-    // Create contexts with different configurations
-    cliContext = createTemplateContext(DEFAULT_CLI_CONFIG);
-    mcpContext = createTemplateContext(DEFAULT_MCP_CONFIG);
-    hybridContext = createTemplateContext(DEFAULT_HYBRID_CONFIG);
+    // Create contexts with different configurations, injecting mock deps
+    cliContext = createTemplateContext(DEFAULT_CLI_CONFIG, deps);
+    mcpContext = createTemplateContext(DEFAULT_MCP_CONFIG, deps);
+    hybridContext = createTemplateContext(DEFAULT_HYBRID_CONFIG, deps);
   });
 
   describe("createTemplateContext", () => {
     test("should create context with proper config", () => {
-      const context = createTemplateContext({
-        interface: "cli",
-        mcpEnabled: false,
-        mcpTransport: "stdio",
-        preferMcp: false,
-        ruleFormat: "cursor",
-        outputDir: "/path/to/rules",
-      });
+      const context = createTemplateContext(
+        {
+          interface: "cli",
+          mcpEnabled: false,
+          mcpTransport: "stdio",
+          preferMcp: false,
+          ruleFormat: "cursor",
+          outputDir: "/path/to/rules",
+        },
+        deps
+      );
 
       expect(context).toBeDefined();
       expect(context.config.interface).toBe("cli");

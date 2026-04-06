@@ -11,7 +11,7 @@ import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../e
 import { taskIdSchema } from "../../schemas/common";
 import { getCurrentSession, getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface } from "../session";
-import { createSessionProvider } from "../session";
+import { execAsync } from "../../utils/exec";
 
 /**
  * Session context resolution options
@@ -27,12 +27,15 @@ export interface SessionContextOptions {
   cwd?: string;
   /** Whether to allow auto-detection */
   allowAutoDetection?: boolean;
-  /** Custom session provider (for testing) */
-  sessionProvider?: SessionProviderInterface;
+  /** Session provider — required, must be injected by caller */
+  sessionProvider: SessionProviderInterface;
   /** Custom getCurrentSession function (for testing) */
-  getCurrentSessionFn?: typeof getCurrentSession;
+  getCurrentSessionFn?: (cwd: string) => Promise<string | undefined>;
   /** Custom getCurrentSessionContext function (for testing) */
-  getCurrentSessionContextFn?: typeof getCurrentSessionContext;
+  getCurrentSessionContextFn?: (
+    cwd: string,
+    dependencies?: { sessionDbOverride?: SessionProviderInterface }
+  ) => Promise<{ sessionId: string; taskId?: string } | null>;
 }
 
 /**
@@ -62,7 +65,7 @@ export interface ResolvedSessionContext {
  * - Consistent error handling and feedback
  */
 export async function resolveSessionContext(
-  options: SessionContextOptions = {}
+  options: SessionContextOptions
 ): Promise<ResolvedSessionContext> {
   const {
     session,
@@ -71,11 +74,21 @@ export async function resolveSessionContext(
     cwd = process.cwd(),
     allowAutoDetection = true,
     sessionProvider: sessionProviderInput,
-    getCurrentSessionFn = getCurrentSession,
-    getCurrentSessionContextFn = getCurrentSessionContext,
+    getCurrentSessionFn,
+    getCurrentSessionContextFn,
   } = options;
 
-  const sessionProvider = sessionProviderInput || (await createSessionProvider());
+  const sessionProvider = sessionProviderInput;
+
+  // Wrap workspace functions to inject sessionProvider when no custom fn is provided
+  const resolvedGetCurrentSessionFn =
+    getCurrentSessionFn ?? (async (p: string) => getCurrentSession(p, execAsync, sessionProvider));
+  const resolvedGetCurrentSessionContextFn =
+    getCurrentSessionContextFn ??
+    (async (p: string, deps?: { sessionDbOverride?: SessionProviderInterface }) =>
+      getCurrentSessionContext(p, {
+        sessionDbOverride: deps?.sessionDbOverride ?? sessionProvider,
+      }));
 
   log.debug("Resolving session context", {
     task,
@@ -140,7 +153,7 @@ export async function resolveSessionContext(
 
     try {
       // Try to get full session context (session + task)
-      const sessionContext = await getCurrentSessionContextFn(workingDirectory, {
+      const sessionContext = await resolvedGetCurrentSessionContextFn(workingDirectory, {
         sessionDbOverride: sessionProvider,
       });
 
@@ -165,7 +178,7 @@ export async function resolveSessionContext(
       }
 
       // Fallback to basic session detection
-      const sessionId = await getCurrentSessionFn(workingDirectory);
+      const sessionId = await resolvedGetCurrentSessionFn(workingDirectory);
       if (sessionId) {
         // Get task ID from session record to show human-friendly message
         const sessionRecord = await sessionProvider!.getSession(sessionId);
@@ -203,7 +216,7 @@ export async function resolveSessionContext(
 /**
  * Simplified session resolution for commands that only need the session ID
  */
-export async function resolveSessionId(options: SessionContextOptions = {}): Promise<string> {
+export async function resolveSessionId(options: SessionContextOptions): Promise<string> {
   const context = await resolveSessionContext(options);
   return context!.sessionId;
 }
@@ -215,7 +228,7 @@ export async function resolveSessionId(options: SessionContextOptions = {}): Pro
  * when auto-detection is used.
  */
 export async function resolveSessionContextWithFeedback(
-  options: SessionContextOptions = {}
+  options: SessionContextOptions
 ): Promise<ResolvedSessionContext> {
   const context = await resolveSessionContext(options);
 
@@ -238,9 +251,7 @@ export async function resolveSessionContextWithFeedback(
  * This function checks if session resolution would succeed without
  * actually performing the resolution. Useful for command validation.
  */
-export async function validateSessionContext(
-  options: SessionContextOptions = {}
-): Promise<boolean> {
+export async function validateSessionContext(options: SessionContextOptions): Promise<boolean> {
   try {
     await resolveSessionContext(options);
     return true;

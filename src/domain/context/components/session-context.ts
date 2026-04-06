@@ -46,7 +46,10 @@ export const SessionContextComponent: ContextComponent = {
 
       if (isInSession) {
         // Get current session context
-        const sessionContext = await getCurrentSessionContext(workspacePath);
+        const sessionDB = await createSessionProvider();
+        const sessionContext = await getCurrentSessionContext(workspacePath, {
+          sessionDbOverride: sessionDB,
+        });
 
         if (sessionContext) {
           sessionId = sessionContext.sessionId;

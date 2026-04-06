@@ -43,23 +43,6 @@ export function createMockLogger() {
 }
 
 /**
- * Mock the logger module with complete method coverage
- * Use this in test files to ensure all logger methods are available
- */
-export function mockLoggerModule() {
-  const mockLog = createMockLogger();
-
-  mock.module("../../utils/logger", () => ({
-    log: mockLog,
-    isStructuredMode: mockLog.isStructuredMode,
-    isHumanMode: mockLog.isHumanMode,
-    createConfigurableLogger: mock(() => mockLog),
-  }));
-
-  return mockLog;
-}
-
-/**
  * Clear all mocks on the logger instance
  */
 export function clearLoggerMocks(mockLog: ReturnType<typeof createMockLogger>) {

@@ -8,7 +8,10 @@
 import * as nodeFs from "fs";
 import { join, dirname } from "path";
 import { parse, stringify } from "yaml";
-import { getUserConfigDir, userConfigFiles } from "./sources/user";
+import {
+  getUserConfigDir as defaultGetUserConfigDir,
+  userConfigFiles as defaultUserConfigFiles,
+} from "./sources/user";
 import { ConfigSchema } from "./config-schemas";
 import { log } from "../../utils/logger";
 
@@ -68,8 +71,16 @@ export class ConfigWriter {
   private readonly options: Required<ConfigWriterOptions>;
   private readonly configDir: string;
   private readonly fs: SyncFs;
+  private readonly userConfigFiles: readonly string[];
 
-  constructor(options: ConfigWriterOptions = {}, deps?: { fs?: SyncFs }) {
+  constructor(
+    options: ConfigWriterOptions = {},
+    deps?: {
+      fs?: SyncFs;
+      getUserConfigDir?: () => string;
+      userConfigFiles?: readonly string[];
+    }
+  ) {
     this.options = {
       createBackup: true,
       format: "yaml",
@@ -79,6 +90,8 @@ export class ConfigWriter {
       ...options,
     } as Required<ConfigWriterOptions>;
 
+    const getUserConfigDir = deps?.getUserConfigDir ?? defaultGetUserConfigDir;
+    this.userConfigFiles = deps?.userConfigFiles ?? defaultUserConfigFiles;
     this.configDir = this.options.configDir || getUserConfigDir();
     this.fs = (deps?.fs || {
       readFileSync: (path: string, encoding: string) =>
@@ -299,7 +312,7 @@ export class ConfigWriter {
    * Find existing configuration file
    */
   private findConfigFile(): string | null {
-    for (const configFile of userConfigFiles) {
+    for (const configFile of this.userConfigFiles) {
       const filePath = join(this.configDir, configFile);
       if (this.fs.existsSync(filePath)) {
         return filePath;
@@ -468,7 +481,7 @@ ${stringify(config, { indent: 2 })}`;
  */
 export function createConfigWriter(
   options?: ConfigWriterOptions,
-  deps?: { fs?: SyncFs }
+  deps?: { fs?: SyncFs; getUserConfigDir?: () => string; userConfigFiles?: readonly string[] }
 ): ConfigWriter {
   return new ConfigWriter(options, deps);
 }

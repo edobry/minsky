@@ -94,7 +94,10 @@ export class SessionEditFileCommand extends BaseSessionCommand<
 
     // Auto-detect session from current workspace
     const { getCurrentSession } = await import("../../../../domain/workspace");
-    const currentSession = await getCurrentSession();
+    const { createSessionProvider } = await import("../../../../domain/session");
+    const { execAsync } = await import("../../../../utils/exec");
+    const sessionDB = await createSessionProvider();
+    const currentSession = await getCurrentSession(process.cwd(), execAsync, sessionDB);
 
     if (!currentSession) {
       throw new MinskyError(
