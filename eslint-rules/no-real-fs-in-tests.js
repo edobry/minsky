@@ -38,7 +38,7 @@ export default {
     ],
     messages: {
       fsImport:
-        "Real filesystem imports are forbidden in tests. Use mock.module() to mock filesystem operations instead.",
+        "Real filesystem imports are forbidden in tests. Use dependency injection (pass mock fs via function/constructor parameters) instead.",
       fsOperation:
         "Real filesystem operation '{{operation}}' is forbidden in tests. Use in-memory mocks or test utilities instead.",
       tmpDirUsage:
@@ -50,7 +50,7 @@ export default {
       dynamicImport:
         "Dynamic import() detected in test file. Use static imports to prevent infinite loops and timing issues.",
       realFsInHook:
-        "Real filesystem operation '{{operation}}' in test hook. Use mock.module() to mock filesystem operations instead.",
+        "Real filesystem operation '{{operation}}' in test hook. Use dependency injection (pass mock fs via function/constructor parameters) instead.",
       processCwdInTest:
         "process.cwd() detected in test file for path creation. Use mock paths to prevent environment dependencies.",
     },
@@ -131,7 +131,8 @@ export default {
             messageId: "fsImport",
             fix(fixer) {
               // Suggest mock module approach
-              const comment = "// Use mock.module() to mock filesystem operations";
+              const comment =
+                "// Use dependency injection — pass mock fs via function/constructor parameters";
               return fixer.insertTextBefore(node, `${comment}\n// `);
             },
           });
