@@ -10,12 +10,12 @@ import {
 } from "../../command-registry";
 import { type RuleFormat } from "../../../../domain/rules";
 import { log } from "../../../../utils/logger";
-import { resolveWorkspacePath } from "../../../../domain/workspace";
+import { resolveWorkspacePath as defaultResolveWorkspacePath } from "../../../../domain/workspace";
 import {
-  getRule,
-  generateRules,
-  createRule,
-  updateRule,
+  getRule as defaultGetRule,
+  generateRules as defaultGenerateRules,
+  createRule as defaultCreateRule,
+  updateRule as defaultUpdateRule,
 } from "../../../../domain/rules/rules-command-operations";
 import {
   rulesGetCommandParams,
@@ -28,9 +28,28 @@ import {
   type RulesUpdateParams,
 } from "./rules-parameters";
 
-export function registerCrudCommands(targetRegistry: {
-  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
-}): void {
+/**
+ * Dependencies for rules CRUD commands (injectable for testing)
+ */
+export interface RulesCrudCommandsDeps {
+  resolveWorkspacePath?: typeof defaultResolveWorkspacePath;
+  generateRules?: typeof defaultGenerateRules;
+  getRule?: typeof defaultGetRule;
+  createRule?: typeof defaultCreateRule;
+  updateRule?: typeof defaultUpdateRule;
+}
+
+export function registerCrudCommands(
+  targetRegistry: {
+    registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
+  },
+  deps?: RulesCrudCommandsDeps
+): void {
+  const resolveWorkspacePath = deps?.resolveWorkspacePath ?? defaultResolveWorkspacePath;
+  const generateRules = deps?.generateRules ?? defaultGenerateRules;
+  const getRule = deps?.getRule ?? defaultGetRule;
+  const createRule = deps?.createRule ?? defaultCreateRule;
+  const updateRule = deps?.updateRule ?? defaultUpdateRule;
   targetRegistry.registerCommand({
     id: "rules.get",
     category: CommandCategory.RULES,

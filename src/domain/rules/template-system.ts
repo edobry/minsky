@@ -8,10 +8,17 @@
 import {
   CommandGeneratorService,
   type InterfaceMode,
-  createCommandGeneratorService,
+  createCommandGeneratorService as defaultCreateCommandGeneratorService,
 } from "./command-generator";
 import { CommandCategory } from "../../adapters/shared/command-registry";
 import type { RuleFormat } from "./types";
+
+/**
+ * Dependencies for createTemplateContext (injectable for testing)
+ */
+export interface TemplateContextDeps {
+  createCommandGeneratorService?: typeof defaultCreateCommandGeneratorService;
+}
 
 /**
  * Configuration for rule generation
@@ -158,7 +165,13 @@ function createTemplateHelpers(
 /**
  * Creates a template context object
  */
-export function createTemplateContext(config: RuleGenerationConfig): TemplateContext {
+export function createTemplateContext(
+  config: RuleGenerationConfig,
+  deps?: TemplateContextDeps
+): TemplateContext {
+  const createCommandGeneratorService =
+    deps?.createCommandGeneratorService ?? defaultCreateCommandGeneratorService;
+
   // Create a command generator with the current config
   const commandGenerator = createCommandGeneratorService({
     interfaceMode: config.interface,

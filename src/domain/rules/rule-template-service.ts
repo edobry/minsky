@@ -94,17 +94,28 @@ export interface GenerateRulesResult {
  *
  * Manages templates for generating rule content and metadata.
  */
+/**
+ * Dependencies for RuleTemplateService (injectable for testing)
+ */
+export interface RuleTemplateServiceDeps {
+  /** Override default templates (if provided, skips require("./default-templates")) */
+  defaultTemplates?: RuleTemplate[];
+}
+
 export class RuleTemplateService {
   private ruleService: RuleService;
   private templateRegistry: Map<string, RuleTemplate> = new Map();
   private workspacePath: string;
+  private deps: RuleTemplateServiceDeps;
 
   /**
    * Create a new RuleTemplateService
    * @param workspacePath Path to the workspace
+   * @param deps Optional dependencies for testing
    */
-  constructor(workspacePath: string) {
+  constructor(workspacePath: string, deps?: RuleTemplateServiceDeps) {
     this.workspacePath = workspacePath;
+    this.deps = deps ?? {};
     this.ruleService = new RuleService(workspacePath);
 
     // Load default templates
@@ -392,11 +403,12 @@ export class RuleTemplateService {
    */
   registerInitTemplates(): void {
     try {
-      // Synchronous require to avoid circular dependencies
-      const { DEFAULT_TEMPLATES } = require("./default-templates");
+      // Use injected templates if provided, otherwise load from module
+      const templates: RuleTemplate[] =
+        this.deps.defaultTemplates ?? require("./default-templates").DEFAULT_TEMPLATES;
 
       // Register each template
-      for (const template of DEFAULT_TEMPLATES) {
+      for (const template of templates) {
         this.registerTemplate(template);
       }
     } catch (error) {
@@ -424,8 +436,11 @@ export class RuleTemplateService {
  * @param workspacePath Path to the workspace
  * @returns RuleTemplateService instance
  */
-export function createRuleTemplateService(workspacePath: string): RuleTemplateService {
-  return new RuleTemplateService(workspacePath);
+export function createRuleTemplateService(
+  workspacePath: string,
+  deps?: RuleTemplateServiceDeps
+): RuleTemplateService {
+  return new RuleTemplateService(workspacePath, deps);
 }
 
 /**
@@ -437,9 +452,10 @@ export function createRuleTemplateService(workspacePath: string): RuleTemplateSe
 export async function generateRulesWithConfig(
   workspacePath: string,
   config: RuleGenerationConfig,
-  options: Omit<GenerateRulesOptions, "config">
+  options: Omit<GenerateRulesOptions, "config">,
+  deps?: RuleTemplateServiceDeps
 ): Promise<GenerateRulesResult> {
-  const service = createRuleTemplateService(workspacePath);
+  const service = createRuleTemplateService(workspacePath, deps);
   await service.registerDefaultTemplates();
   return service.generateRules({ ...options, config });
 }
