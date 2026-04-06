@@ -1,18 +1,13 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { join } from "path";
 import { ValidationError } from "../errors/index";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
 describe("Session PR bodyPath file reading functionality", () => {
-  // Mock the fs modules to use our mock filesystem
   const mockFs = createMockFilesystem();
 
-  mock.module("fs/promises", () => ({
-    writeFile: mockFs.writeFile,
-    mkdir: mockFs.mkdir,
-    rm: mockFs.fsPromises.rm,
-    readFile: mockFs.readFile,
-  }));
+  // No mock.module needed — tests use mockFs directly without calling production fs code
+
   const testDir = "/mock/test/body-path";
   const testFilePath = join(testDir, "test-body.txt");
   const testContent = "This is the PR body content from file";
@@ -24,10 +19,6 @@ describe("Session PR bodyPath file reading functionality", () => {
     // Setup test directory and file in mock filesystem
     mockFs.ensureDirectoryExists(testDir);
     mockFs.writeFileSync(testFilePath, testContent);
-  });
-
-  afterEach(() => {
-    mock.restore();
   });
 
   test("should read body content from bodyPath when provided", async () => {
