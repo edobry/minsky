@@ -7,6 +7,8 @@
 
 import { analyzeConflictRegions } from "../git/conflict-analysis-operations";
 import { getCurrentSessionContext } from "../workspace";
+import type { SessionProviderInterface } from "./types";
+import { createSessionProvider } from "./session-db-adapter";
 import { getSessionDirFromParams } from "../session";
 import { getCurrentWorkingDirectory } from "../../utils/process";
 import { execAsync } from "../../utils/exec";
@@ -83,7 +85,8 @@ export async function scanSessionConflicts(
     } else {
       // Auto-detect current session from working directory
       const cwd = getCurrentWorkingDirectory();
-      const context = await getCurrentSessionContext(cwd);
+      const sessionDB = await createSessionProvider();
+      const context = await getCurrentSessionContext(cwd, { sessionDbOverride: sessionDB });
 
       if (!context) {
         throw new Error(

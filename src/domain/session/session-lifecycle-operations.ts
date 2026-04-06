@@ -164,7 +164,9 @@ export async function inspectSessionImpl(
   }
 ): Promise<Session | null> {
   // Auto-detect the current session from the workspace
-  const context = await getCurrentSessionContext(process.cwd());
+  const context = await getCurrentSessionContext(process.cwd(), {
+    sessionDbOverride: deps.sessionDB,
+  });
 
   if (!context?.sessionId) {
     throw new ResourceNotFoundError("No session detected for the current workspace");

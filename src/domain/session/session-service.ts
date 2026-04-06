@@ -11,6 +11,7 @@
 import { createGitService } from "../git";
 import type { GitServiceInterface } from "../git/types";
 import { createWorkspaceUtils, getCurrentSession } from "../workspace";
+import { execAsync } from "../../utils/exec";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import { createConfiguredTaskService } from "../tasks/taskService";
 import type { TaskServiceInterface } from "../tasks/taskService";
@@ -66,14 +67,15 @@ export interface SessionDeps {
  * Creates all real-implementation dependencies for the SessionService.
  */
 export async function createSessionDeps(): Promise<SessionDeps> {
+  const sessionDB = await createSessionProvider();
   return {
-    sessionDB: await createSessionProvider(),
+    sessionDB,
     gitService: createGitService(),
     taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
-    workspaceUtils: createWorkspaceUtils(),
+    workspaceUtils: createWorkspaceUtils(sessionDB),
     // getCurrentSession returns string | undefined; wrap to match string | null contract
     getCurrentSession: async (repoPath: string) => {
-      const result = await getCurrentSession(repoPath);
+      const result = await getCurrentSession(repoPath, execAsync, sessionDB);
       return result ?? null;
     },
     getRepositoryBackend: getRepositoryBackendFromConfig,
