@@ -10,40 +10,36 @@ import { TaskStatus } from "./taskConstants";
 // Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
 
-describe("GitHubIssuesTaskBackend", () => {
-  // Mock Octokit to prevent real GitHub API calls
-  mock.module("@octokit/rest", () => ({
-    Octokit: mock(() => ({
-      rest: {
-        issues: {
-          getLabel: mock(() => Promise.resolve()),
-          createLabel: mock(() => Promise.resolve()),
-          list: mock(() => Promise.resolve({ data: [] })),
-          get: mock(() => Promise.resolve({ data: {} })),
-          create: mock(() => Promise.resolve({ data: {} })),
-          update: mock(() => Promise.resolve({ data: {} })),
-        },
-      },
-    })),
-  }));
+// Mock Octokit instance — injected via options, no mock.module() needed
+const mockOctokit = {
+  rest: {
+    issues: {
+      getLabel: mock(() => Promise.resolve()),
+      createLabel: mock(() => Promise.resolve()),
+      list: mock(() => Promise.resolve({ data: [] })),
+      get: mock(() => Promise.resolve({ data: {} })),
+      create: mock(() => Promise.resolve({ data: {} })),
+      update: mock(() => Promise.resolve({ data: {} })),
+    },
+  },
+};
 
-  // Mock the GitHub backend config to prevent real API calls
-  mock.module("./githubBackendConfig", () => ({
-    createGitHubLabels: mockCreateGitHubLabels,
-  }));
+describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
     // Reset mock state before each test
     mockCreateGitHubLabels.mockClear();
 
-    // Create backend instance for testing pure functions (API calls are mocked)
+    // Create backend instance with injected mocks — no module mocking needed
     backend = createGitHubIssuesTaskBackend({
       name: "github",
       workspacePath: "/test/workspace",
       githubToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
+      octokit: mockOctokit as any,
+      createGitHubLabelsFn: mockCreateGitHubLabels,
     }) as GitHubIssuesTaskBackend;
   });
 
@@ -60,6 +56,8 @@ describe("GitHubIssuesTaskBackend", () => {
         githubToken: "test-token",
         owner: "test-owner",
         repo: "test-repo",
+        octokit: mockOctokit as any,
+        createGitHubLabelsFn: mockCreateGitHubLabels,
         statusLabels: {
           TODO: "custom:todo",
           "IN-PROGRESS": "custom:in-progress",

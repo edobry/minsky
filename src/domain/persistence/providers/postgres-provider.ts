@@ -57,7 +57,7 @@ export class PostgresPersistenceProvider
   /**
    * Initialize PostgreSQL connection
    */
-  async initialize(): Promise<void> {
+  async initialize(deps?: { sqlClient?: ReturnType<typeof postgres> }): Promise<void> {
     if (this.isInitialized) {
       return;
     }
@@ -67,13 +67,15 @@ export class PostgresPersistenceProvider
     try {
       log.debug("Initializing PostgreSQL persistence provider");
 
-      // Create PostgreSQL connection
-      this.sql = postgres(pgConfig.connectionString, {
-        max: pgConfig.maxConnections || 10,
-        connect_timeout: pgConfig.connectTimeout || 10,
-        idle_timeout: pgConfig.idleTimeout || 10,
-        prepare: pgConfig.prepareStatements ?? false,
-      });
+      // Create PostgreSQL connection (use injected client or create new one)
+      this.sql =
+        deps?.sqlClient ??
+        postgres(pgConfig.connectionString, {
+          max: pgConfig.maxConnections || 10,
+          connect_timeout: pgConfig.connectTimeout || 10,
+          idle_timeout: pgConfig.idleTimeout || 10,
+          prepare: pgConfig.prepareStatements ?? false,
+        });
 
       // Create Drizzle instance
       this.db = drizzle(this.sql);
