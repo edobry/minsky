@@ -173,13 +173,12 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<
     const { resolveSessionContextWithFeedback } = await import(
       "../../../../domain/session/session-context-resolver"
     );
-    const { createSessionProvider } = await import("../../../../domain/session");
     const { createGitService } = await import("../../../../domain/git");
     const { extractGitHubInfoFromUrl } = await import(
       "../../../../domain/session/repository-backend-detection"
     );
 
-    const sessionDB = await createSessionProvider();
+    const sessionDB = this.deps.sessionProvider!;
     const gitService = createGitService();
 
     // Resolve session context (supports name, task, auto-detect)

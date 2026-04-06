@@ -314,9 +314,8 @@ export class SessionSearchCommand extends BaseSessionCommand<
   ): Promise<Record<string, unknown>> {
     const { query, limit } = params;
 
-    const { createSessionProvider } = await import("../../../../domain/session");
     const { log } = await import("../../../../utils/logger");
-    const sessionProvider = await createSessionProvider();
+    const sessionProvider = this.deps.sessionProvider!;
     const sessions = await sessionProvider.listSessions();
 
     const lowerQuery = query.toLowerCase();

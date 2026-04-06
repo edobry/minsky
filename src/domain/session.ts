@@ -45,6 +45,12 @@ export type { SessionDbState } from "./session/session-db";
 export { createSessionProvider } from "./session/session-db-adapter";
 export { SessionDbAdapter } from "./session/session-db-adapter";
 
+// Re-export shared session provider cache
+export {
+  getSharedSessionProvider,
+  _resetSharedSessionProvider,
+} from "./session/session-provider-cache";
+
 // Re-export review types
 export type { SessionReviewParams, SessionReviewResult };
 

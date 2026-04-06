@@ -340,8 +340,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           // Update session task associations if task ID changed
           if (newTaskId !== taskId) {
             try {
-              const { createSessionProvider } = await import("../../../../domain/session");
-              const sessionProvider = await createSessionProvider();
+              const { getSharedSessionProvider } = await import("../../../../domain/session");
+              const sessionProvider = await getSharedSessionProvider();
               const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
                 dryRun: false, // We're already in execute mode
                 sessionProvider,
@@ -375,8 +375,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         } else if (dryRun && newTaskId !== taskId) {
           // In dry-run mode, show what session updates would happen
           try {
-            const { createSessionProvider: createSP } = await import("../../../../domain/session");
-            const sp = await createSP();
+            const { getSharedSessionProvider } = await import("../../../../domain/session");
+            const sp = await getSharedSessionProvider();
             const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
               dryRun: true,
               sessionProvider: sp,

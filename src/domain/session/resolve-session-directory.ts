@@ -6,22 +6,8 @@
  * See mt#562 for background on the bugs caused by inconsistent implementations.
  */
 
-import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import { getSharedSessionProvider, _resetSharedSessionProvider } from "./session-provider-cache";
 import { log } from "../../utils/logger";
-
-/** Lazily-initialized session provider singleton for directory resolution */
-let _cachedProvider: SessionProviderInterface | null = null;
-
-/**
- * Get or create the session provider (lazy async init).
- * Uses a module-level cache so repeated calls avoid re-creating the provider.
- */
-async function getOrCreateProvider(): Promise<SessionProviderInterface> {
-  if (!_cachedProvider) {
-    _cachedProvider = await createSessionProvider();
-  }
-  return _cachedProvider;
-}
 
 /**
  * Resolve a session ID to its absolute filesystem directory path.
@@ -39,7 +25,7 @@ async function getOrCreateProvider(): Promise<SessionProviderInterface> {
 export async function resolveSessionDirectory(sessionId: string): Promise<string> {
   log.debug(`Resolving session directory for: ${sessionId}`);
 
-  const provider = await getOrCreateProvider();
+  const provider = await getSharedSessionProvider();
 
   const session = await provider.getSession(sessionId);
   if (!session) {
@@ -57,5 +43,5 @@ export async function resolveSessionDirectory(sessionId: string): Promise<string
  * @internal
  */
 export function _resetCachedProvider(): void {
-  _cachedProvider = null;
+  _resetSharedSessionProvider();
 }

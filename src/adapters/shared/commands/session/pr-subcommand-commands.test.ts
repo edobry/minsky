@@ -21,11 +21,10 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { SessionPrCreateCommand } from "./pr-subcommand-commands";
 import type { CommandExecutionContext } from "../../command-registry";
+import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
 import { createMock as createMockFunction } from "../../../../utils/test-utils/core/mock-functions";
 
-const SESSION_MODULE_PATH = "../../../../domain/session";
 const SESSION_CONTEXT_RESOLVER_PATH = "../../../../domain/session/session-context-resolver";
-const CREATE_SESSION_PROVIDER_FN = "createSessionProvider";
 const RESOLVE_SESSION_CONTEXT_FN = "resolveSessionContextWithFeedback";
 
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {
@@ -35,7 +34,6 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
   const mockWorkingDirectory = "/mock/projects/minsky";
 
   beforeEach(() => {
-    command = new SessionPrCreateCommand();
     mockContext = {
       interface: "cli",
       workingDirectory: "/Users/edobry/Projects/minsky", // Not in session workspace
@@ -47,7 +45,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
     // Mock cleanup - avoiding real filesystem operations
   });
 
-  describe("🐛 Bug: PR Detection with Task Parameter", () => {
+  describe("Bug: PR Detection with Task Parameter", () => {
     it("should detect existing PR when using --task parameter instead of --name", async () => {
       // Bug reproduction scenario: task has existing session with PR state
       const taskId = "md#368";
@@ -74,8 +72,13 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
+      // Create command with injected sessionProvider
+      command = new SessionPrCreateCommand({
+        sessionProvider: mockSessionProvider as unknown as SessionProviderInterface,
+      });
+
       // Mock the session resolution to map task to session (this works in real code)
-      const mockSessionResolver = mock(async (options: any) => {
+      const mockSessionResolver = mock(async (options: Record<string, unknown>) => {
         if (options.task === taskId) {
           return {
             sessionId: sessionId,
@@ -85,31 +88,6 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }
         throw new Error("Session not found");
       });
-
-      // Mock git service to confirm branch exists
-      const mockGitService = {
-        execInRepository: mock(async (dir: string, command: string) => {
-          if (command.includes("show-ref")) {
-            return ""; // Branch exists (empty output means success)
-          }
-          if (command.includes("ls-remote")) {
-            return `abc123 refs/heads/pr/${sessionId}`; // Remote branch exists
-          }
-          return "";
-        }),
-      };
-
-      // Mock module imports used by the command implementation
-      const sessionImportSpy = spyOn(
-        await import(SESSION_MODULE_PATH),
-        CREATE_SESSION_PROVIDER_FN
-      ).mockImplementation(
-        () =>
-          mockSessionProvider as unknown as ReturnType<
-            // eslint-disable-next-line custom/no-magic-string-duplication
-            (typeof import("../../../../domain/session"))["createSessionProvider"]
-          >
-      );
 
       const resolverImportSpy = spyOn(
         await import(SESSION_CONTEXT_RESOLVER_PATH),
@@ -131,7 +109,6 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // This should now return true thanks to our fix
         expect(canRefresh).toBe(true);
       } finally {
-        sessionImportSpy.mockRestore();
         resolverImportSpy.mockRestore();
       }
     });
@@ -144,20 +121,14 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         getSession: mock(async () => null), // No existing session
       };
 
+      // Create command with injected sessionProvider
+      command = new SessionPrCreateCommand({
+        sessionProvider: mockSessionProvider as unknown as SessionProviderInterface,
+      });
+
       const mockSessionResolver = mock(async () => {
         throw new Error("Session not found for task md#999");
       });
-
-      const sessionImportSpy = spyOn(
-        await import(SESSION_MODULE_PATH),
-        CREATE_SESSION_PROVIDER_FN
-      ).mockImplementation(
-        () =>
-          mockSessionProvider as unknown as ReturnType<
-            // eslint-disable-next-line custom/no-magic-string-duplication
-            (typeof import("../../../../domain/session"))["createSessionProvider"]
-          >
-      );
 
       const resolverImportSpy = spyOn(
         await import(SESSION_CONTEXT_RESOLVER_PATH),
@@ -179,33 +150,33 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
           );
         }).toThrow(/PR description is required/);
       } finally {
-        sessionImportSpy.mockRestore();
         resolverImportSpy.mockRestore();
       }
     });
   });
 
-  describe("🔍 Current Implementation Analysis", () => {
+  describe("Current Implementation Analysis", () => {
     it("should show how checkIfPrCanBeRefreshed currently fails with task parameter", async () => {
-      // This test documents the current broken behavior
+      // This test documents the current broken behavior when no provider is injected
       const params = {
         task: "md#368",
         title: "Test PR",
         // No name parameter, not in session workspace
       };
 
-      // Use static mock path to prevent environment dependencies
-      const mockCurrentDir = mockWorkingDirectory;
+      // Create command with a mock provider that returns null for getSession
+      command = new SessionPrCreateCommand({
+        sessionProvider: {
+          getSession: async () => null,
+        } as unknown as SessionProviderInterface,
+      });
 
       // Call the private method to test its current behavior
       const canRefresh = await (
         command as unknown as { checkIfPrCanBeRefreshed: (params: unknown) => Promise<boolean> }
       ).checkIfPrCanBeRefreshed(params);
 
-      // Currently this returns false because:
-      // 1. params.name is undefined
-      // 2. current directory doesn't contain "/sessions/"
-      // 3. Method doesn't try task-to-session resolution
+      // Returns false because session resolution fails (no mock for resolver)
       expect(canRefresh).toBe(false);
     });
   });
