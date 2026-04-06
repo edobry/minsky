@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 
-import { CommitMsgHook, type CommitMsgResult } from "../../../src/hooks/commit-msg";
+import {
+  CommitMsgHook,
+  type CommitMsgResult,
+  type CommitMsgDeps,
+} from "../../../src/hooks/commit-msg";
 
 // Test constants to avoid magic string duplication
 const TEST_BRANCH = "feature/test-branch";
@@ -21,9 +25,22 @@ const mockExecSync = mock((command: string) => {
   return currentExecSyncBehavior(command);
 });
 
+const mockReadFileSync = mock((path: string) => {
+  if (path === "/nonexistent/file") {
+    throw new Error("ENOENT: no such file or directory");
+  }
+  return testCommitContent;
+});
+
+// Shared deps injected via constructor — no mock.module needed for fs/child_process
+const testDeps: CommitMsgDeps = {
+  readFileSync: mockReadFileSync as any,
+  execSync: mockExecSync as any,
+};
+
 async function testCommit(message: string): Promise<CommitMsgResult> {
   testCommitContent = message;
-  const hook = new CommitMsgHook(COMMIT_MSG_FILE);
+  const hook = new CommitMsgHook(COMMIT_MSG_FILE, testDeps);
   return await hook.run();
 }
 
@@ -31,7 +48,7 @@ describe("CommitMsgHook", () => {
   beforeEach(() => {
     testCommitContent = "";
 
-    // Set up module mocks within describe block
+    // Only mock logger — fs and child_process are injected via constructor DI
     mock.module("../../../src/utils/logger", () => ({
       log: {
         cli: mock(() => {}),
@@ -39,19 +56,6 @@ describe("CommitMsgHook", () => {
         warn: mock(() => {}),
         debug: mock(() => {}),
       },
-    }));
-
-    mock.module("child_process", () => ({
-      execSync: mockExecSync,
-    }));
-
-    mock.module("fs", () => ({
-      readFileSync: mock((path: string) => {
-        if (path === "/nonexistent/file") {
-          throw new Error("ENOENT: no such file or directory");
-        }
-        return testCommitContent;
-      }),
     }));
 
     // Reset git command behavior
@@ -230,7 +234,7 @@ describe("CommitMsgHook", () => {
 
   describe("Error Handling", () => {
     it("should handle file read errors gracefully", async () => {
-      const hook = new CommitMsgHook("/nonexistent/file");
+      const hook = new CommitMsgHook("/nonexistent/file", testDeps);
       const result = await hook.run();
 
       expect(result.success).toBe(false);
