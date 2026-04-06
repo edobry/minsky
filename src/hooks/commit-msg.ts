@@ -5,8 +5,8 @@
  * with a unified class-based approach following the PreCommitHook pattern.
  */
 
-import { readFileSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync as nodeReadFileSync } from "fs";
+import { execSync as nodeExecSync } from "child_process";
 import { log } from "../utils/logger";
 
 // Import actual validation logic instead of duplicating it
@@ -16,6 +16,11 @@ export interface CommitMsgResult {
   success: boolean;
   message: string;
   errors: string[];
+}
+
+export interface CommitMsgDeps {
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
+  execSync?: (command: string, options?: { encoding: string }) => string;
 }
 
 const FORBIDDEN_MESSAGES = [
@@ -39,7 +44,21 @@ const CONVENTIONAL_COMMIT_PATTERN =
  * Unified commit message validation hook
  */
 export class CommitMsgHook {
-  constructor(private commitMsgFile: string) {}
+  private readonly readFileSync: (path: string, encoding: BufferEncoding) => string;
+  private readonly execSync: (command: string, options?: { encoding: string }) => string;
+
+  constructor(
+    private commitMsgFile: string,
+    deps?: CommitMsgDeps
+  ) {
+    this.readFileSync =
+      deps?.readFileSync ??
+      ((p: string, e: BufferEncoding) => String(nodeReadFileSync(p, { encoding: e })));
+    this.execSync =
+      deps?.execSync ??
+      ((cmd: string, opts?: { encoding: string }) =>
+        nodeExecSync(cmd, { encoding: (opts?.encoding ?? "utf8") as BufferEncoding }).toString());
+  }
 
   /**
    * Run all commit message validations
@@ -49,9 +68,7 @@ export class CommitMsgHook {
 
     try {
       // Load and parse commit message
-      const commitMessage = (
-        readFileSync(this.commitMsgFile, "utf-8" as BufferEncoding) as string
-      ).trim();
+      const commitMessage = this.readFileSync(this.commitMsgFile, "utf-8" as BufferEncoding).trim();
 
       if (!commitMessage) {
         log.cli("✅ Empty commit message, validation skipped");
@@ -199,11 +216,11 @@ Examples:
    */
   private getCurrentBranch(): string {
     try {
-      const result = execSync("git branch --show-current", { encoding: "utf8" });
+      const result = this.execSync("git branch --show-current", { encoding: "utf8" });
       return result.toString().trim();
     } catch (error) {
       try {
-        const result = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" });
+        const result = this.execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" });
         return result.toString().trim();
       } catch {
         return "unknown";
