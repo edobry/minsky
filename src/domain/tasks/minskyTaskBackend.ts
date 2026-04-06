@@ -1,4 +1,5 @@
 import { eq, not, and, type SQL } from "drizzle-orm";
+import { TaskStatus } from "./taskConstants";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -75,8 +76,7 @@ export class MinskyTaskBackend implements TaskBackend {
     await this.db
       .update(tasksTable)
       .set({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: status as any,
+        status: status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));
@@ -102,8 +102,7 @@ export class MinskyTaskBackend implements TaskBackend {
         id,
         sourceTaskId: id.split("#")[1], // Extract the numeric part
         backend: "minsky" as const,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: (options?.status || "TODO") as any,
+        status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
         title,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -112,8 +111,7 @@ export class MinskyTaskBackend implements TaskBackend {
         target: tasksTable.id,
         set: {
           backend: "minsky" as const,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          status: (options?.status || "TODO") as any,
+          status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
           title: title,
           updatedAt: new Date(),
         },
@@ -142,8 +140,11 @@ export class MinskyTaskBackend implements TaskBackend {
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
     const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (result as any).rowCount > 0;
+    const rowCount =
+      result && typeof result === "object" && "rowCount" in result
+        ? (result.rowCount as number)
+        : 0;
+    return rowCount > 0;
   }
 
   getWorkspacePath(): string {
@@ -195,8 +196,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .update(tasksTable)
       .set({
         title: metadata.title,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: metadata.status as any,
+        status: metadata.status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));
