@@ -6,6 +6,8 @@
  */
 
 import { get } from "./index";
+import type { AIConfig } from "./schemas/ai";
+import type { GitHubConfig } from "./schemas/github";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -18,6 +20,12 @@ export interface CredentialConfig {
   token_file?: string;
   api_key?: string;
   api_key_file?: string;
+}
+
+function isCredentialConfig(
+  obj: Record<string, unknown>
+): obj is Record<string, unknown> & CredentialConfig {
+  return typeof obj.source === "string" && ["environment", "file", "prompt"].includes(obj.source);
 }
 
 export interface CredentialResolver {
@@ -42,15 +50,24 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   async getAICredential(provider: string): Promise<string | undefined> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const aiConfig = get("ai") as any;
-      const providerConfig = aiConfig?.providers?.[provider];
+      const aiConfig = get("ai") as AIConfig;
+      const providers = aiConfig?.providers as Record<string, unknown> | undefined;
+      const providerConfig =
+        providers?.[provider] !== null && typeof providers?.[provider] === "object"
+          ? (providers[provider] as Record<string, unknown>)
+          : null;
+      const credentials =
+        providerConfig?.credentials !== null &&
+        typeof providerConfig?.credentials === "object" &&
+        !Array.isArray(providerConfig?.credentials)
+          ? (providerConfig.credentials as Record<string, unknown>)
+          : null;
 
-      if (!providerConfig?.credentials) {
+      if (!credentials || !isCredentialConfig(credentials)) {
         return undefined;
       }
 
-      return this.resolveCredentialFromConfig(providerConfig.credentials);
+      return this.resolveCredentialFromConfig(credentials);
     } catch (error) {
       // If config path doesn't exist, return undefined
       return undefined;
@@ -85,13 +102,18 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   private async getGitHubCredential(): Promise<string | undefined> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const githubConfig = get("github") as any;
-      if (!githubConfig?.credentials) {
+      const githubConfig = get("github") as GitHubConfig & Record<string, unknown>;
+      const credentials =
+        githubConfig?.credentials !== null &&
+        typeof githubConfig?.credentials === "object" &&
+        !Array.isArray(githubConfig?.credentials)
+          ? (githubConfig.credentials as Record<string, unknown>)
+          : null;
+      if (!credentials || !isCredentialConfig(credentials)) {
         return undefined;
       }
 
-      return this.resolveCredentialFromConfig(githubConfig.credentials);
+      return this.resolveCredentialFromConfig(credentials);
     } catch (error) {
       // If config path doesn't exist, return undefined
       return undefined;

@@ -361,5 +361,4 @@ declare module "./base-task-command" {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically extending prototype to add createService method declared via module augmentation
-(BaseTaskCommand as any).prototype.createService = createTaskSimilarityService;
+Object.assign(BaseTaskCommand.prototype, { createService: createTaskSimilarityService });

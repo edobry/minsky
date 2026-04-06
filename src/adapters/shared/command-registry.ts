@@ -82,8 +82,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
 
 export type CommandExecutionHandler<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default, changing cascades to all consumers
-  R = any,
+  R = unknown,
 > = (
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
   context: CommandExecutionContext
@@ -95,8 +94,7 @@ export type CommandExecutionHandler<
 
 export interface CommandDefinition<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default, changing cascades to all consumers
-  R = any,
+  R = unknown,
 > {
   /** Unique command identifier */
   id: string;
@@ -148,8 +146,7 @@ export type InferParams<T extends CommandParameterMap> = {
  * });
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type for command flexibility
-export function defineCommand<T extends CommandParameterMap, R = any>(
+export function defineCommand<T extends CommandParameterMap, R = unknown>(
   def: CommandDefinition<T, R>
 ): CommandDefinition<T, R> {
   return def;
@@ -158,8 +155,7 @@ export function defineCommand<T extends CommandParameterMap, R = any>(
 /**
  * Shared command interface that preserves type information
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type for command flexibility
-export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> {
+export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = unknown> {
   id: string;
   category: CommandCategory;
   name: string;
@@ -179,8 +175,7 @@ export interface CommandRegistry {
    */
   registerCommand<
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type
-    R = any,
+    R = unknown,
   >(
     commandDef: CommandDefinition<T, R>
   ): void;
@@ -224,8 +219,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    */
   registerCommand<
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default allows any return type
-    R = any,
+    R = unknown,
   >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
     // Validate the command definition using schema validation
     const validatedDef = validateCommandDefinition(commandDef);

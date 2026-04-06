@@ -35,7 +35,7 @@ export interface ComponentOutput {
 
 // New: Gathered inputs for a specific component
 export interface ComponentInputs {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component inputs are polymorphic: each component defines its own concrete subtype
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the index signature must be `any` because each component returns a concrete subtype (EnvironmentInputs, TaskContextInputs, etc.) that lack their own index signatures; `unknown` would reject all concrete subtypes
   [key: string]: any; // Flexible structure for component-specific data
 }
 

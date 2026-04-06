@@ -14,6 +14,7 @@ import {
   createCommandGenerator,
   createCategoryCommandHandler,
   defaultResultFormatter,
+  type CommandResultFormatter,
   type CliCommandOptions,
   type CategoryCommandOptions,
   type CommandGeneratorDependencies,
@@ -27,8 +28,7 @@ export interface ModularCliBridgeConfig {
   /** Use enhanced result formatter instead of default */
   useEnhancedFormatter?: boolean;
   /** Custom result formatter instance */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result formatter type varies by implementation
-  customResultFormatter?: any;
+  customResultFormatter?: CommandResultFormatter;
   /** Custom parameter processor instance */
   customParameterProcessor?: ParameterProcessor;
   /** Custom customization manager instance */
@@ -48,8 +48,7 @@ export interface ModularCliBridgeConfig {
 export class ModularCliCommandBridge {
   private customizationManager: CommandCustomizationManager;
   private parameterProcessor: ParameterProcessor;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- result formatter type varies by implementation
-  private resultFormatter: any;
+  private resultFormatter: CommandResultFormatter;
   private commandGenerator: CommandGeneratorCore;
   private categoryHandler: CategoryCommandHandler;
 

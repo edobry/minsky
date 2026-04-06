@@ -108,9 +108,17 @@ export const ToolSchemasComponent: ContextComponent = {
         preferMcp: false,
       };
 
-      // Use custom registry if provided (for testing), otherwise use shared registry
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- commandRegistry is unknown in ComponentInput for polymorphism; cast to registry interface
-      const registry = (context.commandRegistry as any) || sharedCommandRegistry;
+      // Use custom registry if provided (for testing), otherwise use shared registry.
+      // Cast to a structural type that covers both sharedCommandRegistry and test doubles.
+      const registry =
+        (context.commandRegistry as {
+          getAllCommands(): { id: string; description: string; syntax?: string }[];
+          getCommandsByCategory(category: CommandCategory): {
+            id: string;
+            description: string;
+            syntax?: string;
+          }[];
+        }) || sharedCommandRegistry;
 
       // Check if query-aware filtering should be applied
       const userQuery = context.userQuery || context.userPrompt;

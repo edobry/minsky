@@ -140,7 +140,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
     description: config.description,
     parameters: similaritySearchParams,
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry; InferParams would require full type threading
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       try {
         const query = params.query as string;

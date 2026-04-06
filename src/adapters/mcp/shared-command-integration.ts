@@ -175,7 +175,7 @@ export function registerSharedCommandsWithMcp(
 
             const duration = Date.now() - startTime;
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });
-            return result;
+            return result as string | Record<string, unknown>;
           } catch (error) {
             const duration = Date.now() - startTime;
 

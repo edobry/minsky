@@ -37,8 +37,7 @@ export const SessionContextComponent: ContextComponent = {
     let isInSession = false;
     let sessionId: string | undefined;
     let taskId: string | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- local session shape doesn't match SessionRecord (uses id instead of session field)
-    let sessionRecord: any;
+    let sessionRecord: SessionContextInputs["sessionRecord"];
     let error: string | undefined;
 
     try {

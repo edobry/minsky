@@ -34,27 +34,36 @@ export function createRoutingCommand(): Command {
     0.5
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
-  availableCmd.action(async (options: any) => {
-    try {
-      const result = await availableCommand.execute({
-        status: options.status,
-        backend: options.backend,
-        limit: options.limit,
-        showEffort: options.showEffort,
-        showPriority: options.showPriority,
-        json: options.json,
-        minReadiness: options.minReadiness,
-      });
-      if (options.json) {
-        log.cli(JSON.stringify(result, null, 2));
-      } else {
-        log.cli(result.output || "");
+  availableCmd.action(
+    async (options: {
+      status?: string;
+      backend?: string;
+      limit: number;
+      showEffort: boolean;
+      showPriority: boolean;
+      json: boolean;
+      minReadiness: number;
+    }) => {
+      try {
+        const result = await availableCommand.execute({
+          status: options.status,
+          backend: options.backend,
+          limit: options.limit,
+          showEffort: options.showEffort,
+          showPriority: options.showPriority,
+          json: options.json,
+          minReadiness: options.minReadiness,
+        });
+        if (options.json) {
+          log.cli(JSON.stringify(result, null, 2));
+        } else {
+          log.cli(result.output || "");
+        }
+      } catch (error) {
+        handleCliError(error);
       }
-    } catch (error) {
-      handleCliError(error);
     }
-  });
+  );
   routingCommand.addCommand(availableCmd);
 
   // Add "route" subcommand
@@ -72,24 +81,25 @@ export function createRoutingCommand(): Command {
   routeCmd.option("--parallel", "Show parallel execution opportunities");
   routeCmd.option("--json", "Output in JSON format");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
-  routeCmd.action(async (target: string, options: any) => {
-    try {
-      const result = await routeCommand.execute({
-        target,
-        strategy: options.strategy,
-        parallel: options.parallel,
-        json: options.json,
-      });
-      if (options.json) {
-        log.cli(JSON.stringify(result, null, 2));
-      } else {
-        log.cli(result.output || "");
+  routeCmd.action(
+    async (target: string, options: { strategy: string; parallel: boolean; json: boolean }) => {
+      try {
+        const result = await routeCommand.execute({
+          target,
+          strategy: options.strategy as "shortest-path" | "value-first" | "ready-first",
+          parallel: options.parallel,
+          json: options.json,
+        });
+        if (options.json) {
+          log.cli(JSON.stringify(result, null, 2));
+        } else {
+          log.cli(result.output || "");
+        }
+      } catch (error) {
+        handleCliError(error);
       }
-    } catch (error) {
-      handleCliError(error);
     }
-  });
+  );
   routingCommand.addCommand(routeCmd);
 
   return routingCommand;

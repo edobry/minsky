@@ -6,6 +6,9 @@
  */
 
 import { get } from "./index";
+import type { AIConfig, AIProviderConfig } from "./schemas/ai";
+import type { GitHubConfig } from "./schemas/github";
+import type { BackendConfig } from "./schemas/backend";
 import { TaskBackend } from "./backend-detection";
 import { getErrorMessage } from "../../schemas/error";
 
@@ -76,8 +79,7 @@ export class DefaultConfigValidator implements ConfigValidator {
 
       // Validate backend-specific configuration (using tasks.backend instead of deprecated root backend)
       if (backend === TaskBackend.GITHUB_ISSUES) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const backendConfig = get("backendConfig") as any;
+        const backendConfig = get("backendConfig") as BackendConfig;
         const githubConfig = backendConfig?.["github-issues"];
 
         if (!githubConfig?.owner) {
@@ -119,15 +121,14 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ai = get("ai") as any;
+      const ai = get("ai") as AIConfig;
 
-      if (ai?.default_provider) {
+      if (ai?.defaultProvider) {
         const validProviders = ["openai", "anthropic", "ollama"];
-        if (!validProviders.includes(ai.default_provider)) {
+        if (!validProviders.includes(ai.defaultProvider)) {
           errors.push({
-            field: "ai.default_provider",
-            message: `Invalid AI provider: ${ai.default_provider}. Valid options: ${validProviders.join(", ")}`,
+            field: "ai.defaultProvider",
+            message: `Invalid AI provider: ${ai.defaultProvider}. Valid options: ${validProviders.join(", ")}`,
             code: "INVALID_AI_PROVIDER",
           });
         }
@@ -136,10 +137,10 @@ export class DefaultConfigValidator implements ConfigValidator {
       // Validate provider configurations
       if (ai?.providers) {
         for (const [providerName, providerConfig] of Object.entries(ai.providers)) {
+          if (providerConfig == null) continue;
           const validationResult = this.validateAIProviderConfig(
             providerName,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            providerConfig as any
+            providerConfig as Record<string, unknown>
           );
           errors.push(...validationResult.errors);
           warnings.push(...validationResult.warnings);
@@ -179,20 +180,26 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const github = get("github") as any;
+      const github = get("github") as GitHubConfig & Record<string, unknown>;
+      const githubCredentials =
+        github?.credentials !== null &&
+        typeof github?.credentials === "object" &&
+        !Array.isArray(github?.credentials)
+          ? (github.credentials as Record<string, unknown>)
+          : null;
 
-      if (github?.credentials) {
+      if (githubCredentials) {
         const validSources = ["env", "file", "keychain", "manual"];
-        if (!validSources.includes(github.credentials.source)) {
+        const credSource = githubCredentials["source"];
+        if (typeof credSource !== "string" || !validSources.includes(credSource)) {
           errors.push({
             field: "github.credentials.source",
-            message: `Invalid credential source: ${github.credentials.source}. Valid options: ${validSources.join(", ")}`,
+            message: `Invalid credential source: ${String(credSource)}. Valid options: ${validSources.join(", ")}`,
             code: "INVALID_GITHUB_CREDENTIAL_SOURCE",
           });
         }
 
-        if (github.credentials.source === "file" && !github.credentials.path) {
+        if (credSource === "file" && !githubCredentials["path"]) {
           errors.push({
             field: "github.credentials.path",
             message: "Credential file path is required when using file source",
@@ -200,7 +207,7 @@ export class DefaultConfigValidator implements ConfigValidator {
           });
         }
 
-        if (github.credentials.source === "env" && !github.credentials.env_var) {
+        if (credSource === "env" && !githubCredentials["env_var"]) {
           warnings.push({
             field: "github.credentials.env_var",
             message: "Environment variable name not specified, will use default GITHUB_TOKEN",
@@ -229,8 +236,7 @@ export class DefaultConfigValidator implements ConfigValidator {
 
   private validateAIProviderConfig(
     providerName: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- provider config is dynamically shaped and validated within the method
-    providerConfig: any
+    providerConfig: Record<string, unknown>
   ): { errors: ValidationError[]; warnings: ValidationWarning[] } {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
@@ -261,12 +267,19 @@ export class DefaultConfigValidator implements ConfigValidator {
     }
 
     // Validate credentials
-    if (providerConfig.credentials) {
+    const credentials =
+      providerConfig.credentials !== null &&
+      typeof providerConfig.credentials === "object" &&
+      !Array.isArray(providerConfig.credentials)
+        ? (providerConfig.credentials as Record<string, unknown>)
+        : null;
+    if (credentials) {
       const validSources = ["env", "file", "keychain", "manual"];
-      if (!validSources.includes(providerConfig.credentials.source)) {
+      const credentialSource = credentials["source"];
+      if (typeof credentialSource !== "string" || !validSources.includes(credentialSource)) {
         errors.push({
           field: `ai.providers.${providerName}.credentials.source`,
-          message: `Invalid credential source: ${providerConfig.credentials.source}. Valid options: ${validSources.join(", ")}`,
+          message: `Invalid credential source: ${String(credentialSource)}. Valid options: ${validSources.join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE",
         });
       }

@@ -253,25 +253,18 @@ export class DefaultTokenizerService implements TokenizerService {
    */
   private async createGptTokenizer(encoding: string): Promise<unknown> {
     try {
-      const gptTokenizer = await import("gpt-tokenizer");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const GPTTokens = (gptTokenizer as any).GPTTokens;
-      const instance = new GPTTokens({
-        model: encoding === "o200k_base" ? "gpt-4o" : "gpt-4",
-        training: false,
-      }) as TokenizerInstance;
-      // Ensure decode API exists in a consistent shape
-      if (
-        typeof (instance as TokenizerInstance).decode !== "function" &&
-        typeof (instance as TokenizerInstance & { decodeTokens?: (t: number[]) => string })
-          .decodeTokens === "function"
-      ) {
-        const withDecode = instance as TokenizerInstance & {
-          decodeTokens: (t: number[]) => string;
-        };
-        (instance as TokenizerInstance).decode = (tokens: number[]) =>
-          withDecode.decodeTokens(tokens);
-      }
+      // gpt-tokenizer exports named encode/decode functions per encoding module.
+      // Use o200k_base for gpt-4o models, cl100k_base for others.
+      const modulePath =
+        encoding === "o200k_base" ? "gpt-tokenizer/o200k_base" : "gpt-tokenizer/cl100k_base";
+      const mod = (await import(/* @vite-ignore */ modulePath)) as {
+        encode: (text: string) => number[];
+        decode: (tokens: Iterable<number>) => string;
+      };
+      const instance: TokenizerInstance = {
+        encode: (text: string) => mod.encode(text),
+        decode: (tokens: number[]) => mod.decode(tokens),
+      };
       return instance;
     } catch (error) {
       throw new Error(`Failed to load gpt-tokenizer: ${error}`);
@@ -284,8 +277,25 @@ export class DefaultTokenizerService implements TokenizerService {
   private async createTiktokenTokenizer(encoding: string): Promise<unknown> {
     try {
       const { get_encoding } = await import("tiktoken");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return get_encoding(encoding as any);
+      type TiktokenEncoding =
+        | "gpt2"
+        | "r50k_base"
+        | "p50k_base"
+        | "p50k_edit"
+        | "cl100k_base"
+        | "o200k_base";
+      const knownEncodings: TiktokenEncoding[] = [
+        "gpt2",
+        "r50k_base",
+        "p50k_base",
+        "p50k_edit",
+        "cl100k_base",
+        "o200k_base",
+      ];
+      const safeEncoding: TiktokenEncoding = knownEncodings.includes(encoding as TiktokenEncoding)
+        ? (encoding as TiktokenEncoding)
+        : "cl100k_base";
+      return get_encoding(safeEncoding);
     } catch (error) {
       throw new Error(`Failed to load tiktoken: ${error}`);
     }

@@ -88,9 +88,10 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         }
 
         if (sessionId) {
-          workingDirectory = await sessionProvider.getRepoPath(
-            await sessionProvider.getSession(sessionId)
-          );
+          const sessionRecord = await sessionProvider.getSession(sessionId);
+          if (sessionRecord) {
+            workingDirectory = await sessionProvider.getRepoPath(sessionRecord);
+          }
         }
       }
 
@@ -177,8 +178,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error and params are heterogeneous at this error handling level
-  private handlePrError(error: any, params: any): Error {
+  private handlePrError(error: unknown, params: SessionPrEditParams): Error {
     const errorMessage = getErrorMessage(error);
 
     // Handle specific error types with friendly messages

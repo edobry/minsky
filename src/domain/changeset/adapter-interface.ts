@@ -111,8 +111,7 @@ export interface ChangesetAdapterFactory {
   readonly platform: ChangesetPlatform;
 
   /** Create an adapter instance for the given repository */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
-  createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter>;
+  createAdapter(repositoryUrl: string, config?: ChangesetAdapterConfig): Promise<ChangesetAdapter>;
 
   /** Check if this factory can handle the given repository */
   canHandle(repositoryUrl: string): boolean;
@@ -132,6 +131,12 @@ export interface ChangesetAdapterConfig {
     password?: string;
     apiUrl?: string;
   };
+
+  /** Working directory for local git operations */
+  workdir?: string;
+
+  /** Dependency injection for local git adapter */
+  deps?: Record<string, unknown>;
 
   /** Default options for operations */
   defaults?: {

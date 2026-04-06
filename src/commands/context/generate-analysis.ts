@@ -11,6 +11,7 @@ import type {
   AnalysisResult,
   ComponentBreakdown,
   OptimizationSuggestion,
+  TokenizerInfo,
 } from "./generate-types";
 
 /**
@@ -107,9 +108,10 @@ export async function analyzeGeneratedContext(
     result.metadata.totalTokens || 0
   );
 
-  // Get tokenizer information
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getTokenizerInfo is an optional extension not in the base TokenizationService interface
-  const tokenizerInfo = (tokenizationService as any).getTokenizerInfo?.(targetModel) || {
+  // Get tokenizer information (getTokenizerInfo is an optional extension not in the base interface)
+  const tokenizerInfo = (
+    tokenizationService as { getTokenizerInfo?: (model: string) => TokenizerInfo }
+  ).getTokenizerInfo?.(targetModel) || {
     name: "tiktoken",
     encoding: "cl100k_base",
     description: "OpenAI tokenizer",

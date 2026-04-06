@@ -15,6 +15,12 @@ import {
 } from "../command-registry";
 import { log } from "../../../utils/logger";
 
+/** Bun extends the Node.js process with uptime() and memoryUsage() */
+interface BunProcess {
+  uptime?(): number;
+  memoryUsage?(): { rss: number; heapTotal: number; heapUsed: number; external: number };
+}
+
 /**
  * Utility function to format bytes
  */
@@ -131,10 +137,9 @@ export function registerDebugCommands(): void {
         const nodejsVersion = process.version;
         const platform = process.platform;
         const arch = process.arch;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.uptime() not in Node type declarations
-        const uptime = Math.round((process as any).uptime?.() ?? 0);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.memoryUsage() not in Node type declarations
-        const memory = (process as any).memoryUsage?.() ?? {
+        const bunProcess = process as BunProcess;
+        const uptime = Math.round(bunProcess.uptime?.() ?? 0);
+        const memory = bunProcess.memoryUsage?.() ?? {
           rss: 0,
           heapTotal: 0,
           heapUsed: 0,

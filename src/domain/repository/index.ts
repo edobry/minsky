@@ -17,6 +17,7 @@ import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
 import { execAsync } from "../../utils/exec";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
+import type { SessionRecord } from "../session/types";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -213,8 +214,8 @@ export interface RepositoryBackend {
   getStatus(session?: string): Promise<RepoStatus>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<ValidationResult>;
-  push(branch?: string): Promise<{ success: boolean; message: string }>;
-  pull(branch?: string): Promise<{ success: boolean; message: string }>;
+  push(branch?: string): Promise<{ success: boolean; message?: string }>;
+  pull(branch?: string): Promise<{ success: boolean; message?: string }>;
   checkout?(branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 
@@ -333,8 +334,7 @@ export interface RepositoryBackend {
  */
 export interface SessionUpdateEvent {
   /** Basic session and context info */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session record shape varies and is accessed dynamically by consumers
-  session: any;
+  session: SessionRecord;
   workdir: string;
 
   /** Update details - extensible for future event enrichment */

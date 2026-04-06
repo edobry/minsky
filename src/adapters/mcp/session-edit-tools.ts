@@ -310,9 +310,7 @@ export async function applyEditPattern(
   // Find fast-apply capable provider (currently Morph, extendable to others)
   const fastApplyProviders = Object.entries(aiConfig.providers)
     .filter(
-      ([name, providerConfig]) =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (providerConfig as any)?.enabled && name === "morph" // Add other fast-apply providers here as needed
+      ([name, providerConfig]) => providerConfig?.enabled && name === "morph" // Add other fast-apply providers here as needed
     )
     .map(([name]) => name);
 
@@ -343,8 +341,7 @@ export async function applyEditPattern(
   // Create enhanced AI completion service with retry logic and circuit breaker
   const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
+  });
   const retryService = new IntelligentRetryService();
   const completionService = new EnhancedAICompletionService(defaultCompletionService, retryService);
 

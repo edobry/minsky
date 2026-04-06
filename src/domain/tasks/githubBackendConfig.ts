@@ -144,9 +144,23 @@ export function getGitHubBackendConfig(
 /**
  * Create labels for a GitHub repository
  */
+interface OctokitLabelClient {
+  rest: {
+    issues: {
+      getLabel(params: { owner: string; repo: string; name: string }): Promise<unknown>;
+      createLabel(params: {
+        owner: string;
+        repo: string;
+        name: string;
+        color: string;
+        description: string;
+      }): Promise<unknown>;
+    };
+  };
+}
+
 export async function createGitHubLabels(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Octokit type comes from optional @octokit/rest package
-  octokit: any,
+  octokit: OctokitLabelClient,
   owner: string,
   repo: string,
   labels: Record<string, string>

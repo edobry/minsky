@@ -7,6 +7,7 @@
 
 import type {
   ChangesetAdapter,
+  ChangesetAdapterConfig,
   ChangesetAdapterFactory,
   ChangesetDetails,
   ChangesetFeature,
@@ -104,8 +105,13 @@ export class BitbucketChangesetAdapterFactory implements ChangesetAdapterFactory
     return repositoryUrl.includes("bitbucket.org") || repositoryUrl.includes("bitbucket.");
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
-  async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
-    return new BitbucketChangesetAdapter(repositoryUrl, config);
+  async createAdapter(
+    repositoryUrl: string,
+    config?: ChangesetAdapterConfig
+  ): Promise<ChangesetAdapter> {
+    return new BitbucketChangesetAdapter(repositoryUrl, {
+      token: config?.auth?.token,
+      username: config?.auth?.username,
+    });
   }
 }

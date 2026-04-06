@@ -577,8 +577,7 @@ export async function getPullRequestDiff(
     pull_number: prNumber,
     headers: { accept: "application/vnd.github.v3.diff" },
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const diff = String((diffResponse as any).data || "");
+  const diff = String((diffResponse as { data?: unknown }).data || "");
 
   const filesResponse = await octokit.rest.pulls.listFiles({
     owner: gh.owner,

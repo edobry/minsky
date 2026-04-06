@@ -1,4 +1,10 @@
-import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "./types";
+import type {
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+  TaskBackend as TaskBackendInterface,
+} from "./types";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
@@ -28,8 +34,7 @@ export interface TaskServiceInterface {
   ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
   getWorkspacePath(): string;
   getBackendForTask?(taskId: string): Promise<string>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- backends are heterogeneous objects with varying shapes
-  listBackends?(): any[];
+  listBackends?(): Pick<TaskBackendInterface, "name" | "prefix">[];
   updateTask?(taskId: string, updates: Partial<Task>): Promise<Task>;
   setDefaultBackend?(backendName: string): void;
 }
@@ -97,8 +102,15 @@ export async function createConfiguredTaskService(options: {
           const { PersistenceService } = await import("../persistence/service");
 
           // PersistenceService should already be initialized at application startup
-          const persistence = PersistenceService.getProvider();
+          // Cast to SqlCapablePersistenceProvider to get a typed database connection
+          const persistence =
+            PersistenceService.getProvider() as import("../persistence/types").SqlCapablePersistenceProvider;
           const db = await persistence.getDatabaseConnection?.();
+          if (!db) {
+            throw new Error(
+              "Minsky backend requires a database connection, but none was available"
+            );
+          }
 
           const minskyBackend = createMinskyTaskBackend({
             name: TaskBackend.MINSKY,
@@ -127,7 +139,7 @@ export async function createConfiguredTaskService(options: {
     try {
       // Get PersistenceService (should already be initialized at application startup)
       const { PersistenceService } = await import("../persistence/service");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- persistence provider type varies by implementation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getDatabaseConnection return type varies across provider implementations (PostgreSQL vs SQLite)
       let persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null = null;
       try {
         persistenceProvider = PersistenceService.getProvider();

@@ -7,6 +7,7 @@
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage } from "../storage/vector/types";
+import type { DatabaseStorage as StorageDatabaseStorage } from "../storage/database-storage";
 
 /**
  * Capabilities exposed by different persistence providers
@@ -40,15 +41,10 @@ export interface PersistenceConfig {
 }
 
 /**
- * Storage interface for domain entities
+ * Re-export DatabaseStorage from storage module for use by providers.
+ * The canonical DatabaseStorage interface lives in storage/database-storage.ts.
  */
-export interface DatabaseStorage<T, S> {
-  get(id: string): Promise<T | null>;
-  save(id: string, data: T): Promise<void>;
-  update(id: string, updates: Partial<T>): Promise<void>;
-  delete(id: string): Promise<void>;
-  search(criteria: S): Promise<T[]>;
-}
+export type { StorageDatabaseStorage as DatabaseStorage };
 
 /**
  * Base interface for all persistence providers
@@ -56,7 +52,7 @@ export interface DatabaseStorage<T, S> {
 export interface BasePersistenceProvider {
   readonly capabilities: PersistenceCapabilities;
   getCapabilities(): PersistenceCapabilities;
-  getStorage<T, S>(): DatabaseStorage<T, S>;
+  getStorage<T, S>(): StorageDatabaseStorage<T, S>;
   initialize(): Promise<void>;
   close(): Promise<void>;
   getConnectionInfo(): string;
@@ -85,18 +81,19 @@ export interface VectorCapablePersistenceProvider extends BasePersistenceProvide
 export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
   abstract getCapabilities(): PersistenceCapabilities;
-  abstract getStorage<T, S>(): DatabaseStorage<T, S>;
+  abstract getStorage<T, S>(): StorageDatabaseStorage<T, S>;
   abstract initialize(): Promise<void>;
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
 
-  // Optional capability methods — implemented by SQL/vector-capable subclasses
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses; callers cast via SqlCapablePersistenceProvider
+  // Optional capability methods — implemented by SQL/vector-capable subclasses.
+  // These use 'any' in the base class because SQLite and PostgreSQL return different concrete
+  // DB types; callers that need typed connections should cast via SqlCapablePersistenceProvider.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL); callers narrow via SqlCapablePersistenceProvider
   getDatabaseConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL)
   getRawSqlConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
-  getVectorStorage?(dimension: number): any;
+  getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
 }
 
 /**

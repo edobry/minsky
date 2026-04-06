@@ -6,8 +6,8 @@
 
 import { LanguageModel } from "ai";
 import { openai, createOpenAI } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 import { AIProviderConfig, AIProviderError } from "./types";
 import type { DefaultAIConfigurationService } from "./config-service";
@@ -42,27 +42,28 @@ export function createLanguageModel(
       return openaiProvider(resolvedModel);
     }
 
-    case "anthropic":
-      return anthropic(resolvedModel, {
+    case "anthropic": {
+      const anthropicProvider = createAnthropic({
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI SDK provider options type does not exactly match our config shape
-      } as any);
+      });
+      return anthropicProvider(resolvedModel);
+    }
 
-    case "google":
-      return google(resolvedModel, {
+    case "google": {
+      const googleProvider = createGoogleGenerativeAI({
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI SDK provider options type does not exactly match our config shape
-      } as any);
+      });
+      return googleProvider(resolvedModel);
+    }
 
     case "morph": {
       const morphProvider = createOpenAI({
         apiKey: providerConfig.apiKey,
         baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (morphProvider as any)(resolvedModel);
+      return morphProvider(resolvedModel);
     }
 
     default:

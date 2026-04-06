@@ -77,9 +77,8 @@ export function createConfigListCommand(): Command {
         const { backend: _deprecatedBackend, ...resolved } = config;
 
         // Apply credential masking unless explicitly requested to show secrets
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- Configuration type needs bridge for generic utility functions that accept Record<string,unknown>
-        const resolvedRecord = resolved as unknown as Record<string, unknown>;
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- ConfigurationMetadata needs bridge for generic utility functions
+        const resolvedRecord = resolved as Record<string, unknown>;
+        // eslint-disable-next-line custom/no-excessive-as-unknown -- ConfigurationMetadata lacks index signature; double cast needed to pass to generic display utilities
         const metadataRecord = metadata as unknown as Record<string, unknown>;
         const maskedConfig = maskCredentials(resolvedRecord, options.showSecrets || false);
 

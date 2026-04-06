@@ -21,8 +21,7 @@ interface CacheEntry<T> {
  */
 export class RepositoryMetadataCache {
   private static instance: RepositoryMetadataCache;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cache holds heterogeneous values with varying types keyed by string
-  private cache: Map<string, CacheEntry<any>> = new Map();
+  private cache: Map<string, CacheEntry<unknown>> = new Map();
 
   /**
    * Default TTL for cache entries in milliseconds (5 minutes).

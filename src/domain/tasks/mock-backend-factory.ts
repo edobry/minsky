@@ -1,5 +1,5 @@
 import { mock } from "bun:test";
-import type { Task } from "./types";
+import type { Task, BackendCapabilities } from "./types";
 import type {
   TaskBackend,
   MultiBackendTaskBackend,
@@ -9,6 +9,49 @@ import type {
   TaskService,
 } from "./multi-backend-service";
 import { createTaskService } from "./multi-backend-service";
+
+/**
+ * Bridge a MultiBackendTaskBackend to the TaskBackend interface for registration.
+ * Provides stub implementations for methods not in MultiBackendTaskBackend.
+ */
+function bridgeToTaskBackend(backend: MultiBackendTaskBackend): TaskBackend {
+  const capabilities: BackendCapabilities = {
+    canCreate: true,
+    canUpdate: true,
+    canDelete: true,
+    canList: true,
+  };
+  return {
+    name: backend.name,
+    prefix: backend.prefix,
+    listTasks: (options) => backend.listTasks(options as TaskFilters),
+    getTask: (id) => backend.getTask(id),
+    getTaskStatus: async (id) => {
+      const task = await backend.getTask(id);
+      return task?.status;
+    },
+    setTaskStatus: async (id, status) => {
+      await backend.updateTask(id, { status });
+    },
+    createTaskFromTitleAndSpec: async (title, spec, options) => {
+      const mockSpec: TaskSpec = {
+        id: options?.id ?? `mock-${Date.now()}`,
+        title,
+        description: spec,
+        status: options?.status ?? "TODO",
+      };
+      return backend.createTask(mockSpec);
+    },
+    createTask: (spec) => backend.createTask(spec as TaskSpec),
+    deleteTask: async (id) => {
+      await backend.deleteTask(id);
+      return true;
+    },
+    getWorkspacePath: () => "/test/workspace",
+    getCapabilities: () => capabilities,
+    getTaskSpecPath: (taskId, _title) => backend.getTaskSpecPath(taskId),
+  };
+}
 
 // Mock TaskBackend implementation for testing
 export function createMockBackend(name: string, prefix: string): MultiBackendTaskBackend {
@@ -132,12 +175,9 @@ export function createTaskServiceWithMocks(): {
   const ghBackend = createMockBackend("GitHub Issues", "gh");
   const jsonBackend = createMockBackend("JSON File", "json");
 
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
-  service.registerBackend(mdBackend as unknown as TaskBackend);
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
-  service.registerBackend(ghBackend as unknown as TaskBackend);
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- MultiBackendTaskBackend needs bridge to TaskBackend interface for registration
-  service.registerBackend(jsonBackend as unknown as TaskBackend);
+  service.registerBackend(bridgeToTaskBackend(mdBackend));
+  service.registerBackend(bridgeToTaskBackend(ghBackend));
+  service.registerBackend(bridgeToTaskBackend(jsonBackend));
 
   return { service, mdBackend, ghBackend, jsonBackend };
 }

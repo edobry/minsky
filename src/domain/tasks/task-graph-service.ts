@@ -49,8 +49,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
             eq(taskRelationshipsTable.toTaskId, toId)
           )
         );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (res as any)?.rowCount ?? 0;
+      return (res as { rowCount?: number })?.rowCount ?? 0;
     },
     async listFrom(taskId) {
       const rows = await db
