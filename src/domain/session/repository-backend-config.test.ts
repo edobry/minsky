@@ -6,9 +6,15 @@
  * - getRepositoryBackendFromConfig (config-based session creation)
  *
  * All tests are hermetic — no real filesystem, git, or network access.
+ * Uses dependency injection instead of mock.module().
  */
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import { RepositoryBackendType } from "../repository/index";
+import type { RepositoryBackendDetectionDeps } from "./repository-backend-detection";
+import {
+  resolveRepositoryFromGitRemote,
+  getRepositoryBackendFromConfig,
+} from "./repository-backend-detection";
 
 // ─── Shared mutable state for mock control ───────────────────────────────────
 
@@ -18,21 +24,12 @@ let execSyncImpl: (cmd: string, opts?: any) => string | Buffer = (_cmd, _opts) =
 // Controls what getConfiguration returns in each test
 let configurationImpl: () => object = () => ({});
 
-// ─── Top-level module mocks (registered before any import of the module under test)
-
-mock.module("child_process", () => ({
-  execSync: (cmd: string, opts?: any) => execSyncImpl(cmd, opts),
-}));
-
-mock.module("../configuration/index", () => ({
-  getConfiguration: () => configurationImpl(),
-}));
-
-// Import the module under test AFTER mocks are registered
-import {
-  resolveRepositoryFromGitRemote,
-  getRepositoryBackendFromConfig,
-} from "./repository-backend-detection";
+function makeDeps(): RepositoryBackendDetectionDeps {
+  return {
+    execSync: (cmd: string, opts?: any) => execSyncImpl(cmd, opts),
+    getConfiguration: () => configurationImpl(),
+  };
+}
 
 // ─── resolveRepositoryFromGitRemote ─────────────────────────────────────────
 
@@ -44,7 +41,7 @@ describe("resolveRepositoryFromGitRemote", () => {
     });
 
     it("returns backend=github with url and github owner/repo", () => {
-      const result = resolveRepositoryFromGitRemote("/tmp/repo");
+      const result = resolveRepositoryFromGitRemote("/tmp/repo", makeDeps());
       expect(result.backend).toBe("github");
       expect(result.url).toContain("github.com");
       expect(result.github?.owner).toBe("edobry");
@@ -60,7 +57,7 @@ describe("resolveRepositoryFromGitRemote", () => {
     });
 
     it("returns backend=local when execSync throws", () => {
-      const result = resolveRepositoryFromGitRemote("/tmp/not-a-repo");
+      const result = resolveRepositoryFromGitRemote("/tmp/not-a-repo", makeDeps());
       expect(result.backend).toBe("local");
       expect(result.url).toBeUndefined();
       expect(result.github).toBeUndefined();
@@ -74,7 +71,7 @@ describe("resolveRepositoryFromGitRemote", () => {
     });
 
     it("returns backend=gitlab with url", () => {
-      const result = resolveRepositoryFromGitRemote("/tmp/gitlab-repo");
+      const result = resolveRepositoryFromGitRemote("/tmp/gitlab-repo", makeDeps());
       expect(result.backend).toBe("gitlab");
       expect(result.url).toContain("gitlab.com");
       expect(result.github).toBeUndefined();
@@ -101,7 +98,7 @@ describe("getRepositoryBackendFromConfig", () => {
     });
 
     it("returns RepositoryBackendType.GITHUB and the configured url", async () => {
-      const result = await getRepositoryBackendFromConfig();
+      const result = await getRepositoryBackendFromConfig(makeDeps());
       expect(result.backendType).toBe(RepositoryBackendType.GITHUB);
       expect(result.repoUrl).toBe("https://github.com/edobry/minsky.git");
       expect(result.github?.owner).toBe("edobry");
@@ -123,7 +120,7 @@ describe("getRepositoryBackendFromConfig", () => {
     });
 
     it("returns RepositoryBackendType.LOCAL and the configured url", async () => {
-      const result = await getRepositoryBackendFromConfig();
+      const result = await getRepositoryBackendFromConfig(makeDeps());
       expect(result.backendType).toBe(RepositoryBackendType.LOCAL);
       expect(result.repoUrl).toBe("/home/user/projects/myrepo");
     });
@@ -144,7 +141,7 @@ describe("getRepositoryBackendFromConfig", () => {
     });
 
     it("falls back to resolveRepositoryAndBackend auto-detection", async () => {
-      const result = await getRepositoryBackendFromConfig();
+      const result = await getRepositoryBackendFromConfig(makeDeps());
       // Auto-detection from the GitHub remote should set GITHUB backend
       expect(result.backendType).toBe(RepositoryBackendType.GITHUB);
       expect(result.repoUrl).toContain("github.com");

@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execSync as defaultExecSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -7,6 +7,18 @@ import {
   type RepositoryBackend,
   type RepositoryBackendConfig,
 } from "../repository/index";
+
+/**
+ * Dependencies for repository backend detection, injectable for testing
+ */
+export interface RepositoryBackendDetectionDeps {
+  execSync: (cmd: string, opts?: { cwd?: string; encoding?: string }) => string | Buffer;
+  getConfiguration?: () => object;
+}
+
+const defaultDeps: RepositoryBackendDetectionDeps = {
+  execSync: defaultExecSync as RepositoryBackendDetectionDeps["execSync"],
+};
 
 /**
  * Detect repository backend type directly from a repository URL
@@ -38,12 +50,16 @@ export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryB
  * Use detectRepositoryBackendTypeFromUrl() if you already have the URL
  * @deprecated Use init-time detection via `resolveRepositoryFromGitRemote` instead
  */
-export function detectRepositoryBackendType(workdir: string): RepositoryBackendType {
+export function detectRepositoryBackendType(
+  workdir: string,
+  deps: RepositoryBackendDetectionDeps = defaultDeps
+): RepositoryBackendType {
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
-      cwd: workdir,
-      encoding: "utf8",
-    })
+    const remoteUrl = deps
+      .execSync("git remote get-url origin", {
+        cwd: workdir,
+        encoding: "utf8",
+      })
       .toString()
       .trim();
 
@@ -84,10 +100,13 @@ export function detectRepositoryBackendType(workdir: string): RepositoryBackendT
  * - Else, fall back to detecting current git repo path; if that fails, use process.cwd()
  * @deprecated Use `getRepositoryBackendFromConfig()` instead
  */
-export async function resolveRepositoryAndBackend(options?: {
-  repoParam?: string;
-  cwd?: string;
-}): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
+export async function resolveRepositoryAndBackend(
+  options?: {
+    repoParam?: string;
+    cwd?: string;
+  },
+  deps: RepositoryBackendDetectionDeps = defaultDeps
+): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
   const cwd = options?.cwd || process.cwd();
 
   if (options?.repoParam) {
@@ -95,10 +114,16 @@ export async function resolveRepositoryAndBackend(options?: {
     return { repoUrl, backendType: detectRepositoryBackendTypeFromUrl(repoUrl) };
   }
 
-  // Lazy import to avoid cycles
+  // Use injected getConfiguration or lazy import to avoid cycles
   let defaultBackend: string | undefined;
   try {
-    const { getConfiguration } = await import("../configuration/index");
+    let getConfiguration: () => object;
+    if (deps.getConfiguration) {
+      getConfiguration = deps.getConfiguration;
+    } else {
+      const mod = await import("../configuration/index");
+      getConfiguration = mod.getConfiguration;
+    }
     const cfg = getConfiguration() as { repository?: { default_repo_backend?: string } };
     defaultBackend = cfg.repository?.default_repo_backend || "github";
   } catch (_err) {
@@ -107,7 +132,8 @@ export async function resolveRepositoryAndBackend(options?: {
 
   if (defaultBackend === "github") {
     try {
-      const remoteUrl = execSync("git remote get-url origin", { cwd, encoding: "utf8" })
+      const remoteUrl = deps
+        .execSync("git remote get-url origin", { cwd, encoding: "utf8" })
         .toString()
         .trim();
       if (!remoteUrl.includes("github.com")) {
@@ -125,7 +151,8 @@ export async function resolveRepositoryAndBackend(options?: {
 
   // Non-GitHub default: attempt to resolve current git repo path
   try {
-    const toplevel = execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf8" })
+    const toplevel = deps
+      .execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf8" })
       .toString()
       .trim();
     return { repoUrl: toplevel, backendType: RepositoryBackendType.LOCAL };
@@ -171,15 +198,17 @@ export async function createRepositoryBackendFromSessionUrl(
  * @deprecated Use `createRepositoryBackendFromSessionUrl()` instead
  */
 export async function createRepositoryBackendForSession(
-  workdir: string
+  workdir: string,
+  deps: RepositoryBackendDetectionDeps = defaultDeps
 ): Promise<RepositoryBackend> {
-  const backendType = detectRepositoryBackendType(workdir);
+  const backendType = detectRepositoryBackendType(workdir, deps);
 
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
-      cwd: workdir,
-      encoding: "utf8",
-    })
+    const remoteUrl = deps
+      .execSync("git remote get-url origin", {
+        cwd: workdir,
+        encoding: "utf8",
+      })
       .toString()
       .trim();
 
@@ -222,12 +251,16 @@ export interface ResolvedRepositoryConfig {
  * - If URL contains `gitlab.com` → returns `{ backend: "gitlab", url }`
  * - If no remote or error → returns `{ backend: "local" }`
  */
-export function resolveRepositoryFromGitRemote(cwd: string): ResolvedRepositoryConfig {
+export function resolveRepositoryFromGitRemote(
+  cwd: string,
+  deps: RepositoryBackendDetectionDeps = defaultDeps
+): ResolvedRepositoryConfig {
   try {
-    const url = execSync("git remote get-url origin", {
-      cwd,
-      encoding: "utf8",
-    })
+    const url = deps
+      .execSync("git remote get-url origin", {
+        cwd,
+        encoding: "utf8",
+      })
       .toString()
       .trim();
 
@@ -260,13 +293,21 @@ export function resolveRepositoryFromGitRemote(cwd: string): ResolvedRepositoryC
  * Falls back to `resolveRepositoryAndBackend()` detection behavior if `repository.backend`
  * is not configured — backward-compat for projects that haven't re-run init.
  */
-export async function getRepositoryBackendFromConfig(): Promise<{
+export async function getRepositoryBackendFromConfig(
+  deps: RepositoryBackendDetectionDeps = defaultDeps
+): Promise<{
   repoUrl: string;
   backendType: RepositoryBackendType;
   github?: { owner: string; repo: string };
 }> {
   try {
-    const { getConfiguration } = await import("../configuration/index");
+    let getConfiguration: () => object;
+    if (deps.getConfiguration) {
+      getConfiguration = deps.getConfiguration;
+    } else {
+      const mod = await import("../configuration/index");
+      getConfiguration = mod.getConfiguration;
+    }
     const cfg = getConfiguration() as {
       repository?: {
         backend?: "github" | "gitlab" | "local";
@@ -313,7 +354,7 @@ export async function getRepositoryBackendFromConfig(): Promise<{
   }
 
   // Fallback: auto-detect using existing logic (backward compat)
-  const detected = await resolveRepositoryAndBackend({ cwd: process.cwd() });
+  const detected = await resolveRepositoryAndBackend({ cwd: process.cwd() }, deps);
   return { repoUrl: detected.repoUrl, backendType: detected.backendType };
 }
 
