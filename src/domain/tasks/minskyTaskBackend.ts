@@ -1,4 +1,4 @@
-import { eq, not, and } from "drizzle-orm";
+import { eq, not, and, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -39,14 +39,10 @@ export class MinskyTaskBackend implements TaskBackend {
   // ---- User-Facing Operations ----
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    let query = this.db.select().from(tasksTable);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder conditions require any[] for heterogeneous SQL conditions
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (options?.status && options.status !== "all") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      conditions.push(eq(tasksTable.status, options.status as any));
+      conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
       conditions.push(not(eq(tasksTable.status, "DONE")));
@@ -56,12 +52,8 @@ export class MinskyTaskBackend implements TaskBackend {
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
     conditions.push(eq(tasksTable.backend, "minsky"));
 
-    if (conditions.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      query = (query as any).where(and(...conditions));
-    }
-
-    const rows = await query;
+    const query = this.db.select().from(tasksTable);
+    const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
     return rows.map((row) => this.mapDbRowToTask(row));
   }
   async getTask(id: string): Promise<Task | null> {
