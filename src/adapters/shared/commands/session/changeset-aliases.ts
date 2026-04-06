@@ -93,7 +93,10 @@ async function executeSessionChangesetList(
     let sessionFilter: string | undefined;
     if (!params.all) {
       try {
-        const currentSessionId = await getCurrentSession(process.cwd());
+        const { createSessionProvider } = await import("../../../../domain/session");
+        const { execAsync } = await import("../../../../utils/exec");
+        const sessionDB = await createSessionProvider();
+        const currentSessionId = await getCurrentSession(process.cwd(), execAsync, sessionDB);
         if (currentSessionId) {
           sessionFilter = currentSessionId;
         } else {
@@ -198,10 +201,12 @@ async function executeSessionChangesetGet(
     // If no ID specified, try to find current session's changeset
     if (!changesetId) {
       try {
-        const currentSessionId = await getCurrentSession(process.cwd());
+        const { createSessionProvider: createSP } = await import("../../../../domain/session");
+        const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
+        const sessionDB2 = await createSP();
+        const currentSessionId = await getCurrentSession(process.cwd(), execAsyncFn, sessionDB2);
         if (currentSessionId) {
-          const { createSessionProvider } = await import("../../../../domain/session");
-          const sessionProvider = await createSessionProvider();
+          const sessionProvider = sessionDB2;
           const sessionRecord = await sessionProvider.getSession(currentSessionId);
           const branchOrSession = sessionRecord?.branch || currentSessionId;
           changesetId = `pr/${branchOrSession}`;

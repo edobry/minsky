@@ -1,11 +1,7 @@
 import { promises as fs } from "fs";
 import { join } from "path";
 import { execAsync } from "../utils/exec";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-  type SessionRecord,
-} from "./session";
+import { type SessionProviderInterface, type SessionRecord } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { sep } from "path";
@@ -31,7 +27,9 @@ export interface WorkspaceResolutionOptions {
 export interface TestDependencies {
   access?: typeof fs.access;
   execAsync?: typeof execAsync;
-  getSessionFromRepo?: typeof getSessionFromWorkspace;
+  getSessionFromRepo?: (
+    workspacePath: string
+  ) => Promise<{ session: string; upstreamRepository: string; gitRoot: string } | null>;
 }
 
 /**
@@ -66,7 +64,7 @@ export function isSessionWorkspace(workspacePath: string): boolean {
 export async function getSessionFromWorkspace(
   workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: SessionProviderInterface
+  sessionDbOverride: SessionProviderInterface
 ): Promise<{
   session: string;
   upstreamRepository: string;
@@ -93,8 +91,7 @@ export async function getSessionFromWorkspace(
       return null;
     }
 
-    const db = sessionDbOverride || (await createSessionProvider());
-    const sessionRecord = await db.getSession(sessionId);
+    const sessionRecord = await sessionDbOverride.getSession(sessionId);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
@@ -137,7 +134,10 @@ export const isSessionRepository = async (
  * @param deps Test dependencies for dependency injection
  * @returns Promise resolving to the main workspace path
  */
-export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Promise<string> {
+export async function resolveMainWorkspacePath(
+  sessionDB: SessionProviderInterface,
+  deps: TestDependencies = {}
+): Promise<string> {
   const currentDir = process.cwd();
   const { execAsync: execAsyncDep = execAsync } = deps;
 
@@ -157,8 +157,7 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
       if (sessionId) {
         // Use the session database to get the repository URL
         try {
-          const sessionProvider = await createSessionProvider();
-          const sessionRecord = await sessionProvider.getSession(sessionId);
+          const sessionRecord = await sessionDB.getSession(sessionId);
           if (sessionRecord && sessionRecord.repoUrl) {
             return sessionRecord.repoUrl;
           }
@@ -192,8 +191,8 @@ export async function resolveWorkspacePath(
   const { access = fs.access } = deps;
 
   // For task operations, always use the main workspace.
-  if (options?.forTaskOperations) {
-    const sessionInfo = await getSessionFromWorkspace(process.cwd());
+  if (options?.forTaskOperations && deps.getSessionFromRepo) {
+    const sessionInfo = await deps.getSessionFromRepo(process.cwd());
     if (sessionInfo && sessionInfo.upstreamRepository) {
       return resolveMainWorkspaceFromRepoUrl(sessionInfo.upstreamRepository);
     }
@@ -234,7 +233,7 @@ export async function resolveWorkspacePath(
 export async function getCurrentSession(
   cwd: string = process.cwd(),
   execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: SessionProviderInterface
+  sessionDbOverride: SessionProviderInterface
 ): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
   return sessionInfo ? sessionInfo.session : undefined;
@@ -250,9 +249,9 @@ export async function getCurrentSessionContext(
   // Added getCurrentSessionFn dependency for better testability
   dependencies: {
     execAsyncFn?: typeof execAsync;
-    sessionDbOverride?: SessionProviderInterface;
+    sessionDbOverride: SessionProviderInterface;
     getCurrentSessionFn?: typeof getCurrentSession;
-  } = {}
+  }
 ): Promise<{
   sessionId: string;
   taskId?: string;
@@ -268,8 +267,7 @@ export async function getCurrentSessionContext(
     }
 
     // Query the SessionDB to get task information
-    const sessionDb = sessionDbOverride || (await createSessionProvider());
-    const sessionRecord = await sessionDb.getSession(sessionId);
+    const sessionRecord = await sessionDbOverride.getSession(sessionId);
 
     if (!sessionRecord) {
       return null;
@@ -359,7 +357,9 @@ export interface WorkspaceUtilsInterface {
  * Creates workspace utility functions
  * This factory function provides the implementation for workspace operations
  */
-export function createWorkspaceUtils(): WorkspaceUtilsInterface {
+export function createWorkspaceUtils(
+  sessionDB?: SessionProviderInterface
+): WorkspaceUtilsInterface {
   return {
     isWorkspace: async (path: string): Promise<boolean> => {
       try {
@@ -371,11 +371,13 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     },
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
-      const sessionInfo = await getSessionFromRepo(repoPath);
+      if (!sessionDB) return undefined;
+      const sessionInfo = await getSessionFromRepo(repoPath, execAsync, sessionDB);
       return sessionInfo ? sessionInfo.session : undefined;
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
-      const sessionInfo = await getSessionFromWorkspace(workspacePath);
+      if (!sessionDB) return undefined;
+      const sessionInfo = await getSessionFromWorkspace(workspacePath, execAsync, sessionDB);
       return sessionInfo ? sessionInfo.session : undefined;
     },
     resolveWorkspacePath: resolveWorkspacePath,
@@ -390,10 +392,13 @@ export async function getWorkspaceGitRoot(workspacePath: string): Promise<string
   return stdout.trim();
 }
 
-export async function getWorkspaceSession(workspacePath: string): Promise<WorkspaceSession | null> {
+export async function getWorkspaceSession(
+  workspacePath: string,
+  sessionDB: SessionProviderInterface
+): Promise<WorkspaceSession | null> {
   try {
     const gitRoot = await getWorkspaceGitRoot(workspacePath);
-    const sessionInfo = await getSessionFromWorkspace(workspacePath);
+    const sessionInfo = await getSessionFromWorkspace(workspacePath, execAsync, sessionDB);
 
     if (!sessionInfo) {
       return null;
@@ -412,9 +417,12 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
 }
 
 export class WorkspaceUtils {
-  constructor(private execAsyncFn: typeof execAsync) {}
+  constructor(
+    private execAsyncFn: typeof execAsync,
+    private sessionDB: SessionProviderInterface
+  ) {}
 
   async getCurrentSession(workspacePath: string): Promise<string | undefined> {
-    return getCurrentSession(workspacePath, this.execAsyncFn);
+    return getCurrentSession(workspacePath, this.execAsyncFn, this.sessionDB);
   }
 }

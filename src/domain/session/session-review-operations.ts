@@ -72,7 +72,7 @@ export interface SessionReviewDependencies {
     getTaskSpecData?: (taskId: string) => Promise<string>;
   };
   workspaceUtils: WorkspaceUtilsInterface;
-  getCurrentSession: typeof getCurrentSession;
+  getCurrentSession: (repoPath: string) => Promise<string | undefined>;
 }
 
 /**

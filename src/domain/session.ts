@@ -74,14 +74,23 @@ import type { SessionProviderInterface } from "./session/types";
  */
 async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<SessionDeps> {
   if (!partial) return createSessionDeps();
+
+  // Create individual defaults lazily — only instantiate what's actually missing.
+  // This avoids triggering heavy service initialization (e.g. PersistenceService)
+  // when tests provide their own mocks for the fields they care about.
+  const sessionDB = partial.sessionDB ?? (await createSessionProvider());
   return {
-    sessionDB: partial.sessionDB ?? (await createSessionProvider()),
+    sessionDB,
     gitService: partial.gitService ?? createGitService(),
     taskService:
       partial.taskService ?? (await createConfiguredTaskService({ workspacePath: process.cwd() })),
-    workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(),
+    workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(sessionDB),
     getCurrentSession:
-      partial.getCurrentSession ?? (async (p: string) => (await getCurrentSession(p)) ?? null),
+      partial.getCurrentSession ??
+      (async (p: string) => {
+        const { execAsync } = await import("../utils/exec");
+        return (await getCurrentSession(p, execAsync, sessionDB)) ?? null;
+      }),
     getRepositoryBackend: partial.getRepositoryBackend ?? getRepositoryBackendFromConfig,
   };
 }
@@ -234,11 +243,10 @@ export async function updateSessionFromParams(
   depsInput?: {
     sessionDB?: SessionProviderInterface;
     gitService?: GitServiceInterface;
-    getCurrentSession?: typeof getCurrentSession;
+    getCurrentSession?: (repoPath: string) => Promise<string | undefined>;
   }
 ): Promise<import("./session/types").Session> {
-  // getCurrentSession from workspace has signature (path: string) => Promise<string | undefined>
-  // but SessionDeps.getCurrentSession returns Promise<string | null>. Wrap if provided.
+  // getCurrentSession returns Promise<string | undefined> but SessionDeps expects Promise<string | null>
   const wrappedGetCurrentSession = depsInput?.getCurrentSession
     ? async (p: string) => {
         const result = await depsInput.getCurrentSession!(p);
@@ -279,11 +287,10 @@ export async function sessionReviewFromParams(
       getTaskSpecData?: (taskId: string) => Promise<string>;
     };
     workspaceUtils?: WorkspaceUtilsInterface;
-    getCurrentSession?: typeof getCurrentSession;
+    getCurrentSession?: (repoPath: string) => Promise<string | undefined>;
   }
 ): Promise<SessionReviewResult> {
-  // getCurrentSession from workspace has signature (path: string) => Promise<string | undefined>
-  // but SessionDeps.getCurrentSession returns Promise<string | null>. Wrap if provided.
+  // getCurrentSession returns Promise<string | undefined> but SessionDeps expects Promise<string | null>
   const wrappedGetCurrentSession = depsInput?.getCurrentSession
     ? async (p: string) => {
         const result = await depsInput.getCurrentSession!(p);
@@ -341,16 +348,19 @@ export async function approveSessionFromParams(
   // call approveSessionPr directly to pass it through
   const { approveSessionPr } = await import("./session/session-approval-operations");
 
+  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionDeps()).sessionDB;
+
   let sessionToUse = params.session;
   if (!sessionToUse && !params.task && params.repo) {
     const getCurrentSessionFunc =
-      depsInput?.getCurrentSession ?? (async (p: string) => (await getCurrentSession(p)) ?? null);
+      depsInput?.getCurrentSession ??
+      (async (p: string) => {
+        const { execAsync } = await import("../utils/exec");
+        return (await getCurrentSession(p, execAsync, resolvedSessionDB)) ?? null;
+      });
     const detected = await getCurrentSessionFunc(params.repo);
     if (detected) sessionToUse = detected;
   }
-
-  const { createSessionProvider } = await import("./session/session-db-adapter");
-  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionProvider());
 
   const result = await approveSessionPr(
     {

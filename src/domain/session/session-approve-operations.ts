@@ -24,7 +24,6 @@ import {
   getCurrentSessionContext,
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
-import { createSessionProvider } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
@@ -93,8 +92,8 @@ export async function approveSessionImpl(
     json?: boolean;
     noStash?: boolean;
   },
-  depsInput?: {
-    sessionDB?: SessionProviderInterface;
+  depsInput: {
+    sessionDB: SessionProviderInterface;
     gitService?: GitServiceInterface;
     taskService?: {
       setTaskStatus?: (taskId: string, status: string) => Promise<void>;
@@ -124,8 +123,7 @@ export async function approveSessionImpl(
   let sessionIdToUse = params.session;
   let taskId: string | undefined;
 
-  // Set up session provider (use injected one or create default)
-  const sessionDB = depsInput?.sessionDB || (await createSessionProvider());
+  const sessionDB = depsInput.sessionDB;
 
   // Try to get session from task ID if provided
   if (params.task && !sessionIdToUse) {
@@ -205,7 +203,9 @@ The task exists but has no associated session to approve.
       log.cli("🔍 Auto-detecting session from repository...");
     }
 
-    const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
+    const getCurrentSessionFunc =
+      depsInput.getCurrentSession ||
+      (async (p: string) => (await getCurrentSession(p, execAsync, sessionDB)) ?? null);
     const detectedSession = await getCurrentSessionFunc(params.repo);
     if (detectedSession) {
       sessionIdToUse = detectedSession;
@@ -232,15 +232,15 @@ The task exists but has no associated session to approve.
 
   // Set up default dependencies with the correct repo path
   const deps = {
-    sessionDB: depsInput?.sessionDB || sessionDB,
-    gitService: depsInput?.gitService || createGitService(),
+    sessionDB,
+    gitService: depsInput.gitService || createGitService(),
     taskService:
-      depsInput?.taskService ||
+      depsInput.taskService ||
       (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
       })),
-    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
-    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
+    workspaceUtils: depsInput.workspaceUtils || WorkspaceUtils,
+    getCurrentSession: depsInput.getCurrentSession || getCurrentSession,
   };
 
   // If no taskId from params, use the one from session record
