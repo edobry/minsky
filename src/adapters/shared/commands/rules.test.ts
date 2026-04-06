@@ -1,34 +1,30 @@
 import { beforeEach, afterEach, describe, test, expect } from "bun:test";
 import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
-import { registerRulesCommands } from "./rules";
+import { registerRulesCommands, type RulesCommandsDeps } from "./rules";
 
 describe("Rules Commands", () => {
-  // Mock workspace resolver
-  mock.module("../../../domain/workspace", () => ({
-    resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace")),
-  }));
-
-  // Mock rule template service
-  mock.module("../../../domain/rules/rule-template-service", () => ({
-    createRuleTemplateService: mock(() => ({
-      registerDefaultTemplates: mock(() => Promise.resolve()),
-      generateRules: mock(() =>
-        Promise.resolve({
-          success: true,
-          rules: [
-            {
-              id: "test-rule",
-              path: "/mock/workspace/.cursor/rules/test-rule.mdc",
-              content: "# Test Rule\n\nThis is a test rule.",
-              meta: { name: "Test Rule", description: "A test rule" },
-            },
-          ],
-          errors: [],
-        })
-      ),
-    })),
-  }));
+  // Inject mock deps instead of mock.module
+  const mockDeps: RulesCommandsDeps = {
+    resolveWorkspacePath: mock(() =>
+      Promise.resolve("/mock/workspace")
+    ) as RulesCommandsDeps["resolveWorkspacePath"],
+    generateRules: mock(() =>
+      Promise.resolve({
+        success: true,
+        rules: [
+          {
+            id: "test-rule",
+            path: "/mock/workspace/.cursor/rules/test-rule.mdc",
+            content: "# Test Rule\n\nThis is a test rule.",
+            meta: { name: "Test Rule", description: "A test rule" },
+          },
+        ],
+        errors: [],
+        generated: 1,
+      })
+    ) as RulesCommandsDeps["generateRules"],
+  };
 
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
 
@@ -36,8 +32,8 @@ describe("Rules Commands", () => {
     // Create a fresh registry for each test to avoid interference
     testRegistry = createSharedCommandRegistry();
 
-    // Register commands in the test registry
-    registerRulesCommands(testRegistry);
+    // Register commands in the test registry with injected deps
+    registerRulesCommands(testRegistry, mockDeps);
   });
 
   afterEach(() => {
@@ -235,7 +231,9 @@ describe("Rules Commands", () => {
 
       // Mock the RuleService
       const { RuleService } = await import("../../../domain/rules");
-      const mockListRules = mock(() => Promise.resolve(mockRules));
+      const mockListRules = mock(() =>
+        Promise.resolve(mockRules)
+      ) as unknown as typeof RuleService.prototype.listRules;
       RuleService.prototype.listRules = mockListRules;
 
       const command = testRegistry.getCommand("rules.list");
@@ -279,10 +277,12 @@ describe("Rules Commands", () => {
     });
 
     test("should pass through filtering parameters to domain service", async () => {
-      const mockRules = [];
+      const mockRules: unknown[] = [];
 
       const { RuleService } = await import("../../../domain/rules");
-      const mockListRules = mock(() => Promise.resolve(mockRules));
+      const mockListRules = mock(() =>
+        Promise.resolve(mockRules)
+      ) as unknown as typeof RuleService.prototype.listRules;
       RuleService.prototype.listRules = mockListRules;
 
       const command = testRegistry.getCommand("rules.list");

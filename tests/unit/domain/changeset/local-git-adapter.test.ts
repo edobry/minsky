@@ -5,36 +5,38 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { LocalGitChangesetAdapter } from "../../../../src/domain/changeset/adapters/local-git-adapter";
+import {
+  LocalGitChangesetAdapter,
+  type LocalGitAdapterDeps,
+} from "../../../../src/domain/changeset/adapters/local-git-adapter";
 import type { Changeset, ChangesetListOptions } from "../../../../src/domain/changeset/types";
 
-// Mock external dependencies
-mock.module("child_process", () => ({
-  execSync: mock((command: string) => {
-    if (command === "git branch -a") {
-      return "main\npr/test-session\npr/feature-123\norigin/main\n";
-    }
-    if (command.includes("git show-ref --verify")) {
-      return ""; // Branch exists
-    }
-    if (command.includes("git log main..")) {
-      return "abc123|feat: test commit|testuser|test@example.com|2024-01-01T12:00:00Z\n";
-    }
-    if (command.includes("git show --name-only")) {
-      return "src/test.ts\nsrc/other.ts\n";
-    }
-    if (command.includes("git merge-base")) {
-      return "different-sha"; // Not merged
-    }
-    if (command.includes("git rev-parse")) {
-      return "abc123";
-    }
-    return "";
-  }),
-}));
+// Mock execSync via DI
+const mockExecSync = mock((command: string) => {
+  if (command === "git branch -a") {
+    return "main\npr/test-session\npr/feature-123\norigin/main\n";
+  }
+  if (command.includes("git show-ref --verify")) {
+    return ""; // Branch exists
+  }
+  if (command.includes("git log main..")) {
+    return "abc123|feat: test commit|testuser|test@example.com|2024-01-01T12:00:00Z\n";
+  }
+  if (command.includes("git show --name-only")) {
+    return "src/test.ts\nsrc/other.ts\n";
+  }
+  if (command.includes("git merge-base")) {
+    return "different-sha"; // Not merged
+  }
+  if (command.includes("git rev-parse")) {
+    return "abc123";
+  }
+  return "";
+});
 
-mock.module("../../../../src/domain/session/index", () => ({
-  createSessionProvider: () => ({
+// Mock createSessionProvider via DI
+const mockCreateSessionProvider = () =>
+  Promise.resolve({
     getSession: mock((sessionId: string) => {
       if (sessionId === "test-session") {
         return Promise.resolve({
@@ -44,14 +46,19 @@ mock.module("../../../../src/domain/session/index", () => ({
       }
       return Promise.resolve(null);
     }),
-  }),
-}));
+  });
+
+const mockDeps: LocalGitAdapterDeps = {
+  execSync: mockExecSync as unknown as LocalGitAdapterDeps["execSync"],
+  createSessionProvider:
+    mockCreateSessionProvider as unknown as LocalGitAdapterDeps["createSessionProvider"],
+};
 
 describe("LocalGitChangesetAdapter", () => {
   let adapter: LocalGitChangesetAdapter;
 
   beforeEach(() => {
-    adapter = new LocalGitChangesetAdapter("/test/repo", "/test/workdir");
+    adapter = new LocalGitChangesetAdapter("/test/repo", "/test/workdir", mockDeps);
   });
 
   test("identifies as local-git platform", () => {
@@ -102,7 +109,7 @@ describe("LocalGitChangesetAdapter", () => {
 
   test("returns null for non-existent changeset", async () => {
     // Create new adapter instance to avoid shared mock state
-    const testAdapter = new LocalGitChangesetAdapter("/test/repo", "/test/workdir");
+    const testAdapter = new LocalGitChangesetAdapter("/test/repo", "/test/workdir", mockDeps);
 
     // The implementation should handle the error gracefully and return null
     // when git commands fail (indicating branch doesn't exist)

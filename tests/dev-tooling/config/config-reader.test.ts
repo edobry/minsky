@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import {
   ProjectConfigReader,
   type SimplifiedWorkflowConfig,
+  type ProjectConfigReaderFs,
 } from "../../../src/domain/project/config-reader";
 
 // Test constants to avoid magic string duplication
@@ -18,22 +19,10 @@ describe("ProjectConfigReader - Dev Tooling", () => {
     // Create isolated mock filesystem for each test
     mockFs = createMockFilesystem();
 
-    // Mock filesystem operations
-    const mockFsAny = mockFs as any;
-    mock.module("fs", () => ({
-      existsSync: mockFs.existsSync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
-      mkdirSync: mockFs.mkdirSync,
-      promises: {
-        readFile: mockFs.readFile,
-        writeFile: mockFs.writeFile,
-        mkdir: mockFs.mkdir,
-        stat: mockFsAny.stat ?? mockFs.statSync,
-      },
-    }));
-
-    reader = new ProjectConfigReader(testDir);
+    // Inject mock fs via DI instead of mock.module
+    reader = new ProjectConfigReader(testDir, {
+      fs: mockFs as unknown as ProjectConfigReaderFs,
+    });
   });
 
   afterEach(() => {

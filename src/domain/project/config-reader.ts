@@ -5,9 +5,17 @@
  * Eliminates legacy conversion complexity by using simplified format directly.
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync as defaultReadFileSync, existsSync as defaultExistsSync } from "fs";
 import { log } from "../../utils/logger";
 import { resolve, join } from "path";
+
+/**
+ * Filesystem interface for ProjectConfigReader (injectable for testing)
+ */
+export interface ProjectConfigReaderFs {
+  readFileSync: (path: string, encoding: BufferEncoding) => string | Buffer;
+  existsSync: (path: string) => boolean;
+}
 
 // Simplified workflow command definition
 export interface WorkflowCommand {
@@ -40,7 +48,20 @@ export interface ProjectConfiguration {
  * Project configuration reader using simplified format directly
  */
 export class ProjectConfigReader {
-  constructor(private projectRoot: string = process.cwd()) {}
+  private readonly fs: ProjectConfigReaderFs;
+
+  constructor(
+    private projectRoot: string = process.cwd(),
+    deps?: { fs?: ProjectConfigReaderFs }
+  ) {
+    this.fs = deps?.fs ?? {
+      readFileSync: defaultReadFileSync as (
+        path: string,
+        encoding: BufferEncoding
+      ) => string | Buffer,
+      existsSync: defaultExistsSync,
+    };
+  }
 
   /**
    * Get the complete project configuration
@@ -115,9 +136,11 @@ export class ProjectConfigReader {
     ];
 
     for (const configPath of possiblePaths) {
-      if (existsSync(configPath)) {
+      if (this.fs.existsSync(configPath)) {
         try {
-          const config = JSON.parse(readFileSync(configPath, "utf8" as BufferEncoding) as string);
+          const config = JSON.parse(
+            this.fs.readFileSync(configPath, "utf8" as BufferEncoding) as string
+          );
           if (config.workflows) {
             return {
               workflows: config.workflows,
@@ -142,13 +165,13 @@ export class ProjectConfigReader {
   } | null {
     const packageJsonPath = join(this.projectRoot, "package.json");
 
-    if (!existsSync(packageJsonPath)) {
+    if (!this.fs.existsSync(packageJsonPath)) {
       return null;
     }
 
     try {
       const packageJson = JSON.parse(
-        readFileSync(packageJsonPath, "utf8" as BufferEncoding) as string
+        this.fs.readFileSync(packageJsonPath, "utf8" as BufferEncoding) as string
       );
       const scripts = packageJson.scripts || {};
 
@@ -214,7 +237,7 @@ export class ProjectConfigReader {
     const runtime: ProjectRuntimeConfig = {};
 
     // Rust detection
-    if (existsSync(join(this.projectRoot, "Cargo.toml"))) {
+    if (this.fs.existsSync(join(this.projectRoot, "Cargo.toml"))) {
       runtime.language = "rust";
       workflows.lint = {
         jsonCommand: "cargo clippy --message-format=json",
@@ -229,7 +252,7 @@ export class ProjectConfigReader {
     }
 
     // Go detection
-    if (existsSync(join(this.projectRoot, "go.mod"))) {
+    if (this.fs.existsSync(join(this.projectRoot, "go.mod"))) {
       runtime.language = "go";
       workflows.lint = {
         jsonCommand: "golangci-lint run --out-format=json",
@@ -245,9 +268,9 @@ export class ProjectConfigReader {
 
     // Python detection
     if (
-      existsSync(join(this.projectRoot, "pyproject.toml")) ||
-      existsSync(join(this.projectRoot, "requirements.txt")) ||
-      existsSync(join(this.projectRoot, "setup.py"))
+      this.fs.existsSync(join(this.projectRoot, "pyproject.toml")) ||
+      this.fs.existsSync(join(this.projectRoot, "requirements.txt")) ||
+      this.fs.existsSync(join(this.projectRoot, "setup.py"))
     ) {
       runtime.language = "python";
       workflows.lint = {
@@ -289,12 +312,12 @@ export class ProjectConfigReader {
    */
   private detectPackageManager(): "npm" | "yarn" | "pnpm" | "bun" {
     if (
-      existsSync(join(this.projectRoot, "bun.lockb")) ||
-      existsSync(join(this.projectRoot, "bun.lock"))
+      this.fs.existsSync(join(this.projectRoot, "bun.lockb")) ||
+      this.fs.existsSync(join(this.projectRoot, "bun.lock"))
     )
       return "bun";
-    if (existsSync(join(this.projectRoot, "pnpm-lock.yaml"))) return "pnpm";
-    if (existsSync(join(this.projectRoot, "yarn.lock"))) return "yarn";
+    if (this.fs.existsSync(join(this.projectRoot, "pnpm-lock.yaml"))) return "pnpm";
+    if (this.fs.existsSync(join(this.projectRoot, "yarn.lock"))) return "yarn";
     return "npm"; // default
   }
 
@@ -310,7 +333,7 @@ export class ProjectConfigReader {
     if (
       deps.typescript ||
       deps["@types/node"] ||
-      existsSync(join(this.projectRoot, "tsconfig.json"))
+      this.fs.existsSync(join(this.projectRoot, "tsconfig.json"))
     ) {
       return "typescript";
     }
@@ -336,7 +359,7 @@ export class ProjectConfigReader {
         ".minsky",
       ];
 
-      if (indicators.some((indicator) => existsSync(join(currentDir, indicator)))) {
+      if (indicators.some((indicator) => defaultExistsSync(join(currentDir, indicator)))) {
         return currentDir;
       }
 
