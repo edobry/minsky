@@ -1,5 +1,6 @@
 import type { SearchResult } from "../storage/vector/types";
-import type { PersistenceProvider } from "../persistence/types";
+import { PersistenceProvider } from "../persistence/types";
+import type { DatabaseStorage } from "../storage/database-storage";
 import { createRuleSimilarityCore } from "../similarity/create-rule-similarity-core";
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
@@ -28,22 +29,29 @@ export class RuleSimilarityService {
     workspacePath: string,
     config: RuleSimilarityServiceConfig = {}
   ): RuleSimilarityService {
-    // Create a mock persistence provider for backward compatibility
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- deprecated factory with partial interface
-    const mockPersistence = {
-      capabilities: {
-        vectorStorage: true,
-        sql: true,
-        transactions: true,
-        jsonb: true,
-        migrations: true,
-      },
-      async getVectorStorage() {
-        return null;
-      },
-    } as unknown as PersistenceProvider;
+    // Concrete no-op subclass used as a backward-compat stub — persistence is unused in this class.
+    class StubPersistenceProvider extends PersistenceProvider {
+      readonly capabilities = {
+        vectorStorage: true as const,
+        sql: true as const,
+        transactions: true as const,
+        jsonb: true as const,
+        migrations: true as const,
+      };
+      getCapabilities() {
+        return this.capabilities;
+      }
+      getStorage<T, S>(): DatabaseStorage<T, S> {
+        throw new Error("StubPersistenceProvider.getStorage not implemented");
+      }
+      async initialize() {}
+      async close() {}
+      getConnectionInfo() {
+        return "stub";
+      }
+    }
 
-    return new RuleSimilarityService(mockPersistence, workspacePath, config);
+    return new RuleSimilarityService(new StubPersistenceProvider(), workspacePath, config);
   }
 
   /**

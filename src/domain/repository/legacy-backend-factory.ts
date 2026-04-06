@@ -38,8 +38,12 @@ export async function createRepositoryBackend(
     }
     case RepositoryBackendType.REMOTE: {
       const { RemoteGitBackend } = await import("../remoteGitBackend.js");
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- RepositoryConfig needs bridge to RemoteGitConfig which has additional required fields
-      return new RemoteGitBackend(config as unknown as RemoteGitConfig);
+      const remoteConfig: RemoteGitConfig = {
+        ...config,
+        type: RepositoryBackendType.REMOTE,
+        url: config.url ?? config.repoUrl ?? "",
+      };
+      return new RemoteGitBackend(remoteConfig);
     }
     case RepositoryBackendType.GITHUB: {
       const { GitService } = await import("../git.js");

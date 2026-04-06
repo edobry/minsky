@@ -7,7 +7,11 @@
 import { z } from "zod";
 import { getErrorMessage, ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandDefinition,
+  type CommandExecutionContext,
+} from "../../command-registry";
 
 /**
  * Common dependencies for session commands
@@ -150,13 +154,13 @@ export abstract class BaseSessionCommand<TParams, TResult> {
   /**
    * Get command registration data
    */
-  getRegistrationData() {
+  getRegistrationData(): CommandDefinition {
     return {
       id: this.getCommandId(),
-      category: this.getCommandCategory(),
+      category: this.getCommandCategory() as CommandDefinition["category"],
       name: this.getCommandName(),
       description: this.getCommandDescription(),
-      parameters: this.getParameterSchema(),
+      parameters: this.getParameterSchema() as CommandDefinition["parameters"],
       execute: (params: Record<string, unknown>, context: CommandExecutionContext) =>
         this.execute(params as TParams, context),
     };
@@ -223,7 +227,7 @@ export class SessionCommandRegistry {
   /**
    * Get all commands for registration
    */
-  getAllCommands(): Array<{ id: string; registrationData: Record<string, unknown> }> {
+  getAllCommands(): Array<{ id: string; registrationData: CommandDefinition }> {
     return Array.from(this.commands.entries()).map(([id, command]) => ({
       id,
       registrationData: command.getRegistrationData(),

@@ -63,14 +63,13 @@ export function createMcpSuccessResponse<T extends Record<string, unknown>>(
   context: { path?: string; session: string; resolvedPath?: string },
   additionalData: T
 ): FileMcpResponse & T {
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- spread over conditional path fields requires double cast; TypeScript cannot infer FileMcpResponse & T from the spread expression
-  return {
+  const base: FileMcpResponse = {
     success: true,
     session: context.session,
-    ...(context.path && { path: context.path }),
-    ...(context.resolvedPath && { resolvedPath: context.resolvedPath }),
-    ...additionalData,
-  } as unknown as FileMcpResponse & T;
+    path: context.path ?? "unknown",
+    resolvedPath: context.resolvedPath,
+  };
+  return Object.assign(base, additionalData) as FileMcpResponse & T;
 }
 
 /**

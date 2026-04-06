@@ -182,8 +182,8 @@ ${description}
       taskId = validateQualifiedTaskId(spec.id) || spec.id;
     } else {
       // TASK 283: Generate plain ID format for storage using proper max ID logic
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- Task[] is structurally compatible with TaskData[] but requires bridge for getNextTaskId
-      taskId = getNextTaskId(tasks as unknown as TaskData[]); // Uses max existing ID + 1, returns plain format
+      // Map Task[] to the minimal TaskData shape getNextTaskId needs (only `id` is accessed)
+      taskId = getNextTaskId(tasks.map((t) => ({ ...t, status: t.status as TaskData["status"] })));
     }
 
     // Create the new task data

@@ -70,9 +70,8 @@ export class ModularSessionCommandsManager {
     const allCommands = this.commandRegistry.getAllCommands();
 
     // Register each command in the shared registry
-    allCommands.forEach(({ id, registrationData }) => {
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- registrationData shape matches CommandDefinition but comes through loosely typed getRegistrationData()
-      sharedCommandRegistry.registerCommand(registrationData as unknown as CommandDefinition);
+    allCommands.forEach(({ registrationData }) => {
+      sharedCommandRegistry.registerCommand(registrationData);
     });
   }
 

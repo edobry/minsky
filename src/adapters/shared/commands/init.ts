@@ -4,6 +4,7 @@ import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  defineCommand,
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
@@ -77,280 +78,288 @@ const initParams = composeParams(
 ) satisfies CommandParameterMap;
 
 export function registerInitCommands() {
-  sharedCommandRegistry.registerCommand({
-    id: "init",
-    category: CommandCategory.INIT,
-    name: "init",
-    description: "Initialize a project for Minsky",
-    parameters: initParams,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry; InferParams would require full type threading
-    execute: async (params: any, _ctx: CommandExecutionContext) => {
-      try {
-        // Map CLI params to domain params
-        const repoPath = params.repo || params.workspacePath || process.cwd();
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "init",
+      category: CommandCategory.INIT,
+      name: "init",
+      description: "Initialize a project for Minsky",
+      parameters: initParams,
+      execute: async (params, _ctx) => {
+        try {
+          // Map CLI params to domain params
+          const repoPath = params.repo || params.workspacePath || process.cwd();
 
-        // Interactive backend selection if not provided
-        let backend = params.backend;
-        if (!backend) {
-          // Check if we're in an interactive environment
-          if (!process.stdout.isTTY) {
-            throw new ValidationError(
-              `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MARKDOWN}, ${TaskBackend.JSON_FILE}, or ${TaskBackend.GITHUB_ISSUES}`
-            );
-          }
-
-          const selectedBackend = await select({
-            message: "Select a task backend:",
-            options: [
-              { value: TaskBackend.JSON_FILE, label: "JSON File (recommended for new projects)" },
-              { value: TaskBackend.MARKDOWN, label: "Markdown (for existing tasks.md workflows)" },
-              { value: TaskBackend.GITHUB_ISSUES, label: "GitHub Issues (for GitHub integration)" },
-            ],
-            initialValue: TaskBackend.JSON_FILE,
-          });
-
-          if (isCancel(selectedBackend)) {
-            cancel("Initialization cancelled.");
-            return { success: false, message: "Initialization cancelled by user." };
-          }
-
-          backend = selectedBackend as string;
-        }
-
-        // Interactive GitHub configuration if github-issues backend selected
-        let githubOwner = params.githubOwner;
-        let githubRepo = params.githubRepo;
-
-        if (backend === TaskBackend.GITHUB_ISSUES) {
-          if (!githubOwner) {
+          // Interactive backend selection if not provided
+          let backend = params.backend;
+          if (!backend) {
+            // Check if we're in an interactive environment
             if (!process.stdout.isTTY) {
               throw new ValidationError(
-                "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
+                `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MARKDOWN}, ${TaskBackend.JSON_FILE}, or ${TaskBackend.GITHUB_ISSUES}`
               );
             }
 
-            const ownerInput = await text({
-              message: "Enter GitHub repository owner:",
-              placeholder: "e.g., octocat",
-              validate: (value) => {
-                if (!value || value.trim().length === 0) {
-                  return "GitHub owner is required";
-                }
-                return undefined;
-              },
-            });
-
-            if (isCancel(ownerInput)) {
-              cancel("Initialization cancelled.");
-              return { success: false, message: "Initialization cancelled by user." };
-            }
-
-            githubOwner = ownerInput.trim();
-          }
-
-          if (!githubRepo) {
-            if (!process.stdout.isTTY) {
-              throw new ValidationError(
-                "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
-              );
-            }
-
-            const repoInput = await text({
-              message: "Enter GitHub repository name:",
-              placeholder: "e.g., my-project",
-              validate: (value) => {
-                if (!value || value.trim().length === 0) {
-                  return "GitHub repository name is required";
-                }
-                return undefined;
-              },
-            });
-
-            if (isCancel(repoInput)) {
-              cancel("Initialization cancelled.");
-              return { success: false, message: "Initialization cancelled by user." };
-            }
-
-            githubRepo = repoInput.trim();
-          }
-        }
-
-        // Interactive rule format selection if not provided
-        let ruleFormat = params.ruleFormat;
-        if (!ruleFormat) {
-          if (!process.stdout.isTTY) {
-            // Default to cursor in non-interactive mode
-            ruleFormat = "cursor";
-          } else {
-            const selectedFormat = await select({
-              message: "Select rule format:",
+            const selectedBackend = await select({
+              message: "Select a task backend:",
               options: [
-                { value: "cursor", label: "Cursor (default, optimized for Cursor editor)" },
-                { value: "generic", label: "Generic (for other editors)" },
+                { value: TaskBackend.JSON_FILE, label: "JSON File (recommended for new projects)" },
+                {
+                  value: TaskBackend.MARKDOWN,
+                  label: "Markdown (for existing tasks.md workflows)",
+                },
+                {
+                  value: TaskBackend.GITHUB_ISSUES,
+                  label: "GitHub Issues (for GitHub integration)",
+                },
               ],
-              initialValue: "cursor",
+              initialValue: TaskBackend.JSON_FILE,
             });
 
-            if (isCancel(selectedFormat)) {
+            if (isCancel(selectedBackend)) {
               cancel("Initialization cancelled.");
               return { success: false, message: "Initialization cancelled by user." };
             }
 
-            ruleFormat = selectedFormat as string;
-          }
-        }
-
-        // Interactive MCP configuration if not provided
-        let mcp:
-          | {
-              enabled: boolean;
-              transport: "stdio" | "sse" | "httpStream";
-              port?: number;
-              host?: string;
-            }
-          | undefined = undefined;
-
-        if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
-          // Use provided MCP parameters
-          mcp = {
-            enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
-            transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
-            port: params.mcpPort ? Number(params.mcpPort) : undefined,
-            host: params.mcpHost,
-          };
-        } else if (process.stdout.isTTY && !params.mcpOnly) {
-          // Interactive MCP configuration
-          const enableMcp = await confirm({
-            message: "Enable MCP (Model Context Protocol) configuration?",
-            initialValue: true,
-          });
-
-          if (isCancel(enableMcp)) {
-            cancel("Initialization cancelled.");
-            return { success: false, message: "Initialization cancelled by user." };
+            backend = selectedBackend as string;
           }
 
-          if (enableMcp) {
-            const transport = await select({
-              message: "Select MCP transport type:",
-              options: [
-                { value: "stdio", label: "STDIO (recommended)" },
-                { value: "sse", label: "Server-Sent Events" },
-                { value: "httpStream", label: "HTTP Stream" },
-              ],
-              initialValue: "stdio",
-            });
+          // Interactive GitHub configuration if github-issues backend selected
+          let githubOwner = params.githubOwner;
+          let githubRepo = params.githubRepo;
 
-            if (isCancel(transport)) {
-              cancel("Initialization cancelled.");
-              return { success: false, message: "Initialization cancelled by user." };
-            }
+          if (backend === TaskBackend.GITHUB_ISSUES) {
+            if (!githubOwner) {
+              if (!process.stdout.isTTY) {
+                throw new ValidationError(
+                  "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
+                );
+              }
 
-            mcp = {
-              enabled: true,
-              transport: transport as "stdio" | "sse" | "httpStream",
-            };
-
-            // Ask for port and host if not stdio
-            if (transport !== "stdio") {
-              const portInput = await text({
-                message: "Enter port number (optional):",
-                placeholder: "e.g., 3000",
+              const ownerInput = await text({
+                message: "Enter GitHub repository owner:",
+                placeholder: "e.g., octocat",
                 validate: (value) => {
-                  if (value && isNaN(Number(value))) {
-                    return "Port must be a number";
+                  if (!value || value.trim().length === 0) {
+                    return "GitHub owner is required";
                   }
                   return undefined;
                 },
               });
 
-              if (isCancel(portInput)) {
+              if (isCancel(ownerInput)) {
                 cancel("Initialization cancelled.");
                 return { success: false, message: "Initialization cancelled by user." };
               }
 
-              const hostInput = await text({
-                message: "Enter host (optional):",
-                placeholder: "e.g., localhost",
+              githubOwner = ownerInput.trim();
+            }
+
+            if (!githubRepo) {
+              if (!process.stdout.isTTY) {
+                throw new ValidationError(
+                  "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
+                );
+              }
+
+              const repoInput = await text({
+                message: "Enter GitHub repository name:",
+                placeholder: "e.g., my-project",
+                validate: (value) => {
+                  if (!value || value.trim().length === 0) {
+                    return "GitHub repository name is required";
+                  }
+                  return undefined;
+                },
               });
 
-              if (isCancel(hostInput)) {
+              if (isCancel(repoInput)) {
                 cancel("Initialization cancelled.");
                 return { success: false, message: "Initialization cancelled by user." };
               }
 
-              if (portInput) mcp.port = Number(portInput);
-              if (hostInput) mcp.host = hostInput;
+              githubRepo = repoInput.trim();
             }
           }
-        }
 
-        const mcpOnly = params.mcpOnly ?? false;
-        const overwrite = params.overwrite ?? false;
+          // Interactive rule format selection if not provided
+          let ruleFormat = params.ruleFormat;
+          if (!ruleFormat) {
+            if (!process.stdout.isTTY) {
+              // Default to cursor in non-interactive mode
+              ruleFormat = "cursor";
+            } else {
+              const selectedFormat = await select({
+                message: "Select rule format:",
+                options: [
+                  { value: "cursor", label: "Cursor (default, optimized for Cursor editor)" },
+                  { value: "generic", label: "Generic (for other editors)" },
+                ],
+                initialValue: "cursor",
+              });
 
-        // Detect repository backend from git remote
-        let repository: ResolvedRepositoryConfig | undefined;
-        const detectedRepo = detectRepositoryBackend(repoPath);
+              if (isCancel(selectedFormat)) {
+                cancel("Initialization cancelled.");
+                return { success: false, message: "Initialization cancelled by user." };
+              }
 
-        if (detectedRepo.backend !== "local") {
-          if (process.stdout.isTTY) {
-            // Interactive mode: show detection and ask for confirmation
-            const detectionLabel =
-              detectedRepo.backend === "github" && detectedRepo.github
-                ? `GitHub repository (${detectedRepo.github.owner}/${detectedRepo.github.repo})`
-                : `${detectedRepo.backend} repository (${detectedRepo.url ?? ""})`;
+              ruleFormat = selectedFormat as string;
+            }
+          }
 
-            const useDetected = await confirm({
-              message: `Detected ${detectionLabel}. Use ${detectedRepo.backend === "github" ? "GitHub" : detectedRepo.backend} for PRs?`,
+          // Interactive MCP configuration if not provided
+          let mcp:
+            | {
+                enabled: boolean;
+                transport: "stdio" | "sse" | "httpStream";
+                port?: number;
+                host?: string;
+              }
+            | undefined = undefined;
+
+          if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
+            // Use provided MCP parameters
+            mcp = {
+              enabled:
+                params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
+              transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
+              port: params.mcpPort ? Number(params.mcpPort) : undefined,
+              host: params.mcpHost,
+            };
+          } else if (process.stdout.isTTY && !params.mcpOnly) {
+            // Interactive MCP configuration
+            const enableMcp = await confirm({
+              message: "Enable MCP (Model Context Protocol) configuration?",
               initialValue: true,
             });
 
-            if (isCancel(useDetected)) {
+            if (isCancel(enableMcp)) {
               cancel("Initialization cancelled.");
               return { success: false, message: "Initialization cancelled by user." };
             }
 
-            if (useDetected) {
-              repository = detectedRepo;
+            if (enableMcp) {
+              const transport = await select({
+                message: "Select MCP transport type:",
+                options: [
+                  { value: "stdio", label: "STDIO (recommended)" },
+                  { value: "sse", label: "Server-Sent Events" },
+                  { value: "httpStream", label: "HTTP Stream" },
+                ],
+                initialValue: "stdio",
+              });
+
+              if (isCancel(transport)) {
+                cancel("Initialization cancelled.");
+                return { success: false, message: "Initialization cancelled by user." };
+              }
+
+              mcp = {
+                enabled: true,
+                transport: transport as "stdio" | "sse" | "httpStream",
+              };
+
+              // Ask for port and host if not stdio
+              if (transport !== "stdio") {
+                const portInput = await text({
+                  message: "Enter port number (optional):",
+                  placeholder: "e.g., 3000",
+                  validate: (value) => {
+                    if (value && isNaN(Number(value))) {
+                      return "Port must be a number";
+                    }
+                    return undefined;
+                  },
+                });
+
+                if (isCancel(portInput)) {
+                  cancel("Initialization cancelled.");
+                  return { success: false, message: "Initialization cancelled by user." };
+                }
+
+                const hostInput = await text({
+                  message: "Enter host (optional):",
+                  placeholder: "e.g., localhost",
+                });
+
+                if (isCancel(hostInput)) {
+                  cancel("Initialization cancelled.");
+                  return { success: false, message: "Initialization cancelled by user." };
+                }
+
+                if (portInput) mcp.port = Number(portInput);
+                if (hostInput) mcp.host = hostInput;
+              }
+            }
+          }
+
+          const mcpOnly = params.mcpOnly ?? false;
+          const overwrite = params.overwrite ?? false;
+
+          // Detect repository backend from git remote
+          let repository: ResolvedRepositoryConfig | undefined;
+          const detectedRepo = detectRepositoryBackend(repoPath);
+
+          if (detectedRepo.backend !== "local") {
+            if (process.stdout.isTTY) {
+              // Interactive mode: show detection and ask for confirmation
+              const detectionLabel =
+                detectedRepo.backend === "github" && detectedRepo.github
+                  ? `GitHub repository (${detectedRepo.github.owner}/${detectedRepo.github.repo})`
+                  : `${detectedRepo.backend} repository (${detectedRepo.url ?? ""})`;
+
+              const useDetected = await confirm({
+                message: `Detected ${detectionLabel}. Use ${detectedRepo.backend === "github" ? "GitHub" : detectedRepo.backend} for PRs?`,
+                initialValue: true,
+              });
+
+              if (isCancel(useDetected)) {
+                cancel("Initialization cancelled.");
+                return { success: false, message: "Initialization cancelled by user." };
+              }
+
+              if (useDetected) {
+                repository = detectedRepo;
+              } else {
+                repository = { backend: "local" };
+              }
             } else {
-              repository = { backend: "local" };
+              // Non-interactive mode: auto-accept detection
+              repository = detectedRepo;
             }
           } else {
-            // Non-interactive mode: auto-accept detection
-            repository = detectedRepo;
+            repository = { backend: "local" };
           }
-        } else {
-          repository = { backend: "local" };
+
+          // Use the backend selected by the user (or provided via CLI parameter)
+          const domainBackend = backend;
+
+          await initializeProjectFromParams({
+            repoPath,
+            backend: domainBackend,
+            ruleFormat: ruleFormat as "cursor" | "generic" | "minsky",
+            mcp,
+            mcpOnly,
+            overwrite,
+            repository,
+          });
+
+          // TODO: Handle GitHub-specific configuration when github-issues backend is selected
+          // This would involve setting up GitHub API configuration, but that's not implemented yet
+          // For now, we proceed with the basic initialization
+          if (backend === TaskBackend.GITHUB_ISSUES) {
+            log.debug("GitHub Issues backend selected", { githubOwner, githubRepo });
+            // Future: Set up GitHub API configuration, webhooks, etc.
+          }
+
+          return { success: true, message: "Project initialized successfully." };
+        } catch (error: unknown) {
+          log.error("Error initializing project", { error });
+          throw error instanceof ValidationError
+            ? error
+            : new ValidationError(getErrorMessage(error));
         }
-
-        // Use the backend selected by the user (or provided via CLI parameter)
-        const domainBackend = backend;
-
-        await initializeProjectFromParams({
-          repoPath,
-          backend: domainBackend,
-          ruleFormat,
-          mcp,
-          mcpOnly,
-          overwrite,
-          repository,
-        });
-
-        // TODO: Handle GitHub-specific configuration when github-issues backend is selected
-        // This would involve setting up GitHub API configuration, but that's not implemented yet
-        // For now, we proceed with the basic initialization
-        if (backend === TaskBackend.GITHUB_ISSUES) {
-          log.debug("GitHub Issues backend selected", { githubOwner, githubRepo });
-          // Future: Set up GitHub API configuration, webhooks, etc.
-        }
-
-        return { success: true, message: "Project initialized successfully." };
-      } catch (error: unknown) {
-        log.error("Error initializing project", { error });
-        throw error instanceof ValidationError
-          ? error
-          : new ValidationError(getErrorMessage(error));
-      }
-    },
-  });
+      },
+    })
+  );
 }

@@ -14,7 +14,7 @@ import {
 import { log } from "../../../utils/logger";
 import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
-import type { ResolvedConfig } from "../../../domain/configuration/types";
+import type { ResolvedConfig, BackendConfig } from "../../../domain/configuration/types";
 import {
   createCompletionService,
   createConfigService,
@@ -31,13 +31,21 @@ import {
 } from "../../../domain/ai/provider-operations";
 
 /**
- * Get resolved configuration, cast to ResolvedConfig for domain service
- * compatibility. The Configuration type from zod inference is structurally
- * compatible but not assignable due to optional vs required field differences.
+ * Get resolved configuration, mapped to ResolvedConfig for domain service
+ * compatibility. The Configuration type from zod schema inference and
+ * ResolvedConfig share the same fields; this function builds the mapped object
+ * explicitly so TypeScript can verify each field assignment.
  */
 function getResolvedConfig(): ResolvedConfig {
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Configuration is structurally compatible with ResolvedConfig but TypeScript requires bridge due to optional vs required field differences
-  return getConfiguration() as unknown as ResolvedConfig;
+  const config = getConfiguration();
+  return {
+    backendConfig: config.backendConfig as BackendConfig,
+    persistence: config.persistence,
+    github: config.github,
+    ai: config.ai,
+    logger: config.logger,
+    tasks: config.tasks as Record<string, unknown> | undefined,
+  };
 }
 
 /**
