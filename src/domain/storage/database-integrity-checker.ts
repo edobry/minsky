@@ -5,9 +5,10 @@
  * Prevents data loss by detecting format mismatches, corrupted files, and available backups.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join, dirname, basename } from "path";
 import { Database } from "bun:sqlite";
+import type { SyncFsLike } from "../interfaces/fs-like";
+import { createRealSyncFs } from "../interfaces/fs-like";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -59,8 +60,10 @@ export class DatabaseIntegrityChecker {
    */
   static async checkIntegrity(
     expectedFormat: StorageBackendType,
-    filePath: string
+    filePath: string,
+    deps?: { fs?: SyncFsLike }
   ): Promise<DatabaseIntegrityResult> {
+    const fs = deps?.fs ?? createRealSyncFs();
     const result: DatabaseIntegrityResult = {
       isValid: false,
       expectedFormat,
@@ -75,12 +78,12 @@ export class DatabaseIntegrityChecker {
 
     try {
       // Check if file exists
-      if (!existsSync(filePath)) {
+      if (!fs.existsSync(filePath)) {
         result.actualFormat = "empty";
         result.issues.push("Database file does not exist");
 
         // Look for backups
-        await this.scanForBackups(filePath, result);
+        await this.scanForBackups(filePath, result, fs);
 
         if (result.backupsFound.length > 0) {
           result.suggestedActions.push({
@@ -104,13 +107,13 @@ export class DatabaseIntegrityChecker {
       }
 
       // Check file format
-      const actualFormat = await this.detectFileFormat(filePath);
+      const actualFormat = await this.detectFileFormat(filePath, fs);
       result.actualFormat = actualFormat;
 
       // Validate format matches expectation
       if (actualFormat === expectedFormat) {
         // Format matches - do deeper validation
-        const validationResult = await this.validateFileContent(filePath, expectedFormat);
+        const validationResult = await this.validateFileContent(filePath, expectedFormat, fs);
         result.isValid = validationResult.isValid;
         result.issues.push(...validationResult.issues);
         result.warnings.push(...validationResult.warnings);
@@ -126,7 +129,7 @@ export class DatabaseIntegrityChecker {
         }
       } else if (actualFormat === "corrupted") {
         result.issues.push("Database file is corrupted");
-        await this.scanForBackups(filePath, result);
+        await this.scanForBackups(filePath, result, fs);
 
         if (result.backupsFound.length > 0) {
           result.suggestedActions.push({
@@ -163,10 +166,10 @@ export class DatabaseIntegrityChecker {
         }
 
         // Also look for backups
-        await this.scanForBackups(filePath, result);
+        await this.scanForBackups(filePath, result, fs);
       } else {
         result.issues.push(`Unknown database format: ${actualFormat}`);
-        await this.scanForBackups(filePath, result);
+        await this.scanForBackups(filePath, result, fs);
       }
     } catch (error) {
       result.issues.push(`Integrity check failed: ${getErrorMessage(error)}`);
@@ -180,10 +183,11 @@ export class DatabaseIntegrityChecker {
    * Detect the actual format of a database file
    */
   private static async detectFileFormat(
-    filePath: string
+    filePath: string,
+    fs: SyncFsLike
   ): Promise<"json" | "sqlite" | "empty" | "corrupted" | "unknown"> {
     try {
-      const stats = statSync(filePath);
+      const stats = fs.statSync(filePath);
 
       // Check if file is empty
       if (stats.size === 0) {
@@ -192,7 +196,7 @@ export class DatabaseIntegrityChecker {
 
       // Try to detect SQLite format first (check magic bytes)
       try {
-        const buffer = readFileSync(filePath, { encoding: null }) as Buffer;
+        const buffer = fs.readFileSync(filePath, { encoding: null }) as Buffer;
         if (buffer.length >= 16) {
           const header = new TextDecoder("ascii").decode(buffer.subarray(0, 16));
           if (header.startsWith("SQLite format 3")) {
@@ -213,7 +217,7 @@ export class DatabaseIntegrityChecker {
 
       // Try to detect JSON format
       try {
-        const content = readFileSync(filePath, "utf8") as string;
+        const content = fs.readFileSync(filePath, "utf8" as BufferEncoding) as string;
         const trimmed = content.trim();
 
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -237,7 +241,8 @@ export class DatabaseIntegrityChecker {
    */
   private static async validateFileContent(
     filePath: string,
-    format: StorageBackendType
+    format: StorageBackendType,
+    fs: SyncFsLike
   ): Promise<{ isValid: boolean; issues: string[]; warnings: string[] }> {
     const result: { isValid: boolean; issues: string[]; warnings: string[] } = {
       isValid: true,
@@ -281,7 +286,7 @@ export class DatabaseIntegrityChecker {
           db.close();
         }
       } else if (format === "json") {
-        const content = readFileSync(filePath, "utf8") as string;
+        const content = fs.readFileSync(filePath, "utf8" as BufferEncoding) as string;
         const data = JSON.parse(content);
 
         // Validate JSON structure
@@ -310,7 +315,8 @@ export class DatabaseIntegrityChecker {
    */
   private static async scanForBackups(
     originalPath: string,
-    result: DatabaseIntegrityResult
+    result: DatabaseIntegrityResult,
+    fs: SyncFsLike
   ): Promise<void> {
     const searchDirs = [
       dirname(originalPath), // Same directory
@@ -319,10 +325,10 @@ export class DatabaseIntegrityChecker {
     ];
 
     for (const searchDir of searchDirs) {
-      if (!existsSync(searchDir)) continue;
+      if (!fs.existsSync(searchDir)) continue;
 
       try {
-        const files = readdirSync(searchDir);
+        const files = fs.readdirSync(searchDir);
         let scannedCount = 0;
 
         for (const file of files) {
@@ -338,10 +344,10 @@ export class DatabaseIntegrityChecker {
           if (!isBackup) continue;
 
           try {
-            const stats = statSync(filePath);
+            const stats = fs.statSync(filePath);
             if (!stats.isFile()) continue;
 
-            const format = await this.detectFileFormat(filePath);
+            const format = await this.detectFileFormat(filePath, fs);
             const backupInfo: BackupFileInfo = {
               path: filePath,
               format:
@@ -355,7 +361,7 @@ export class DatabaseIntegrityChecker {
             // Try to get session count for JSON backups
             if (format === "json") {
               try {
-                const content = readFileSync(filePath, "utf8") as string;
+                const content = fs.readFileSync(filePath, "utf8" as BufferEncoding) as string;
                 const data = JSON.parse(content);
                 if (Array.isArray(data.sessions)) {
                   backupInfo.sessionCount = data.sessions.length;
