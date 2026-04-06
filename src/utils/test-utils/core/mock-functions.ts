@@ -9,7 +9,7 @@
 import { mock } from "bun:test";
 
 // Define a MockFunction type to replace jest.Mock
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic defaults use any for function type erasure boundaries; changing to unknown cascades errors in callers
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
   (...args: TArgs): TReturn;
   mock: {
@@ -39,7 +39,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const _result = mockGreet("World"); // TypeScript knows this returns string
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type any in constraint is load-bearing; unknown causes callers to lose the return type of the mocked function
 export function mockFunction<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): MockFunction<ReturnType<T>, Parameters<T>> & T {
@@ -73,7 +73,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(
  * mockFn.mockImplementation(() => "new result");
  * expect(mockFn()).toBe("new result");
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type any in constraint is load-bearing; unknown causes callers to lose the return type of the wrapped function
 export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});

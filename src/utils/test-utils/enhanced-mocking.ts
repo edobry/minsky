@@ -24,10 +24,8 @@ interface MockFileSystemState {
 
 interface MockModuleState {
   modulePath: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  originalModule?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mockImplementation: any;
+  originalModule?: Record<string, unknown>;
+  mockImplementation: Record<string, unknown>;
   isActive: boolean;
   testId: string;
 }
@@ -209,10 +207,8 @@ export class EnhancedMockFileSystem {
    * Create comprehensive mock implementations for fs modules
    */
   createFSMocks(): {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    fs: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    fsPromises: any;
+    fs: Record<string, unknown>;
+    fsPromises: Record<string, unknown>;
   } {
     const fsMock = {
       existsSync: (path: string) => this.exists(path),
@@ -223,12 +219,13 @@ export class EnhancedMockFileSystem {
       writeFileSync: (path: string, data: string | Buffer) => {
         this.writeFile(path, typeof data === "string" ? data : data.toString());
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mkdirSync: (path: string, options?: any) => {
+      mkdirSync: (path: string, options?: { recursive?: boolean; mode?: number }) => {
         this.mkdir(path, options);
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rmSync: (path: string, options?: any) => {
+      rmSync: (
+        path: string,
+        options?: { recursive?: boolean; force?: boolean; maxRetries?: number }
+      ) => {
         this.remove(path, options);
       },
       unlinkSync: (path: string) => {
@@ -247,12 +244,13 @@ export class EnhancedMockFileSystem {
       writeFile: async (path: string, data: string | Buffer) => {
         this.writeFile(path, typeof data === "string" ? data : data.toString());
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mkdir: async (path: string, options?: any) => {
+      mkdir: async (path: string, options?: { recursive?: boolean; mode?: number }) => {
         this.mkdir(path, options);
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rm: async (path: string, options?: any) => {
+      rm: async (
+        path: string,
+        options?: { recursive?: boolean; force?: boolean; maxRetries?: number }
+      ) => {
         this.remove(path, options);
       },
       unlink: async (path: string) => {

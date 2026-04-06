@@ -10,6 +10,7 @@
 import { mock } from "bun:test";
 import type { SessionRecord, SessionProviderInterface } from "../../domain/session/types";
 import type { GitServiceInterface } from "../../domain/git/types";
+import { ConflictType, ConflictSeverity } from "../../domain/git/conflict-detection-types";
 import type { TaskServiceInterface } from "../../domain/tasks/taskService";
 import type {
   TaskListOptions,
@@ -65,8 +66,7 @@ export function createSessionProviderMock(
       Promise.resolve()
     ),
     deleteSession: mock((_session: string) => Promise.resolve(true)),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches getRepoPath signature that accepts any record-like object
-    getRepoPath: mock((_record: SessionRecord | any) => Promise.resolve("/mock/repo/path")),
+    getRepoPath: mock((_record: SessionRecord) => Promise.resolve("/mock/repo/path")),
     getSessionWorkdir: mock((_sessionId: string) => Promise.resolve("/mock/session/workdir")),
     ...overrides,
   };
@@ -142,21 +142,26 @@ export function createGitServiceMock(
     predictMergeConflicts: mock(() =>
       Promise.resolve({
         hasConflicts: false,
-        conflictingFiles: [],
-        safeToMerge: true,
-        analysis: "No conflicts predicted",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
-      } as any)
+        conflictType: ConflictType.NONE,
+        severity: ConflictSeverity.NONE,
+        affectedFiles: [],
+        resolutionStrategies: [],
+        userGuidance: "No conflicts predicted",
+        recoveryCommands: [],
+      })
     ),
 
     analyzeBranchDivergence: mock(() =>
       Promise.resolve({
-        ahead: 0,
-        behind: 0,
-        diverged: false,
-        commonAncestor: "abc123",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
-      } as any)
+        sessionBranch: "test-branch",
+        baseBranch: "main",
+        aheadCommits: 0,
+        behindCommits: 0,
+        lastCommonCommit: "abc123",
+        sessionChangesInBase: false,
+        divergenceType: "none" as const,
+        recommendedAction: "none" as const,
+      })
     ),
     mergeWithConflictPrevention: mock(() =>
       Promise.resolve({
@@ -168,11 +173,10 @@ export function createGitServiceMock(
 
     smartSessionUpdate: mock(() =>
       Promise.resolve({
-        updated: true,
-        alreadyMerged: false,
         workdir: "/mock/workdir",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock factory requires any
-      } as any)
+        updated: true,
+        skipped: false,
+      })
     ),
     ...overrides,
   };

@@ -44,8 +44,7 @@ import { createMock } from "../core/mock-functions";
  */
 export function createMockObject<T extends string>(
   methods: T[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  implementations: Partial<Record<T, (...args: unknown[]) => any>> = {}
+  implementations: Partial<Record<T, (...args: unknown[]) => unknown>> = {}
 ): Record<T, ReturnType<typeof createMock>> {
   return methods.reduce(
     (obj, method) => {

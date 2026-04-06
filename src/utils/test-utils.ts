@@ -39,8 +39,11 @@ export const createTempTestDir: (prefix?: string) => string | undefined = create
 export function setupConsoleSpy() {
   const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
   const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- spyOn process.exit requires any
-  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => {
+  // process.exit has signature `(code?: number) => never`. spyOn requires the object
+  // to have the method as a typed property; cast to a minimal interface to avoid the
+  // full NodeJS.Process type complexity that breaks spyOn's overload resolution.
+  const processWithExit = process as { exit: (code?: number) => never };
+  const processExitSpy = spyOn(processWithExit, "exit").mockImplementation(() => {
     throw new Error("process.exit called");
   });
 
@@ -56,18 +59,19 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   const fixedDateTime = new originalDate(fixedDate).getTime();
 
   // Create a complete mock DateConstructor
-  const MockDate = function () {
-    return new originalDate(fixedDate);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock DateConstructor requires any
-  } as any as DateConstructor;
+  class MockDate extends originalDate {
+    constructor() {
+      super(fixedDate);
+    }
+    static now() {
+      return fixedDateTime;
+    }
+    static parse = originalDate.parse;
+    static UTC = originalDate.UTC;
+  }
 
-  // Copy all the static methods from the original Date
-  MockDate.now = () => fixedDateTime;
-  MockDate.parse = originalDate.parse;
-  MockDate.UTC = originalDate.UTC;
-
-  // Replace global Date
-  global.Date = MockDate;
+  // Replace global Date — MockDate extends Date so it structurally satisfies DateConstructor
+  global.Date = MockDate as DateConstructor;
 
   // Return function to restore the original Date
   return () => {
