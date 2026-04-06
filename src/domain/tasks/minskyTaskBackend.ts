@@ -1,4 +1,5 @@
-import { eq, not, and } from "drizzle-orm";
+import { eq, not, and, type SQL } from "drizzle-orm";
+import { TaskStatus } from "./taskConstants";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -39,14 +40,10 @@ export class MinskyTaskBackend implements TaskBackend {
   // ---- User-Facing Operations ----
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    let query = this.db.select().from(tasksTable);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder conditions require any[] for heterogeneous SQL conditions
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (options?.status && options.status !== "all") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      conditions.push(eq(tasksTable.status, options.status as any));
+      conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
       conditions.push(not(eq(tasksTable.status, "DONE")));
@@ -56,12 +53,8 @@ export class MinskyTaskBackend implements TaskBackend {
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
     conditions.push(eq(tasksTable.backend, "minsky"));
 
-    if (conditions.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      query = (query as any).where(and(...conditions));
-    }
-
-    const rows = await query;
+    const query = this.db.select().from(tasksTable);
+    const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
     return rows.map((row) => this.mapDbRowToTask(row));
   }
   async getTask(id: string): Promise<Task | null> {
@@ -83,8 +76,7 @@ export class MinskyTaskBackend implements TaskBackend {
     await this.db
       .update(tasksTable)
       .set({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: status as any,
+        status: status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));
@@ -110,8 +102,7 @@ export class MinskyTaskBackend implements TaskBackend {
         id,
         sourceTaskId: id.split("#")[1], // Extract the numeric part
         backend: "minsky" as const,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: (options?.status || "TODO") as any,
+        status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
         title,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -120,8 +111,7 @@ export class MinskyTaskBackend implements TaskBackend {
         target: tasksTable.id,
         set: {
           backend: "minsky" as const,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          status: (options?.status || "TODO") as any,
+          status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
           title: title,
           updatedAt: new Date(),
         },
@@ -150,8 +140,11 @@ export class MinskyTaskBackend implements TaskBackend {
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
     const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (result as any).rowCount > 0;
+    const rowCount =
+      result && typeof result === "object" && "rowCount" in result
+        ? (result.rowCount as number)
+        : 0;
+    return rowCount > 0;
   }
 
   getWorkspacePath(): string {
@@ -203,8 +196,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .update(tasksTable)
       .set({
         title: metadata.title,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        status: metadata.status as any,
+        status: metadata.status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
       .where(eq(tasksTable.id, id));
