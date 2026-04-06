@@ -13,6 +13,7 @@ import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrGetCommandParams } from "./session-parameters";
 import { sessionPrGet } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
+import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR get command
@@ -50,17 +51,21 @@ export class SessionPrGetCommand extends BaseSessionCommand<
     _context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     try {
-      const result = await sessionPrGet({
-        sessionId: params.sessionId,
-        name: params.name,
-        task: params.task,
-        repo: params.repo,
-        json: params.json,
-        status: params.status,
-        since: params.since,
-        until: params.until,
-        content: params.content,
-      });
+      const sessionDB = await createSessionProvider();
+      const result = await sessionPrGet(
+        {
+          sessionId: params.sessionId,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          json: params.json,
+          status: params.status,
+          since: params.since,
+          until: params.until,
+          content: params.content,
+        },
+        { sessionDB }
+      );
 
       if (params.json) {
         return this.createSuccessResult(result);

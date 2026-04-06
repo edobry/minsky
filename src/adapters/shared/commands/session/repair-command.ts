@@ -9,6 +9,8 @@ import {
 } from "../../../../domain/session/commands/repair-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { log } from "../../../../utils/logger";
+import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
+import { createGitService } from "../../../../domain/git";
 
 /**
  * Parameters for session repair command
@@ -61,7 +63,9 @@ export class SessionRepairCommand extends BaseSessionCommand<
         debug: params.debug,
       };
 
-      const result = await sessionRepair(repairParams);
+      const sessionDB = await createSessionProvider();
+      const gitService = createGitService();
+      const result = await sessionRepair(repairParams, { sessionDB, gitService });
 
       if (params.json) {
         // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionRepairResult is structurally compatible with Record<string,unknown> for JSON output

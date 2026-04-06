@@ -18,6 +18,7 @@ import {
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR create command
@@ -142,6 +143,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
         );
       }
 
+      const sessionDB = await createSessionProvider();
+
       const result = await sessionPrCreate(
         {
           title: finalTitle,
@@ -157,6 +160,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
           skipConflictCheck: params.skipConflictCheck,
           draft: params.draft,
         },
+        { sessionDB },
         {
           interface: interfaceType,
           workingDirectory,

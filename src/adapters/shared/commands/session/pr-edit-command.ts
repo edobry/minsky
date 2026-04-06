@@ -18,6 +18,7 @@ import {
 import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR edit command
@@ -144,6 +145,8 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         }
       }
 
+      const sessionDB = await createSessionProvider();
+
       const result = await sessionPrEdit(
         {
           title: finalTitle,
@@ -154,6 +157,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
           repo: params.repo,
           debug: params.debug,
         },
+        { sessionDB },
         {
           interface: interfaceType,
           workingDirectory,

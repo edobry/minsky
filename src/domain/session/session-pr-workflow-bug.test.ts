@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { sessionPr } from "./commands/pr-command";
 import { SessionPRParameters } from "../schemas";
+import type { SessionProviderInterface } from "./types";
+import type { GitServiceInterface } from "../git/types";
 
 describe("Session PR Workflow Architectural Bug", () => {
   // Bug: Session PR creation bypasses session layer and goes directly to git layer
@@ -31,8 +33,24 @@ describe("Session PR Workflow Architectural Bug", () => {
         autoResolveDeleteConflicts: false,
       };
 
+      // Minimal mock deps — the call will fail at session lookup, not at dep creation
+      const mockDeps = {
+        sessionDB: {
+          getSession: async () => null,
+          listSessions: async () => [],
+          addSession: async () => {},
+          updateSession: async () => {},
+          deleteSession: async () => {},
+          getSessionWorkdir: async () => "",
+          getRepoPath: async () => "",
+        } as unknown as SessionProviderInterface,
+        gitService: {
+          execInRepository: async () => "",
+        } as unknown as GitServiceInterface,
+      };
+
       try {
-        await sessionPr(mockParams);
+        await sessionPr(mockParams, mockDeps);
         expect(false).toBe(true); // Should not succeed with nonexistent session
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);

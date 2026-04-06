@@ -3,11 +3,15 @@
  */
 
 import type { PullRequestInfo } from "../session-db";
-import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { readTextFile } from "../../../utils/fs";
+import type { SessionProviderInterface } from "../types";
+
+export interface SessionPrEditDependencies {
+  sessionDB: SessionProviderInterface;
+}
 
 /**
  * Session PR Edit implementation
@@ -23,6 +27,7 @@ export async function sessionPrEdit(
     repo?: string;
     debug?: boolean;
   },
+  deps: SessionPrEditDependencies,
   options?: {
     interface?: "cli" | "mcp";
     workingDirectory?: string;
@@ -35,7 +40,7 @@ export async function sessionPrEdit(
   pullRequest?: PullRequestInfo;
   updated: boolean;
 }> {
-  const sessionProvider = await createSessionProvider();
+  const sessionProvider = deps.sessionDB;
 
   // Resolve session context
   const resolvedContext = await resolveSessionContextWithFeedback({

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { resolveWorkspacePath } from "./workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
 import { join } from "path";
@@ -9,30 +9,11 @@ describe("resolveWorkspacePath", () => {
 
   beforeEach(() => {
     mockFs = createMockFilesystem();
-
-    // Mock the fs module to use our mock filesystem
-    mock.module("fs", () => ({
-      default: {
-        access: mockFs.access,
-        existsSync: mockFs.existsSync,
-        statSync: (path: string) => ({
-          isDirectory: () => mockFs.directories.has(path),
-        }),
-      },
-      access: mockFs.access,
-      existsSync: mockFs.existsSync,
-      statSync: (path: string) => ({
-        isDirectory: () => mockFs.directories.has(path),
-      }),
-      promises: {
-        access: mockFs.access,
-      },
-    }));
+    // No mock.module("fs") needed — fs.access is injected via TestDependencies
   });
 
   afterEach(() => {
     mockFs.cleanup();
-    mock.restore();
   });
   it("uses explicitly provided workspace path", async () => {
     const _options: WorkspaceResolutionOptions = {

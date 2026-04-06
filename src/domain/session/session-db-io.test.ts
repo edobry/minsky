@@ -4,10 +4,11 @@
  * Tests for reading and writing session database files with proper filesystem isolation.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
 import type { SessionRecord } from "./types";
+import type { SyncFsLike } from "../interfaces/fs-like";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("Session DB I/O Functions", () => {
@@ -16,24 +17,28 @@ describe("Session DB I/O Functions", () => {
   const mockTestDbPath = "/mock/tmp/session-db-io-test/session-db.json";
 
   // Mock filesystem operations using proven dependency injection patterns
-  const mockFs = createMockFilesystem();
+  let mockFs: ReturnType<typeof createMockFilesystem>;
+  let syncFs: SyncFsLike;
 
   beforeEach(() => {
-    // Use mock.module() to mock filesystem operations within test scope
-    mock.module("fs", () => mockFs.fs);
-    mock.module("fs/promises", () => mockFs.fsPromises);
+    mockFs = createMockFilesystem();
 
-    // Mock cleanup - avoiding real filesystem operations
-    mockFs.reset();
+    // Build a SyncFsLike from the mock filesystem
+    syncFs = {
+      existsSync: mockFs.existsSync,
+      readFileSync: mockFs.readFileSync,
+      writeFileSync: mockFs.writeFileSync,
+      mkdirSync: mockFs.mkdirSync,
+      statSync: mockFs.statSync,
+      readdirSync: mockFs.readdirSync,
+    } as unknown as SyncFsLike;
 
     // Set up mock directory structure
     mockFs.mkdir(mockTempDir, { recursive: true });
   });
 
   afterEach(() => {
-    // Mock cleanup - avoiding real filesystem operations
     mockFs.reset();
-    mock.restore();
   });
 
   describe("readSessionDbFile", () => {
@@ -56,17 +61,21 @@ describe("Session DB I/O Functions", () => {
 
       mockFs.writeFile(mockTestDbPath, JSON.stringify(testData, null, 2));
 
-      // Test reading the file
-      const result = readSessionDbFile(mockTestDbPath);
+      // Test reading the file — pass fs via options
+      const result = readSessionDbFile({ dbPath: mockTestDbPath, fs: syncFs });
 
-      expect(result).toEqual(testData as any);
+      // readSessionDbFile with options returns SessionDbState, not array
+      expect((result as any).sessions).toEqual(testData as any);
     });
 
-    test("should return empty array for non-existent file", () => {
+    test("should return empty sessions for non-existent file", () => {
       // Test reading a file that doesn't exist
-      const result = readSessionDbFile("/mock/non-existent/session-db.json");
+      const result = readSessionDbFile({
+        dbPath: "/mock/non-existent/session-db.json",
+        fs: syncFs,
+      });
 
-      expect(result).toEqual([]);
+      expect((result as any).sessions).toEqual([]);
     });
 
     test("should handle invalid JSON gracefully", () => {
@@ -74,9 +83,9 @@ describe("Session DB I/O Functions", () => {
       mockFs.writeFile(mockTestDbPath, "{ invalid json }");
 
       // Test reading the invalid file
-      const result = readSessionDbFile(mockTestDbPath);
+      const result = readSessionDbFile({ dbPath: mockTestDbPath, fs: syncFs });
 
-      expect(result).toEqual([]);
+      expect((result as any).sessions).toEqual([]);
     });
 
     test("should handle empty file", () => {
@@ -84,9 +93,9 @@ describe("Session DB I/O Functions", () => {
       mockFs.writeFile(mockTestDbPath, "");
 
       // Test reading the empty file
-      const result = readSessionDbFile(mockTestDbPath);
+      const result = readSessionDbFile({ dbPath: mockTestDbPath, fs: syncFs });
 
-      expect(result).toEqual([]);
+      expect((result as any).sessions).toEqual([]);
     });
   });
 
@@ -101,8 +110,8 @@ describe("Session DB I/O Functions", () => {
         },
       ];
 
-      // Write the data
-      writeSessionDbFile(mockTestDbPath, testData as unknown as SessionRecord[]);
+      // Write the data with injected fs
+      writeSessionDbFile(mockTestDbPath, testData as unknown as SessionRecord[], { fs: syncFs });
 
       // Verify the file was written correctly
       expect(mockFs.exists(mockTestDbPath)).toBe(true);
@@ -124,8 +133,8 @@ describe("Session DB I/O Functions", () => {
         },
       ];
 
-      // Write to a deep path
-      writeSessionDbFile(deepPath, testData as unknown as SessionRecord[]);
+      // Write to a deep path with injected fs
+      writeSessionDbFile(deepPath, testData as unknown as SessionRecord[], { fs: syncFs });
 
       // Verify directory was created and file written
       expect(mockFs.exists("/mock/deep/nested/path")).toBe(true);
@@ -156,14 +165,14 @@ describe("Session DB I/O Functions", () => {
       ];
 
       // Write initial data
-      writeSessionDbFile(mockTestDbPath, initialData as unknown as SessionRecord[]);
+      writeSessionDbFile(mockTestDbPath, initialData as unknown as SessionRecord[], { fs: syncFs });
 
       // Verify initial write
       let content = mockFs.readFile(mockTestDbPath) as string;
       expect(JSON.parse(content)).toEqual(initialData);
 
       // Overwrite with updated data
-      writeSessionDbFile(mockTestDbPath, updatedData as unknown as SessionRecord[]);
+      writeSessionDbFile(mockTestDbPath, updatedData as unknown as SessionRecord[], { fs: syncFs });
 
       // Verify overwrite
       content = mockFs.readFile(mockTestDbPath) as string;
@@ -174,7 +183,7 @@ describe("Session DB I/O Functions", () => {
       const emptyData: any[] = [];
 
       // Write empty array
-      writeSessionDbFile(mockTestDbPath, emptyData);
+      writeSessionDbFile(mockTestDbPath, emptyData, { fs: syncFs });
 
       // Verify file was written with empty array
       expect(mockFs.exists(mockTestDbPath)).toBe(true);

@@ -2,9 +2,9 @@
  * Session PR Get Subcommand
  */
 
-import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import type { PullRequestInfo } from "../session-db";
+import type { SessionProviderInterface } from "../types";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -33,22 +33,29 @@ interface GitHubLivePr {
   commits?: number;
 }
 
+export interface SessionPrGetDependencies {
+  sessionDB: SessionProviderInterface;
+}
+
 /**
  * Session PR Get implementation
  * Gets detailed information about a specific PR
  */
-export async function sessionPrGet(params: {
-  sessionId?: string;
-  name?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  backend?: "github" | "remote" | "local";
-  status?: string; // optional constraint
-  since?: string;
-  until?: string;
-  content?: boolean;
-}): Promise<{
+export async function sessionPrGet(
+  params: {
+    sessionId?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+    json?: boolean;
+    backend?: "github" | "remote" | "local";
+    status?: string; // optional constraint
+    since?: string;
+    until?: string;
+    content?: boolean;
+  },
+  deps: SessionPrGetDependencies
+): Promise<{
   pullRequest: {
     number?: number;
     title: string;
@@ -67,7 +74,7 @@ export async function sessionPrGet(params: {
     backendType?: "github" | "remote" | "local";
   };
 }> {
-  const sessionDB = await createSessionProvider();
+  const { sessionDB } = deps;
 
   try {
     // Resolve session context using existing resolver

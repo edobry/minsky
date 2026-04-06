@@ -8,6 +8,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { DatabaseIntegrityChecker } from "./database-integrity-checker";
+import type { SyncFsLike } from "../interfaces/fs-like";
 type StorageBackendType = "sqlite" | "postgres" | "json";
 
 // Mock bun:sqlite Database
@@ -117,34 +118,7 @@ const mockFs = {
 };
 
 describe("DatabaseIntegrityChecker", () => {
-  // Mock the fs modules
-  mock.module("fs", () => ({
-    existsSync: mockFs.existsSync,
-    mkdirSync: mockFs.mkdirSync,
-    rmSync: mockFs.rmSync,
-    writeFileSync: mockFs.writeFileSync,
-    readFileSync: mockFs.readFileSync,
-    statSync: mockFs.statSync,
-    readdirSync: mockFs.readdirSync,
-  }));
-
-  // Mock os module
-  mock.module("os", () => ({
-    tmpdir: mock(() => "/mock/tmp"),
-  }));
-
-  // Mock path module operations
-  mock.module("path", () => ({
-    join: mock((...parts: string[]) => parts.join("/")),
-    dirname: mock((path: string) => {
-      const parts = path.split("/");
-      return parts.slice(0, -1).join("/") || "/";
-    }),
-    basename: mock((path: string) => {
-      const parts = path.split("/");
-      return parts[parts.length - 1] || "";
-    }),
-  }));
+  // Mock bun:sqlite only — fs is injected via DI
   mock.module("bun:sqlite", () => ({
     Database: mock(() => mockDatabase),
   }));
@@ -153,8 +127,7 @@ describe("DatabaseIntegrityChecker", () => {
   let mockBackupDir: string;
 
   beforeEach(() => {
-    // Reset all mocks
-    mock.restore();
+    // Reset mock filesystem state
     mockFileSystem.clear();
     mockDirectories.clear();
 
@@ -222,7 +195,6 @@ describe("DatabaseIntegrityChecker", () => {
   });
 
   afterEach(() => {
-    mock.restore();
     mockFileSystem.clear();
     mockDirectories.clear();
   });
@@ -233,7 +205,9 @@ describe("DatabaseIntegrityChecker", () => {
       const testData = `${SQLITE_MAGIC_HEADER}valid sqlite data`;
       mockFileSystem.set(sqlitePath, testData);
 
-      const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", sqlitePath);
+      const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", sqlitePath, {
+        fs: mockFs as unknown as SyncFsLike,
+      });
 
       expect(result).toBeDefined();
       expect(result.isValid).toBe(true);
@@ -246,7 +220,9 @@ describe("DatabaseIntegrityChecker", () => {
       const corruptedPath = "/mock/corrupted.db";
       mockFileSystem.set(corruptedPath, `${SQLITE_MAGIC_HEADER}corrupted data`);
 
-      const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", corruptedPath);
+      const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", corruptedPath, {
+        fs: mockFs as unknown as SyncFsLike,
+      });
 
       expect(result).toBeDefined();
       expect(result.actualFormat).toBe("sqlite");

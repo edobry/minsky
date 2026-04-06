@@ -8,7 +8,6 @@ import {
 } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
-import { readFileSync, existsSync } from "fs";
 import { sep } from "path";
 import { homedir } from "os";
 import { getErrorMessage, getErrorStack } from "../errors/index";

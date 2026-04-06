@@ -3,11 +3,16 @@
  */
 
 import type { PullRequestInfo } from "../session-db";
-import { createSessionProvider } from "../session-db-adapter";
+import { createGitService } from "../../git";
 import { sessionPr } from "./pr-command";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { ResourceNotFoundError, ValidationError } from "../../../errors/index";
+import type { SessionProviderInterface } from "../types";
+
+export interface SessionPrCreateDependencies {
+  sessionDB: SessionProviderInterface;
+}
 
 /**
  * Session PR Create implementation
@@ -28,6 +33,7 @@ export async function sessionPrCreate(
     skipConflictCheck?: boolean;
     draft?: boolean;
   },
+  deps: SessionPrCreateDependencies,
   options?: {
     interface?: "cli" | "mcp";
     workingDirectory?: string;
@@ -39,19 +45,20 @@ export async function sessionPrCreate(
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
+  const { sessionDB } = deps;
+
   // Validate draft mode requirements
   if (params.draft) {
     // Validate backend type for draft mode
-    const sessionProvider = await createSessionProvider();
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: params.name,
       task: params.task,
       repo: params.repo,
-      sessionProvider,
+      sessionProvider: sessionDB,
       allowAutoDetection: true,
     });
 
-    const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionId);
+    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
@@ -63,6 +70,9 @@ export async function sessionPrCreate(
       );
     }
   }
+
+  // Create gitService for the sessionPr call
+  const gitService = createGitService();
 
   // Delegate to existing session pr implementation (handles both draft and regular PRs)
   const result = await sessionPr(
@@ -79,6 +89,7 @@ export async function sessionPrCreate(
       draft: params.draft || false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },
+    { sessionDB, gitService },
     options
   );
 

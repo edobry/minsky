@@ -1,23 +1,9 @@
-import { getCurrentSessionContext } from "../../workspace";
-import { Session } from "../types";
+/** Re-exports from the session facade for backward compatibility. */
+export { inspectSessionFromParams } from "../../session";
 
-/**
- * Inspects the current session based on workspace context
- */
-export async function inspectSessionFromParams(params: {
-  json?: boolean;
-}): Promise<Session | null> {
-  try {
-    const sessionContext = await getCurrentSessionContext();
-    return sessionContext as Session | null;
-  } catch (error) {
-    return null;
-  }
-}
+import { inspectSessionFromParams } from "../../session";
 
-/**
- * Inspects the current session - simpler interface for subcommands
- */
-export async function inspectCurrentSession(): Promise<Session | null> {
+/** Simpler interface for subcommands. */
+export async function inspectCurrentSession() {
   return inspectSessionFromParams({});
 }

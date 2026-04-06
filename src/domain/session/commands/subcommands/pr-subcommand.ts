@@ -1,5 +1,7 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
 import { sessionPr } from "../pr-command";
+import { createSessionProvider } from "../../session-db-adapter";
+import { createGitService } from "../../../git";
 
 export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args, options } = params;
@@ -12,11 +14,16 @@ export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
   const noStatusUpdate = options?.["no-status-update"] === true;
 
   try {
-    const prDescription = await sessionPr({
-      session: sessionId,
-      noStatusUpdate,
-      title: "",
-    } as Parameters<typeof sessionPr>[0]);
+    const sessionDB = await createSessionProvider();
+    const gitService = createGitService();
+    const prDescription = await sessionPr(
+      {
+        session: sessionId,
+        noStatusUpdate,
+        title: "",
+      } as Parameters<typeof sessionPr>[0],
+      { sessionDB, gitService }
+    );
     return {
       success: true,
       data: { prDescription },

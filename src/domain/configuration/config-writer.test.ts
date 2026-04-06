@@ -6,6 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { ConfigWriter, createConfigWriter } from "./config-writer";
+import type { SyncFs } from "./config-writer";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 import { CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
@@ -23,20 +24,23 @@ describe("ConfigWriter", () => {
     originalEnv = { ...process.env };
     mockFs = createMockFilesystem();
 
-    // Provide deterministic user config dir and available files via DI module mock
+    // Provide deterministic available config files via module mock
     mock.module("./sources/user", () => ({
       getUserConfigDir: () => mockConfigDir,
       userConfigFiles: ["config.yaml", "config.json"],
     }));
 
-    // Replace fs with mock filesystem
-    mock.module("fs", () => mockFs.fs);
+    // Remove mock.module("fs") — inject mock fs via DI instead
 
-    writer = createConfigWriter({
-      createBackup: true,
-      format: "yaml",
-      validate: false, // Disable validation for focused testing
-    });
+    writer = createConfigWriter(
+      {
+        createBackup: true,
+        format: "yaml",
+        validate: false, // Disable validation for focused testing
+        configDir: mockConfigDir,
+      },
+      { fs: mockFs as unknown as SyncFs }
+    );
   });
 
   afterEach(() => {
@@ -320,11 +324,15 @@ describe("ConfigWriter", () => {
 
     test("should skip backup when noBackup option is set", async () => {
       // Test scenario: User explicitly disables backup
-      const writerNoBackup = createConfigWriter({
-        createBackup: false,
-        format: "yaml",
-        validate: false, // Disable validation for this test
-      });
+      const writerNoBackup = createConfigWriter(
+        {
+          createBackup: false,
+          format: "yaml",
+          validate: false, // Disable validation for this test
+          configDir: mockConfigDir,
+        },
+        { fs: mockFs as unknown as SyncFs }
+      );
 
       mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config

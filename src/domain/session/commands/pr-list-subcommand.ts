@@ -2,24 +2,31 @@
  * Session PR List Subcommand
  */
 
-import { createSessionProvider } from "../session-db-adapter";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
+import type { SessionProviderInterface } from "../types";
+
+export interface SessionPrListDependencies {
+  sessionDB: SessionProviderInterface;
+}
 
 /**
  * Session PR List implementation
  * Lists all PRs associated with sessions
  */
-export async function sessionPrList(params: {
-  session?: string;
-  task?: string;
-  status?: string; // comma-separated list or 'all'
-  backend?: "github" | "remote" | "local";
-  since?: string; // YYYY-MM-DD or relative like 7d, 24h
-  until?: string; // YYYY-MM-DD or relative like 7d, 24h
-  repo?: string;
-  json?: boolean;
-  verbose?: boolean;
-}): Promise<{
+export async function sessionPrList(
+  params: {
+    session?: string;
+    task?: string;
+    status?: string; // comma-separated list or 'all'
+    backend?: "github" | "remote" | "local";
+    since?: string; // YYYY-MM-DD or relative like 7d, 24h
+    until?: string; // YYYY-MM-DD or relative like 7d, 24h
+    repo?: string;
+    json?: boolean;
+    verbose?: boolean;
+  },
+  deps: SessionPrListDependencies
+): Promise<{
   pullRequests: Array<{
     sessionId: string;
     taskId?: string;
@@ -32,7 +39,7 @@ export async function sessionPrList(params: {
     backendType?: string;
   }>;
 }> {
-  const sessionDB = await createSessionProvider();
+  const { sessionDB } = deps;
 
   try {
     // Get all sessions

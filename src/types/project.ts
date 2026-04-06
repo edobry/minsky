@@ -3,8 +3,9 @@
  * This module provides a structured way to handle project-specific context information.
  */
 
-import fs from "fs";
 import path from "path";
+import type { SyncFsLike } from "../domain/interfaces/fs-like";
+import { createRealSyncFs } from "../domain/interfaces/fs-like";
 import { log } from "../utils/logger";
 
 /**
@@ -27,9 +28,14 @@ export interface ProjectContext {
 /**
  * Validates that a path exists and can be used as a repository path.
  * @param repositoryPath The path to validate
+ * @param deps Optional dependencies for testing
  * @returns True if the path exists and is a directory, false otherwise
  */
-export function validateRepositoryPath(repositoryPath: string): boolean {
+export function validateRepositoryPath(
+  repositoryPath: string,
+  deps?: { fs?: SyncFsLike }
+): boolean {
+  const fs = deps?.fs ?? createRealSyncFs();
   try {
     // Check if the path exists and is a directory
     return fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory();
@@ -41,15 +47,19 @@ export function validateRepositoryPath(repositoryPath: string): boolean {
 /**
  * Creates a ProjectContext object with validation.
  * @param repositoryPath The repository path to use in the context
+ * @param deps Optional dependencies for testing
  * @returns A ProjectContext object if validation passes
  * @throws Error if the repository path is invalid
  */
-export function createProjectContext(repositoryPath: string): ProjectContext {
+export function createProjectContext(
+  repositoryPath: string,
+  deps?: { fs?: SyncFsLike }
+): ProjectContext {
   // Normalize the path to handle any relative paths or trailing slashes
   const normalizedPath = path.resolve(repositoryPath);
 
   // Validate the repository path
-  if (!validateRepositoryPath(normalizedPath)) {
+  if (!validateRepositoryPath(normalizedPath, deps)) {
     const errorMessage = `Invalid repository path: ${normalizedPath}`;
     log.error(errorMessage);
     throw new Error(errorMessage);
