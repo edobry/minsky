@@ -506,10 +506,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
               startLine: comment.start_line || comment.line,
               endLine: comment.line,
               createdAt: new Date(comment.created_at),
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved field exists on GitHub API response but is not in Octokit type definitions
               isResolved: (comment as any).resolved,
             })),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- created_at fallback field exists on GitHub API response but is not in Octokit type definitions
             submittedAt: new Date(review.submitted_at || (review as any).created_at),
           };
         })
@@ -540,7 +540,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         content: comment.body || "",
         createdAt: new Date(comment.created_at),
         updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimized_reason field exists on GitHub API response but is not in Octokit type definitions
         isMinimized: (comment as any).minimized_reason !== null,
       })) as ChangesetComment[];
     } catch (error) {

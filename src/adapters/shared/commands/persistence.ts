@@ -118,7 +118,8 @@ const persistenceMigrateRegistration = defineCommand({
         const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: !shouldApply });
 
         if (context.format === "human") {
-          const resultObj = result as Record<string, unknown>;
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- migration result union lacks index signature; cast required for backward-compatible key-based rendering
+          const resultObj = result as unknown as Record<string, unknown>;
           if (resultObj && typeof resultObj === "object" && resultObj.message) {
             return resultObj.message as string;
           }

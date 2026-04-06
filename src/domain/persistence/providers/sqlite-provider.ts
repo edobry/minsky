@@ -25,8 +25,7 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
   private config: PersistenceConfig;
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- storage is generic; concrete type params assigned at runtime
-  private storage: SqliteStorage<any, any> | null = null;
+  private storage: SqliteStorage<Record<string, unknown>, unknown> | null = null;
   private isInitialized = false;
 
   /**

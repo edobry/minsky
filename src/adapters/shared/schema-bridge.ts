@@ -118,8 +118,7 @@ export function getSchemaDescription(
   if (
     "description" in schema &&
     typeof schema.description === "string" &&
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (schema as any).description.length > 0
+    (schema as { description?: string }).description!.length > 0
   ) {
     description = schema.description;
   } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {

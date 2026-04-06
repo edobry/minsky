@@ -246,12 +246,16 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const anyErr = typedError as any;
-
       // Prefer the underlying driver error message if available (no SQL query text)
+      // Access driver-specific error properties not present on the base Error type
+      const errWithCause = typedError as Error & {
+        cause?: { message?: string; cause?: { message?: string } };
+        originalError?: { message?: string };
+      };
       const causeMessage: string | undefined =
-        anyErr?.cause?.message || anyErr?.originalError?.message || anyErr?.cause?.cause?.message;
+        errWithCause.cause?.message ||
+        errWithCause.originalError?.message ||
+        errWithCause.cause?.cause?.message;
 
       let concise = causeMessage || typedError.message || String(typedError);
 

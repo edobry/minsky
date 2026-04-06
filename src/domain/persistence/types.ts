@@ -86,13 +86,14 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
 
-  // Optional capability methods — implemented by SQL/vector-capable subclasses
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses; callers cast via SqlCapablePersistenceProvider
+  // Optional capability methods — implemented by SQL/vector-capable subclasses.
+  // These use 'any' in the base class because SQLite and PostgreSQL return different concrete
+  // DB types; callers that need typed connections should cast via SqlCapablePersistenceProvider.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL); callers narrow via SqlCapablePersistenceProvider
   getDatabaseConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL)
   getRawSqlConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- abstract optional methods are overridden by typed subclasses
-  getVectorStorage?(dimension: number): any;
+  getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
 }
 
 /**

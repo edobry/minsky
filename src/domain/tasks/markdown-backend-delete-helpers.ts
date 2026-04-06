@@ -16,14 +16,15 @@ export async function deleteTaskFromDatabase(id: string): Promise<void> {
     const { PersistenceService } = await import("../persistence/service");
     const provider = PersistenceService.getProvider();
     if (provider.capabilities.sql) {
-      const db = await provider.getDatabaseConnection?.();
+      // Provider has SQL capability; cast to SqlCapablePersistenceProvider to get typed DB connection
+      const sqlProvider = provider as import("../persistence/types").SqlCapablePersistenceProvider;
+      const db = await sqlProvider.getDatabaseConnection();
       if (db) {
         const { tasksTable } = await import("../storage/schemas/task-embeddings");
         const { eq } = await import("drizzle-orm");
         const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
         log.debug(`Deleted task ${id} from database`, {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          rowCount: (result as any).rowCount,
+          rowCount: (result as { rowCount?: number }).rowCount,
         });
       }
     }

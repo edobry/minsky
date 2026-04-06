@@ -8,13 +8,14 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
   DatabaseWriteResult,
   DatabaseQueryOptions,
 } from "../database-storage";
+import type { SessionRecord as DomainSessionRecord } from "../../session/session-db";
 import { sqliteSessions, toSqliteInsert } from "../schemas/session-schema";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
@@ -162,8 +163,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sessions = (state as any).sessions || [];
+      const sessions = (state as Record<string, unknown> & { sessions?: unknown[] }).sessions || [];
 
       // Use Drizzle transaction
       await this.drizzleDb.transaction(async (tx) => {
@@ -172,8 +172,10 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
         // Insert new sessions
         if (sessions.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const sessionRecords = sessions.map((session: TEntity) => toSqliteInsert(session as any));
+          const sessionRecords = sessions.map((session: unknown) =>
+            // eslint-disable-next-line custom/no-excessive-as-unknown -- TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
+            toSqliteInsert(session as unknown as DomainSessionRecord)
+          );
           await tx.insert(sessionsTable).values(sessionRecords);
         }
       });
@@ -217,8 +219,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
       // Apply filters if provided
       if (options) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder conditions require any[] for heterogeneous SQL conditions
-        const conditions: any[] = [];
+        const conditions: SQL[] = [];
 
         if (options.taskId) {
           // Normalize taskId by removing # prefix if present
@@ -239,8 +240,8 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          query = query.where(and(...conditions)) as any;
+          // eslint-disable-next-line custom/no-excessive-as-unknown -- Drizzle's where() changes the query builder return type; cast required to reassign to the outer variable
+          query = query.where(and(...conditions)) as unknown as typeof query;
         }
       }
 
@@ -259,8 +260,8 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sessionRecord = toSqliteInsert(entity as any);
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
+      const sessionRecord = toSqliteInsert(entity as unknown as DomainSessionRecord);
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
@@ -284,8 +285,8 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
       // Prepare update data using schema conversion
       const mergedEntity = { ...existing, ...updates };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updateData = toSqliteInsert(mergedEntity as any);
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- merged TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
+      const updateData = toSqliteInsert(mergedEntity as unknown as DomainSessionRecord);
 
       // Remove the session field from updates (it's the primary key)
       delete (updateData as Partial<typeof updateData>).session;

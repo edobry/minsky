@@ -8,7 +8,7 @@
 import { log } from "../../utils/logger";
 
 /** Typed result shape for dry-run migration plan */
-interface PostgresMigrationPlan {
+export interface PostgresMigrationPlan {
   success: boolean;
   backend: string;
   dryRun: boolean;
@@ -31,7 +31,7 @@ interface PostgresMigrationPlan {
 }
 
 /** Typed result shape for executed migration */
-interface PostgresMigrationResult {
+export interface PostgresMigrationResult {
   success: boolean;
   applied: boolean;
   backend: string;
@@ -124,8 +124,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
 export async function runPostgresSchemaMigrations(
   connectionString: string,
   options: { dryRun: boolean }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by dry-run mode
-): Promise<any> {
+): Promise<PostgresMigrationPlan | PostgresMigrationResult> {
   const { dryRun } = options;
   const backend = "postgres";
 

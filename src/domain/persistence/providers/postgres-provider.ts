@@ -274,13 +274,18 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new PostgresVectorStorage(this.sql, this.db as any, dimension, {
-      tableName: "tasks_embeddings",
-      idColumn: "task_id",
-      embeddingColumn: "vector",
-      lastIndexedAtColumn: "indexed_at",
-    });
+    return new PostgresVectorStorage(
+      this.sql,
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- PostgresJsDatabase and ReturnType<typeof drizzle> are structurally incompatible at the generic parameter level; bridge required for the constructor
+      this.db as unknown as ReturnType<typeof drizzle>,
+      dimension,
+      {
+        tableName: "tasks_embeddings",
+        idColumn: "task_id",
+        embeddingColumn: "vector",
+        lastIndexedAtColumn: "indexed_at",
+      }
+    );
   }
 
   getConnectionInfo(): string {

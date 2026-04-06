@@ -255,8 +255,7 @@ export function formatResolvedConfigurationWithSources(
     return "";
   };
 
-  // Cast to any for deep config traversal — resolved is genuinely dynamic config shape
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved is genuinely dynamic config shape; deep traversal of nested optional paths requires any
   const r = resolved as any;
 
   let output = "📋 CURRENT CONFIGURATION\n";
@@ -407,8 +406,7 @@ export function formatResolvedConfigurationWithSources(
  * @returns Formatted configuration string
  */
 export function formatResolvedConfiguration(resolved: Record<string, unknown>): string {
-  // Cast to any for deep config traversal — resolved is genuinely dynamic config shape
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved is genuinely dynamic config shape; deep traversal of nested optional paths requires any
   const r = resolved as any;
 
   let output = "📋 CURRENT CONFIGURATION\n";

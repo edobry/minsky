@@ -7,7 +7,7 @@
 
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
-import type { SessionRecord } from "../../session/session-db";
+import type { SessionRecord, PullRequestInfo } from "../../session/session-db";
 
 // SQLite Schema - Match existing database structure (camelCase column names)
 export const sqliteSessions = sqliteTable("sessions", {
@@ -23,19 +23,11 @@ export const sqliteSessions = sqliteTable("sessions", {
   // PR-related fields with automatic JSON parsing (will be added via migration)
   prBranch: text("prBranch"),
   prApproved: text("prApproved", { mode: "json" }).$type<boolean>(),
-  prState: text("prState", { mode: "json" }).$type<{
-    branchName: string;
-    exists: boolean;
-    lastChecked: string;
-    createdAt: string;
-    mergedAt?: string;
-    commitHash?: string;
-  }>(),
+  prState: text("prState", { mode: "json" }).$type<NonNullable<SessionRecord["prState"]>>(),
 
   // Backend configuration with automatic JSON parsing (will be added via migration)
   backendType: text("backendType"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle JSON column type
-  pullRequest: text("pullRequest", { mode: "json" }).$type<any>(),
+  pullRequest: text("pullRequest", { mode: "json" }).$type<PullRequestInfo>(),
 });
 
 // PostgreSQL Schema
@@ -107,8 +99,7 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
     prApproved: record.prApproved || null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    prState: (record.prState || null) as any,
+    prState: record.prState || null,
 
     // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,

@@ -30,13 +30,21 @@ export interface OctokitErrorInfo {
  * Works whether the value is an Octokit RequestError, a plain Error,
  * or an unknown value.
  */
+interface OctokitErrorShape {
+  status?: number;
+  response?: {
+    status?: number;
+    data?: {
+      message?: unknown;
+      errors?: Record<string, unknown>[];
+    };
+  };
+}
+
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const anyErr = error as any; // Octokit errors have dynamic shape not covered by standard types
+  const anyErr = error as OctokitErrorShape; // Octokit errors have dynamic shape not covered by standard types
   const message: string = error instanceof Error ? error.message : String(error);
-  const status: number | undefined = (anyErr?.status ?? anyErr?.response?.status) as
-    | number
-    | undefined;
+  const status: number | undefined = anyErr?.status ?? anyErr?.response?.status;
   const ghData = anyErr?.response?.data;
   const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
   const ghErrors: Record<string, unknown>[] = Array.isArray(ghData?.errors) ? ghData.errors : [];

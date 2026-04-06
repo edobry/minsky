@@ -215,7 +215,10 @@ ${description}
       const provider = PersistenceService.getProvider();
 
       if (provider.capabilities.sql) {
-        const db = await provider.getDatabaseConnection?.();
+        // Provider has SQL capability; cast to SqlCapablePersistenceProvider to get typed DB connection
+        const sqlProvider =
+          provider as import("../persistence/types").SqlCapablePersistenceProvider;
+        const db = await sqlProvider.getDatabaseConnection();
 
         if (db) {
           const { tasksTable } = await import("../storage/schemas/task-embeddings");
@@ -223,8 +226,9 @@ ${description}
 
           // Delete from tasks table (this will cascade delete from tasks_embeddings due to FK constraint)
           const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          log.debug(`Deleted task ${id} from database`, { rowCount: (result as any).rowCount });
+          log.debug(`Deleted task ${id} from database`, {
+            rowCount: (result as { rowCount?: number }).rowCount,
+          });
         } else {
           log.debug(`No database connection available for task ${id} deletion`);
         }
