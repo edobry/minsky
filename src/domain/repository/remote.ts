@@ -496,6 +496,7 @@ Repository: ${this.repoUrl}
     // For remote repos, we might need to recreate the prepared merge commit with new metadata
     // This involves network operations and may have conflicts, so we use the existing workflow
     const { sessionPr } = await import("../session/commands/pr-command");
+    const { createGitService } = await import("../git");
 
     const result = await sessionPr(
       {
@@ -509,6 +510,7 @@ Repository: ${this.repoUrl}
         debug: false,
         draft: false,
       },
+      { sessionDB, gitService: createGitService() },
       { interface: "cli" }
     );
 

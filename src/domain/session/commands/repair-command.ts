@@ -9,9 +9,7 @@
  */
 import { log } from "../../../utils/logger";
 import type { SessionProviderInterface, SessionRecord } from "../types";
-import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { createGitService } from "../../git";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
@@ -53,8 +51,8 @@ export interface RepairAction {
 }
 
 export interface SessionRepairDependencies {
-  sessionDB?: SessionProviderInterface;
-  gitService?: GitServiceInterface;
+  sessionDB: SessionProviderInterface;
+  gitService: GitServiceInterface;
 }
 
 /**
@@ -62,10 +60,9 @@ export interface SessionRepairDependencies {
  */
 export async function sessionRepair(
   params: SessionRepairParameters,
-  deps?: SessionRepairDependencies
+  deps: SessionRepairDependencies
 ): Promise<SessionRepairResult> {
-  const sessionDB = deps?.sessionDB || (await createSessionProvider());
-  const gitService = deps?.gitService || createGitService();
+  const { sessionDB, gitService } = deps;
 
   log.debug("Starting session repair", { params });
 

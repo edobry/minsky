@@ -1,39 +1,30 @@
 import type { SessionPRParameters } from "../../../domain/schemas";
-import { createSessionProvider } from "../session-db-adapter";
-import { createGitService } from "../../git";
 import type { GitServiceInterface } from "../../git/types";
 import { sessionPrImpl } from "../session-pr-operations";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionPrResult, SessionProviderInterface } from "../types";
-import {
-  MinskyError,
-  ResourceNotFoundError,
-  ValidationError,
-  getErrorMessage,
-} from "../../../errors/index";
+import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
-import { extractPrDescription } from "../session-update-operations";
 import { readTextFile } from "../../../utils/fs";
+
+export interface SessionPrDependencies {
+  sessionDB: SessionProviderInterface;
+  gitService: GitServiceInterface;
+}
 
 /**
  * Prepares a PR for a session based on parameters
  */
 export async function sessionPr(
   params: SessionPRParameters,
+  deps: SessionPrDependencies,
   options?: {
     interface?: "cli" | "mcp";
     workingDirectory?: string;
   }
 ): Promise<SessionPrResult> {
   const { session, task, repo, title, body, bodyPath, debug } = params;
-
-  // Set default values for properties not in new schema
-  const baseBranch = "main"; // Default base branch
-  const branchName = undefined; // Will be generated automatically
-
-  // Set up dependencies with defaults
-  const sessionDB = await createSessionProvider();
-  const gitService = createGitService();
+  const { sessionDB, gitService } = deps;
 
   try {
     // Use unified session context resolver with auto-detection support
@@ -124,7 +115,6 @@ export async function sessionPr(
 
     // Let repository backends handle PR state updates per backend type
     // Local backend records prBranch and commitHash; GitHub backend records pullRequest info
-    const prBranchName = result.prBranch;
     // Include session information in the result for CLI formatting
     return {
       ...result,
@@ -143,24 +133,5 @@ export async function sessionPr(
       );
     }
     throw error;
-  }
-}
-
-/**
- * Check if PR branch exists for a session
- */
-async function checkPrBranchExists(
-  sessionId: string,
-  gitService: GitServiceInterface,
-  currentDir: string,
-  branchName?: string
-): Promise<boolean> {
-  try {
-    const prBranchName = `pr/${branchName || sessionId}`;
-    const branches = await gitService.execInRepository(currentDir, "git branch -a");
-    return branches.includes(prBranchName);
-  } catch (error) {
-    log.debug("Could not check for PR branch", { error });
-    return false;
   }
 }

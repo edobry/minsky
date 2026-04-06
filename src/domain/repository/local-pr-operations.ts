@@ -129,6 +129,7 @@ export async function updatePullRequest(
   }
 
   const { sessionPr } = await import("../session/commands/pr-command");
+  const { createGitService } = await import("../git");
 
   await sessionPr(
     {
@@ -141,6 +142,7 @@ export async function updatePullRequest(
       debug: false,
       draft: false,
     },
+    { sessionDB, gitService: createGitService() },
     { interface: "cli" }
   );
 
