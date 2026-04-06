@@ -7,7 +7,7 @@ import { PostgresPersistenceProvider } from "./postgres-provider";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 
-// Mock the postgres module to avoid real database connections
+// Mock SQL client — injected via initialize(), no mock.module() needed
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
   const queryString = strings[0]!;
@@ -24,10 +24,6 @@ const mockSql = Object.assign(mockSqlFunction, {
   query: mock(() => Promise.resolve([])),
   end: mock(() => Promise.resolve()),
 });
-
-mock.module("postgres", () => ({
-  default: mock(() => mockSql),
-}));
 
 describe("PostgresPersistenceProvider", () => {
   let provider: PostgresPersistenceProvider;
@@ -52,7 +48,7 @@ describe("PostgresPersistenceProvider", () => {
   test("getStorage() returns actual PostgresStorage instance, not stub", async () => {
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
-    await provider.initialize();
+    await provider.initialize({ sqlClient: mockSql as any });
 
     const storage = provider.getStorage();
 
@@ -73,7 +69,7 @@ describe("PostgresPersistenceProvider", () => {
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
 
-    await provider.initialize();
+    await provider.initialize({ sqlClient: mockSql as any });
 
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
@@ -81,7 +77,7 @@ describe("PostgresPersistenceProvider", () => {
   test("getRawSqlConnection() returns connection when initialized", async () => {
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
-    await provider.initialize();
+    await provider.initialize({ sqlClient: mockSql as any });
 
     const connection = await provider.getRawSqlConnection();
 

@@ -51,6 +51,17 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
   /** Repository name */
   repo: string;
 
+  /** Pre-configured Octokit instance (for testing / DI) */
+  octokit?: Octokit;
+
+  /** Override for label creation function (for testing / DI) */
+  createGitHubLabelsFn?: (
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    statusLabels: Record<string, string>
+  ) => Promise<void>;
+
   /** Labels to use for task status mapping */
   statusLabels?: {
     TODO: string;
@@ -94,20 +105,28 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...options.statusLabels };
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
-    this.octokit = new Octokit({
-      auth: options.githubToken,
-      userAgent: "minsky-cli",
-      request: { retries: 3, retryAfter: 30 },
-    });
+    this.octokit =
+      options.octokit ??
+      new Octokit({
+        auth: options.githubToken,
+        userAgent: "minsky-cli",
+        request: { retries: 3, retryAfter: 30 },
+      });
 
     // Auto-create labels (async, fire-and-forget)
-    this.ensureLabelsExist();
+    this.ensureLabelsExist(options.createGitHubLabelsFn);
   }
 
-  private async ensureLabelsExist(): Promise<void> {
-    const { createGitHubLabels } = await import("./githubBackendConfig");
+  private async ensureLabelsExist(
+    createLabelsFn?: GitHubIssuesTaskBackendOptions["createGitHubLabelsFn"]
+  ): Promise<void> {
     try {
-      await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
+      if (createLabelsFn) {
+        await createLabelsFn(this.octokit, this.owner, this.repo, this.statusLabels);
+      } else {
+        const { createGitHubLabels } = await import("./githubBackendConfig");
+        await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
+      }
     } catch (error) {
       log.warn("Failed to ensure GitHub labels exist", {
         error: getErrorMessage(error as Error),
