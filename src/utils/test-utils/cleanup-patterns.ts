@@ -50,11 +50,9 @@ export class WorkingDirectoryCleanup {
    */
   mockWorkingDirectory(mockPath: string): void {
     const originalCwd = process.cwd;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (process as any).cwd = () => mockPath;
+    (process as Record<string, unknown>)["cwd"] = () => mockPath;
     this.cwdMockRestore = () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (process as any).cwd = originalCwd;
+      (process as Record<string, unknown>)["cwd"] = originalCwd;
     };
   }
 

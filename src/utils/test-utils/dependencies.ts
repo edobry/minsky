@@ -690,10 +690,8 @@ export interface MockPersistenceProviderOptions {
     jsonb?: boolean;
     migrations?: boolean;
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDatabaseConnection?: () => Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getStorage?: () => any;
+  getDatabaseConnection?: PersistenceProvider["getDatabaseConnection"];
+  getStorage?: PersistenceProvider["getStorage"];
   initialize?: () => Promise<void>;
   close?: () => Promise<void>;
   getCapabilities?: () => {
@@ -726,52 +724,11 @@ export function createMockPersistenceProvider(
     ? { ...defaultCapabilities, ...options.capabilities }
     : defaultCapabilities;
 
-  // getDatabaseConnection and getStorage return Drizzle ORM types that are deeply parameterized
-  // and impractical to type in a mock context. The `any` casts here are justified because:
-  // 1. Drizzle's PostgresJsDatabase<Schema> is parameterized by the full schema type
-  // 2. The mock query builder only needs to satisfy the structural interface at runtime
-  // 3. Tests using this mock don't care about the specific Drizzle types
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createQueryChain = (): any => ({
-    from: () => createQueryChain(),
-    where: () => createQueryChain(),
-    limit: () => Promise.resolve([]),
-    offset: () => createQueryChain(),
-    orderBy: () => createQueryChain(),
-    leftJoin: () => createQueryChain(),
-    innerJoin: () => createQueryChain(),
-    select: () => createQueryChain(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    then: (fn: (result: any[]) => any) => fn([]), // Make it thenable
-    [Symbol.iterator]: () => [][Symbol.iterator](), // Make it iterable
-  });
-
   return createPartialMock<PersistenceProvider>({
     capabilities,
     initialize: options.initialize || (() => Promise.resolve()),
-    getDatabaseConnection:
-      options.getDatabaseConnection ||
-      ((() =>
-        Promise.resolve({
-          select: () => createQueryChain(),
-          insert: () => ({
-            values: () => Promise.resolve({ insertId: "test" }),
-            returning: () => Promise.resolve([]),
-          }),
-          update: () => ({
-            set: () => ({
-              where: () => Promise.resolve(),
-              returning: () => Promise.resolve([]),
-            }),
-          }),
-          delete: () => ({
-            where: () => Promise.resolve(),
-            returning: () => Promise.resolve([]),
-          }),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle ORM return types are impractical to mock with full type fidelity
-        })) as any),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- VectorStorage type is similarly complex
-    getStorage: options.getStorage || (() => ({}) as any),
+    getDatabaseConnection: options.getDatabaseConnection,
+    getStorage: options.getStorage,
     close: options.close || (() => Promise.resolve()),
     getCapabilities:
       options.getCapabilities ||
@@ -782,8 +739,7 @@ export function createMockPersistenceProvider(
         jsonb: true,
         migrations: true,
       })),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- createPartialMock<PersistenceProvider> requires any for abstract class instantiation
-  } as any);
+  });
 }
 
 /**
