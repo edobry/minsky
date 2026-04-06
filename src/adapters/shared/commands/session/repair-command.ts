@@ -1,7 +1,11 @@
 /**
  * Session Repair Command Implementation
  */
-import { BaseSessionCommand, type BaseSessionCommandParams } from "./base-session-command";
+import {
+  BaseSessionCommand,
+  type BaseSessionCommandParams,
+  type SessionCommandDependencies,
+} from "./base-session-command";
 import { sessionRepairCommandParams } from "./session-parameters";
 import {
   sessionRepair,
@@ -10,7 +14,6 @@ import {
 import { type CommandExecutionContext } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 import { toJsonRecord } from "../../../../utils/type-utils";
-import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 import { createGitService } from "../../../../domain/git";
 
 /**
@@ -64,7 +67,7 @@ export class SessionRepairCommand extends BaseSessionCommand<
         debug: params.debug,
       };
 
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider!;
       const gitService = createGitService();
       const result = await sessionRepair(repairParams, { sessionDB, gitService });
 
@@ -116,6 +119,6 @@ export class SessionRepairCommand extends BaseSessionCommand<
   }
 }
 
-export function createSessionRepairCommand() {
-  return new SessionRepairCommand();
+export function createSessionRepairCommand(deps?: SessionCommandDependencies) {
+  return new SessionRepairCommand(deps);
 }

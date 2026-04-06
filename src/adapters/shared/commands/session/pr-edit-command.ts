@@ -18,7 +18,6 @@ import {
 import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
-import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR edit command
@@ -69,8 +68,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
 
       if (interfaceType === "mcp") {
         // For MCP, resolve the session workspace path from session parameters
-        const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = await createSessionProvider();
+        const sessionProvider = this.deps.sessionProvider!;
 
         // Try to get session ID from params or resolve from task
         let sessionId = params.name;
@@ -109,12 +107,11 @@ export class SessionPrEditCommand extends BaseSessionCommand<
             const { resolveSessionContextWithFeedback } = await import(
               "../../../../domain/session/session-context-resolver"
             );
-            const { createSessionProvider } = await import("../../../../domain/session");
             const { formatTaskIdForDisplay } = await import(
               "../../../../domain/tasks/task-id-utils"
             );
 
-            const sessionProvider = await createSessionProvider();
+            const sessionProvider = this.deps.sessionProvider!;
             const resolved = await resolveSessionContextWithFeedback({
               session: params.name,
               task: params.task,
@@ -146,7 +143,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         }
       }
 
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider!;
 
       const result = await sessionPrEdit(
         {

@@ -103,6 +103,13 @@ import {
 
 // Factory for creating all session commands
 export async function createAllSessionCommands(deps?: SessionCommandDependencies) {
+  // Ensure sessionProvider is available in deps for all commands
+  const { getSharedSessionProvider } = await import(
+    "../../../../domain/session/session-provider-cache"
+  );
+  const sessionProvider = deps?.sessionProvider ?? (await getSharedSessionProvider());
+  const enrichedDeps: SessionCommandDependencies = { ...deps, sessionProvider };
+
   // Use dynamic imports to avoid circular dependency issues
   const basicCommands = await import("./basic-commands");
   const managementCommands = await import("./management-commands");
@@ -142,38 +149,38 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
   return {
     // Basic commands
-    list: createSessionListCommand(deps),
-    get: createSessionGetCommand(deps),
-    start: createSessionStartCommand(deps),
-    dir: createSessionDirCommand(deps),
-    search: createSessionSearchCommand(deps),
+    list: createSessionListCommand(enrichedDeps),
+    get: createSessionGetCommand(enrichedDeps),
+    start: createSessionStartCommand(enrichedDeps),
+    dir: createSessionDirCommand(enrichedDeps),
+    search: createSessionSearchCommand(enrichedDeps),
 
     // Management commands
-    delete: createSessionDeleteCommand(deps),
-    update: createSessionUpdateCommand(deps),
-    migrateBackend: createSessionMigrateBackendCommand(deps),
+    delete: createSessionDeleteCommand(enrichedDeps),
+    update: createSessionUpdateCommand(enrichedDeps),
+    migrateBackend: createSessionMigrateBackendCommand(enrichedDeps),
 
     // Workflow commands
-    commit: createSessionCommitCommand(deps),
-    approve: createSessionApproveCommand(deps),
-    inspect: createSessionInspectCommand(deps),
-    review: createSessionReviewCommand(deps),
+    commit: createSessionCommitCommand(enrichedDeps),
+    approve: createSessionApproveCommand(enrichedDeps),
+    inspect: createSessionInspectCommand(enrichedDeps),
+    review: createSessionReviewCommand(enrichedDeps),
 
     // PR subcommands replace single pr command
-    prCreate: createSessionPrCreateCommand(deps),
-    prEdit: createSessionPrEditCommand(deps),
-    prList: createSessionPrListCommand(deps),
-    prGet: createSessionPrGetCommand(deps),
-    prOpen: createSessionPrOpenCommand(deps),
-    prApprove: createSessionPrApproveCommand(deps),
-    prMerge: createSessionPrMergeCommand(deps),
+    prCreate: createSessionPrCreateCommand(enrichedDeps),
+    prEdit: createSessionPrEditCommand(enrichedDeps),
+    prList: createSessionPrListCommand(enrichedDeps),
+    prGet: createSessionPrGetCommand(enrichedDeps),
+    prOpen: createSessionPrOpenCommand(enrichedDeps),
+    prApprove: createSessionPrApproveCommand(enrichedDeps),
+    prMerge: createSessionPrMergeCommand(enrichedDeps),
 
     // Utility commands
-    conflicts: createSessionConflictsCommand(deps),
-    repair: createSessionRepairCommand(),
+    conflicts: createSessionConflictsCommand(enrichedDeps),
+    repair: createSessionRepairCommand(enrichedDeps),
 
     // File commands
-    editFile: createSessionEditFileCommand(deps),
+    editFile: createSessionEditFileCommand(enrichedDeps),
   };
 }
 

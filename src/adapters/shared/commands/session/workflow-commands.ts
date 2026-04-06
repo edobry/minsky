@@ -252,7 +252,6 @@ export class SessionReviewCommand extends BaseSessionCommand<
     const { sessionReviewImpl } = await import(
       "../../../../domain/session/session-review-operations"
     );
-    const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
     const { createGitService } = await import("../../../../domain/git");
     const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
     const { getCurrentSession, createWorkspaceUtils } = await import(
@@ -270,7 +269,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         prBranch: params.prBranch,
       },
       await (async () => {
-        const sessionDB = await createSessionProvider();
+        const sessionDB = this.deps.sessionProvider!;
         const { execAsync } = await import("../../../../utils/exec");
         return {
           sessionDB,
@@ -525,9 +524,6 @@ export class SessionPrMergeCommand extends BaseSessionCommand<
     context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
-    const { createSessionProvider: createSessionProviderForMerge } = await import(
-      "../../../../domain/session/session-db-adapter"
-    );
 
     // Cleanup is enabled by default, but can be disabled with --skip-cleanup
     const shouldCleanup = params.skipCleanup !== true;
@@ -540,7 +536,7 @@ export class SessionPrMergeCommand extends BaseSessionCommand<
         json: params.json,
         cleanupSession: shouldCleanup,
       },
-      { sessionDB: await createSessionProviderForMerge() }
+      { sessionDB: this.deps.sessionProvider! }
     );
 
     return this.createSuccessResult({ result, printed: true });

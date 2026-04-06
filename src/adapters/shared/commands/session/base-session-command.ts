@@ -12,12 +12,13 @@ import {
   type CommandDefinition,
   type CommandExecutionContext,
 } from "../../command-registry";
+import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Common dependencies for session commands
  */
 export interface SessionCommandDependencies {
-  // Session domain functions - will be injected
+  sessionProvider?: SessionProviderInterface;
   [key: string]: unknown;
 }
 

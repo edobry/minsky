@@ -30,7 +30,7 @@ import {
   validatePostgresBackend,
 } from "../../../domain/persistence/validation-operations";
 import { getEffectivePersistenceConfig } from "../../../domain/configuration/persistence-config";
-// createSessionProvider is imported dynamically where needed
+// getSharedSessionProvider is imported dynamically where needed
 
 /**
  * Parameters for the persistence migrate command
@@ -207,8 +207,8 @@ const persistenceMigrateRegistration = defineCommand({
 
         // Get sessions through SessionProviderInterface
         // PersistenceService should already be initialized at CLI startup
-        const { createSessionProvider } = await import("../../../domain/session/index");
-        const sessionProvider = await createSessionProvider();
+        const { getSharedSessionProvider } = await import("../../../domain/session/index");
+        const sessionProvider = await getSharedSessionProvider();
         const sessions = await sessionProvider.listSessions();
         sourceData = { sessions, baseDir: getMinskyStateDir() };
         sourceCount = sessions.length;
@@ -339,8 +339,8 @@ const persistenceMigrateRegistration = defineCommand({
 
       // Use SessionProviderInterface for data migration
       // PersistenceService should already be initialized at CLI startup
-      const { createSessionProvider } = await import("../../../domain/session/index");
-      const sessionProvider = await createSessionProvider();
+      const { getSharedSessionProvider } = await import("../../../domain/session/index");
+      const sessionProvider = await getSharedSessionProvider();
       const sessions = await sessionProvider.listSessions();
 
       const sourceState = {

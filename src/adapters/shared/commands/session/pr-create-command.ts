@@ -18,7 +18,6 @@ import {
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
-import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR create command
@@ -82,8 +81,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
 
       if (interfaceType === "mcp") {
         // For MCP, resolve the session workspace path from session parameters
-        const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = await createSessionProvider();
+        const sessionProvider = this.deps.sessionProvider!;
 
         // Try to get session ID from params or resolve from task
         let sessionId = params.name;
@@ -115,10 +113,9 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
           const { resolveSessionContextWithFeedback } = await import(
             "../../../../domain/session/session-context-resolver"
           );
-          const { createSessionProvider } = await import("../../../../domain/session");
           const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
-          const sessionProvider = await createSessionProvider();
+          const sessionProvider = this.deps.sessionProvider!;
           const resolved = await resolveSessionContextWithFeedback({
             session: params.name,
             task: params.task,
@@ -144,7 +141,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
         );
       }
 
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider!;
 
       const result = await sessionPrCreate(
         {
@@ -198,9 +195,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
         );
-        const { createSessionProvider } = await import("../../../../domain/session");
 
-        const sessionProvider = await createSessionProvider();
+        const sessionProvider = this.deps.sessionProvider!;
         const resolvedContext = await resolveSessionContextWithFeedback({
           session: params.name,
           task: params.task,
@@ -222,8 +218,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
 
     try {
       // Check if session has an existing PR
-      const { createSessionProvider } = await import("../../../../domain/session");
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider!;
       const sessionRecord = await sessionDB.getSession(sessionId);
 
       // If session has PR state, a PR already exists
@@ -248,14 +243,15 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
   // Exposed for testing: method used by tests to check refresh decision
   async checkIfPrCanBeRefreshed(params: SessionPrCreateParams): Promise<boolean> {
     try {
+      if (!this.deps.sessionProvider) return false;
+
       // Resolve via task or explicit name; do not depend on cwd for testability
       let sessionId: string | undefined = params.name;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
         );
-        const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = await createSessionProvider();
+        const sessionProvider = this.deps.sessionProvider;
         const resolved = await resolveSessionContextWithFeedback({
           session: params.name,
           task: params.task,
@@ -268,8 +264,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<
 
       if (!sessionId) return false;
 
-      const { createSessionProvider } = await import("../../../../domain/session");
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider;
       const record = await sessionDB.getSession(sessionId);
       return Boolean(record && record.prBranch && record.prState && record.prState.exists);
     } catch {
