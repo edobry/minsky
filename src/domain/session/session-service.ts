@@ -120,7 +120,6 @@ export class SessionService {
    * Start a new session.
    */
   async start(params: SessionStartParams): Promise<Session> {
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionStartParams fields are optional but structurally compatible
     const sessionStartParams = {
       name: params.name,
       task: params.task,
@@ -134,7 +133,7 @@ export class SessionService {
       debug: false,
       format: "text" as const,
       force: false,
-    } as unknown as SessionStartParameters;
+    } as SessionStartParameters;
 
     return startSessionImpl(sessionStartParams, {
       sessionDB: this.deps.sessionDB,
@@ -163,8 +162,7 @@ export class SessionService {
    * Update a session (fetch/merge latest from base branch).
    */
   async update(params: SessionUpdateParams): Promise<Session> {
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionUpdateParams needs bridge to SessionUpdateParameters due to interface mismatch
-    return updateSessionImpl(params as unknown as SessionUpdateParameters, {
+    return updateSessionImpl(params as SessionUpdateParameters, {
       gitService: this.deps.gitService,
       sessionDB: this.deps.sessionDB,
       getCurrentSession: async (repoPath?: string) =>

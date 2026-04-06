@@ -20,7 +20,7 @@ interface DrizzleMigrationRow {
 }
 
 /** Typed result shape for dry-run migration plan */
-interface SqliteMigrationPlan {
+export interface SqliteMigrationPlan {
   success: boolean;
   backend: string;
   dryRun: boolean;
@@ -39,7 +39,7 @@ interface SqliteMigrationPlan {
 }
 
 /** Typed result shape for executed migration */
-interface SqliteMigrationResult {
+export interface SqliteMigrationResult {
   success: boolean;
   applied: boolean;
   backend: string;
@@ -53,8 +53,7 @@ interface SqliteMigrationResult {
 export async function runSqliteSchemaMigrations(
   dbPath: string,
   options: { dryRun: boolean }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by dry-run mode
-): Promise<any> {
+): Promise<SqliteMigrationPlan | SqliteMigrationResult> {
   const { dryRun } = options;
   const backend = "sqlite";
 
@@ -236,8 +235,8 @@ export async function runSqliteSchemaMigrations(
 
     const db = drizzle(sqlite, { logger: true });
     const start = Date.now();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await migrate(db as any, { migrationsFolder });
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- drizzle() with logger option produces BunSQLiteDatabase<{}> & { $client: Database } but migrate() expects BunSQLiteDatabase; bridge required
+    await migrate(db as unknown as Parameters<typeof migrate>[0], { migrationsFolder });
     {
       const ms = Date.now() - start;
       log.cli(`Applied migrations in ${ms}ms`);
@@ -270,8 +269,8 @@ export async function runSqliteSchemaMigrationsForBackend(sqlitePath?: string): 
   const sqlite = new Database(dbPath);
   try {
     const db = drizzle(sqlite, { logger: false });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await migrate(db as any, {
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- drizzle() with logger option produces BunSQLiteDatabase<{}> & { $client: Database } but migrate() expects BunSQLiteDatabase; bridge required
+    await migrate(db as unknown as Parameters<typeof migrate>[0], {
       migrationsFolder: "./src/domain/storage/migrations",
     });
   } finally {

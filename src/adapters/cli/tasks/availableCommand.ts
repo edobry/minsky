@@ -25,27 +25,36 @@ export function createAvailableCommand(): Command {
       0.5
     );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
-  command.action(async (options: any) => {
-    try {
-      const result = await availableCommand.execute({
-        status: options.status,
-        backend: options.backend,
-        limit: options.limit,
-        showEffort: options.showEffort,
-        showPriority: options.showPriority,
-        json: options.json,
-        minReadiness: options.minReadiness,
-      });
-      if (options.json) {
-        log.cli(JSON.stringify(result, null, 2));
-      } else {
-        log.cli(result.output || "");
+  command.action(
+    async (options: {
+      status?: string;
+      backend?: string;
+      limit: number;
+      showEffort: boolean;
+      showPriority: boolean;
+      json: boolean;
+      minReadiness: number;
+    }) => {
+      try {
+        const result = await availableCommand.execute({
+          status: options.status,
+          backend: options.backend,
+          limit: options.limit,
+          showEffort: options.showEffort,
+          showPriority: options.showPriority,
+          json: options.json,
+          minReadiness: options.minReadiness,
+        });
+        if (options.json) {
+          log.cli(JSON.stringify(result, null, 2));
+        } else {
+          log.cli(result.output || "");
+        }
+      } catch (error) {
+        handleCliError(error);
       }
-    } catch (error) {
-      handleCliError(error);
     }
-  });
+  );
 
   return command;
 }

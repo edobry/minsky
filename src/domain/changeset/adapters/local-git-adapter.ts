@@ -7,6 +7,7 @@
 
 import type {
   ChangesetAdapter,
+  ChangesetAdapterConfig,
   ChangesetAdapterFactory,
   ChangesetDetails,
   ChangesetFeature,
@@ -535,8 +536,14 @@ export class LocalGitChangesetAdapterFactory implements ChangesetAdapterFactory 
   /**
    * Create a local git changeset adapter
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
-  async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
-    return new LocalGitChangesetAdapter(repositoryUrl, config?.workdir, config?.deps);
+  async createAdapter(
+    repositoryUrl: string,
+    config?: ChangesetAdapterConfig
+  ): Promise<ChangesetAdapter> {
+    return new LocalGitChangesetAdapter(
+      repositoryUrl,
+      config?.workdir,
+      config?.deps as LocalGitAdapterDeps | undefined
+    );
   }
 }

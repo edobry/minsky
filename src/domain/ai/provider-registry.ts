@@ -70,13 +70,10 @@ export const PROVIDER_FETCHER_REGISTRY = {
   anthropic: AnthropicModelFetcher,
   morph: MorphModelFetcher,
 
-  // ❌ Missing fetchers - TypeScript will enforce these!
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  google: null as any, // TODO: Implement GoogleModelFetcher
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cohere: null as any, // TODO: Implement CohereModelFetcher
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mistral: null as any, // TODO: Implement MistralModelFetcher
+  // Missing fetchers — null! to satisfy the satisfies constraint; guarded at runtime by hasProviderFetcher()
+  google: null!, // TODO: Implement GoogleModelFetcher
+  cohere: null!, // TODO: Implement CohereModelFetcher
+  mistral: null!, // TODO: Implement MistralModelFetcher
 } as const satisfies EnsureCompleteRegistry<ProviderFetcherRegistry>;
 
 /**

@@ -9,6 +9,14 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
     private readonly vectorStorage: VectorStorage
   ) {}
 
+  getEmbeddingService(): EmbeddingService {
+    return this.embeddingService;
+  }
+
+  getVectorStorage(): VectorStorage {
+    return this.vectorStorage;
+  }
+
   async isAvailable(): Promise<boolean> {
     return Boolean(this.embeddingService) && Boolean(this.vectorStorage);
   }

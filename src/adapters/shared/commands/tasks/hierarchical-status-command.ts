@@ -46,7 +46,7 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
           taskId,
           json: options.json,
         };
-        return await this.statusGetCommand.execute(params, {} as CommandExecutionContext);
+        await this.statusGetCommand.execute(params, {} as CommandExecutionContext);
       });
 
     // Add 'set' subcommand
@@ -61,7 +61,7 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
           status,
           json: options.json,
         };
-        return await this.statusSetCommand.execute(params, {} as CommandExecutionContext);
+        await this.statusSetCommand.execute(params, {} as CommandExecutionContext);
       });
 
     // Add subcommands to status command

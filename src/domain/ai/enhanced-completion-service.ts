@@ -3,6 +3,7 @@ import {
   AICompletionRequest,
   AICompletionResponse,
   AIModel,
+  AIObjectGenerationRequest,
   ValidationResult,
 } from "./types";
 import { DefaultAICompletionService } from "./completion-service";
@@ -67,8 +68,7 @@ export class EnhancedAICompletionService implements AICompletionService {
     yield* this.defaultCompletionService.stream(request);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- request uses Zod schema which has no common base type
-  async generateObject(request: any): Promise<unknown> {
+  async generateObject(request: AIObjectGenerationRequest): Promise<unknown> {
     return this.defaultCompletionService.generateObject(request);
   }
 

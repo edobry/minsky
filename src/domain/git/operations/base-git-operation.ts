@@ -162,7 +162,7 @@ export type GitOperationFactory<TParams, TResult> = (
  * Git operation registry for managing operation instances
  */
 export class GitOperationRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry; get<TParams,TResult>() provides typed access with an unsafe cast
   private operations = new Map<string, BaseGitOperation<any, any>>();
 
   /**

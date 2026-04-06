@@ -60,13 +60,18 @@ export async function createToolsVectorStorageFromConfig(
   return createVectorStorageFromConfig(dimension);
 }
 
+/** Minimal interface for providers that may offer vector storage, avoiding circular dependency */
+interface VectorCapableProvider {
+  capabilities?: { vectorStorage?: boolean };
+  getVectorStorage?(dimension: number): Promise<VectorStorage | null> | VectorStorage | null;
+}
+
 /**
  * Create vector storage with explicit persistence provider
  * (for testing or when you need to specify a particular provider)
  */
 export async function createVectorStorage(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- using any to avoid circular dependency with PersistenceProvider
-  provider: any,
+  provider: VectorCapableProvider,
   dimension: number
 ): Promise<VectorStorage> {
   if (!provider.capabilities?.vectorStorage) {

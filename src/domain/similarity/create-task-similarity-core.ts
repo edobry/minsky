@@ -19,10 +19,7 @@ export async function createTaskSimilarityCore(
   options: SimilarityCoreOptions = {}
 ) {
   const cfg = getConfiguration();
-  const model =
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- accessing embeddings property not yet in Configuration type schema
-    (cfg as unknown as { embeddings?: { model?: string } })?.embeddings?.model ||
-    "text-embedding-3-small";
+  const model = cfg.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   let embeddings: EmbeddingsSimilarityBackend | null = null;

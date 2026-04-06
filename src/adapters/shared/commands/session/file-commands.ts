@@ -150,8 +150,9 @@ export class SessionEditFileCommand extends BaseSessionCommand<
         return;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- setEncoding exists on stdin but not in Node's Readable type declarations
-      (process.stdin as any).setEncoding("utf8");
+      (process.stdin as NodeJS.ReadStream & { setEncoding(encoding: string): void }).setEncoding(
+        "utf8"
+      );
 
       process.stdin.on("data", (chunk) => {
         content += chunk;
@@ -252,8 +253,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<
 
     // Write the file
     await writeFile(resolvedPath, finalContent, "utf8");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- custom Buffer declaration lacks byteLength; using runtime method
-    const bytesWritten = (Buffer as any).byteLength(finalContent, "utf8");
+    const bytesWritten = new TextEncoder().encode(finalContent).byteLength;
 
     return createSuccessResponse({
       timestamp: new Date().toISOString(),

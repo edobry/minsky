@@ -12,6 +12,7 @@ import {
   defineCommand,
   type CommandExecutionContext,
   type CommandParameterMap,
+  type InferParams,
 } from "../../command-registry";
 import type { ChangesetStatus } from "../../../../domain/changeset/types";
 import { CommonParameters, composeParams } from "../../common-parameters";
@@ -80,11 +81,9 @@ const sessionChangesetGetParams = composeParams(
  */
 
 async function executeSessionChangesetList(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
-  params: any,
+  params: InferParams<typeof sessionChangesetListParams>,
   ctx?: CommandExecutionContext
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
-): Promise<any> {
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await getRepositoryBackendFromConfig();
@@ -187,11 +186,9 @@ async function executeSessionChangesetList(
  */
 
 async function executeSessionChangesetGet(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry
-  params: any,
+  params: InferParams<typeof sessionChangesetGetParams>,
   ctx?: CommandExecutionContext
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute functions return heterogeneous result shapes
-): Promise<any> {
+): Promise<Record<string, unknown>> {
   try {
     // Resolve repository
     const { repoUrl } = await getRepositoryBackendFromConfig();

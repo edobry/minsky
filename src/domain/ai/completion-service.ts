@@ -17,7 +17,7 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
-import { DefaultAIConfigurationService } from "./config-service";
+import { DefaultAIConfigurationService, type AnyConfigService } from "./config-service";
 import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
 import { resolveLanguageModel } from "./provider-model-factory";
 import {
@@ -36,7 +36,7 @@ export class DefaultAICompletionService implements AICompletionService {
   private providerModels: Map<string, LanguageModel> = new Map();
   private modelCacheService: DefaultModelCacheService;
 
-  constructor(configurationService: unknown) {
+  constructor(configurationService: AnyConfigService) {
     this.configService = new DefaultAIConfigurationService(configurationService);
 
     // Initialize model cache service with fetchers
@@ -105,9 +105,8 @@ export class DefaultAICompletionService implements AICompletionService {
         toolCalls: result.toolCalls?.map((call) => ({
           id: call.toolCallId,
           name: call.toolName,
-          arguments: call.args,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result: (call as any).result,
+          arguments: call.args as Record<string, unknown>,
+          result: (call as Record<string, unknown>).result,
         })),
         steps: result.steps?.map((step) => ({
           type: step.toolCalls ? "tool-call" : "text",
@@ -115,9 +114,8 @@ export class DefaultAICompletionService implements AICompletionService {
           toolCalls: step.toolCalls?.map((call) => ({
             id: call.toolCallId,
             name: call.toolName,
-            arguments: call.args,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            result: (call as any).result,
+            arguments: call.args as Record<string, unknown>,
+            result: (call as Record<string, unknown>).result,
           })),
           usage: transformUsage(step.usage),
         })),
@@ -198,9 +196,8 @@ export class DefaultAICompletionService implements AICompletionService {
         toolCalls: (await streamResult.toolCalls)?.map((call) => ({
           id: call.toolCallId,
           name: call.toolName,
-          arguments: call.args,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result: (call as any).result,
+          arguments: call.args as Record<string, unknown>,
+          result: (call as Record<string, unknown>).result,
         })),
         finishReason: mapFinishReason((await streamResult.finishReason) || "stop"),
         metadata: { streaming: false, final: true },
@@ -231,8 +228,7 @@ export class DefaultAICompletionService implements AICompletionService {
 
       const result = await generateObject({
         model,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- message roles are validated at runtime; CoreMessage requires literal types
-        messages: request.messages as any,
+        messages: request.messages as import("ai").CoreMessage[],
         schema: request.schema,
         temperature: request.temperature || 0.3,
       });

@@ -181,7 +181,7 @@ export type TaskOperationFactory<TParams, TResult> = (
  * Task operation registry for managing operation instances
  */
 export class TaskOperationRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic registry must accept operations with any type params
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry; get<TParams,TResult>() provides typed access with an unsafe cast
   private operations = new Map<string, BaseTaskOperation<any, any>>();
 
   /**

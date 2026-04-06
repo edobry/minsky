@@ -183,7 +183,7 @@ export class CommandGeneratorCore {
   ): void {
     if (options.outputFormatter) {
       // Use custom formatter if provided
-      options.outputFormatter(result);
+      options.outputFormatter(result as Record<string, unknown>);
     } else {
       // Use standard outputResult utility with JSON handling
       if (context.format === "json") {

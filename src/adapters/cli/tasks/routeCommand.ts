@@ -21,24 +21,25 @@ export function createRouteCommand(): Command {
     .option("--parallel", "Show parallel execution opportunities")
     .option("--json", "Output in JSON format");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Commander.js action callback receives dynamically-typed options object
-  command.action(async (target: string, options: any) => {
-    try {
-      const result = await routeCommand.execute({
-        target,
-        strategy: options.strategy,
-        parallel: options.parallel,
-        json: options.json,
-      });
-      if (options.json) {
-        log.cli(JSON.stringify(result, null, 2));
-      } else {
-        log.cli(result.output || "");
+  command.action(
+    async (target: string, options: { strategy: string; parallel: boolean; json: boolean }) => {
+      try {
+        const result = await routeCommand.execute({
+          target,
+          strategy: options.strategy as "shortest-path" | "value-first" | "ready-first",
+          parallel: options.parallel,
+          json: options.json,
+        });
+        if (options.json) {
+          log.cli(JSON.stringify(result, null, 2));
+        } else {
+          log.cli(result.output || "");
+        }
+      } catch (error) {
+        handleCliError(error);
       }
-    } catch (error) {
-      handleCliError(error);
     }
-  });
+  );
 
   return command;
 }

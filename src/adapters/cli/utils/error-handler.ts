@@ -142,10 +142,13 @@ export function handleCliError(error: unknown): never {
       log.cliError(`Command: ${error.command}`);
     }
   } else if (isLikelyPostgresError(error)) {
-    // Use any-typed accessor for postgres driver error object which has dynamic properties
-    // TODO: Define a proper PostgresError interface once types are available
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyErr = error as any;
+    // Access postgres driver error properties which are not in standard TypeScript types
+    // These properties (code, severity, schema, table, detail, hint, constraint) are
+    // specific to the postgres/pg driver error objects.
+    const anyErr = error as Record<string, unknown> & {
+      originalError?: Record<string, unknown>;
+      cause?: Record<string, unknown>;
+    };
     const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
     const rawMessage =
       anyErr?.message || anyErr?.originalError?.message || String(normalizedError.message);
@@ -254,12 +257,17 @@ export function handleCliError(error: unknown): never {
  * Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
  */
 function isLikelyPostgresError(err: unknown): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const e = err as any;
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  const orig = e.originalError as Record<string, unknown> | undefined;
+  const cause = e.cause as Record<string, unknown> | undefined;
   return Boolean(
-    (e && typeof e === "object" && (e.code || e.severity || e.schema || e.table)) ||
-      (e?.originalError && (e.originalError.code || e.originalError.severity)) ||
-      (e?.cause && (e.cause.code || e.cause.severity))
+    e.code ||
+      e.severity ||
+      e.schema ||
+      e.table ||
+      (orig && (orig.code || orig.severity)) ||
+      (cause && (cause.code || cause.severity))
   );
 }
 

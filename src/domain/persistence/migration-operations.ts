@@ -17,11 +17,15 @@ import { getEffectivePersistenceConfig } from "../configuration/persistence-conf
 import {
   runSqliteSchemaMigrations,
   runSqliteSchemaMigrationsForBackend,
+  type SqliteMigrationPlan,
+  type SqliteMigrationResult,
 } from "./sqlite-migration-operations";
 import {
   getPostgresMigrationsStatus,
   runPostgresSchemaMigrations,
   runPostgresSchemaMigrationsForBackend,
+  type PostgresMigrationPlan,
+  type PostgresMigrationResult,
 } from "./postgres-migration-operations";
 
 // Re-export so callers that import from this module keep working
@@ -73,7 +77,11 @@ export async function runMigrationsWithDrizzleKit(options: {
     if (options.dryRun) {
       // For dry run, we'll use our existing preview logic since drizzle-kit
       // doesn't have a dry-run mode for migrate
-      return runSchemaMigrationsForConfiguredBackend({ dryRun: true });
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- migration result types lack the 'message' field expected by this function's return type; structural mismatch from original any-typed API
+      return runSchemaMigrationsForConfiguredBackend({ dryRun: true }) as unknown as Promise<{
+        message: string;
+        printed: boolean;
+      }>;
     }
 
     // Early exit for Postgres when there is nothing to apply (reused status helper)
@@ -285,8 +293,9 @@ export async function checkAndGenerateMigrations(): Promise<{
  */
 export async function runSchemaMigrationsForConfiguredBackend(
   options: { dryRun?: boolean } = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type varies by backend
-): Promise<any> {
+): Promise<
+  SqliteMigrationPlan | SqliteMigrationResult | PostgresMigrationPlan | PostgresMigrationResult
+> {
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../configuration/index");
   const config = getConfiguration();

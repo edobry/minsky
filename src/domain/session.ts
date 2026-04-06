@@ -208,7 +208,10 @@ export async function startSessionFromParams(
       force: false,
     };
 
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- param schemas are structurally compatible but have optional vs required field mismatches
+    // The manually-built sessionStartParams satisfies SessionStartParameters structurally, but
+    // TypeScript cannot verify this because the Zod-inferred type has branded defaults that
+    // differ from the plain object literal.  An as-unknown cast is the least-bad option here.
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- Zod-inferred type has branded defaults incompatible with plain object literal; structural bridge required
     const typedParams = sessionStartParams as unknown as import("./schemas").SessionStartParameters;
     return startSessionImpl(typedParams, {
       ...resolvedDeps,

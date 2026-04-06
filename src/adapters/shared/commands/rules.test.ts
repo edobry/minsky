@@ -3,6 +3,28 @@ import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands, type RulesCommandsDeps } from "./rules";
 
+/** Shape returned by rules.generate command */
+interface RulesGenerateResult {
+  success: boolean;
+  rules: Array<{ id: string; path: string; content?: string; meta?: Record<string, string> }>;
+  generated: number;
+  errors: string[];
+}
+
+/** Shape returned by rules.list command */
+interface RulesListResult {
+  success: boolean;
+  rules: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    format: string;
+    path: string;
+    tags?: string[];
+    globs?: string[];
+  }>;
+}
+
 describe("Rules Commands", () => {
   // Inject mock deps instead of mock.module
   const mockDeps: RulesCommandsDeps = {
@@ -53,13 +75,13 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({}, { interface: "cli" });
+        const result = (await command.execute({}, { interface: "cli" })) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
         expect(result.generated).toBe(1);
         expect(result.errors).toHaveLength(0);
-        expect(result.rules[0].id).toBe("test-rule");
+        expect(result.rules[0]!.id).toBe("test-rule");
       }
     });
 
@@ -68,14 +90,14 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             interface: "mcp",
             format: "cursor",
             mcpTransport: "stdio",
           },
           { interface: "cli" }
-        );
+        )) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
@@ -88,14 +110,14 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             interface: "hybrid",
             preferMcp: true,
             format: "generic",
           },
           { interface: "cli" }
-        );
+        )) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
@@ -108,13 +130,13 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             rules: "minsky-workflow,index",
             interface: "cli",
           },
           { interface: "cli" }
-        );
+        )) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
@@ -126,13 +148,13 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             dryRun: true,
             interface: "cli",
           },
           { interface: "cli" }
-        );
+        )) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
@@ -144,13 +166,13 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             outputDir: "/custom/output/dir",
             interface: "cli",
           },
           { interface: "cli" }
-        );
+        )) as RulesGenerateResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
@@ -240,7 +262,7 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             format: undefined,
             tag: undefined,
@@ -248,7 +270,7 @@ describe("Rules Commands", () => {
             debug: false,
           },
           {}
-        );
+        )) as RulesListResult;
 
         expect(result.success).toBe(true);
         expect(result.rules).toBeDefined();
@@ -266,13 +288,13 @@ describe("Rules Commands", () => {
         }
 
         // Verify specific rule properties are preserved
-        expect(result.rules[0].id).toBe("test-rule-1");
-        expect(result.rules[0].name).toBe("Test Rule 1");
-        expect(result.rules[0].tags).toEqual(["test"]);
-        expect(result.rules[0].globs).toEqual(["*.ts"]);
+        expect(result.rules[0]!.id).toBe("test-rule-1");
+        expect(result.rules[0]!.name).toBe("Test Rule 1");
+        expect(result.rules[0]!.tags).toEqual(["test"]);
+        expect(result.rules[0]!.globs).toEqual(["*.ts"]);
 
-        expect(result.rules[1].id).toBe("test-rule-2");
-        expect(result.rules[1].name).toBe("Test Rule 2");
+        expect(result.rules[1]!.id).toBe("test-rule-2");
+        expect(result.rules[1]!.name).toBe("Test Rule 2");
       }
     });
 

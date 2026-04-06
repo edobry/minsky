@@ -121,9 +121,8 @@ export class ConfigurationLoader {
 
       // Validate final configuration with provenance information
       const validationResult = this.options.skipValidation
-        ? // eslint-disable-next-line custom/no-excessive-as-unknown -- mergedConfig is PartialConfiguration which is structurally compatible with Configuration; only needed when skipping validation
-          { success: true, data: mergedConfig as unknown as Configuration }
-        : this.validateConfiguration(mergedConfig as PartialConfiguration, effectiveValues);
+        ? { success: true, data: mergedConfig as Configuration }
+        : this.validateConfiguration(mergedConfig, effectiveValues);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
@@ -135,8 +134,7 @@ export class ConfigurationLoader {
 
       // Build result
       const result: ConfigurationLoadResult = {
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- fallback to mergedConfig when validation returns no data; PartialConfiguration is structurally compatible with Configuration
-        config: validationResult.data || (mergedConfig as unknown as Configuration),
+        config: validationResult.data || (mergedConfig as Configuration),
         sources: sourceResults,
         validationResult,
         loadedAt: startTime,
@@ -252,7 +250,7 @@ export class ConfigurationLoader {
   /**
    * Merge configurations with hierarchical precedence
    */
-  private mergeConfigurations(sourceResults: ConfigurationSourceResult[]): Record<string, unknown> {
+  private mergeConfigurations(sourceResults: ConfigurationSourceResult[]): PartialConfiguration {
     // Sort by priority (lower priority = loaded first, higher priority overrides)
     const sortedSources = sourceResults
       .filter((result) => result.success)
@@ -270,7 +268,7 @@ export class ConfigurationLoader {
       }
     }
 
-    return mergedConfig;
+    return mergedConfig as PartialConfiguration;
   }
 
   /**
@@ -286,12 +284,6 @@ export class ConfigurationLoader {
 
     if (target === null || target === undefined) {
       return source;
-    }
-
-    // For arrays, replace entirely (no concatenation)
-    if (Array.isArray(source)) {
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- array spread result is unknown[] which cannot be directly assigned to Record<string,unknown>; required for deepMerge recursion
-      return [...source] as unknown as Record<string, unknown>;
     }
 
     // For primitive values, override

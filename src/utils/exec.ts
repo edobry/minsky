@@ -22,8 +22,7 @@ export async function executeCommand(
   };
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- promisifiedExec overload resolution requires cast when options has dynamic shape
-    const result = await promisifiedExec(command, execOptions as any);
+    const result = await promisifiedExec(command, execOptions as ExecOptions);
     return {
       stdout: typeof result.stdout === "string" ? result.stdout : String(result.stdout),
       stderr: typeof result.stderr === "string" ? result.stderr : String(result.stderr),

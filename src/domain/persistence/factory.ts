@@ -5,6 +5,7 @@
  */
 
 import { PersistenceProvider, PersistenceConfig } from "./types";
+import type { DatabaseStorage } from "../storage/database-storage";
 import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
 import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { JsonPersistenceProvider } from "./providers/json-provider";
@@ -96,31 +97,37 @@ class MockPersistenceProvider extends PersistenceProvider {
     // No-op for mock
   }
 
-  getStorage<T, S>() {
-    type StorageObj = {
-      data: Map<string, T>;
-      get: (id: string) => Promise<T | null>;
-      save: (id: string, data: T) => Promise<void>;
-      update: (id: string, updates: Partial<T>) => Promise<void>;
-      delete: (id: string) => Promise<void>;
-      search: () => Promise<T[]>;
-    };
-    const storage: StorageObj = {
-      data: new Map<string, T>(),
-      get: async (id: string) => storage.data.get(id) || null,
-      save: async (id: string, data: T) => {
-        storage.data.set(id, data);
+  getStorage<T, S>(): DatabaseStorage<T, S> {
+    const data = new Map<string, T>();
+    let state = { entities: [] } as S;
+    const storage: DatabaseStorage<T, S> = {
+      readState: async () => ({ success: true, data: state }),
+      writeState: async (newState: S) => {
+        state = newState;
+        return { success: true };
       },
-      update: async (id: string, updates: Partial<T>) => {
-        const existing = storage.data.get(id);
+      getEntity: async (id: string) => data.get(id) ?? null,
+      getEntities: async () => Array.from(data.values()),
+      createEntity: async (entity: T) => {
+        const id = ((entity as Record<string, unknown>)["id"] as string) || String(data.size);
+        data.set(id, entity);
+        return entity;
+      },
+      updateEntity: async (id: string, updates: Partial<T>) => {
+        const existing = data.get(id);
         if (existing) {
-          storage.data.set(id, { ...existing, ...updates });
+          const updated = { ...existing, ...updates };
+          data.set(id, updated);
+          return updated;
         }
+        return null;
       },
-      delete: async (id: string) => {
-        storage.data.delete(id);
+      deleteEntity: async (id: string) => {
+        return data.delete(id);
       },
-      search: async () => Array.from(storage.data.values()),
+      entityExists: async (id: string) => data.has(id),
+      initialize: async () => true,
+      getStorageLocation: () => "mock-storage",
     };
     return storage;
   }

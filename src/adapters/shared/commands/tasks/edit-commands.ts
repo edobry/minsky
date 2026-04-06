@@ -301,13 +301,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   private async openEditorForSpec(currentTask: Task): Promise<string> {
     const { tmpdir } = await import("os");
     const { join } = await import("path");
-    const crypto = await import("crypto");
 
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- crypto dynamic import type doesn't expose randomBytes properly
-    const tempFile = join(tempDir, `task-${(crypto as any).randomBytes(8).toString("hex")}.md`);
+    // Use Math.random for a simple unique suffix (no crypto needed for temp filenames)
+    const uniqueSuffix = Math.random().toString(36).slice(2, 10);
+    const tempFile = join(tempDir, `task-${uniqueSuffix}.md`);
 
     try {
       // Write current spec content to temp file
