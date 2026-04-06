@@ -31,6 +31,9 @@ export {
 // Export canonical session directory resolution utility
 export { resolveSessionDirectory, _resetCachedProvider } from "./resolve-session-directory";
 
+// Export shared session provider cache
+export { getSharedSessionProvider, _resetSharedSessionProvider } from "./session-provider-cache";
+
 // Export I/O functions and types from session-db-io
 export {
   readSessionDbFile,
@@ -38,26 +41,3 @@ export {
   ensureDbDir,
   type SessionDbFileOptions,
 } from "./session-db-io";
-
-// Create factory function for dependency injection instead of singleton
-import { createSessionProvider as createSessionProviderInternal } from "./session-db-adapter";
-
-/**
- * Creates a new SessionDB instance for dependency injection
- * Use this instead of a global singleton to ensure test isolation
- */
-export async function createSessionDB() {
-  return await createSessionProviderInternal();
-}
-
-// For backward compatibility and convenience, export a lazily-initialized default instance
-// However, tests should use createSessionDB() for isolation
-let _lazySessionDB: SessionProviderInterface | null = null;
-export const _SessionDB = {
-  async getInstance() {
-    if (!_lazySessionDB) {
-      _lazySessionDB = await createSessionProviderInternal();
-    }
-    return _lazySessionDB;
-  },
-};

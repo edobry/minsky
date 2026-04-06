@@ -93,9 +93,9 @@ async function executeSessionChangesetList(
     let sessionFilter: string | undefined;
     if (!params.all) {
       try {
-        const { createSessionProvider } = await import("../../../../domain/session");
+        const { getSharedSessionProvider } = await import("../../../../domain/session");
         const { execAsync } = await import("../../../../utils/exec");
-        const sessionDB = await createSessionProvider();
+        const sessionDB = await getSharedSessionProvider();
         const currentSessionId = await getCurrentSession(process.cwd(), execAsync, sessionDB);
         if (currentSessionId) {
           sessionFilter = currentSessionId;
@@ -201,9 +201,9 @@ async function executeSessionChangesetGet(
     // If no ID specified, try to find current session's changeset
     if (!changesetId) {
       try {
-        const { createSessionProvider: createSP } = await import("../../../../domain/session");
+        const { getSharedSessionProvider } = await import("../../../../domain/session");
         const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
-        const sessionDB2 = await createSP();
+        const sessionDB2 = await getSharedSessionProvider();
         const currentSessionId = await getCurrentSession(process.cwd(), execAsyncFn, sessionDB2);
         if (currentSessionId) {
           const sessionProvider = sessionDB2;

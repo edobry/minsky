@@ -12,7 +12,6 @@ import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrOpenCommandParams } from "./session-parameters";
 import { sessionPrOpen } from "../../../../domain/session/commands/pr-subcommands";
-import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR open command
@@ -46,7 +45,7 @@ export class SessionPrOpenCommand extends BaseSessionCommand<
     _context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     try {
-      const sessionDB = await createSessionProvider();
+      const sessionDB = this.deps.sessionProvider!;
       const result = await sessionPrOpen(
         {
           sessionId: params.sessionId,

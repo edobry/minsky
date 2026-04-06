@@ -8,12 +8,13 @@ import { z } from "zod";
 import { getErrorMessage, ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
 import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Common dependencies for session commands
  */
 export interface SessionCommandDependencies {
-  // Session domain functions - will be injected
+  sessionProvider?: SessionProviderInterface;
   [key: string]: unknown;
 }
 
