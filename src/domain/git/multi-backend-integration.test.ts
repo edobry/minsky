@@ -1,28 +1,4 @@
-// Mock ALL git-related modules FIRST before any imports
-import { mockModule } from "../../utils/test-utils/mocking";
-import { mock } from "bun:test";
-
-// Mock the exec utility that conflict-detection uses
-mockModule("../../utils/exec", () => ({
-  execAsync: mock(async () => ({ stdout: "0\t1", stderr: "" })),
-}));
-
-// Mock git-exec module
-mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: mock(async () => ({ stdout: "task/md-123", stderr: "" })),
-  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
-}));
-
-// Mock child_process directly to catch any remaining shell commands
-mockModule("node:child_process", () => ({
-  exec: mock((command: string, callback: any) => {
-    // Mock all git commands to return success
-    process.nextTick(() => callback(null, { stdout: "0\t1", stderr: "" }));
-  }),
-}));
-
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import { MinskyError } from "../../errors/index";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";

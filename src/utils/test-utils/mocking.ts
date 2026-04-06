@@ -19,7 +19,7 @@ const _TEST_VALUE = 123;
  */
 
 // Export core mock functions and types
-export { mockFunction, createMock, mockModule } from "./core/mock-functions";
+export { mockFunction, createMock } from "./core/mock-functions";
 
 // Export types separately
 export type { MockFunction } from "./core/mock-functions";

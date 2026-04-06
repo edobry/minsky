@@ -375,43 +375,6 @@ export class EnhancedModuleMocker {
   }
 
   /**
-   * Mock a module with enhanced tracking
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  static mockModule<T = any>(
-    modulePath: string,
-    mockImplementation: () => T,
-    testId?: string
-  ): void {
-    const id = testId || `test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-    // Store original module if not already stored
-    if (!EnhancedModuleMocker.activeModules.has(modulePath)) {
-      try {
-        const originalModule = require(modulePath);
-        EnhancedModuleMocker.activeModules.set(modulePath, {
-          modulePath,
-          originalModule,
-          mockImplementation: mockImplementation(),
-          isActive: true,
-          testId: id,
-        });
-      } catch (error) {
-        // Module might not exist yet, that's okay
-        EnhancedModuleMocker.activeModules.set(modulePath, {
-          modulePath,
-          mockImplementation: mockImplementation(),
-          isActive: true,
-          testId: id,
-        });
-      }
-    }
-
-    // Apply the mock using Bun's mock function
-    mock.module(modulePath, mockImplementation);
-  }
-
-  /**
    * Reset a specific module mock
    */
   static resetMock(modulePath: string): void {
@@ -461,7 +424,6 @@ export function createEnhancedMockFileSystem(
  */
 export function setupEnhancedMocking(): {
   mockFS: EnhancedMockFileSystem;
-  mockModule: typeof EnhancedModuleMocker.mockModule;
   resetMocks: () => void;
 } {
   EnhancedModuleMocker.setupAutoCleanup();
@@ -478,7 +440,6 @@ export function setupEnhancedMocking(): {
 
   return {
     mockFS,
-    mockModule: EnhancedModuleMocker.mockModule,
     resetMocks,
   };
 }

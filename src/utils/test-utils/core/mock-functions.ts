@@ -78,15 +78,3 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
 }
-
-/**
- * Mock a module with a factory function.
- *
- * @example
- * mockModule("./utils", () => ({ helper: vi.fn() }));
- * expect(someFunction()).toBe("mocked result");
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function mockModule(_modulePath: string, factory: () => any): void {
-  mock.module(_modulePath, factory); // Use mock.module for module mocking
-}

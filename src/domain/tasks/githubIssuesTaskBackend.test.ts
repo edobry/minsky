@@ -10,7 +10,7 @@ import { TaskStatus } from "./taskConstants";
 // Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
 
-// Mock Octokit instance — injected via options, no mock.module() needed
+// Mock Octokit instance — injected via options
 const mockOctokit = {
   rest: {
     issues: {

@@ -6,9 +6,6 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { mkdtemp, rm } from "fs/promises";
-// Removed tmpdir import - using mock paths instead
 import { join } from "path";
 import { execSync } from "child_process";
 import { TEST_ENTITIES } from "../utils/test-utils/test-constants";

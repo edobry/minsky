@@ -64,7 +64,7 @@ export default {
     }
 
     return {
-      // Check for mock.module() calls — all are banned
+      // Check for mock.module() and mockModule() calls — all are banned
       CallExpression(node) {
         if (
           node.callee.type === "MemberExpression" &&
@@ -75,6 +75,11 @@ export default {
             node,
             messageId: "globalModuleMock",
           });
+        }
+
+        // Also catch wrapper functions like mockModule()
+        if (node.callee.type === "Identifier" && node.callee.name === "mockModule") {
+          context.report({ node, messageId: "globalModuleMock" });
         }
       },
     };

@@ -4,12 +4,7 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
-// Removed tmpdir import - using mock paths instead
-// Use mock.module() to mock filesystem operations
-// import { mkdirSync } from "fs";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { REPO_URIS } from "../utils/test-utils/test-constants";
 import {

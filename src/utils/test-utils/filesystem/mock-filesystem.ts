@@ -32,15 +32,13 @@ import { createMock } from "../core/mock-functions";
  * expect(mockFs.existsSync("/new/file.txt")).toBe(true);
  *
  * @example
- * // Use with mockModule for complete fs mocking
- * import { mockModule, createMockFilesystem } from "../utils/test-utils";
+ * // Use with dependency injection for complete fs mocking
+ * import { createMockFilesystem } from "../utils/test-utils";
  *
  * const mockFs = createMockFilesystem({
  *   "/package.json": '{"name": "test-package"}'
  * });
- *
- * mockModule("fs", () => mockFs);
- * mockModule("fs/promises", () => mockFs);
+ * // Pass mockFs via constructor/function parameters
  */
 export function createMockFilesystem(
   initialFiles: Record<string, string> = {},
