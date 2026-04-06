@@ -16,10 +16,10 @@ import {
   type TaskStatusGetParams,
   type TaskStatusSetParams,
   type TaskCreateParams,
-  type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
-} from "../../schemas/tasks";
+} from "../schemas";
+import { type TaskCreateFromTitleAndDescriptionParams } from "../../schemas/tasks";
 import type { Task } from "./types";
 
 /**
@@ -41,50 +41,35 @@ export class ModularTaskCommandsManager {
    * List tasks using the provided parameters
    */
   async listTasksFromParams(params: TaskListParams): Promise<Task[]> {
-    return await this.operations.listTasks.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.listTasks.execute>[0]
-    );
+    return await this.operations.listTasks.execute(params);
   }
 
   /**
    * Get a task by ID using the provided parameters
    */
   async getTaskFromParams(params: TaskGetParams): Promise<Task> {
-    return await this.operations.getTask.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.getTask.execute>[0]
-    );
+    return await this.operations.getTask.execute(params);
   }
 
   /**
    * Get task status using the provided parameters
    */
   async getTaskStatusFromParams(params: TaskStatusGetParams): Promise<string> {
-    return await this.operations.getTaskStatus.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.getTaskStatus.execute>[0]
-    );
+    return await this.operations.getTaskStatus.execute(params);
   }
 
   /**
    * Set task status using the provided parameters
    */
   async setTaskStatusFromParams(params: TaskStatusSetParams): Promise<void> {
-    return await this.operations.setTaskStatus.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.setTaskStatus.execute>[0]
-    );
+    return await this.operations.setTaskStatus.execute(params);
   }
 
   /**
    * Create task using the provided parameters
    */
   async createTaskFromParams(params: TaskCreateParams): Promise<Task> {
-    return await this.operations.createTask.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.createTask.execute>[0]
-    );
+    return await this.operations.createTask.execute(params);
   }
 
   /**
@@ -102,20 +87,14 @@ export class ModularTaskCommandsManager {
       ...options,
     };
 
-    return await this.operations.createTaskFromTitleAndSpec.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.createTaskFromTitleAndSpec.execute>[0]
-    );
+    return await this.operations.createTaskFromTitleAndSpec.execute(params);
   }
 
   /**
    * Get task specification content using the provided parameters
    */
   async getTaskSpecContentFromParams(params: TaskSpecContentParams): Promise<string> {
-    return await this.operations.getTaskSpecContent.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.getTaskSpecContent.execute>[0]
-    );
+    return await this.operations.getTaskSpecContent.execute(params);
   }
 
   /**
@@ -124,10 +103,7 @@ export class ModularTaskCommandsManager {
   async deleteTaskFromParams(
     params: TaskDeleteParams
   ): Promise<{ success: boolean; taskId: string; task: Task }> {
-    return await this.operations.deleteTask.execute(
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- CLI schema to domain schema bridge
-      params as unknown as Parameters<typeof this.operations.deleteTask.execute>[0]
-    );
+    return await this.operations.deleteTask.execute(params);
   }
 
   /**

@@ -65,14 +65,14 @@ function addDepsAddCommand(parent: Command): void {
         throw new Error("Dependencies add command not available");
       }
 
-      const result = await command.execute(
+      const result = (await command.execute(
         {
           task: fromTask,
           dependsOn: toTask,
           type: options.type || "prerequisite",
         },
         { interface: "cli" }
-      );
+      )) as { output?: string };
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -108,13 +108,13 @@ function addDepsRmCommand(parent: Command): void {
         throw new Error("Dependencies remove command not available");
       }
 
-      const result = await command.execute(
+      const result = (await command.execute(
         {
           task: fromTask,
           dependsOn: toTask,
         },
         { interface: "cli" }
-      );
+      )) as { output?: string };
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -150,13 +150,13 @@ function addDepsListCommand(parent: Command): void {
         throw new Error("Dependencies list command not available");
       }
 
-      const result = await command.execute(
+      const result = (await command.execute(
         {
           task: taskId,
           verbose: options.verbose,
         },
         { interface: "cli" }
-      );
+      )) as { output?: string };
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -193,13 +193,13 @@ function addDepsTreeCommand(parent: Command): void {
           throw new Error("Dependencies tree command not available");
         }
 
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             task: taskId,
             maxDepth: options.maxDepth ? parseInt(options.maxDepth, 10) : 3,
           },
           { interface: "cli" }
-        );
+        )) as { output?: string };
 
         if (options.json) {
           outputResult(result, { json: true });
@@ -239,7 +239,7 @@ function addDepsGraphCommand(parent: Command): void {
           throw new Error("Dependencies graph command not available");
         }
 
-        const result = await command.execute(
+        const result = (await command.execute(
           {
             limit: options.limit ? parseInt(options.limit, 10) : 20,
             status: options.status,
@@ -247,7 +247,7 @@ function addDepsGraphCommand(parent: Command): void {
             output: options.output,
           },
           { interface: "cli" }
-        );
+        )) as { output?: string };
 
         if (options.json) {
           outputResult(result, { json: true });

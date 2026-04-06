@@ -11,6 +11,14 @@ import type { CachedProviderModel, ModelFetchConfig } from "../types";
 import { AICapability } from "../../types";
 import { log } from "../../../../utils/logger";
 
+/** Shape of a model object from the Morph OpenAI-compatible /v1/models response */
+interface MorphApiModel {
+  id: string;
+  owned_by?: string;
+  created?: number;
+  object?: string;
+}
+
 /**
  * Morph-specific model capabilities mapping
  */
@@ -76,8 +84,7 @@ export class MorphModelFetcher implements TypedModelFetcher<"morph"> {
         }
 
         const models = await Promise.all(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Morph API response has no official TypeScript types
-          data.data.map((model: any) => this.convertToCachedModel(model))
+          (data.data as MorphApiModel[]).map((model) => this.convertToCachedModel(model))
         );
 
         log.info(`Successfully fetched ${models.length} models from Morph`);
@@ -137,8 +144,7 @@ export class MorphModelFetcher implements TypedModelFetcher<"morph"> {
   /**
    * Convert Morph API model to our cached model format
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Morph API response has no official TypeScript types
-  private async convertToCachedModel(apiModel: any): Promise<CachedProviderModel> {
+  private async convertToCachedModel(apiModel: MorphApiModel): Promise<CachedProviderModel> {
     const capabilities = await this.getModelCapabilities(apiModel.id);
 
     return {

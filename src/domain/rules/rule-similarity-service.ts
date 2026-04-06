@@ -1,6 +1,8 @@
 import type { SearchResult } from "../storage/vector/types";
 import type { PersistenceProvider } from "../persistence/types";
 import { createRuleSimilarityCore } from "../similarity/create-rule-similarity-core";
+import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
+import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { createHash } from "crypto";
 import { log } from "../../utils/logger";
 import { resolveWorkspacePath } from "../workspace";
@@ -61,21 +63,16 @@ export class RuleSimilarityService {
   async indexRule(ruleId: string): Promise<boolean> {
     const core = await createRuleSimilarityCore(this.workspacePath);
 
-    // Get the embeddings backend from the core
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const backends = (core as any).backends;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const embeddingsBackend = backends?.find((b: any) => b.name === "embeddings");
-
-    if (!embeddingsBackend) {
+    // Get the embeddings backend from the core using typed accessor
+    const rawEmbeddingsBackend = core.getBackend("embeddings");
+    if (!rawEmbeddingsBackend || !(rawEmbeddingsBackend instanceof EmbeddingsSimilarityBackend)) {
       throw new Error("Embeddings backend not available for indexing");
     }
+    const embeddingsBackend = rawEmbeddingsBackend;
 
-    // Get the embeddings storage and service
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const storage = (embeddingsBackend as any).vectorStorage;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const embeddingService = (embeddingsBackend as any).embeddingService;
+    // Get the embeddings storage and service via typed accessors
+    const storage = embeddingsBackend.getVectorStorage();
+    const embeddingService = embeddingsBackend.getEmbeddingService();
 
     if (!storage) {
       throw new Error("Vector storage not available from embeddings backend");
@@ -85,19 +82,12 @@ export class RuleSimilarityService {
       throw new Error("Embedding service not available from embeddings backend");
     }
 
-    // Get rule content from the lexical backend resolvers
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lexicalBackend = backends?.find((b: any) => b.name === "lexical");
-    if (!lexicalBackend) {
+    // Get rule content from the lexical backend resolvers using typed accessor
+    const rawLexicalBackend = core.getBackend("lexical");
+    if (!rawLexicalBackend || !(rawLexicalBackend instanceof LexicalSimilarityBackend)) {
       throw new Error("Lexical backend not available");
     }
-
-    // Get rule content using the same resolvers as search
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const resolvers = (lexicalBackend as any).resolvers;
-    if (!resolvers || typeof resolvers.getContent !== "function") {
-      throw new Error("Content resolver not available from lexical backend");
-    }
+    const resolvers = rawLexicalBackend.getResolvers();
 
     const content = await resolvers.getContent(ruleId);
     if (!content) {

@@ -7,6 +7,7 @@
 
 import type {
   ChangesetAdapter,
+  ChangesetAdapterConfig,
   ChangesetAdapterFactory,
   ChangesetDetails,
   ChangesetFeature,
@@ -592,8 +593,13 @@ export class GitHubChangesetAdapterFactory implements ChangesetAdapterFactory {
   /**
    * Create a GitHub changeset adapter
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is platform-specific, no shared interface exists
-  async createAdapter(repositoryUrl: string, config?: any): Promise<ChangesetAdapter> {
-    return new GitHubChangesetAdapter(repositoryUrl, config);
+  async createAdapter(
+    repositoryUrl: string,
+    config?: ChangesetAdapterConfig
+  ): Promise<ChangesetAdapter> {
+    return new GitHubChangesetAdapter(repositoryUrl, {
+      token: config?.auth?.token,
+      workdir: config?.workdir,
+    });
   }
 }

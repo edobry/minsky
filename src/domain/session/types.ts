@@ -126,8 +126,7 @@ export interface SessionProviderInterface {
   /**
    * Get the repository path for a session
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accepts session record or any record-like object for flexibility
-  getRepoPath(record: SessionRecord | any): Promise<string>;
+  getRepoPath(record: SessionRecord | Record<string, unknown>): Promise<string>;
 
   /**
    * Get the working directory for a session
@@ -194,10 +193,8 @@ export interface SessionApprovalDependencies {
   sessionDB?: SessionProviderInterface;
   gitService?: GitServiceInterface;
   taskService?: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session event payload varies by type
-    setTaskStatus?: (taskId: string, status: string) => Promise<any>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- session event payload varies by type
-    getBackendForTask?: (taskId: string) => Promise<any>;
+    setTaskStatus?: (taskId: string, status: string) => Promise<void>;
+    getBackendForTask?: (taskId: string) => Promise<string>;
   };
   workspaceUtils?: WorkspaceUtilsInterface;
   getCurrentSession?: (repoPath: string) => Promise<string | null>;

@@ -10,6 +10,10 @@ export class LexicalSimilarityBackend implements SimilarityBackend {
   readonly name = "lexical";
   constructor(private readonly resolvers: ContentResolvers) {}
 
+  getResolvers(): ContentResolvers {
+    return this.resolvers;
+  }
+
   async isAvailable(): Promise<boolean> {
     return true;
   }

@@ -326,8 +326,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
 
         // Return enhanced result with AI analysis
         return this.createSuccessResult({
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionReviewResult needs bridge to spread into plain object
-          ...(reviewResult as unknown as Record<string, unknown>),
+          ...reviewResult,
           aiAnalysis: aiReviewResult,
           enhancedWithAI: true,
         });
@@ -335,8 +334,7 @@ export class SessionReviewCommand extends BaseSessionCommand<
         // If AI analysis fails, return basic result with error info
         const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
         return this.createSuccessResult({
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- SessionReviewResult needs bridge to spread into plain object
-          ...(reviewResult as unknown as Record<string, unknown>),
+          ...reviewResult,
           aiAnalysis: null,
           aiError: `AI analysis failed: ${errorMessage}`,
           enhancedWithAI: false,
@@ -371,20 +369,8 @@ export class SessionReviewCommand extends BaseSessionCommand<
         changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
       );
 
-      // Get adapter to submit comment
-      /* eslint-disable custom/no-excessive-as-unknown -- changesetService interface doesn't expose getAdapter */
-      const adapter = await (
-        changesetService as unknown as {
-          getAdapter?: () => Promise<{
-            approve?: (id: string, text: string) => Promise<void>;
-          } | null>;
-        }
-      ).getAdapter?.();
-      /* eslint-enable custom/no-excessive-as-unknown */
-      if (adapter && typeof adapter.approve === "function") {
-        const commentText = this.formatAIReviewComment(aiResult);
-        await adapter.approve(changeset.id, commentText);
-      }
+      const commentText = this.formatAIReviewComment(aiResult);
+      await changesetService.approve(changeset.id, commentText);
     } catch (error) {
       // Log error but don't fail the entire review
       const { log } = await import("../../../../utils/logger");
@@ -415,20 +401,8 @@ export class SessionReviewCommand extends BaseSessionCommand<
         changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
       );
 
-      // Get adapter to approve
-      /* eslint-disable custom/no-excessive-as-unknown -- changesetService interface doesn't expose getAdapter */
-      const adapter = await (
-        changesetService as unknown as {
-          getAdapter?: () => Promise<{
-            approve?: (id: string, text: string) => Promise<void>;
-          } | null>;
-        }
-      ).getAdapter?.();
-      /* eslint-enable custom/no-excessive-as-unknown */
-      if (adapter && typeof adapter.approve === "function") {
-        const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
-        await adapter.approve(changeset.id, approvalText);
-      }
+      const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
+      await changesetService.approve(changeset.id, approvalText);
     } catch (error) {
       // Log error but don't fail the entire review
       const { log } = await import("../../../../utils/logger");

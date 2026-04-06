@@ -33,11 +33,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!this.storage) {
       log.debug("Storage not cached, calling persistence.getStorage()");
       try {
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- getStorage() returns a storage type that needs narrowing to specific generic params
-        this.storage = this.persistence.getStorage<
-          SessionRecord,
-          SessionDbState
-        >() as unknown as DatabaseStorage<SessionRecord, SessionDbState>;
+        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
         // Initialize the storage
         await this.storage!.initialize();
         log.debug(`Successfully got storage: ${this.storage!.constructor.name}`);

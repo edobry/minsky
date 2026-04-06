@@ -12,6 +12,10 @@ export class SimilaritySearchService {
     return this.lastUsedBackend;
   }
 
+  getBackend(name: string): SimilarityBackend | undefined {
+    return this.backends.find((b) => b.name === name);
+  }
+
   async search(query: SimilarityQuery): Promise<SimilarityItem[]> {
     for (const backend of this.backends) {
       try {

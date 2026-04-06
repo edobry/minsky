@@ -88,9 +88,10 @@ export class SessionPrEditCommand extends BaseSessionCommand<
         }
 
         if (sessionId) {
-          workingDirectory = await sessionProvider.getRepoPath(
-            await sessionProvider.getSession(sessionId)
-          );
+          const sessionRecord = await sessionProvider.getSession(sessionId);
+          if (sessionRecord) {
+            workingDirectory = await sessionProvider.getRepoPath(sessionRecord);
+          }
         }
       }
 

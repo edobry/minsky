@@ -11,6 +11,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { RuleService, type RuleFormat } from "../rules";
+import type { Rule } from "./types";
 import { resolveActiveRules } from "./rule-selection";
 import { RULE_PRESETS } from "../configuration/schemas/rules";
 import { createRuleTemplateService } from "./rule-template-service";
@@ -524,7 +525,7 @@ export interface GetRuleOptions {
 
 export interface GetRuleResult {
   success: boolean;
-  rule: Record<string, unknown>;
+  rule: Rule;
 }
 
 /**
@@ -536,8 +537,7 @@ export async function getRule(options: GetRuleOptions): Promise<GetRuleResult> {
     format: options.format,
     debug: options.debug,
   });
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for GetRuleResult interface
-  return { success: true, rule: rule as unknown as Record<string, unknown> };
+  return { success: true, rule };
 }
 
 // ─── Generate Rules ──────────────────────────────────────────────────────────
@@ -611,7 +611,7 @@ export interface CreateRuleOptions {
 
 export interface CreateRuleResult {
   success: boolean;
-  rule: Record<string, unknown>;
+  rule: Rule;
 }
 
 /**
@@ -635,8 +635,7 @@ export async function createRule(options: CreateRuleOptions): Promise<CreateRule
     overwrite: options.overwrite,
   });
 
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for CreateRuleResult interface
-  return { success: true, rule: rule as unknown as Record<string, unknown> };
+  return { success: true, rule };
 }
 
 // ─── Update Rule ─────────────────────────────────────────────────────────────
@@ -655,7 +654,7 @@ export interface UpdateRuleOptions {
 
 export interface UpdateRuleResult {
   success: boolean;
-  rule: Record<string, unknown>;
+  rule: Rule;
 }
 
 /**
@@ -682,8 +681,7 @@ export async function updateRule(options: UpdateRuleOptions): Promise<UpdateRule
     { format: options.format, debug: options.debug }
   );
 
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Rule type needs bridge to Record<string,unknown> for UpdateRuleResult interface
-  return { success: true, rule: rule as unknown as Record<string, unknown> };
+  return { success: true, rule };
 }
 
 export async function searchRulesEnhanced(

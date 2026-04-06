@@ -6,6 +6,7 @@
  */
 
 import type { LanguageModel } from "ai";
+import type { ZodTypeAny } from "zod";
 
 // Provider configuration
 export interface AIProviderConfig {
@@ -100,8 +101,7 @@ export interface AICompletionService {
 
 export interface AIObjectGenerationRequest {
   messages?: Array<{ role: string; content: string }>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- schema is a Zod schema or JSON Schema object, no common type
-  schema: any;
+  schema: ZodTypeAny;
   model?: string;
   temperature?: number;
   provider?: string;
