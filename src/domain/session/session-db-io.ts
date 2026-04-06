@@ -3,8 +3,9 @@
  * This module contains all file system operations separated from pure functions
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
+import type { SyncFsLike } from "../interfaces/fs-like";
+import { createRealSyncFs } from "../interfaces/fs-like";
 import { SessionRecord, SessionDbState } from "./session-db";
 import { getErrorMessage } from "../../errors";
 import { log } from "../../utils/logger";
@@ -16,6 +17,7 @@ import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 export interface SessionDbFileOptions {
   dbPath?: string;
   baseDir?: string;
+  fs?: SyncFsLike;
 }
 
 /**
@@ -27,12 +29,13 @@ export function readSessionDbFile(
   // Backwards compatibility: allow string path to return array of sessions (used by tests)
   const isStringPath = typeof optionsOrPath === "string";
   const safeOptions = (isStringPath ? { dbPath: optionsOrPath } : optionsOrPath) || {};
+  const fs = (safeOptions as SessionDbFileOptions).fs ?? createRealSyncFs();
   const stateDir = getMinskyStateDir();
   const dbPath = (safeOptions as SessionDbFileOptions).dbPath || getDefaultJsonDbPath();
   const baseDir = (safeOptions as SessionDbFileOptions).baseDir || stateDir;
 
   try {
-    if (!existsSync(dbPath)) {
+    if (!fs.existsSync(dbPath)) {
       return isStringPath
         ? []
         : {
@@ -41,7 +44,7 @@ export function readSessionDbFile(
           };
     }
 
-    const data = readFileSync(dbPath, "utf8") as string;
+    const data = fs.readFileSync(dbPath, "utf8") as string;
     if (!data || data.trim().length === 0) {
       return isStringPath
         ? []
@@ -99,30 +102,36 @@ export async function writeSessionsToFile(
   options: SessionDbFileOptions | undefined | null = {}
 ): Promise<void> {
   const safeOptions = options || {};
+  const fs = safeOptions.fs ?? createRealSyncFs();
   const stateDir = getMinskyStateDir();
   const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
 
   try {
     // Ensure directory exists
     const dbDir = dirname(dbPath);
-    if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
     }
 
-    writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
+    fs.writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
     log.error(`Error writing session database: ${getErrorMessage(error)}`);
   }
 }
 
 // Backward-compatibility API expected by tests
-export function writeSessionDbFile(dbPath: string, sessions: SessionRecord[]): void {
+export function writeSessionDbFile(
+  dbPath: string,
+  sessions: SessionRecord[],
+  deps?: { fs?: SyncFsLike }
+): void {
+  const fs = deps?.fs ?? createRealSyncFs();
   try {
     const dbDir = dirname(dbPath);
-    if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
     }
-    writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
+    fs.writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
     log.error(`Error writing session database: ${getErrorMessage(error)}`);
   }
@@ -131,11 +140,12 @@ export function writeSessionDbFile(dbPath: string, sessions: SessionRecord[]): v
 /**
  * Ensure the database directory exists
  */
-export function ensureDbDir(dbPath: string): boolean {
+export function ensureDbDir(dbPath: string, deps?: { fs?: SyncFsLike }): boolean {
+  const fs = deps?.fs ?? createRealSyncFs();
   try {
     const dbDir = dirname(dbPath);
-    if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
     }
     return true;
   } catch (error) {
