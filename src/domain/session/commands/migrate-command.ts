@@ -5,7 +5,6 @@ import {
   type MigrationReport,
 } from "../migration-command";
 import type { SessionProviderInterface } from "../types";
-import { createSessionProvider } from "../session-db-adapter";
 
 /**
  * CLI parameters for session migration command
@@ -114,14 +113,16 @@ async function askConfirmation(message: string): Promise<boolean> {
   return true; // Placeholder - in real implementation would read from stdin
 }
 
+export interface SessionMigrateDependencies {
+  sessionDB: SessionProviderInterface;
+}
+
 /**
  * Execute session migration command
  */
 export async function sessionMigrate(
   params: SessionMigrateParameters,
-  depsInput?: {
-    sessionDB?: SessionProviderInterface;
-  }
+  deps: SessionMigrateDependencies
 ): Promise<void> {
   const {
     dryRun = false,
@@ -136,7 +137,7 @@ export async function sessionMigrate(
   } = params;
 
   // Initialize dependencies
-  const sessionDB = depsInput?.sessionDB || (await createSessionProvider());
+  const { sessionDB } = deps;
   const migrationService = new SessionMigrationService(sessionDB);
 
   try {
@@ -234,11 +235,9 @@ export async function sessionMigrate(
  */
 export async function sessionMigrateRollback(
   backupPath: string,
-  depsInput?: {
-    sessionDB?: SessionProviderInterface;
-  }
+  deps: SessionMigrateDependencies
 ): Promise<void> {
-  const sessionDB = depsInput?.sessionDB || (await createSessionProvider());
+  const { sessionDB } = deps;
   const migrationService = new SessionMigrationService(sessionDB);
 
   try {

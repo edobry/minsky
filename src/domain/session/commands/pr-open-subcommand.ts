@@ -2,7 +2,6 @@
  * Session PR Open Subcommand
  */
 
-import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
   MinskyError,
@@ -11,22 +10,30 @@ import {
   getErrorMessage,
 } from "../../../errors/index";
 import { sessionPrGet } from "./pr-get-subcommand";
+import type { SessionProviderInterface } from "../types";
+
+export interface SessionPrOpenDependencies {
+  sessionDB: SessionProviderInterface;
+}
 
 /**
  * Session PR Open implementation
  * Opens the pull request in the default web browser (GitHub backend only)
  */
-export async function sessionPrOpen(params: {
-  sessionId?: string;
-  name?: string;
-  task?: string;
-  repo?: string;
-}): Promise<{
+export async function sessionPrOpen(
+  params: {
+    sessionId?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+  },
+  deps: SessionPrOpenDependencies
+): Promise<{
   url: string;
   sessionId: string;
   prNumber?: number;
 }> {
-  const sessionDB = await createSessionProvider();
+  const { sessionDB } = deps;
 
   try {
     // Resolve session context using existing resolver
@@ -56,11 +63,14 @@ export async function sessionPrOpen(params: {
     }
 
     // Get PR details using the existing sessionPrGet function
-    const prResult = await sessionPrGet({
-      sessionId: resolvedContext.sessionId,
-      task: params.task,
-      repo: params.repo,
-    });
+    const prResult = await sessionPrGet(
+      {
+        sessionId: resolvedContext.sessionId,
+        task: params.task,
+        repo: params.repo,
+      },
+      { sessionDB }
+    );
 
     const pr = prResult.pullRequest;
 

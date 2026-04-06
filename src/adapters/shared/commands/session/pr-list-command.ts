@@ -13,6 +13,7 @@ import { MinskyError, getErrorMessage } from "../../../../errors/index";
 import { sessionPrListCommandParams } from "./session-parameters";
 import { sessionPrList } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
+import { createSessionProvider } from "../../../../domain/session/session-db-adapter";
 
 /**
  * Parameters for session PR list command
@@ -51,17 +52,21 @@ export class SessionPrListCommand extends BaseSessionCommand<
     _context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     try {
-      const result = await sessionPrList({
-        session: params.session,
-        task: params.task,
-        status: params.status,
-        backend: params.backend as "github" | "remote" | "local" | undefined,
-        since: params.since,
-        until: params.until,
-        repo: params.repo,
-        json: params.json,
-        verbose: params.verbose,
-      });
+      const sessionDB = await createSessionProvider();
+      const result = await sessionPrList(
+        {
+          session: params.session,
+          task: params.task,
+          status: params.status,
+          backend: params.backend as "github" | "remote" | "local" | undefined,
+          since: params.since,
+          until: params.until,
+          repo: params.repo,
+          json: params.json,
+          verbose: params.verbose,
+        },
+        { sessionDB }
+      );
 
       if (params.json) {
         return this.createSuccessResult(result);
