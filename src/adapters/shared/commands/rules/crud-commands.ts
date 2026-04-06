@@ -2,7 +2,12 @@
  * Rules CRUD commands: get, create, update, generate
  */
 import { getErrorMessage } from "../../../../errors/index";
-import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandDefinition,
+  type CommandParameterMap,
+  type CommandExecutionContext,
+} from "../../command-registry";
 import { type RuleFormat } from "../../../../domain/rules";
 import { log } from "../../../../utils/logger";
 import { resolveWorkspacePath } from "../../../../domain/workspace";
@@ -24,8 +29,7 @@ import {
 } from "./rules-parameters";
 
 export function registerCrudCommands(targetRegistry: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command definitions use specific typed execute handlers incompatible with generic SharedCommand
-  registerCommand: (cmd: any) => void;
+  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
 }): void {
   targetRegistry.registerCommand({
     id: "rules.get",
@@ -33,7 +37,7 @@ export function registerCrudCommands(targetRegistry: {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (params: RulesGetParams) => {
+    execute: async (params) => {
       log.debug("Executing rules.get command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
@@ -56,7 +60,7 @@ export function registerCrudCommands(targetRegistry: {
     name: "generate",
     description: "Generate new rules from templates",
     parameters: rulesGenerateCommandParams,
-    execute: async (params: RulesGenerateParams) => {
+    execute: async (params) => {
       log.debug("Executing rules.generate command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
@@ -90,7 +94,7 @@ export function registerCrudCommands(targetRegistry: {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (params: RulesCreateParams) => {
+    execute: async (params) => {
       log.debug("Executing rules.create command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
@@ -118,7 +122,7 @@ export function registerCrudCommands(targetRegistry: {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (params: RulesUpdateParams) => {
+    execute: async (params) => {
       log.debug("Executing rules.update command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});

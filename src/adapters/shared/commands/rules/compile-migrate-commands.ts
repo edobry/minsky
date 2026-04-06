@@ -2,15 +2,19 @@
  * Rules compile and migrate commands
  */
 import { getErrorMessage } from "../../../../errors/index";
-import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandDefinition,
+  type CommandParameterMap,
+  type CommandExecutionContext,
+} from "../../command-registry";
 import { log } from "../../../../utils/logger";
 import { resolveWorkspacePath } from "../../../../domain/workspace";
 import { compileRules, migrateRules } from "../../../../domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
 
 export function registerCompileMigrateCommands(targetRegistry: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command definitions use specific typed execute handlers incompatible with generic SharedCommand
-  registerCommand: (cmd: any) => void;
+  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
 }): void {
   targetRegistry.registerCommand({
     id: "rules.compile",

@@ -2,7 +2,11 @@
  * Rules selection commands: enable, disable, config, presets
  */
 import { z } from "zod";
-import { CommandCategory } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandDefinition,
+  type CommandParameterMap,
+} from "../../command-registry";
 import { resolveWorkspacePath } from "../../../../domain/workspace";
 import {
   enableRule,
@@ -12,8 +16,7 @@ import {
 } from "../../../../domain/rules/rules-command-operations";
 
 export function registerSelectionCommands(targetRegistry: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command definitions use specific typed execute handlers incompatible with generic SharedCommand
-  registerCommand: (cmd: any) => void;
+  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
 }): void {
   targetRegistry.registerCommand({
     id: "rules.enable",

@@ -2,7 +2,12 @@
  * Rules list, search, and index-embeddings commands
  */
 import { getErrorMessage } from "../../../../errors/index";
-import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandDefinition,
+  type CommandParameterMap,
+  type CommandExecutionContext,
+} from "../../command-registry";
 import { type RuleFormat } from "../../../../domain/rules";
 import { log } from "../../../../utils/logger";
 import { resolveWorkspacePath } from "../../../../domain/workspace";
@@ -21,8 +26,7 @@ import {
 } from "./rules-parameters";
 
 export function registerListSearchCommands(targetRegistry: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command definitions use specific typed execute handlers incompatible with generic SharedCommand
-  registerCommand: (cmd: any) => void;
+  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
 }): void {
   targetRegistry.registerCommand({
     id: "rules.index-embeddings",
@@ -74,7 +78,7 @@ export function registerListSearchCommands(targetRegistry: {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (params: RulesListParams) => {
+    execute: async (params) => {
       log.debug("Executing rules.list command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
