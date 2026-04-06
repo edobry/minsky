@@ -299,13 +299,12 @@ Repository: ${this.repoUrl}
    * @param branch Optional branch to push (defaults to current branch)
    * @returns Result of the push operation
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- push returns various result shapes that don't all conform to the interface type
-  async push(branch?: string): Promise<any> {
+  async push(branch?: string): Promise<{ success: boolean; message?: string; error?: Error }> {
     try {
       // Validate repository configuration
       const validation = await this.validate();
       if (!validation.success) {
-        return validation;
+        return { success: false, message: validation.message, error: validation.error };
       }
 
       // Implementation of git push for remote repositories
@@ -370,13 +369,12 @@ Repository: ${this.repoUrl}
    * @param branch Optional branch to pull (defaults to current branch)
    * @returns Result of the pull operation
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pull returns various result shapes that don't all conform to the interface type
-  async pull(branch?: string): Promise<any> {
+  async pull(branch?: string): Promise<{ success: boolean; message?: string; error?: Error }> {
     try {
       // Validate repository configuration
       const validation = await this.validate();
       if (!validation.success) {
-        return validation;
+        return { success: false, message: validation.message, error: validation.error };
       }
 
       // Get all sessions for this repository

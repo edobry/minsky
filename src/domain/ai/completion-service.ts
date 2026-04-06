@@ -17,7 +17,7 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
-import { DefaultAIConfigurationService } from "./config-service";
+import { DefaultAIConfigurationService, type AnyConfigService } from "./config-service";
 import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
 import { resolveLanguageModel } from "./provider-model-factory";
 import {
@@ -36,7 +36,7 @@ export class DefaultAICompletionService implements AICompletionService {
   private providerModels: Map<string, LanguageModel> = new Map();
   private modelCacheService: DefaultModelCacheService;
 
-  constructor(configurationService: unknown) {
+  constructor(configurationService: AnyConfigService) {
     this.configService = new DefaultAIConfigurationService(configurationService);
 
     // Initialize model cache service with fetchers

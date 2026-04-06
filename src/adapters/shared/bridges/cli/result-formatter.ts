@@ -23,7 +23,7 @@ export interface CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: Record<string, unknown>) => void;
+  getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void;
 
   /**
    * Format array results
@@ -48,12 +48,12 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: Record<string, unknown>) => void {
-    return (result: Record<string, unknown>) => {
+  getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
+    return (result: unknown) => {
       if (Array.isArray(result)) {
         this.formatArrayResult(result, commandDef);
       } else if (typeof result === "object" && result !== null) {
-        this.formatObjectResult(result, commandDef);
+        this.formatObjectResult(result as Record<string, unknown>, commandDef);
       } else {
         this.formatPrimitiveResult(result);
       }

@@ -21,9 +21,13 @@ import { processCwd } from "../../utils/process";
 // Properly typed AI provider using existing enum
 type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
 
+/** Minimal config service interface — accepts both production and test implementations */
+export type AnyConfigService =
+  | { loadConfiguration(path?: string): Promise<{ resolved: unknown }> }
+  | { getConfig(): Record<string, unknown> };
+
 export class DefaultAIConfigurationService implements AIConfigurationService {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config service interface varies between production and test implementations
-  constructor(private configService: any) {} // Accept any config service for flexibility
+  constructor(private configService: AnyConfigService) {}
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {

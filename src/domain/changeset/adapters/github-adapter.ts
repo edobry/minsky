@@ -33,6 +33,12 @@ import { extractGitHubInfoFromUrl } from "../../session/repository-backend-detec
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { Octokit } from "@octokit/rest";
+import type { RestEndpointMethodTypes } from "@octokit/rest";
+
+/** Union of simplified and full PR types from Octokit responses */
+type OctokitPR =
+  | RestEndpointMethodTypes["pulls"]["list"]["response"]["data"][number]
+  | RestEndpointMethodTypes["pulls"]["get"]["response"]["data"];
 
 /**
  * GitHub changeset adapter that maps GitHub PRs to changeset abstraction
@@ -393,8 +399,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   /**
    * Build a changeset from a GitHub PR object
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Octokit PR response type is complex and platform-specific
-  private async buildChangesetFromPR(pr: any): Promise<Changeset> {
+  private async buildChangesetFromPR(pr: OctokitPR): Promise<Changeset> {
     // Get reviews and comments
     const [reviews, comments] = await Promise.all([
       this.getPRReviews(pr.number),
@@ -416,15 +421,16 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       status = "open";
     }
 
+    const fullPr = pr as typeof pr & { mergeable?: boolean; mergeable_state?: string };
     return {
       id: pr.number.toString(),
       platform: "github-pr",
       title: pr.title,
       description: pr.body || "",
       author: {
-        username: pr.user.login,
-        displayName: pr.user.name,
-        email: pr.user.email,
+        username: pr.user?.login ?? "unknown",
+        displayName: pr.user?.name ?? undefined,
+        email: pr.user?.email ?? undefined,
       },
       status,
       targetBranch: pr.base.ref,
@@ -440,9 +446,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           url: pr.url,
           htmlUrl: pr.html_url,
           apiUrl: pr.url,
-          isDraft: pr.draft,
-          isMergeable: pr.mergeable,
-          mergeableState: pr.mergeable_state,
+          isDraft: pr.draft ?? false,
+          isMergeable: fullPr.mergeable ?? false,
+          mergeableState: fullPr.mergeable_state ?? "unknown",
           headSha: pr.head.sha,
           baseSha: pr.base.sha,
         },
@@ -506,11 +512,13 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
               startLine: comment.start_line || comment.line,
               endLine: comment.line,
               createdAt: new Date(comment.created_at),
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved field exists on GitHub API response but is not in Octokit type definitions
-              isResolved: (comment as any).resolved,
+              isResolved: (comment as typeof comment & { resolved?: boolean }).resolved,
             })),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- created_at fallback field exists on GitHub API response but is not in Octokit type definitions
-            submittedAt: new Date(review.submitted_at || (review as any).created_at),
+            submittedAt: new Date(
+              review.submitted_at ||
+                (review as typeof review & { created_at?: string }).created_at ||
+                ""
+            ),
           };
         })
       ) as Promise<ChangesetReview[]>;
@@ -540,8 +548,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         content: comment.body || "",
         createdAt: new Date(comment.created_at),
         updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimized_reason field exists on GitHub API response but is not in Octokit type definitions
-        isMinimized: (comment as any).minimized_reason !== null,
+        isMinimized:
+          (comment as typeof comment & { minimized_reason?: string | null }).minimized_reason !==
+          null,
       })) as ChangesetComment[];
     } catch (error) {
       log.debug(`Failed to get comments for PR ${prNumber}`, { error: getErrorMessage(error) });

@@ -7,9 +7,8 @@ export function exit(code: number): never {
   // For now, we use process.exit as it's consistently used across the codebase
   // In the future, we could adapt this to use Bun-specific APIs if needed
 
-  // Use type assertion to access process.exit in Bun environment
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.exit typing differs from Node
-  (process as any).exit(code);
+  // Use process.exit directly — works in both Node.js and Bun environments
+  process.exit(code);
 
   // This line should never be reached, but satisfies TypeScript's never return type
   throw new Error("Process exit failed");
@@ -24,8 +23,7 @@ export function processExit(code: number): never {
 
 // Store the original process.cwd() function to allow resetting
 let currentWorkingDirectoryImpl = () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.cwd typing differs from Node
-  return (process as any).cwd();
+  return process.cwd();
 };
 
 /**
@@ -51,7 +49,7 @@ export function processCwd(): string {
  * @param directory The directory to change to
  */
 export function processChdir(directory: string): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process.chdir typing differs from Node
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun process type doesn't include chdir; cast required for Bun compatibility
   (process as any).chdir(directory);
 }
 

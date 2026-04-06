@@ -32,14 +32,12 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- formatter receives arbitrary command output; callers provide narrower types via their own formatters
-  formatter?: (result: any) => void;
+  formatter?: (result: unknown) => void;
 }
 /**
  * Format and output command results
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- result can be any command output type; callers use type-safe wrappers
-export function outputResult(result: any, options: OutputOptions = {}): void {
+export function outputResult(result: unknown, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }

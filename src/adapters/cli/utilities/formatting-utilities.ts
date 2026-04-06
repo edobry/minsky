@@ -5,6 +5,39 @@
 
 import { TaskBackend } from "../../../domain/configuration/backend-detection";
 
+/** Shape of a resolved Minsky config object for display/formatting purposes */
+interface ResolvedConfigShape {
+  tasks?: { backend?: string };
+  backend?: string;
+  persistence?: {
+    backend?: string;
+    sqlite?: { dbPath?: string };
+    postgres?: { connectionString?: string };
+  };
+  sessiondb?: {
+    backend?: string;
+    sqlite?: { dbPath?: string };
+    postgres?: { connectionString?: string };
+  };
+  backendConfig?: Record<string, Record<string, unknown>>;
+  credentials?: Record<string, unknown>;
+  github?: { token?: string; organization?: string; baseUrl?: string };
+  ai?: {
+    providers?: Record<string, Record<string, unknown>>;
+    defaultProvider?: string;
+  };
+  logger?: {
+    mode?: string;
+    level?: string;
+    enableAgentLogs?: boolean;
+    logFile?: string;
+    includeTimestamp?: boolean;
+    includeLevel?: boolean;
+    maxFileSize?: number;
+    maxFiles?: number;
+  };
+}
+
 /**
  * Get display name for backend type
  * @param backend Backend identifier
@@ -255,8 +288,7 @@ export function formatResolvedConfigurationWithSources(
     return "";
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved is genuinely dynamic config shape; deep traversal of nested optional paths requires any
-  const r = resolved as any;
+  const r = resolved as ResolvedConfigShape;
 
   let output = "📋 CURRENT CONFIGURATION\n";
 
@@ -282,10 +314,11 @@ export function formatResolvedConfigurationWithSources(
   }
 
   // Authentication & Credentials
+  const aiProviders = r.ai?.providers;
   const hasAuth =
     (r.credentials && Object.keys(r.credentials).length > 0) ||
     r.github?.token ||
-    (r.ai?.providers && Object.keys(r.ai.providers).some((p: string) => r.ai.providers[p]?.apiKey));
+    (aiProviders && Object.keys(aiProviders).some((p: string) => aiProviders[p]?.apiKey));
 
   if (hasAuth) {
     output += "🔐 Authentication:\n";
@@ -297,10 +330,10 @@ export function formatResolvedConfigurationWithSources(
     }
 
     // AI provider authentication
-    if (r.ai?.providers) {
+    if (aiProviders) {
       const configuredAI: string[] = [];
       const aiSources: string[] = [];
-      for (const [provider, config] of Object.entries(r.ai.providers)) {
+      for (const [provider, config] of Object.entries(aiProviders)) {
         if (config && typeof config === "object") {
           const providerConfig = config as Record<string, unknown>;
           if (providerConfig.apiKey) {
@@ -343,16 +376,16 @@ export function formatResolvedConfigurationWithSources(
   }
 
   // AI Configuration
-  if (r.ai?.providers && Object.keys(r.ai.providers).length > 0) {
+  if (aiProviders && Object.keys(aiProviders).length > 0) {
     output += "🤖 AI Configuration:\n";
 
-    if (r.ai.defaultProvider) {
+    if (r.ai?.defaultProvider) {
       const defaultSource = getSourceAnnotation("ai.defaultProvider");
       output += `   • Default Provider: ${r.ai.defaultProvider}${defaultSource}\n`;
     }
 
     output += "   • Configured Providers:\n";
-    for (const [provider, config] of Object.entries(r.ai.providers)) {
+    for (const [provider, config] of Object.entries(aiProviders)) {
       if (config && typeof config === "object") {
         const providerConfig = config as Record<string, unknown>;
         output += `     ${provider}:`;
@@ -406,8 +439,7 @@ export function formatResolvedConfigurationWithSources(
  * @returns Formatted configuration string
  */
 export function formatResolvedConfiguration(resolved: Record<string, unknown>): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resolved is genuinely dynamic config shape; deep traversal of nested optional paths requires any
-  const r = resolved as any;
+  const r = resolved as ResolvedConfigShape;
 
   let output = "📋 CURRENT CONFIGURATION\n";
 
@@ -432,10 +464,11 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   }
 
   // Authentication & Credentials
+  const aiProvidersMap = r.ai?.providers;
   const hasAuth =
     (r.credentials && Object.keys(r.credentials).length > 0) ||
     r.github?.token ||
-    (r.ai?.providers && Object.keys(r.ai.providers).some((p: string) => r.ai.providers[p]?.apiKey));
+    (aiProvidersMap && Object.keys(aiProvidersMap).some((p: string) => aiProvidersMap[p]?.apiKey));
 
   if (hasAuth) {
     output += "🔐 Authentication:\n";
@@ -446,9 +479,9 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
     }
 
     // AI provider authentication
-    if (r.ai?.providers) {
+    if (aiProvidersMap) {
       const configuredAI: string[] = [];
-      for (const [provider, config] of Object.entries(r.ai.providers)) {
+      for (const [provider, config] of Object.entries(aiProvidersMap)) {
         if (config && typeof config === "object") {
           const providerConfig = config as Record<string, unknown>;
           if (providerConfig.apiKey) {
@@ -495,15 +528,15 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   }
 
   // AI Configuration
-  if (r.ai?.providers && Object.keys(r.ai.providers).length > 0) {
+  if (aiProvidersMap && Object.keys(aiProvidersMap).length > 0) {
     output += "🤖 AI Configuration:\n";
 
-    if (r.ai.defaultProvider) {
+    if (r.ai?.defaultProvider) {
       output += `   • Default Provider: ${r.ai.defaultProvider}\n`;
     }
 
     output += "   • Configured Providers:\n";
-    for (const [provider, config] of Object.entries(r.ai.providers)) {
+    for (const [provider, config] of Object.entries(aiProvidersMap)) {
       if (config && typeof config === "object") {
         const providerConfig = config as Record<string, unknown>;
         output += `     ${provider}:`;
