@@ -78,9 +78,8 @@ export class SessionDbHealthMonitor {
     try {
       // Load configuration if not provided
       if (!sessionDbConfig) {
-        const config = getConfiguration();
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- config.sessiondb type doesn't directly match SessionDbConfig due to optional vs required fields
-        sessionDbConfig = config.sessiondb as unknown as SessionDbConfig;
+        const config = getConfiguration() as Record<string, unknown>;
+        sessionDbConfig = config["sessiondb"] as SessionDbConfig;
       }
 
       // Check backend health

@@ -19,7 +19,7 @@ import {
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
-import type { SessionRecord } from "../../../domain/session/session-db";
+import type { SessionRecord, SessionDbState } from "../../../domain/session/session-db";
 import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../../utils/paths";
 import {
   runMigrationsWithDrizzleKit,
@@ -355,10 +355,7 @@ const persistenceMigrateRegistration = defineCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- getStorage() returns abstract type; accessing writeState method not in public interface requires casting
-      const targetStorage = targetProvider.getStorage() as unknown as {
-        writeState: (state: unknown) => Promise<{ success: boolean; error?: { message: string } }>;
-      };
+      const targetStorage = targetProvider.getStorage<SessionRecord, SessionDbState>();
       const writeResult = await targetStorage.writeState(sourceState);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);

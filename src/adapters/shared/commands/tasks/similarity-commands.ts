@@ -252,12 +252,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
         const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
         const model = cfg.embeddings?.model || "text-embedding-3-small";
-        const effThreshold =
-          threshold ??
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- accessing optional config property not exposed in TaskSimilarityService public interface
-          (service as unknown as { config?: { similarityThreshold?: number } })?.config
-            ?.similarityThreshold ??
-          "(default)";
+        const effThreshold = threshold ?? service.getConfig()?.similarityThreshold ?? "(default)";
         // Print to CLI in human-friendly lines
         const { log } = await import("../../../../utils/logger");
         // Write diagnostics to stderr so --json stays clean on stdout

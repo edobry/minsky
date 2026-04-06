@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Command } from "commander";
 import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
+import { toJsonRecord } from "../../utils/type-utils";
 import { getConfigurationProvider } from "../../domain/configuration";
 
 interface ListOptions {
@@ -78,8 +79,7 @@ export function createConfigListCommand(): Command {
 
         // Apply credential masking unless explicitly requested to show secrets
         const resolvedRecord = resolved as Record<string, unknown>;
-        // eslint-disable-next-line custom/no-excessive-as-unknown -- ConfigurationMetadata lacks index signature; double cast needed to pass to generic display utilities
-        const metadataRecord = metadata as unknown as Record<string, unknown>;
+        const metadataRecord = toJsonRecord(metadata);
         const maskedConfig = maskCredentials(resolvedRecord, options.showSecrets || false);
 
         if (options.json) {

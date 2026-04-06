@@ -25,6 +25,11 @@ export class TaskSimilarityService {
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
+  /** Expose service configuration for diagnostics */
+  getConfig(): TaskSimilarityServiceConfig {
+    return this.config;
+  }
+
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     // Delegate to generic core; embeddings backend will be first if available
     const core = await createTaskSimilarityCore({

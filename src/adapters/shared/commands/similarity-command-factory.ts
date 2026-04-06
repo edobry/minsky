@@ -93,6 +93,18 @@ export interface SimilarityCommandConfig<TService, TResult extends SimilaritySea
 }
 
 /**
+ * Typed params for similarity search command execute handlers
+ */
+export interface SimilaritySearchParams {
+  query: string;
+  limit?: number;
+  threshold?: number;
+  details?: boolean;
+  quiet?: boolean;
+  json?: boolean;
+}
+
+/**
  * Shared parameters for similarity search commands
  */
 export const similaritySearchParams = {
@@ -140,10 +152,9 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
     description: config.description,
     parameters: similaritySearchParams,
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command execute receives dynamically-typed params from registry; InferParams would require full type threading
-    execute: async (params: any, ctx?: CommandExecutionContext) => {
+    execute: async (params: SimilaritySearchParams, ctx?: CommandExecutionContext) => {
       try {
-        const query = params.query as string;
+        const query = params.query;
         const limit = params.limit ?? 10;
         const threshold = params.threshold;
         const quiet = Boolean(params.quiet);
@@ -184,13 +195,18 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
           const workspacePath = await resolveWorkspacePath({});
           enhancedResults = await config.enhanceResults(results, workspacePath);
         } else {
-          // Use results as-is, ensuring they have the required shape
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- mapped result type is structurally compatible with EnhancedSearchResult but not directly assignable
-          enhancedResults = results.map((r) => ({
-            ...r,
-            name: r.id,
-            description: "",
-          })) as unknown as EnhancedSearchResult[];
+          // Use results as-is, ensuring they have the required shape.
+          // Object.assign merges TResult (which may lack the index signature) into
+          // a plain EnhancedSearchResult-compatible object, avoiding unsafe casts.
+          enhancedResults = results.map((r): EnhancedSearchResult => {
+            const base: EnhancedSearchResult = {
+              id: r.id,
+              score: r.score,
+              name: r.id,
+              description: "",
+            };
+            return Object.assign(base, r);
+          });
         }
 
         return {

@@ -84,8 +84,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @returns JSON-serializable object
    */
   formatJson(data: T, context: CommandExecutionContext): object {
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- generic T needs bridge to object for JSON serialization
-    return data as unknown as object;
+    return data as object;
   }
 }
 
