@@ -14,8 +14,7 @@ interface OperationTiming {
   operation: string;
   duration: number;
   success: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
-  details?: any;
+  details?: unknown;
 }
 
 class TaskOperationProfiler {
@@ -28,8 +27,7 @@ class TaskOperationProfiler {
     const start = performance.now();
     let success = false;
     let result: T;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
-    let error: any;
+    let error: unknown;
 
     try {
       result = await operation();
@@ -43,13 +41,13 @@ class TaskOperationProfiler {
         operation: name,
         duration,
         success,
-        details: error ? { error: error.message } : undefined,
+        details: error ? { error: (error as Error).message } : undefined,
       };
       this.timings.push(timing);
 
       console.log(`⏱️  ${name}: ${duration.toFixed(2)}ms ${success ? "✅" : "❌"}`);
       if (error) {
-        console.log(`   Error: ${error.message}`);
+        console.log(`   Error: ${(error as Error).message}`);
       }
     }
 

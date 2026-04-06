@@ -6,7 +6,10 @@
  * it's not recognizing the Morph provider.
  */
 
-import { DefaultAIConfigurationService } from "../src/domain/ai/config-service";
+import {
+  DefaultAIConfigurationService,
+  type AnyConfigService,
+} from "../src/domain/ai/config-service";
 import {
   CustomConfigFactory,
   initializeConfiguration,
@@ -30,8 +33,7 @@ async function debugAIConfig(): Promise<void> {
     // Create AI config service
     const configService = new DefaultAIConfigurationService({
       loadConfiguration: (_workingDir: string) => Promise.resolve({ resolved: config }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
-    } as any);
+    } as AnyConfigService);
 
     // Test getProviderConfig for Morph
     console.log("\n🔍 Testing getProviderConfig('morph')...");

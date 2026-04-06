@@ -11,8 +11,12 @@
 import { existsSync } from "fs";
 import { readdir, stat as fsStat } from "fs/promises";
 import { join } from "path";
-import { createSessionProvider, type SessionRecord } from "../src/domain/session";
-import { createGitService } from "../src/domain/git";
+import {
+  createSessionProvider,
+  type SessionRecord,
+  type SessionProviderInterface,
+} from "../src/domain/session";
+import { createGitService, type GitServiceInterface } from "../src/domain/git";
 import { log } from "../src/utils/logger";
 
 interface TasklessSession {
@@ -128,8 +132,7 @@ async function migrateTasklessSessions(
 async function analyzeSession(
   sessionRecord: SessionRecord,
   workdir: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
-  gitService: any
+  gitService: GitServiceInterface
 ): Promise<TasklessSession> {
   let hasUnmergedWork = false;
   let hasLocalChanges = false;
@@ -290,8 +293,10 @@ async function displayMigrationReport(report: MigrationReport): Promise<void> {
 /**
  * Perform actual cleanup of safe-to-delete sessions
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- diagnostic script, not production code
-async function performCleanup(sessionsToDelete: TasklessSession[], sessionDB: any): Promise<void> {
+async function performCleanup(
+  sessionsToDelete: TasklessSession[],
+  sessionDB: SessionProviderInterface
+): Promise<void> {
   log.cli(`\n🧹 Cleaning up ${sessionsToDelete.length} empty sessions...`);
 
   for (const session of sessionsToDelete) {
