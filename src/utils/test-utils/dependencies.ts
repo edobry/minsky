@@ -21,12 +21,7 @@ const _TEST_VALUE = 123;
 import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
-import type {
-  TaskServiceInterface,
-  Task,
-  TaskListOptions,
-  CreateTaskOptions,
-} from "../../domain/tasks";
+import type { TaskServiceInterface } from "../../domain/tasks";
 import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
@@ -607,87 +602,4 @@ export function createMockGitService(
   };
 
   return mockGitServiceWithCount;
-}
-
-/**
- * Extended TaskServiceInterface mock with internal test utilities.
- * Tests that need to inspect backend configuration can use these properties
- * without casting to any.
- */
-export interface MockTaskServiceWithInternals extends TaskServiceInterface {
-  backends: string[];
-  currentBackend: string;
-}
-
-/**
- * Options for configuring TaskServiceInterface mock behavior
- */
-export interface MockTaskServiceOptions {
-  getTask?: (taskId: string) => Promise<Task | null>;
-  backends?: string[];
-  currentBackend?: string;
-  listTasks?: (options?: TaskListOptions) => Promise<Task[]>;
-  getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-  setTaskStatus?: (taskId: string, status: string) => Promise<void>;
-  createTask?: (specPath: string, options?: CreateTaskOptions) => Promise<Task>;
-  deleteTask?: (taskId: string) => Promise<boolean>;
-  getWorkspacePath?: () => string;
-  createTaskFromTitleAndSpec?: (
-    title: string,
-    spec: string,
-    options?: CreateTaskOptions
-  ) => Promise<Task>;
-  getBackendForTask?: (taskId: string) => Promise<string>;
-}
-
-/**
- * Creates a mock TaskServiceInterface with standard implementations
- * Provides consistent task data responses and supports task state management
- *
- * @param options Configuration options for mock behavior
- * @returns A complete mock TaskServiceInterface with optional internal utility properties
- */
-export function createMockTaskService(
-  options: MockTaskServiceOptions = {}
-): MockTaskServiceWithInternals {
-  const mockTaskService = createPartialMock<TaskServiceInterface>({
-    getTask: options.getTask || (() => Promise.resolve(null)),
-
-    listTasks: options.listTasks || (() => Promise.resolve([])),
-
-    getTaskStatus: options.getTaskStatus || (() => Promise.resolve(undefined)),
-
-    setTaskStatus: options.setTaskStatus || (() => Promise.resolve()),
-
-    createTask:
-      options.createTask ||
-      ((_specPath: string, _options?: CreateTaskOptions) =>
-        Promise.resolve({
-          id: "#test",
-          title: "Test Task",
-          status: "TODO",
-        })),
-
-    deleteTask: options.deleteTask || (() => Promise.resolve(false)),
-
-    getWorkspacePath: options.getWorkspacePath || (() => "/mock/workspace/path"),
-
-    getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
-
-    createTaskFromTitleAndSpec:
-      options.createTaskFromTitleAndSpec ||
-      ((title: string, spec: string, options?: CreateTaskOptions) =>
-        Promise.resolve({
-          id: "#test-from-title",
-          title: "Test Task",
-          status: "TODO",
-        })),
-  });
-
-  // Add internal utility properties (available via MockTaskServiceWithInternals interface)
-  const mockTaskServiceWithInternals = mockTaskService as MockTaskServiceWithInternals;
-  mockTaskServiceWithInternals.backends = options.backends || [];
-  mockTaskServiceWithInternals.currentBackend = options.currentBackend || "test";
-
-  return mockTaskServiceWithInternals;
 }

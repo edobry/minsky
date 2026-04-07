@@ -1,11 +1,8 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../utils/test-utils/dependencies";
+import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeTaskService } from "./tasks/fake-task-service";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 // Remove global module mock - use dependency injection instead
@@ -50,18 +47,14 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: createMockGitService({
         execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
       }),
-      taskService: createMockTaskService({
-        setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: (() =>
-          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-        getTask: () =>
-          Promise.resolve({
-            id: TEST_TASK_ID,
-            title: TEST_TASK_TITLE,
-            status: TEST_TASK_STATUS,
-            createdAt: new Date().toISOString(),
-          }),
-      }),
+      taskService: (() => {
+        const svc = new FakeTaskService({
+          initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+        });
+        svc.getBackendForTask = (() =>
+          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+        return svc;
+      })(),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
@@ -106,18 +99,14 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: createMockGitService({
         execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
       }),
-      taskService: createMockTaskService({
-        setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: (() =>
-          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-        getTask: () =>
-          Promise.resolve({
-            id: TEST_TASK_ID,
-            title: TEST_TASK_TITLE,
-            status: TEST_TASK_STATUS,
-            createdAt: new Date().toISOString(),
-          }),
-      }),
+      taskService: (() => {
+        const svc = new FakeTaskService({
+          initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+        });
+        svc.getBackendForTask = (() =>
+          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+        return svc;
+      })(),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
@@ -163,18 +152,14 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: createMockGitService({
         execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
       }),
-      taskService: createMockTaskService({
-        setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: (() =>
-          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-        getTask: () =>
-          Promise.resolve({
-            id: TEST_TASK_ID,
-            title: TEST_TASK_TITLE,
-            status: TEST_TASK_STATUS,
-            createdAt: new Date().toISOString(),
-          }),
-      }),
+      taskService: (() => {
+        const svc = new FakeTaskService({
+          initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+        });
+        svc.getBackendForTask = (() =>
+          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+        return svc;
+      })(),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,

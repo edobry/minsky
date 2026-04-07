@@ -16,7 +16,6 @@ import {
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskServiceInterface } from "./taskService";
-import { createMockTaskService } from "../../utils/test-utils/dependencies";
 import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
 
 import path from "path";

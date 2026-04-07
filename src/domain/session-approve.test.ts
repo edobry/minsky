@@ -3,11 +3,7 @@ import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../utils/test-utils/dependencies";
+import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { SessionProviderInterface } from "./session";

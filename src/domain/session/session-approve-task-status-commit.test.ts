@@ -17,13 +17,10 @@ import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT M
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../../utils/test-utils/index";
+import { createMockSessionProvider, createMockGitService } from "../../utils/test-utils/index";
 import { createPartialMock } from "../../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
+import { FakeTaskService } from "../tasks/fake-task-service";
 
 describe("Session Approve Task Status Commit", () => {
   // Mock log functions used by session approve operations
@@ -141,22 +138,14 @@ describe("Session Approve Task Status Commit", () => {
         }),
     });
 
-    const mockTaskService = createMockTaskService({
-      getTask: () =>
-        Promise.resolve({
-          id: QUALIFIED_TASK_ID,
-          title: "Test Task",
-          status: "IN-PROGRESS",
-        }),
-      getTaskStatus: (taskId: string) => {
-        // Task is NOT already DONE, so status update should happen
-        return Promise.resolve("IN-PROGRESS");
-      },
-      setTaskStatus: (taskId: string, status: string) => {
-        // This simulates the task status update that modifies tasks.md
-        return Promise.resolve();
-      },
-    });
+    const mockTaskService = (() => {
+      const svc = new FakeTaskService({
+        initialTasks: [{ id: QUALIFIED_TASK_ID, title: "Test Task", status: "IN-PROGRESS" }],
+      });
+      svc.getTaskStatus = (_taskId: string) => Promise.resolve("IN-PROGRESS");
+      svc.setTaskStatus = (_taskId: string, _status: string) => Promise.resolve();
+      return svc;
+    })();
 
     // Mock repository backend to avoid filesystem validation
     const mockRepositoryBackend = {

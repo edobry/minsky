@@ -13,11 +13,8 @@ import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../utils/test-utils/index";
+import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/index";
+import { FakeTaskService } from "./tasks/fake-task-service";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -49,10 +46,8 @@ describe("Session Start Consistency Tests", () => {
       branch: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" }),
     });
 
-    mockTaskService = createMockTaskService({
-      getTask: () => Promise.resolve({ id: "md#160", title: "Test Task", status: "TODO" }),
-      getTaskStatus: () => Promise.resolve("TODO"),
-      setTaskStatus: () => Promise.resolve(),
+    mockTaskService = new FakeTaskService({
+      initialTasks: [{ id: "md#160", title: "Test Task", status: "TODO" }],
     });
 
     mockWorkspaceUtils = {

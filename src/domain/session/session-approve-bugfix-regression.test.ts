@@ -3,7 +3,6 @@ import { approveSessionPr } from "./session-approval-operations";
 import {
   createMockGitService,
   createMockSessionProvider,
-  createMockTaskService,
 } from "../../utils/test-utils/dependencies";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 

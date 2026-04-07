@@ -6,11 +6,8 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "./dependencies";
+import { createMockSessionProvider, createMockGitService } from "./dependencies";
+import { FakeTaskService } from "../../domain/tasks/fake-task-service";
 import type { SessionProviderInterface } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
@@ -158,9 +155,9 @@ describe("Centralized Service Mock Factories", () => {
     });
   });
 
-  describe("createMockTaskService", () => {
-    test("should create a mock TaskService with all required methods", () => {
-      const mockTaskService = createMockTaskService();
+  describe("FakeTaskService", () => {
+    test("should create a FakeTaskService with all required methods", () => {
+      const mockTaskService = new FakeTaskService();
 
       // Verify all interface methods are present
       expect(typeof mockTaskService.listTasks).toBe("function");
@@ -175,7 +172,7 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockTaskService = createMockTaskService();
+      const mockTaskService = new FakeTaskService();
 
       // Test default return values
       const tasks = await mockTaskService.listTasks();
@@ -188,18 +185,18 @@ describe("Centralized Service Mock Factories", () => {
       expect(status).toBeUndefined();
 
       const workspacePath = mockTaskService.getWorkspacePath();
-      expect(workspacePath).toBe("/mock/workspace/path");
+      expect(workspacePath).toBe("/fake/workspace");
 
       const createdTask = await mockTaskService.createTask("test-spec.md");
-      expect(createdTask.id).toBe("#test");
-      expect(createdTask.title).toBe("Test Task");
+      expect(createdTask.id).toMatch(/^#fake-/);
+      expect(createdTask.title).toBe("Fake Task");
       expect(createdTask.status).toBe("TODO");
 
       const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndSpec(
         "Test Title",
         "Test Description"
       );
-      expect(createdTaskFromTitle.title).toBe("Test Task");
+      expect(createdTaskFromTitle.title).toBe("Test Title");
 
       const deleted = await mockTaskService.deleteTask("test");
       expect(deleted).toBe(false);
@@ -208,29 +205,27 @@ describe("Centralized Service Mock Factories", () => {
       expect(backend).toBe("markdown");
     });
 
-    test("should allow method overrides", async () => {
-      const mockTaskService = createMockTaskService({
-        listTasks: () =>
-          Promise.resolve([
-            {
-              id: "#001",
-              title: "Custom Task",
-              status: "IN-PROGRESS",
-              description: "Custom task description",
-              worklog: [],
-            },
-          ]),
-        getTask: () =>
-          Promise.resolve({
+    test("should allow method overrides via reassignment", async () => {
+      const mockTaskService = new FakeTaskService({
+        workspacePath: "/custom/workspace/path",
+      });
+      mockTaskService.listTasks = () =>
+        Promise.resolve([
+          {
             id: "#001",
             title: "Custom Task",
             status: "IN-PROGRESS",
             description: "Custom task description",
-            worklog: [],
-          }),
-        getTaskStatus: () => Promise.resolve("IN-PROGRESS"),
-        getWorkspacePath: () => "/custom/workspace/path",
-      });
+          },
+        ]);
+      mockTaskService.getTask = () =>
+        Promise.resolve({
+          id: "#001",
+          title: "Custom Task",
+          status: "IN-PROGRESS",
+          description: "Custom task description",
+        });
+      mockTaskService.getTaskStatus = () => Promise.resolve("IN-PROGRESS");
 
       const tasks = await mockTaskService.listTasks();
       expect(tasks).toHaveLength(1);

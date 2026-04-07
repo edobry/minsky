@@ -22,8 +22,8 @@ import { ValidationError, MinskyError } from "../../errors";
 import {
   createMockGitService,
   createMockSessionProvider,
-  createMockTaskService,
 } from "../../utils/test-utils/dependencies";
+import { FakeTaskService } from "../tasks/fake-task-service";
 
 /**
  * Session PR Body Validation Bug Fix Tests
@@ -74,13 +74,8 @@ describe("Session PR Body Validation Bug Fix", () => {
         ]),
     });
 
-    const mockTaskService = createMockTaskService({
-      getTask: () =>
-        Promise.resolve({
-          id: "#123",
-          title: "Test Task",
-          status: "TODO",
-        }),
+    const mockTaskService = new FakeTaskService({
+      initialTasks: [{ id: "#123", title: "Test Task", status: "TODO" }],
     });
 
     try {

@@ -34,12 +34,9 @@ export {
   // Individual service mock factories
   createMockSessionProvider,
   createMockGitService,
-  createMockTaskService,
   type MockSessionProviderOptions,
   type MockGitServiceOptions,
   type MockGitServiceWithCallCount,
-  type MockTaskServiceOptions,
-  type MockTaskServiceWithInternals,
 } from "./dependencies";
 
 // Original utilities (avoid conflicts)

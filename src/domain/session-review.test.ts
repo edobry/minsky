@@ -2,11 +2,8 @@ import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../utils/test-utils/dependencies";
+import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeTaskService } from "./tasks/fake-task-service";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
@@ -65,7 +62,7 @@ describe("sessionReviewFromParams", () => {
     const mockTaskService = createPartialMock<
       TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
     >({
-      ...createMockTaskService({}),
+      ...new FakeTaskService(),
       getTaskSpecData: getTaskSpecDataSpy,
     });
 
@@ -155,7 +152,7 @@ describe("sessionReviewFromParams", () => {
     const mockTaskService = createPartialMock<
       TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
     >({
-      ...createMockTaskService({}),
+      ...new FakeTaskService(),
       getTaskSpecData: mock(() =>
         Promise.resolve({ title: "Test Task", description: "Test description" })
       ),
@@ -195,7 +192,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     const mockGitService = createMockGitService({});
-    const mockTaskService = createMockTaskService({});
+    const mockTaskService = new FakeTaskService();
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isSessionWorkspace: () => false,
@@ -229,7 +226,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     const mockGitService = createMockGitService({});
-    const mockTaskService = createMockTaskService({});
+    const mockTaskService = new FakeTaskService();
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isSessionWorkspace: () => false,
