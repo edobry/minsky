@@ -29,6 +29,7 @@ import {
   type RepositoryBackendConfig,
 } from "../repository/index";
 import type { SessionRecord } from "./types";
+import { assertSessionMutable } from "./session-mutability";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -171,6 +172,12 @@ export async function sessionPrImpl(
         ? "Session parameter is required for MCP interface. Please provide session ID or task ID."
         : "Could not determine session ID from current directory or parameters";
     throw new MinskyError(errorMessage);
+  }
+
+  // STEP 3.5: Enforce merged-PR-freeze invariant
+  const existingRecordForFreeze = await deps.sessionDB.getSession(sessionId);
+  if (existingRecordForFreeze) {
+    assertSessionMutable(existingRecordForFreeze, "create a pull request");
   }
 
   // STEP 4: Check for uncommitted changes

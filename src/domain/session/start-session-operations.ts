@@ -189,8 +189,18 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       });
 
       if (taskSession) {
+        if (taskSession.prState?.mergedAt) {
+          throw new MinskyError(
+            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
+              `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
+              `delete the old one first:\n\n` +
+              `  minsky session delete ${taskSession.session}\n` +
+              `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+          );
+        }
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} already exists: '${taskSession.session}'`
+          `A session for task ${formatTaskIdForDisplay(taskId)} already exists ("${taskSession.session}"). ` +
+            `Use the existing session, or delete it before starting a new one.`
         );
       }
     }

@@ -17,6 +17,7 @@ import { ConflictDetectionService } from "../git/conflict-detection";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { gitFetchWithTimeout } from "../../utils/git-exec";
+import { assertSessionMutable } from "./session-mutability";
 import { type WorkspaceUtilsInterface } from "../workspace";
 
 export interface UpdateSessionDependencies {
@@ -145,6 +146,9 @@ export async function updateSessionImpl(
     }
 
     log.debug("Session record found", { sessionRecord });
+
+    // Enforce merged-PR-freeze invariant
+    assertSessionMutable(sessionRecord, "update the session");
 
     // Get session workdir
     const workdir = await deps.sessionDB.getSessionWorkdir(sessionId);
