@@ -1,21 +1,23 @@
 /**
- * Shared Session Commands (Simple Direct Registration)
+ * Session Command Registration
  *
- * This module provides a simple direct approach to registering session commands
- * in the shared command registry, avoiding the complex circular dependency issues.
+ * Builds the session command registry from the modular command components
+ * in ./session/ and registers them in the shared command registry.
  */
-
-import type { SessionCommandDependencies } from "./session/index";
-import { registerSessionCommands as registerModularSessionCommands } from "./session-modular";
+import { setupSessionCommandRegistry, type SessionCommandDependencies } from "./session/";
+import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
- * Register session commands directly in the shared command registry
- * This bypasses the complex modular architecture to solve the registration issue
+ * Register all session commands (including changeset aliases) in the shared command registry.
  */
 export async function registerSessionCommands(deps?: SessionCommandDependencies): Promise<void> {
-  await registerModularSessionCommands(deps);
+  const registry = await setupSessionCommandRegistry(deps);
+  for (const { registrationData } of registry.getAllCommands()) {
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- registrationData shape matches CommandDefinition
+    sharedCommandRegistry.registerCommand(registrationData as unknown as CommandDefinition);
+  }
 
-  // Register changeset aliases
+  // Register changeset aliases (session.changeset.* commands)
   const { registerSessionChangesetCommands } = await import("./session/changeset-aliases");
   registerSessionChangesetCommands();
 }
