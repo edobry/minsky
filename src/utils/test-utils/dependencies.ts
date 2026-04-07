@@ -1,5 +1,3 @@
-const _TEST_VALUE = 123;
-
 /**
  * Test composition helpers built on per-domain `FakeX` classes.
  *
@@ -12,7 +10,7 @@ const _TEST_VALUE = 123;
  * `createDeepTestDeps`, `createPartialTestDeps`).
  */
 import { createPartialMock } from "./mocking";
-import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
+import type { SessionProviderInterface } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
