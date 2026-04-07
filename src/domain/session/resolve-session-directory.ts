@@ -6,7 +6,7 @@
  * See mt#562 for background on the bugs caused by inconsistent implementations.
  */
 
-import { getSharedSessionProvider, _resetSharedSessionProvider } from "./session-provider-cache";
+import { getSharedSessionProvider, _setProviderForTesting } from "./session-provider-cache";
 import { log } from "../../utils/logger";
 
 /**
@@ -43,5 +43,5 @@ export async function resolveSessionDirectory(sessionId: string): Promise<string
  * @internal
  */
 export function _resetCachedProvider(): void {
-  _resetSharedSessionProvider();
+  _setProviderForTesting(null);
 }

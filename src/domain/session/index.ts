@@ -32,7 +32,7 @@ export {
 export { resolveSessionDirectory, _resetCachedProvider } from "./resolve-session-directory";
 
 // Export shared session provider cache
-export { getSharedSessionProvider, _resetSharedSessionProvider } from "./session-provider-cache";
+export { getSharedSessionProvider } from "./session-provider-cache";
 
 // Export I/O functions and types from session-db-io
 export {
