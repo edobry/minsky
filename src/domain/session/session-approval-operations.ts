@@ -16,6 +16,7 @@ import {
   type RepositoryBackendConfig,
 } from "../repository/index";
 import type { SessionRecord } from "./types";
+import { assertSessionMutable } from "./session-mutability";
 import type { ApprovalInfo } from "../repository/approval-types";
 import type { GitServiceInterface } from "../git/types";
 import type { TaskServiceInterface } from "../tasks/taskService";
@@ -159,6 +160,9 @@ export async function approveSessionPr(
       sessionIdToUse
     );
   }
+
+  // Enforce merged-PR-freeze invariant
+  assertSessionMutable(sessionRecord, "approve a pull request");
 
   // Validate session has a PR (either local prBranch or GitHub pullRequest)
   const hasLocalPr = sessionRecord.prBranch;

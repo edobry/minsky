@@ -165,6 +165,15 @@ export async function sessionCommit(params: {
     message: params.message,
   });
 
+  // Enforce merged-PR-freeze invariant
+  const { createSessionProvider } = await import("./session-db-adapter.js");
+  const { assertSessionMutable } = await import("./session-mutability.js");
+  const sessionDBForFreeze = await createSessionProvider();
+  const sessionRecordForFreeze = await sessionDBForFreeze.getSession(params.session);
+  if (sessionRecordForFreeze) {
+    assertSessionMutable(sessionRecordForFreeze, "commit changes");
+  }
+
   const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
 
   try {
