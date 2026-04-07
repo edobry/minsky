@@ -3,13 +3,9 @@
  *
  * Command for detecting merge conflicts within session workspaces.
  */
-import {
-  BaseSessionCommand,
-  type BaseSessionCommandParams,
-  type SessionCommandDependencies,
-} from "./base-session-command";
-import { type CommandExecutionContext } from "../../command-registry";
 import { z } from "zod";
+import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { type SessionCommandDependencies, withErrorLogging } from "./types";
 import {
   scanSessionConflicts,
   formatSessionConflictResults,
@@ -48,69 +44,34 @@ export const sessionConflictsCommandParams = {
   },
 };
 
-/**
- * Parameters for session conflicts command
- */
-interface SessionConflictsParams extends BaseSessionCommandParams {
-  format?: "json" | "text";
-  context?: number;
-  files?: string;
-}
+export function createSessionConflictsCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.conflicts",
+    category: CommandCategory.SESSION,
+    name: "conflicts",
+    description: "Detect and report merge conflicts in session workspace",
+    parameters: sessionConflictsCommandParams,
+    execute: withErrorLogging("session.conflicts", async (params: Record<string, unknown>) => {
+      const sessionParams = {
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+      };
 
-/**
- * Session Conflicts Command
- */
-export class SessionConflictsCommand extends BaseSessionCommand<
-  SessionConflictsParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.conflicts";
-  }
+      const options = {
+        format: (params.format as "json" | "text" | undefined) || "json",
+        context: (params.context as number | undefined) || 3,
+        files: params.files as string | undefined,
+      };
 
-  getCommandName(): string {
-    return "conflicts";
-  }
+      const result = await scanSessionConflicts(sessionParams, options);
+      const formattedOutput = formatSessionConflictResults(result, options.format);
 
-  getCommandDescription(): string {
-    return "Detect and report merge conflicts in session workspace";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionConflictsCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionConflictsParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const sessionParams = {
-      name: params.name,
-      task: params.task,
-    };
-
-    const options = {
-      format: params.format || "json",
-      context: params.context || 3,
-      files: params.files,
-    };
-
-    const result = await scanSessionConflicts(sessionParams, options);
-    const formattedOutput = formatSessionConflictResults(result, options.format);
-
-    return this.createSuccessResult({
-      data: formattedOutput,
-      conflicts: result.conflicts,
-      summary: result.summary,
-    });
-  }
-}
-
-/**
- * Factory function for creating the session conflicts command
- */
-export function createSessionConflictsCommand(
-  deps?: SessionCommandDependencies
-): SessionConflictsCommand {
-  return new SessionConflictsCommand(deps);
+      return {
+        success: true,
+        data: formattedOutput,
+        conflicts: result.conflicts,
+        summary: result.summary,
+      };
+    }),
+  };
 }

@@ -1,19 +1,12 @@
 /**
  * Session Workflow Commands
  *
- * Commands for session workflow operations (approve, pr, inspect).
- * Extracted from session.ts as part of modularization effort.
- *
- * Replaced single "session pr" with subcommands (create, list, get)
+ * Factories for session workflow operations: commit, approve, inspect,
+ * review, pr.approve, pr.merge. PR create/edit/list/get/open factories
+ * live in their own files and are re-exported here for convenience.
  */
-import { z } from "zod";
-import {
-  BaseSessionCommand,
-  type BaseSessionCommandParams,
-  type SessionCommandDependencies,
-} from "./base-session-command";
-import { type CommandExecutionContext } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { type SessionCommandDependencies, withErrorLogging } from "./types";
 import {
   sessionApproveCommandParams,
   sessionInspectCommandParams,
@@ -22,569 +15,354 @@ import {
 import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 
-// Import the new PR subcommand classes
-import {
-  SessionPrCreateCommand,
-  SessionPrEditCommand,
-  SessionPrListCommand,
-  SessionPrGetCommand,
-  SessionPrOpenCommand,
-} from "./pr-subcommand-commands";
+// Re-export PR subcommand factories so consumers can import the full set
+// from workflow-commands.
+export { createSessionPrCreateCommand } from "./pr-create-command";
+export { createSessionPrEditCommand } from "./pr-edit-command";
+export { createSessionPrListCommand } from "./pr-list-command";
+export { createSessionPrGetCommand } from "./pr-get-command";
+export { createSessionPrOpenCommand } from "./pr-open-command";
 
-/**
- * Parameters for session commit command
- */
-interface SessionCommitParams extends BaseSessionCommandParams {
-  sessionId?: string;
-  message?: string;
-  all?: boolean;
-  amend?: boolean;
-  noStage?: boolean;
-  oneline?: boolean;
-  noFiles?: boolean;
+export function createSessionCommitCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.commit",
+    category: CommandCategory.SESSION,
+    name: "commit",
+    description: "Commit and push changes within a session workspace",
+    parameters: sessionCommitCommandParams,
+    execute: withErrorLogging("session.commit", async (params: Record<string, unknown>) => {
+      const { sessionCommit } = await import("../../../../domain/session/session-commands");
+
+      const result = await sessionCommit({
+        session: (params.sessionId as string | undefined) ?? "",
+        message: (params.message as string | undefined) ?? "",
+        all: params.all as boolean | undefined,
+        amend: params.amend as boolean | undefined,
+        noStage: params.noStage as boolean | undefined,
+      });
+
+      return {
+        success: result.success,
+        sessionId: params.sessionId,
+        commitHash: result.commitHash,
+        shortHash: result.shortHash,
+        subject: result.subject,
+        branch: result.branch,
+        authorName: result.authorName,
+        authorEmail: result.authorEmail,
+        timestamp: result.timestamp,
+        message: result.message,
+        filesChanged: result.filesChanged,
+        insertions: result.insertions,
+        deletions: result.deletions,
+        files: result.files,
+        pushed: result.pushed,
+        oneline: params.oneline === true,
+        noFiles: params.noFiles === true,
+      };
+    }),
+  };
+}
+
+export function createSessionApproveCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.approve",
+    category: CommandCategory.SESSION,
+    name: "approve",
+    description: "Approve a session pull request",
+    parameters: sessionApproveCommandParams,
+    execute: withErrorLogging("session.approve", async (params: Record<string, unknown>) => {
+      const { approveSessionFromParams } = await import("../../../../domain/session");
+
+      const result = await approveSessionFromParams({
+        session: params.name as string | undefined,
+        task: params.task as string | undefined,
+        repo: params.repo as string | undefined,
+        json: params.json as boolean | undefined,
+      });
+
+      return { success: true, result };
+    }),
+  };
+}
+
+export function createSessionInspectCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.inspect",
+    category: CommandCategory.SESSION,
+    name: "inspect",
+    description: "Inspect the current session (auto-detected from workspace)",
+    parameters: sessionInspectCommandParams,
+    execute: withErrorLogging("session.inspect", async (params: Record<string, unknown>) => {
+      const { inspectSessionFromParams } = await import("../../../../domain/session");
+
+      const result = await inspectSessionFromParams({
+        json: params.json as boolean | undefined,
+      });
+
+      return { success: true, ...(result ?? {}) };
+    }),
+  };
 }
 
 /**
- * Parameters for session approve command
+ * Format an AI review result as a human-readable comment.
  */
-interface SessionApproveParams extends BaseSessionCommandParams {
-  comment?: string;
-  reviewComment?: string;
-}
+function formatAIReviewComment(aiResult: AIReviewResult): string {
+  const sections: string[] = [];
 
-/**
- * Parameters for session inspect command
- */
-interface SessionInspectParams extends BaseSessionCommandParams {}
+  sections.push(`## 🤖 AI Code Review`);
+  sections.push(`**Overall Score:** ${aiResult.overall.score}/10`);
+  sections.push(
+    `**Recommendation:** ${aiResult.overall.recommendation.replace("_", " ").toUpperCase()}`
+  );
+  sections.push(`**Focus Area:** ${aiResult.metadata.focus}`);
+  sections.push("");
+  sections.push(`### Summary`);
+  sections.push(aiResult.overall.summary);
 
-/**
- * Parameters for session review command
- */
-interface SessionReviewParams extends BaseSessionCommandParams {
-  session?: string;
-  output?: string;
-  prBranch?: string;
-  ai?: boolean;
-  model?: string;
-  provider?: string;
-  focus?: string;
-  detailed?: boolean;
-  includeTaskSpec?: boolean;
-  includeHistory?: boolean;
-  temperature?: number;
-  maxTokens?: number;
-  autoComment?: boolean;
-  autoApprove?: boolean;
-}
-
-/**
- * Parameters for session PR merge command
- */
-interface SessionPrMergeParams extends BaseSessionCommandParams {
-  skipCleanup?: boolean;
-}
-
-/**
- * Session Commit Command
- *
- * Commits and pushes changes within a session workspace
- */
-export class SessionCommitCommand extends BaseSessionCommand<
-  SessionCommitParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.commit";
-  }
-
-  getCommandName(): string {
-    return "commit";
-  }
-
-  getCommandDescription(): string {
-    return "Commit and push changes within a session workspace";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionCommitCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionCommitParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { sessionCommit } = await import("../../../../domain/session/session-commands");
-
-    const result = await sessionCommit({
-      session: params.sessionId ?? "",
-      message: params.message ?? "",
-      all: params.all,
-      amend: params.amend,
-      noStage: params.noStage,
-    });
-
-    return this.createSuccessResult({
-      success: result.success,
-      sessionId: params.sessionId,
-      commitHash: result.commitHash,
-      shortHash: result.shortHash,
-      subject: result.subject,
-      branch: result.branch,
-      authorName: result.authorName,
-      authorEmail: result.authorEmail,
-      timestamp: result.timestamp,
-      message: result.message,
-      filesChanged: result.filesChanged,
-      insertions: result.insertions,
-      deletions: result.deletions,
-      files: result.files,
-      pushed: result.pushed,
-      oneline: params.oneline === true,
-      noFiles: params.noFiles === true,
+  if (aiResult.suggestions && aiResult.suggestions.length > 0) {
+    sections.push("");
+    sections.push(`### Key Suggestions`);
+    aiResult.suggestions.slice(0, 5).forEach((suggestion: string, i: number) => {
+      sections.push(`${i + 1}. ${suggestion}`);
     });
   }
-}
 
-/**
- * Session Approve Command
- */
-export class SessionApproveCommand extends BaseSessionCommand<
-  SessionApproveParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.approve";
-  }
-
-  getCommandName(): string {
-    return "approve";
-  }
-
-  getCommandDescription(): string {
-    return "Approve a session pull request";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionApproveCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionApproveParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { approveSessionFromParams } = await import("../../../../domain/session");
-
-    const result = await approveSessionFromParams({
-      session: params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
+  if (aiResult.fileReviews && aiResult.fileReviews.length > 0) {
+    sections.push("");
+    sections.push(`### File Reviews`);
+    aiResult.fileReviews.slice(0, 3).forEach((file) => {
+      sections.push(`- **${file.path}**: Score ${file.score}/10`);
     });
-
-    return this.createSuccessResult({ result });
   }
+
+  sections.push("");
+  sections.push(
+    `*Generated by ${aiResult.metadata.model} in ${aiResult.metadata.analysisTimeMs}ms*`
+  );
+
+  return sections.join("\n");
 }
 
 /**
- * Session Inspect Command
+ * Add the AI review as a changeset comment. Failures are logged but do not
+ * abort the review.
  */
-export class SessionInspectCommand extends BaseSessionCommand<
-  SessionInspectParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.inspect";
-  }
+async function handleAutoComment(
+  reviewResult: {
+    changeset?: {
+      id: string;
+      metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
+    };
+  },
+  aiResult: AIReviewResult
+): Promise<void> {
+  const changeset = reviewResult.changeset;
+  if (!changeset) return;
 
-  getCommandName(): string {
-    return "inspect";
-  }
-
-  getCommandDescription(): string {
-    return "Inspect the current session (auto-detected from workspace)";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionInspectCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionInspectParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { inspectSessionFromParams } = await import("../../../../domain/session");
-
-    const result = await inspectSessionFromParams({
-      json: params.json,
-    });
-
-    return this.createSuccessResult(result ?? {});
-  }
-}
-
-/**
- * Session Review Command
- */
-export class SessionReviewCommand extends BaseSessionCommand<
-  SessionReviewParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.review";
-  }
-
-  getCommandName(): string {
-    return "review";
-  }
-
-  getCommandDescription(): string {
-    return "Review a session PR by gathering and displaying relevant information";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionReviewCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionReviewParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { sessionReviewImpl } = await import(
-      "../../../../domain/session/session-review-operations"
+  try {
+    const { createChangesetService } = await import(
+      "../../../../domain/changeset/changeset-service"
     );
-    const { createGitService } = await import("../../../../domain/git");
-    const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-    const { getCurrentSession, createWorkspaceUtils } = await import(
-      "../../../../domain/workspace"
+    const changesetService = await createChangesetService(
+      changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
 
-    // Get basic session review data (with changeset integration)
-    const reviewResult = await sessionReviewImpl(
-      {
-        session: params.session || params.name,
-        task: params.task,
-        repo: params.repo,
-        json: params.json,
-        output: params.output,
-        prBranch: params.prBranch,
-      },
-      await (async () => {
-        const sessionDB = this.deps.sessionProvider!;
-        const { execAsync } = await import("../../../../utils/exec");
-        return {
-          sessionDB,
-          gitService: createGitService(),
-          taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
-          workspaceUtils: createWorkspaceUtils(sessionDB),
-          getCurrentSession: async (repoPath: string) =>
-            getCurrentSession(repoPath, execAsync, sessionDB),
-        };
-      })()
+    const commentText = formatAIReviewComment(aiResult);
+    await changesetService.approve(changeset.id, commentText);
+  } catch (error) {
+    const { log } = await import("../../../../utils/logger");
+    log.warn("Failed to auto-comment AI review:", { error });
+  }
+}
+
+/**
+ * Approve the changeset when the AI score is high enough.
+ */
+async function handleAutoApprove(
+  reviewResult: {
+    changeset?: {
+      id: string;
+      metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
+    };
+  },
+  aiResult: AIReviewResult
+): Promise<void> {
+  const changeset = reviewResult.changeset;
+  if (!changeset || aiResult.overall.score < 8) return;
+
+  try {
+    const { createChangesetService } = await import(
+      "../../../../domain/changeset/changeset-service"
+    );
+    const changesetService = await createChangesetService(
+      changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
 
-    // If AI analysis is requested, enhance with AI review
-    if (params.ai && reviewResult.changeset) {
-      try {
-        // Import AI services
-        const { AIReviewService } = await import("../../../../domain/ai/review-service");
-        const { DefaultAICompletionService } = await import(
-          "../../../../domain/ai/completion-service"
-        );
-        const { getConfiguration } = await import("../../../../domain/configuration");
+    const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
+    await changesetService.approve(changeset.id, approvalText);
+  } catch (error) {
+    const { log } = await import("../../../../utils/logger");
+    log.warn("Failed to auto-approve changeset:", { error });
+  }
+}
 
-        // Create AI completion service
-        const configService: {
-          loadConfiguration: () => Promise<{ resolved: ReturnType<typeof getConfiguration> }>;
-        } = {
-          loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
-        };
-        const aiService = new DefaultAICompletionService(configService);
-        const reviewService = new AIReviewService(aiService);
+export function createSessionReviewCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.review",
+    category: CommandCategory.SESSION,
+    name: "review",
+    description: "Review a session PR by gathering and displaying relevant information",
+    parameters: sessionReviewCommandParams,
+    execute: withErrorLogging("session.review", async (params: Record<string, unknown>) => {
+      const { sessionReviewImpl } = await import(
+        "../../../../domain/session/session-review-operations"
+      );
+      const { createGitService } = await import("../../../../domain/git");
+      const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+      const { getCurrentSession, createWorkspaceUtils } = await import(
+        "../../../../domain/workspace"
+      );
 
-        // Perform AI analysis
-        const aiReviewResult = await reviewService.reviewChangeset(reviewResult.changeset, {
-          model: params.model,
-          provider: params.provider,
-          focus: (params.focus || "general") as
-            | "style"
-            | "security"
-            | "performance"
-            | "logic"
-            | "testing"
-            | "general",
-          detailed: params.detailed || false,
-          includeTaskSpec: params.includeTaskSpec || false,
-          includeHistory: params.includeHistory || false,
-          temperature: params.temperature,
-          maxTokens: params.maxTokens,
-        });
+      const sessionDB = deps.sessionProvider;
 
-        // Handle AI actions if requested
-        if (params.autoComment && aiReviewResult.overall.recommendation !== "approve") {
-          await this.handleAutoComment(reviewResult, aiReviewResult);
+      const reviewResult = await sessionReviewImpl(
+        {
+          session: (params.session as string | undefined) || (params.name as string | undefined),
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+          output: params.output as string | undefined,
+          prBranch: params.prBranch as string | undefined,
+        },
+        await (async () => {
+          const { execAsync } = await import("../../../../utils/exec");
+          return {
+            sessionDB,
+            gitService: createGitService(),
+            taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
+            workspaceUtils: createWorkspaceUtils(sessionDB),
+            getCurrentSession: async (repoPath: string) =>
+              getCurrentSession(repoPath, execAsync, sessionDB),
+          };
+        })()
+      );
+
+      if (params.ai && reviewResult.changeset) {
+        try {
+          const { AIReviewService } = await import("../../../../domain/ai/review-service");
+          const { DefaultAICompletionService } = await import(
+            "../../../../domain/ai/completion-service"
+          );
+          const { getConfiguration } = await import("../../../../domain/configuration");
+
+          const configService: {
+            loadConfiguration: () => Promise<{ resolved: ReturnType<typeof getConfiguration> }>;
+          } = {
+            loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+          };
+          const aiService = new DefaultAICompletionService(configService);
+          const reviewService = new AIReviewService(aiService);
+
+          const aiReviewResult = await reviewService.reviewChangeset(reviewResult.changeset, {
+            model: params.model as string | undefined,
+            provider: params.provider as string | undefined,
+            focus: ((params.focus as string | undefined) || "general") as
+              | "style"
+              | "security"
+              | "performance"
+              | "logic"
+              | "testing"
+              | "general",
+            detailed: (params.detailed as boolean | undefined) || false,
+            includeTaskSpec: (params.includeTaskSpec as boolean | undefined) || false,
+            includeHistory: (params.includeHistory as boolean | undefined) || false,
+            temperature: params.temperature as number | undefined,
+            maxTokens: params.maxTokens as number | undefined,
+          });
+
+          if (params.autoComment && aiReviewResult.overall.recommendation !== "approve") {
+            await handleAutoComment(reviewResult, aiReviewResult);
+          }
+
+          if (params.autoApprove && aiReviewResult.overall.score >= 8) {
+            await handleAutoApprove(reviewResult, aiReviewResult);
+          }
+
+          return {
+            success: true,
+            ...reviewResult,
+            aiAnalysis: aiReviewResult,
+            enhancedWithAI: true,
+          };
+        } catch (aiError) {
+          const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
+          return {
+            success: true,
+            ...reviewResult,
+            aiAnalysis: null,
+            aiError: `AI analysis failed: ${errorMessage}`,
+            enhancedWithAI: false,
+          };
         }
-
-        if (params.autoApprove && aiReviewResult.overall.score >= 8) {
-          await this.handleAutoApprove(reviewResult, aiReviewResult);
-        }
-
-        // Return enhanced result with AI analysis
-        return this.createSuccessResult({
-          ...reviewResult,
-          aiAnalysis: aiReviewResult,
-          enhancedWithAI: true,
-        });
-      } catch (aiError) {
-        // If AI analysis fails, return basic result with error info
-        const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
-        return this.createSuccessResult({
-          ...reviewResult,
-          aiAnalysis: null,
-          aiError: `AI analysis failed: ${errorMessage}`,
-          enhancedWithAI: false,
-        });
       }
-    }
 
-    // Return basic review result
-    return this.createSuccessResult(reviewResult);
-  }
+      return { success: true, ...reviewResult };
+    }),
+  };
+}
 
-  /**
-   * Handle auto-comment action: add AI review as changeset comment
-   */
-  private async handleAutoComment(
-    reviewResult: {
-      changeset?: {
-        id: string;
-        metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
-      };
-    },
-    aiResult: AIReviewResult
-  ): Promise<void> {
-    const changeset = reviewResult.changeset;
-    if (!changeset) return;
+export function createSessionPrApproveCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.pr.approve",
+    category: CommandCategory.SESSION,
+    name: "approve",
+    description: "Approve a session pull request (does not merge)",
+    parameters: sessionApproveCommandParams,
+    execute: withErrorLogging("session.pr.approve", async (params: Record<string, unknown>) => {
+      const { approveSessionFromParams } = await import("../../../../domain/session");
 
-    try {
-      const { createChangesetService } = await import(
-        "../../../../domain/changeset/changeset-service"
-      );
-      const changesetService = await createChangesetService(
-        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
-      );
-
-      const commentText = this.formatAIReviewComment(aiResult);
-      await changesetService.approve(changeset.id, commentText);
-    } catch (error) {
-      // Log error but don't fail the entire review
-      const { log } = await import("../../../../utils/logger");
-      log.warn("Failed to auto-comment AI review:", { error });
-    }
-  }
-
-  /**
-   * Handle auto-approve action: approve changeset if AI score is high
-   */
-  private async handleAutoApprove(
-    reviewResult: {
-      changeset?: {
-        id: string;
-        metadata?: { github?: { url?: string }; local?: { sessionId?: string } };
-      };
-    },
-    aiResult: AIReviewResult
-  ): Promise<void> {
-    const changeset = reviewResult.changeset;
-    if (!changeset || aiResult.overall.score < 8) return;
-
-    try {
-      const { createChangesetService } = await import(
-        "../../../../domain/changeset/changeset-service"
-      );
-      const changesetService = await createChangesetService(
-        changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
-      );
-
-      const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
-      await changesetService.approve(changeset.id, approvalText);
-    } catch (error) {
-      // Log error but don't fail the entire review
-      const { log } = await import("../../../../utils/logger");
-      log.warn("Failed to auto-approve changeset:", { error });
-    }
-  }
-
-  /**
-   * Format AI review result as a comment
-   */
-  private formatAIReviewComment(aiResult: AIReviewResult): string {
-    const sections: string[] = [];
-
-    sections.push(`## 🤖 AI Code Review`);
-    sections.push(`**Overall Score:** ${aiResult.overall.score}/10`);
-    sections.push(
-      `**Recommendation:** ${aiResult.overall.recommendation.replace("_", " ").toUpperCase()}`
-    );
-    sections.push(`**Focus Area:** ${aiResult.metadata.focus}`);
-    sections.push("");
-    sections.push(`### Summary`);
-    sections.push(aiResult.overall.summary);
-
-    if (aiResult.suggestions && aiResult.suggestions.length > 0) {
-      sections.push("");
-      sections.push(`### Key Suggestions`);
-      aiResult.suggestions.slice(0, 5).forEach((suggestion: string, i: number) => {
-        sections.push(`${i + 1}. ${suggestion}`);
+      const result = await approveSessionFromParams({
+        session: params.name as string | undefined,
+        task: params.task as string | undefined,
+        repo: params.repo as string | undefined,
+        json: params.json as boolean | undefined,
+        reviewComment:
+          (params.comment as string | undefined) || (params.reviewComment as string | undefined),
       });
-    }
 
-    if (aiResult.fileReviews && aiResult.fileReviews.length > 0) {
-      sections.push("");
-      sections.push(`### File Reviews`);
-      aiResult.fileReviews.slice(0, 3).forEach((file) => {
-        sections.push(`- **${file.path}**: Score ${file.score}/10`);
-      });
-    }
-
-    sections.push("");
-    sections.push(
-      `*Generated by ${aiResult.metadata.model} in ${aiResult.metadata.analysisTimeMs}ms*`
-    );
-
-    return sections.join("\n");
-  }
+      return { success: true, result };
+    }),
+  };
 }
 
-/**
- * Session PR Approve Command (Task #358 - New Structure)
- */
-export class SessionPrApproveCommand extends BaseSessionCommand<
-  SessionApproveParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.pr.approve";
-  }
+export function createSessionPrMergeCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.pr.merge",
+    category: CommandCategory.SESSION,
+    name: "merge",
+    description: "Merge an approved session pull request",
+    parameters: sessionApproveCommandParams, // Reuse same params
+    execute: withErrorLogging("session.pr.merge", async (params: Record<string, unknown>) => {
+      const { mergeSessionPr } = await import(
+        "../../../../domain/session/session-merge-operations"
+      );
 
-  getCommandName(): string {
-    return "approve";
-  }
+      const shouldCleanup = params.skipCleanup !== true;
 
-  getCommandDescription(): string {
-    return "Approve a session pull request (does not merge)";
-  }
+      const result = await mergeSessionPr(
+        {
+          session: params.name as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+          cleanupSession: shouldCleanup,
+        },
+        { sessionDB: deps.sessionProvider }
+      );
 
-  getParameterSchema(): Record<string, unknown> {
-    return sessionApproveCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionApproveParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { approveSessionFromParams } = await import("../../../../domain/session");
-
-    const result = await approveSessionFromParams({
-      session: params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
-      reviewComment: params.comment || params.reviewComment,
-    });
-
-    return this.createSuccessResult({ result });
-  }
+      return { success: true, result, printed: true };
+    }),
+  };
 }
-
-/**
- * Session PR Merge Command (Task #358 - New Structure)
- */
-export class SessionPrMergeCommand extends BaseSessionCommand<
-  SessionPrMergeParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.pr.merge";
-  }
-
-  getCommandName(): string {
-    return "merge";
-  }
-
-  getCommandDescription(): string {
-    return "Merge an approved session pull request";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionApproveCommandParams; // Reuse same params for now
-  }
-
-  async executeCommand(
-    params: SessionPrMergeParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
-
-    // Cleanup is enabled by default, but can be disabled with --skip-cleanup
-    const shouldCleanup = params.skipCleanup !== true;
-
-    const result = await mergeSessionPr(
-      {
-        session: params.name,
-        task: params.task,
-        repo: params.repo,
-        json: params.json,
-        cleanupSession: shouldCleanup,
-      },
-      { sessionDB: this.deps.sessionProvider! }
-    );
-
-    return this.createSuccessResult({ result, printed: true });
-  }
-}
-
-// Export the imported PR subcommand classes
-export {
-  SessionPrCreateCommand,
-  SessionPrEditCommand,
-  SessionPrListCommand,
-  SessionPrGetCommand,
-  SessionPrOpenCommand,
-};
-
-/**
- * Factory functions for creating workflow commands
- */
-export const createSessionCommitCommand = (deps?: SessionCommandDependencies) =>
-  new SessionCommitCommand(deps);
-
-export const createSessionApproveCommand = (deps?: SessionCommandDependencies) =>
-  new SessionApproveCommand(deps);
-
-export const createSessionInspectCommand = (deps?: SessionCommandDependencies) =>
-  new SessionInspectCommand(deps);
-
-export const createSessionReviewCommand = (deps?: SessionCommandDependencies) =>
-  new SessionReviewCommand(deps);
-
-export const createSessionPrApproveCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrApproveCommand(deps);
-
-export const createSessionPrMergeCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrMergeCommand(deps);
-
-// Factory functions for PR commands
-export const createSessionPrCreateCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrCreateCommand(deps);
-
-export const createSessionPrEditCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrEditCommand(deps);
-
-export const createSessionPrListCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrListCommand(deps);
-
-export const createSessionPrGetCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrGetCommand(deps);
-
-export const createSessionPrOpenCommand = (deps?: SessionCommandDependencies) =>
-  new SessionPrOpenCommand(deps);
