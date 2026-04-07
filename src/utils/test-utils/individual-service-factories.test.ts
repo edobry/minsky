@@ -1,27 +1,20 @@
 import { describe, test, expect } from "bun:test";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-  type MockSessionProviderOptions,
-  type MockGitServiceOptions,
-  type MockGitServiceWithCallCount,
-  type MockTaskServiceOptions,
-  type MockTaskServiceWithInternals,
-} from "./dependencies";
+import { FakeGitService } from "../../domain/git/fake-git-service";
+import { FakeTaskService } from "../../domain/tasks/fake-task-service";
+import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import type { SessionRecord } from "../../domain/session";
 import type { Task } from "../../domain/tasks";
 import { TEST_DESC_PATTERNS } from "./test-constants";
 
 describe("Individual Service Mock Factories", () => {
-  describe("createMockSessionProvider", () => {
+  describe("FakeSessionProvider", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
-      const mockProvider = createMockSessionProvider();
+      const mockProvider = new FakeSessionProvider();
 
       expect(await mockProvider.listSessions()).toEqual([]);
       expect(await mockProvider.getSession("test")).toBeNull();
       expect(await mockProvider.getSessionByTaskId("123")).toBeNull();
-      expect(await mockProvider.deleteSession("test")).toBe(true);
+      expect(await mockProvider.deleteSession("test")).toBe(false);
       expect(
         await mockProvider.getRepoPath({
           session: "test",
@@ -53,7 +46,7 @@ describe("Individual Service Mock Factories", () => {
         },
       ];
 
-      const mockProvider = createMockSessionProvider({ sessions });
+      const mockProvider = new FakeSessionProvider({ initialSessions: sessions });
 
       expect(await mockProvider.listSessions()).toEqual(sessions);
       expect(await mockProvider.getSession("test-session")).toEqual(sessions[0] ?? null);
@@ -62,18 +55,15 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
-      const customOptions: MockSessionProviderOptions = {
-        getSession: () =>
-          Promise.resolve({
-            session: "custom",
-            repoName: "custom-repo",
-            repoUrl: "https://github.com/custom/repo",
-            createdAt: "2023-01-01T00:00:00Z",
-          }),
-        deleteSession: () => Promise.resolve(false),
-      };
-
-      const mockProvider = createMockSessionProvider(customOptions);
+      const mockProvider = new FakeSessionProvider();
+      mockProvider.getSession = () =>
+        Promise.resolve({
+          session: "custom",
+          repoName: "custom-repo",
+          repoUrl: "https://github.com/custom/repo",
+          createdAt: "2023-01-01T00:00:00Z",
+        });
+      mockProvider.deleteSession = () => Promise.resolve(false);
 
       const result = await mockProvider.getSession("any");
       expect(result?.session).toBe("custom");
@@ -81,14 +71,36 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("supports empty options", async () => {
-      const mockProvider = createMockSessionProvider({});
+      const mockProvider = new FakeSessionProvider({});
+      expect(await mockProvider.listSessions()).toEqual([]);
+    });
+
+    test("maintains state across calls", async () => {
+      const mockProvider = new FakeSessionProvider();
+
+      expect(await mockProvider.listSessions()).toEqual([]);
+
+      const record: SessionRecord = {
+        session: "new-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/repo",
+        createdAt: "2023-01-01T00:00:00Z",
+      };
+      await mockProvider.addSession(record);
+      expect(await mockProvider.listSessions()).toHaveLength(1);
+
+      await mockProvider.updateSession("new-session", { taskId: "md#42" });
+      const updated = await mockProvider.getSession("new-session");
+      expect(updated?.taskId).toBe("md#42");
+
+      expect(await mockProvider.deleteSession("new-session")).toBe(true);
       expect(await mockProvider.listSessions()).toEqual([]);
     });
   });
 
-  describe("createMockGitService", () => {
+  describe("FakeGitService", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
       expect(
         await mockService.clone({
@@ -113,8 +125,8 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("supports branch existence configuration", async () => {
-      const mockServiceExists = createMockGitService({ branchExists: true });
-      const mockServiceNotExists = createMockGitService({ branchExists: false });
+      const mockServiceExists = new FakeGitService({ branchExists: true });
+      const mockServiceNotExists = new FakeGitService({ branchExists: false });
 
       expect(await mockServiceExists.execInRepository("/test", "show-ref pr/123")).toBe(
         "ref-exists"
@@ -129,31 +141,28 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("tracks git call count", async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
+      expect(mockService.callCount).toBe(0);
 
       await mockService.execInRepository("/test", "status");
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(1);
+      expect(mockService.callCount).toBe(1);
 
       await mockService.execInRepository("/test", "log");
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(2);
+      expect(mockService.callCount).toBe(2);
 
-      (mockService as MockGitServiceWithCallCount).resetGitCallCount();
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
+      mockService.resetCallCount();
+      expect(mockService.callCount).toBe(0);
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
-      const customOptions: MockGitServiceOptions = {
-        clone: () =>
-          Promise.resolve({
-            workdir: "/custom/workdir",
-            session: "custom-session",
-          }),
-        getSessionWorkdir: () => "/custom/session/workdir",
-      };
-
-      const mockService = createMockGitService(customOptions);
+      const mockService = new FakeGitService();
+      mockService.clone = () =>
+        Promise.resolve({
+          workdir: "/custom/workdir",
+          session: "custom-session",
+        });
+      mockService.getSessionWorkdir = () => "/custom/session/workdir";
 
       expect(
         await mockService.clone({
@@ -169,16 +178,16 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("handles non-PR git commands", async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
       expect(await mockService.execInRepository("/test", "status")).toBe("mock git output");
       expect(await mockService.execInRepository("/test", "log --oneline")).toBe("mock git output");
     });
   });
 
-  describe("createMockTaskService", () => {
+  describe("FakeTaskService", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
-      const mockService = createMockTaskService();
+      const mockService = new FakeTaskService();
 
       expect(await mockService.getTask("123")).toBeNull();
       expect(await mockService.listTasks()).toEqual([]);
@@ -188,38 +197,38 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("creates tasks with proper structure", async () => {
-      const mockService = createMockTaskService();
+      const mockService = new FakeTaskService();
 
       const task = await mockService.createTask("/path/to/spec");
-      expect(task).toEqual({
-        id: "#test",
-        title: "Test Task",
-        status: "TODO",
-      });
+      expect(task.id).toMatch(/^#fake-/);
+      expect(task.title).toBe("Fake Task");
+      expect(task.status).toBe("TODO");
 
       const taskFromTitle = await mockService.createTaskFromTitleAndSpec(
         "Custom Title",
         "Custom Description"
       );
-      expect(taskFromTitle).toEqual({
-        id: "#test-from-title",
-        title: "Test Task",
-        status: "TODO",
-      });
+      expect(taskFromTitle.id).toMatch(/^#fake-/);
+      expect(taskFromTitle.title).toBe("Custom Title");
+      expect(taskFromTitle.status).toBe("TODO");
     });
 
-    test("supports additional properties", () => {
-      const mockService = createMockTaskService({
-        backends: ["markdown", "json"],
-        currentBackend: "json",
-        getWorkspacePath: () => "/custom/workspace",
-      });
+    test("supports initialTasks constructor option", async () => {
+      const initialTasks: Task[] = [
+        { id: "#001", title: "First Task", status: "TODO" },
+        { id: "#002", title: "Second Task", status: "IN_PROGRESS" },
+      ];
+      const mockService = new FakeTaskService({ initialTasks });
 
-      expect((mockService as MockTaskServiceWithInternals).backends).toEqual(["markdown", "json"]);
-      expect((mockService as MockTaskServiceWithInternals).currentBackend).toBe("json");
-      expect((mockService as MockTaskServiceWithInternals).getWorkspacePath()).toBe(
-        "/custom/workspace"
-      );
+      expect(await mockService.listTasks()).toEqual(initialTasks);
+      expect(await mockService.getTask("#001")).toEqual(initialTasks[0] ?? null);
+      expect(await mockService.getTask("#002")).toEqual(initialTasks[1] ?? null);
+      expect(await mockService.getTask("#999")).toBeNull();
+    });
+
+    test("supports custom workspacePath", () => {
+      const mockService = new FakeTaskService({ workspacePath: "/custom/workspace" });
+      expect(mockService.getWorkspacePath()).toBe("/custom/workspace");
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
@@ -229,30 +238,24 @@ describe("Individual Service Mock Factories", () => {
         status: "IN_PROGRESS",
       };
 
-      const customOptions: MockTaskServiceOptions = {
-        getTask: () => Promise.resolve(customTask),
-        getTaskStatus: () => Promise.resolve("IN_PROGRESS"),
-        deleteTask: () => Promise.resolve(true),
-      };
-
-      const mockService = createMockTaskService(customOptions);
+      const mockService = new FakeTaskService();
+      mockService.getTask = () => Promise.resolve(customTask);
+      mockService.getTaskStatus = () => Promise.resolve("IN_PROGRESS");
+      mockService.deleteTask = () => Promise.resolve(true);
 
       expect(await mockService.getTask("any")).toEqual(customTask);
       expect(await mockService.getTaskStatus("any")).toBe("IN_PROGRESS");
       expect(await mockService.deleteTask("any")).toBe(true);
     });
 
-    test("supports custom task creation", async () => {
-      const customOptions: MockTaskServiceOptions = {
-        createTask: () =>
-          Promise.resolve({
-            id: "#custom-create",
-            title: "Custom Created Task",
-            status: "CREATED",
-          }),
-      };
-
-      const mockService = createMockTaskService(customOptions);
+    test("supports custom task creation via method reassignment", async () => {
+      const mockService = new FakeTaskService();
+      mockService.createTask = () =>
+        Promise.resolve({
+          id: "#custom-create",
+          title: "Custom Created Task",
+          status: "CREATED",
+        });
 
       const task = await mockService.createTask("/custom/spec");
       expect(task).toEqual({
@@ -262,11 +265,19 @@ describe("Individual Service Mock Factories", () => {
       });
     });
 
-    test("handles empty options", async () => {
-      const mockService = createMockTaskService({});
+    test("maintains state across calls", async () => {
+      const mockService = new FakeTaskService();
+
       expect(await mockService.listTasks()).toEqual([]);
-      expect((mockService as MockTaskServiceWithInternals).backends).toEqual([]);
-      expect((mockService as MockTaskServiceWithInternals).currentBackend).toBe("test");
+      await mockService.createTask("/spec");
+      expect(await mockService.listTasks()).toHaveLength(1);
+
+      const task = (await mockService.listTasks())[0]!;
+      await mockService.setTaskStatus(task.id, "DONE");
+      expect(await mockService.getTaskStatus(task.id)).toBe("DONE");
+
+      await mockService.deleteTask(task.id);
+      expect(await mockService.listTasks()).toEqual([]);
     });
   });
 
@@ -282,15 +293,10 @@ describe("Individual Service Mock Factories", () => {
         },
       ];
 
-      const mockSessionProvider = createMockSessionProvider({ sessions });
-      const mockGitService = createMockGitService({ branchExists: true });
-      const mockTaskService = createMockTaskService({
-        getTask: () =>
-          Promise.resolve({
-            id: "md#001",
-            title: "Integration Task",
-            status: "IN_PROGRESS",
-          }),
+      const mockSessionProvider = new FakeSessionProvider({ initialSessions: sessions });
+      const mockGitService = new FakeGitService({ branchExists: true });
+      const mockTaskService = new FakeTaskService({
+        initialTasks: [{ id: "md#001", title: "Integration Task", status: "IN_PROGRESS" }],
       });
 
       // Test session provider
@@ -308,9 +314,9 @@ describe("Individual Service Mock Factories", () => {
 
     test("factories can be used independently", async () => {
       // Each factory should work on its own without dependencies
-      const sessionProvider = createMockSessionProvider();
-      const gitService = createMockGitService();
-      const taskService = createMockTaskService();
+      const sessionProvider = new FakeSessionProvider();
+      const gitService = new FakeGitService();
+      const taskService = new FakeTaskService();
 
       expect(sessionProvider).toBeDefined();
       expect(gitService).toBeDefined();

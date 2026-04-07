@@ -7,33 +7,33 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createTestDeps, createMockGitService } from "../../../utils/test-utils/dependencies";
+import { createTestDeps } from "../../../utils/test-utils/dependencies";
 import type { DomainDependencies } from "../../../utils/test-utils/dependencies";
+import { FakeGitService } from "../fake-git-service";
 
 describe("Git Commands Integration Tests with Dependency Injection", () => {
   let deps: DomainDependencies;
 
   beforeEach(() => {
     // Use established DI patterns for comprehensive integration testing
-    deps = createTestDeps({
-      gitService: createMockGitService({
-        clone: () => Promise.resolve({ workdir: "/test/workdir", session: "test-session" }),
-        branch: () => Promise.resolve({ workdir: "/test/workdir", branch: "feature-branch" }),
-        push: () => Promise.resolve({ workdir: "/test/workdir", pushed: true }),
-        execInRepository: (workdir: string, command: string) => {
-          // Mock git command responses for integration testing
-          if (command.includes("commit")) return Promise.resolve("abc123");
-          if (command.includes("rev-parse --abbrev-ref HEAD")) return Promise.resolve("main");
-          if (command.includes("status --porcelain")) return Promise.resolve("");
-          if (command.includes("merge")) return Promise.resolve("");
-          if (command.includes("checkout")) return Promise.resolve("");
-          if (command.includes("rebase")) return Promise.resolve("");
-          return Promise.resolve("");
-        },
-        getCurrentBranch: () => Promise.resolve("main"),
-        hasUncommittedChanges: () => Promise.resolve(false),
-      }),
-    });
+    const fakeGit = new FakeGitService();
+    fakeGit.clone = () => Promise.resolve({ workdir: "/test/workdir", session: "test-session" });
+    fakeGit.branch = () => Promise.resolve({ workdir: "/test/workdir", branch: "feature-branch" });
+    fakeGit.push = () => Promise.resolve({ workdir: "/test/workdir", pushed: true });
+    fakeGit.execInRepository = (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
+      // Mock git command responses for integration testing
+      if (command.includes("commit")) return Promise.resolve("abc123");
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return Promise.resolve("main");
+      if (command.includes("status --porcelain")) return Promise.resolve("");
+      if (command.includes("merge")) return Promise.resolve("");
+      if (command.includes("checkout")) return Promise.resolve("");
+      if (command.includes("rebase")) return Promise.resolve("");
+      return Promise.resolve("");
+    };
+    fakeGit.getCurrentBranch = () => Promise.resolve("main");
+    fakeGit.hasUncommittedChanges = () => Promise.resolve(false);
+    deps = createTestDeps({ gitService: fakeGit });
   });
 
   describe("Git Service Integration", () => {
@@ -53,11 +53,9 @@ describe("Git Commands Integration Tests with Dependency Injection", () => {
 
     test("should handle clone errors gracefully", async () => {
       // Create a custom git service that throws for this test
-      const errorDeps = createTestDeps({
-        gitService: createMockGitService({
-          clone: () => Promise.reject(new Error("Repository not found")),
-        }),
-      });
+      const errorFakeGit = new FakeGitService();
+      errorFakeGit.clone = () => Promise.reject(new Error("Repository not found"));
+      const errorDeps = createTestDeps({ gitService: errorFakeGit });
 
       try {
         await errorDeps.gitService.clone({

@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { join } from "path";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 
 describe("Session Lookup Bug Integration Test", () => {
   let tempDir: string;
@@ -17,19 +17,18 @@ describe("Session Lookup Bug Integration Test", () => {
     tempDir = "/mock/test/dir";
 
     // Use mock git service instead of real git operations
-    mockGitService = createMockGitService({
-      execInRepository: (workdir: string, command: string) => {
-        if (command.includes("clone")) {
-          // Simulate git clone failure for some tests
-          if (workdir.includes("fail")) {
-            throw new Error("fatal: repository 'https://github.com/fail/repo.git' not found");
-          }
-          // Simulate successful clone
-          return Promise.resolve("Cloning into 'repo'...");
+    mockGitService = new FakeGitService();
+    mockGitService.execInRepository = (workdir: string, command: string) => {
+      if (command.includes("clone")) {
+        // Simulate git clone failure for some tests
+        if (workdir.includes("fail")) {
+          throw new Error("fatal: repository 'https://github.com/fail/repo.git' not found");
         }
-        return Promise.resolve("mock git output");
-      },
-    });
+        // Simulate successful clone
+        return Promise.resolve("Cloning into 'repo'...");
+      }
+      return Promise.resolve("mock git output");
+    };
   });
 
   it("should NOT create session directories when git clone fails", async () => {

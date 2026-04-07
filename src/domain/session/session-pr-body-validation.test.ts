@@ -19,11 +19,9 @@
 import { describe, test, expect, mock } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
 import { ValidationError, MinskyError } from "../../errors";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-  createMockTaskService,
-} from "../../utils/test-utils/dependencies";
+import { FakeGitService } from "../git/fake-git-service";
+import { FakeSessionProvider } from "./fake-session-provider";
+import { FakeTaskService } from "../tasks/fake-task-service";
 
 /**
  * Session PR Body Validation Bug Fix Tests
@@ -40,47 +38,39 @@ import {
 describe("Session PR Body Validation Bug Fix", () => {
   test("should throw ValidationError for new PR without body", async () => {
     // Arrange: Set up minimal mocks for dependencies
-    const mockGitService = createMockGitService({
-      getCurrentBranch: () => Promise.resolve("main"),
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.getCurrentBranch = () => Promise.resolve("main");
 
-    const mockSessionProvider = createMockSessionProvider({
-      getSession: () =>
-        Promise.resolve({
+    const mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
           session: "test-session",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           taskId: "123",
           createdAt: new Date().toISOString(),
-        }),
-      // Also provide getSessionByTaskId and listSessions for comprehensive coverage
-      getSessionByTaskId: () =>
-        Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString(),
-        }),
-      listSessions: () =>
-        Promise.resolve([
-          {
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
-            createdAt: new Date().toISOString(),
-          },
-        ]),
+        },
+      ],
     });
+    mockSessionProvider.getSession = () =>
+      Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "123",
+        createdAt: new Date().toISOString(),
+      });
+    mockSessionProvider.getSessionByTaskId = () =>
+      Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "123",
+        createdAt: new Date().toISOString(),
+      });
 
-    const mockTaskService = createMockTaskService({
-      getTask: () =>
-        Promise.resolve({
-          id: "#123",
-          title: "Test Task",
-          status: "TODO",
-        }),
+    const mockTaskService = new FakeTaskService({
+      initialTasks: [{ id: "#123", title: "Test Task", status: "TODO" }],
     });
 
     try {

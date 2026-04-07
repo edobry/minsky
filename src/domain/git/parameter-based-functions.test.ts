@@ -3,9 +3,10 @@
  * @migrated Converted from global mocking to established DI patterns
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createTestDeps, createMockGitService } from "../../utils/test-utils/dependencies";
+import { createTestDeps } from "../../utils/test-utils/dependencies";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";
 import { commitChangesFromParams, pushFromParams } from "../git";
+import { FakeGitService } from "./fake-git-service";
 
 // Test suite using established dependency injection patterns
 
@@ -13,22 +14,21 @@ describe("Parameter-Based Git Functions with Dependency Injection", () => {
   let domainDeps: DomainDependencies;
 
   beforeEach(() => {
-    // Use established DI patterns with only supported MockGitServiceOptions
-    domainDeps = createTestDeps({
-      gitService: createMockGitService({
-        push: () => Promise.resolve({ pushed: true, workdir: "/mock/workdir" }),
-        execInRepository: (workdir: string, command: string) => {
-          // Mock git command responses for testing
-          if (command.includes("commit")) return Promise.resolve("abc123");
-          if (command.includes("rev-parse --abbrev-ref HEAD")) return Promise.resolve("main");
-          if (command.includes("status --porcelain")) return Promise.resolve("");
-          return Promise.resolve("");
-        },
-        getCurrentBranch: () => Promise.resolve("main"),
-        hasUncommittedChanges: () => Promise.resolve(false),
-        getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
-      }),
-    });
+    // Use established DI patterns with FakeGitService
+    const fakeGit = new FakeGitService();
+    fakeGit.push = () => Promise.resolve({ pushed: true, workdir: "/mock/workdir" });
+    fakeGit.execInRepository = (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
+      // Mock git command responses for testing
+      if (command.includes("commit")) return Promise.resolve("abc123");
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return Promise.resolve("main");
+      if (command.includes("status --porcelain")) return Promise.resolve("");
+      return Promise.resolve("");
+    };
+    fakeGit.getCurrentBranch = () => Promise.resolve("main");
+    fakeGit.hasUncommittedChanges = () => Promise.resolve(false);
+    fakeGit.getStatus = () => Promise.resolve({ modified: [], untracked: [], deleted: [] });
+    domainDeps = createTestDeps({ gitService: fakeGit });
   });
 
   // Test that demonstrates DI pattern usage

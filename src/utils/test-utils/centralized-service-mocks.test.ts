@@ -6,19 +6,15 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "./dependencies";
-import type { SessionProviderInterface } from "../../domain/session";
-import type { GitServiceInterface } from "../../domain/git";
+import { FakeGitService } from "../../domain/git/fake-git-service";
+import { FakeTaskService } from "../../domain/tasks/fake-task-service";
+import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import type { TaskServiceInterface } from "../../domain/tasks";
 
 describe("Centralized Service Mock Factories", () => {
-  describe("createMockSessionProvider", () => {
-    test("should create a mock SessionProvider with all required methods", () => {
-      const mockSessionProvider = createMockSessionProvider();
+  describe("FakeSessionProvider", () => {
+    test("should create a FakeSessionProvider with all required methods", () => {
+      const mockSessionProvider = new FakeSessionProvider();
 
       // Verify all interface methods are present
       expect(typeof mockSessionProvider.listSessions).toBe("function");
@@ -32,42 +28,41 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockSessionProvider = createMockSessionProvider();
+      const mockSessionProvider = new FakeSessionProvider();
 
       // Test default return values
       expect(await mockSessionProvider.listSessions()).toEqual([]);
       expect(await mockSessionProvider.getSession("test")).toBeNull();
       expect(await mockSessionProvider.getSessionByTaskId("test")).toBeNull();
-      expect(await mockSessionProvider.deleteSession("test")).toBe(true);
+      expect(await mockSessionProvider.deleteSession("test")).toBe(false);
       expect(await mockSessionProvider.getRepoPath({} as any)).toBe("/mock/repo/path");
       expect(await mockSessionProvider.getSessionWorkdir("test")).toBe("/mock/session/workdir");
     });
 
-    test("should allow method overrides", async () => {
-      const mockSessionProvider = createMockSessionProvider({
-        getSession: () =>
-          Promise.resolve({
-            session: "custom-session",
-            repoName: "custom-repo",
-            repoUrl: "https://custom.com/repo",
+    test("should allow method overrides via reassignment", async () => {
+      const mockSessionProvider = new FakeSessionProvider();
+      mockSessionProvider.getSession = () =>
+        Promise.resolve({
+          session: "custom-session",
+          repoName: "custom-repo",
+          repoUrl: "https://custom.com/repo",
+          createdAt: "2023-01-01T00:00:00Z",
+          taskId: "123",
+          branch: "custom-branch",
+          repoPath: "/custom/path",
+        });
+      mockSessionProvider.listSessions = () =>
+        Promise.resolve([
+          {
+            session: "session1",
+            repoName: "repo1",
+            repoUrl: "https://example.com/repo1",
             createdAt: "2023-01-01T00:00:00Z",
-            taskId: "123",
-            branch: "custom-branch",
-            repoPath: "/custom/path",
-          }),
-        listSessions: () =>
-          Promise.resolve([
-            {
-              session: "session1",
-              repoName: "repo1",
-              repoUrl: "https://example.com/repo1",
-              createdAt: "2023-01-01T00:00:00Z",
-              taskId: "001",
-              branch: "main",
-              repoPath: "/path/to/repo1",
-            },
-          ]),
-      });
+            taskId: "001",
+            branch: "main",
+            repoPath: "/path/to/repo1",
+          },
+        ]);
 
       const session = await mockSessionProvider.getSession("test");
       expect(session?.session).toBe("custom-session");
@@ -79,9 +74,9 @@ describe("Centralized Service Mock Factories", () => {
     });
   });
 
-  describe("createMockGitService", () => {
-    test("should create a mock GitService with all required methods", () => {
-      const mockGitService = createMockGitService();
+  describe("FakeGitService", () => {
+    test("should create a FakeGitService with all required methods", () => {
+      const mockGitService = new FakeGitService();
 
       // Verify all interface methods are present
       expect(typeof mockGitService.clone).toBe("function");
@@ -104,7 +99,7 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockGitService = createMockGitService();
+      const mockGitService = new FakeGitService();
 
       // Test default return values
       const cloneResult = await mockGitService.clone({
@@ -135,12 +130,13 @@ describe("Centralized Service Mock Factories", () => {
       expect(hasChanges).toBe(false);
     });
 
-    test("should allow method overrides", async () => {
-      const mockGitService = createMockGitService({
-        clone: () => Promise.resolve({ workdir: "/custom/workdir", session: "custom-session" }),
-        execInRepository: () => Promise.resolve("custom git output"),
-        getStatus: () => Promise.resolve({ modified: ["file1.ts"], untracked: [], deleted: [] }),
-      });
+    test("should allow method overrides via reassignment", async () => {
+      const mockGitService = new FakeGitService();
+      mockGitService.clone = () =>
+        Promise.resolve({ workdir: "/custom/workdir", session: "custom-session" });
+      mockGitService.execInRepository = () => Promise.resolve("custom git output");
+      mockGitService.getStatus = () =>
+        Promise.resolve({ modified: ["file1.ts"], untracked: [], deleted: [] });
 
       const cloneResult = await mockGitService.clone({
         repoUrl: "test",
@@ -158,9 +154,9 @@ describe("Centralized Service Mock Factories", () => {
     });
   });
 
-  describe("createMockTaskService", () => {
-    test("should create a mock TaskService with all required methods", () => {
-      const mockTaskService = createMockTaskService();
+  describe("FakeTaskService", () => {
+    test("should create a FakeTaskService with all required methods", () => {
+      const mockTaskService = new FakeTaskService();
 
       // Verify all interface methods are present
       expect(typeof mockTaskService.listTasks).toBe("function");
@@ -175,7 +171,7 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockTaskService = createMockTaskService();
+      const mockTaskService = new FakeTaskService();
 
       // Test default return values
       const tasks = await mockTaskService.listTasks();
@@ -188,18 +184,18 @@ describe("Centralized Service Mock Factories", () => {
       expect(status).toBeUndefined();
 
       const workspacePath = mockTaskService.getWorkspacePath();
-      expect(workspacePath).toBe("/mock/workspace/path");
+      expect(workspacePath).toBe("/fake/workspace");
 
       const createdTask = await mockTaskService.createTask("test-spec.md");
-      expect(createdTask.id).toBe("#test");
-      expect(createdTask.title).toBe("Test Task");
+      expect(createdTask.id).toMatch(/^#fake-/);
+      expect(createdTask.title).toBe("Fake Task");
       expect(createdTask.status).toBe("TODO");
 
       const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndSpec(
         "Test Title",
         "Test Description"
       );
-      expect(createdTaskFromTitle.title).toBe("Test Task");
+      expect(createdTaskFromTitle.title).toBe("Test Title");
 
       const deleted = await mockTaskService.deleteTask("test");
       expect(deleted).toBe(false);
@@ -208,29 +204,27 @@ describe("Centralized Service Mock Factories", () => {
       expect(backend).toBe("markdown");
     });
 
-    test("should allow method overrides", async () => {
-      const mockTaskService = createMockTaskService({
-        listTasks: () =>
-          Promise.resolve([
-            {
-              id: "#001",
-              title: "Custom Task",
-              status: "IN-PROGRESS",
-              description: "Custom task description",
-              worklog: [],
-            },
-          ]),
-        getTask: () =>
-          Promise.resolve({
+    test("should allow method overrides via reassignment", async () => {
+      const mockTaskService = new FakeTaskService({
+        workspacePath: "/custom/workspace/path",
+      });
+      mockTaskService.listTasks = () =>
+        Promise.resolve([
+          {
             id: "#001",
             title: "Custom Task",
             status: "IN-PROGRESS",
             description: "Custom task description",
-            worklog: [],
-          }),
-        getTaskStatus: () => Promise.resolve("IN-PROGRESS"),
-        getWorkspacePath: () => "/custom/workspace/path",
-      });
+          },
+        ]);
+      mockTaskService.getTask = () =>
+        Promise.resolve({
+          id: "#001",
+          title: "Custom Task",
+          status: "IN-PROGRESS",
+          description: "Custom task description",
+        });
+      mockTaskService.getTaskStatus = () => Promise.resolve("IN-PROGRESS");
 
       const tasks = await mockTaskService.listTasks();
       expect(tasks).toHaveLength(1);

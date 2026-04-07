@@ -1,10 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionPr } from "./session-approval-operations";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-  createMockTaskService,
-} from "../../utils/test-utils/dependencies";
+import { FakeGitService } from "../git/fake-git-service";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 
 describe("Session Approve - Bug Regression Tests", () => {
@@ -96,11 +92,12 @@ describe("Session Approve - Bug Regression Tests", () => {
 
     test("should include -u flag in git stash command for untracked files", async () => {
       // This test verifies the specific fix: git stash push -u
-      const mockGitService = createMockGitService({
-        stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
-        popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
-        execInRepository: mock(() => Promise.resolve("")),
-      });
+      const mockGitService = new FakeGitService();
+      mockGitService.stashChanges = mock(() =>
+        Promise.resolve({ workdir: "/test", stashed: true })
+      );
+      mockGitService.popStash = mock(() => Promise.resolve({ workdir: "/test", stashed: true }));
+      mockGitService.execInRepository = mock(() => Promise.resolve(""));
 
       // Test the GitService stashChanges method directly to verify -u flag usage
       // NOTE: This would have failed before the fix because the -u flag was missing

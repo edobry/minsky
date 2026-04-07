@@ -12,7 +12,8 @@ import {
   type SessionProviderInterface,
 } from "./session";
 import { type GitServiceInterface } from "./git";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/index";
+import { FakeGitService } from "./git/fake-git-service";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 // Mock session DB helper for this specific test's needs
 type MockSessionDBWithHelpers = SessionProviderInterface & {
@@ -20,71 +21,40 @@ type MockSessionDBWithHelpers = SessionProviderInterface & {
 };
 
 const createMockSessionDBWithHelpers = (): MockSessionDBWithHelpers => {
-  const sessions = new Map<string, unknown>();
+  const provider = new FakeSessionProvider();
 
-  const mockSessionDB = createMockSessionProvider({
-    getSession: (sessionId: string) =>
-      Promise.resolve(
-        (sessions.get(sessionId) as Awaited<ReturnType<SessionProviderInterface["getSession"]>>) ??
-          null
-      ),
-    updateSession: ((sessionId: string, updates: unknown) => {
-      const existing = (sessions.get(sessionId) as Record<string, unknown>) || {};
-      sessions.set(sessionId, { ...existing, ...(updates as Record<string, unknown>) });
-      return Promise.resolve();
-    }) as any,
-  });
-
-  // Add helper method for test setup using typed extension
-  (mockSessionDB as unknown as MockSessionDBWithHelpers)._setSession = (
+  // Expose a helper to inject partial session data for test setup
+  (provider as unknown as MockSessionDBWithHelpers)._setSession = (
     sessionId: string,
     data: unknown
   ) => {
-    sessions.set(sessionId, data);
+    void provider.addSession(data as Parameters<typeof provider.addSession>[0]);
   };
 
-  return mockSessionDB as unknown as MockSessionDBWithHelpers;
+  return provider as unknown as MockSessionDBWithHelpers;
 };
 
-type MockGitServiceWithCallTracking = GitServiceInterface & {
-  getGitCallCount: () => number;
-  resetGitCallCount: () => void;
-};
-
-const createMockGitServiceWithCallTracking = (
-  branchExists: boolean = true
-): MockGitServiceWithCallTracking => {
-  // Use test-scoped variable instead of global counter
-  const callTracker = { count: 0 };
-
-  const mockGitService = createMockGitService({
-    execInRepository: (workdir: string, command: string) => {
-      callTracker.count++;
-      if (command.includes("show-ref") && command.includes("pr/")) {
-        return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
-      }
-      if (command.includes("ls-remote") && command.includes("pr/")) {
-        return Promise.resolve(branchExists ? "remote-ref-exists" : "");
-      }
-      if (command.includes("rev-parse")) {
-        return Promise.resolve(branchExists ? "abc123def456" : "");
-      }
-      return Promise.resolve("");
-    },
-  }) as unknown as MockGitServiceWithCallTracking;
-
-  // Add call tracking methods using test-scoped variable
-  mockGitService.getGitCallCount = () => callTracker.count;
-  mockGitService.resetGitCallCount = () => {
-    callTracker.count = 0;
+const createMockGitServiceWithCallTracking = (branchExists: boolean = true): FakeGitService => {
+  const fakeGit = new FakeGitService({ branchExists });
+  fakeGit.execInRepository = (_workdir: string, command: string) => {
+    fakeGit.recordedCommands.push({ workdir: _workdir, command });
+    if (command.includes("show-ref") && command.includes("pr/")) {
+      return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
+    }
+    if (command.includes("ls-remote") && command.includes("pr/")) {
+      return Promise.resolve(branchExists ? "remote-ref-exists" : "");
+    }
+    if (command.includes("rev-parse")) {
+      return Promise.resolve(branchExists ? "abc123def456" : "");
+    }
+    return Promise.resolve("");
   };
-
-  return mockGitService;
+  return fakeGit;
 };
 
 describe("PR State Optimization (Task #275)", () => {
   let mockSessionDB: MockSessionDBWithHelpers;
-  let mockGitService: MockGitServiceWithCallTracking;
+  let mockGitService: FakeGitService;
 
   beforeEach(() => {
     mockSessionDB = createMockSessionDBWithHelpers();
@@ -108,7 +78,7 @@ describe("PR State Optimization (Task #275)", () => {
         },
       });
 
-      mockGitService.resetGitCallCount();
+      mockGitService.resetCallCount();
 
       const result = await checkPrBranchExistsOptimized(
         sessionId,
@@ -118,7 +88,7 @@ describe("PR State Optimization (Task #275)", () => {
       );
 
       expect(result).toBe(true);
-      expect(mockGitService.getGitCallCount()).toBe(0); // No git calls should be made
+      expect(mockGitService.callCount).toBe(0); // No git calls should be made
     });
 
     test("should refresh stale PR state", async () => {
@@ -136,7 +106,7 @@ describe("PR State Optimization (Task #275)", () => {
         },
       });
 
-      mockGitService.resetGitCallCount();
+      mockGitService.resetCallCount();
 
       const result = await checkPrBranchExistsOptimized(
         sessionId,
@@ -146,13 +116,13 @@ describe("PR State Optimization (Task #275)", () => {
       );
 
       expect(result).toBe(true);
-      expect(mockGitService.getGitCallCount()).toBeGreaterThan(0); // Git calls should be made to refresh
+      expect(mockGitService.callCount).toBeGreaterThan(0); // Git calls should be made to refresh
     });
 
     test("should fall back to git operations when no session record exists", async () => {
       const sessionId = "non-existent-session";
 
-      mockGitService.resetGitCallCount();
+      mockGitService.resetCallCount();
 
       const result = await checkPrBranchExistsOptimized(
         sessionId,
@@ -162,7 +132,7 @@ describe("PR State Optimization (Task #275)", () => {
       );
 
       expect(result).toBe(true);
-      expect(mockGitService.getGitCallCount()).toBeGreaterThan(0); // Git calls should be made
+      expect(mockGitService.callCount).toBeGreaterThan(0); // Git calls should be made
     });
 
     test("should provide significant performance improvement", async () => {
@@ -181,19 +151,19 @@ describe("PR State Optimization (Task #275)", () => {
       });
 
       // Test original function (multiple git calls)
-      mockGitService.resetGitCallCount();
+      mockGitService.resetCallCount();
       await checkPrBranchExists(sessionId, mockGitService as GitServiceInterface, "/test/dir");
-      const originalGitCalls = mockGitService.getGitCallCount();
+      const originalGitCalls = mockGitService.callCount;
 
       // Test optimized function (cached state)
-      mockGitService.resetGitCallCount();
+      mockGitService.resetCallCount();
       await checkPrBranchExistsOptimized(
         sessionId,
         mockGitService as GitServiceInterface,
         "/test/dir",
         mockSessionDB as SessionProviderInterface
       );
-      const optimizedGitCalls = mockGitService.getGitCallCount();
+      const optimizedGitCalls = mockGitService.callCount;
 
       expect(optimizedGitCalls).toBe(0); // No git calls
       expect(originalGitCalls).toBeGreaterThan(0); // Git calls made

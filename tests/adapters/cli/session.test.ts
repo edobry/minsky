@@ -20,10 +20,8 @@ import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
 } from "../../../src/utils/test-utils/test-constants";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-} from "../../../src/utils/test-utils/dependencies";
+import { FakeGitService } from "../../../src/domain/git/fake-git-service";
+import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
@@ -46,15 +44,17 @@ describe("Session CLI Commands", () => {
 
     testData = createSessionTestData();
 
-    mockGitService = createMockGitService({
-      getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
-      execInRepository: async (workdir: string, command: string) => {
-        if (command.includes("git remote get-url origin")) {
-          return "https://github.com/test/repo.git";
-        }
-        return "";
-      },
-    });
+    const fakeGit = new FakeGitService();
+    fakeGit.getSessionWorkdir = () =>
+      join(testData.tempDir, "test-repo", "sessions", "test-session");
+    fakeGit.execInRepository = async (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
+      if (command.includes("git remote get-url origin")) {
+        return "https://github.com/test/repo.git";
+      }
+      return "";
+    };
+    mockGitService = fakeGit;
 
     mockSessionProvider = createPartialMock<SessionProviderInterface>({
       getSession: (sessionId: string) =>
@@ -282,10 +282,9 @@ describe("Session CLI Commands", () => {
         getSessionWorkdir: () => Promise.resolve(sessionPath),
       });
 
-      const mockGitServiceWithCommands = createMockGitService({
-        hasUncommittedChanges: async () => false,
-        fetchDefaultBranch: async () => "main",
-      });
+      const mockGitServiceWithCommands = new FakeGitService();
+      mockGitServiceWithCommands.hasUncommittedChanges = async () => false;
+      mockGitServiceWithCommands.fetchDefaultBranch = async () => "main";
 
       const result = await updateSessionFromParams(
         {
@@ -325,14 +324,13 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderWorkspace = createMockSessionProvider({
-        getSession: (sessionId: string) => {
-          if (sessionId === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
-            return Promise.resolve(sessionRecord);
-          }
-          return Promise.resolve(null);
-        },
-      });
+      const mockSessionProviderWorkspace = new FakeSessionProvider();
+      mockSessionProviderWorkspace.getSession = (sessionId: string) => {
+        if (sessionId === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
+          return Promise.resolve(sessionRecord);
+        }
+        return Promise.resolve(null);
+      };
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {
@@ -368,14 +366,13 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderDirectory = createMockSessionProvider({
-        getSession: (sessionId: string) => {
-          if (sessionId === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
-            return Promise.resolve(sessionRecord);
-          }
-          return Promise.resolve(null);
-        },
-      });
+      const mockSessionProviderDirectory = new FakeSessionProvider();
+      mockSessionProviderDirectory.getSession = (sessionId: string) => {
+        if (sessionId === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
+          return Promise.resolve(sessionRecord);
+        }
+        return Promise.resolve(null);
+      };
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {

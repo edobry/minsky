@@ -7,7 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
-import { createMockGitService } from "../../../src/utils/test-utils/dependencies";
+import { FakeGitService } from "../../../src/domain/git/fake-git-service";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
@@ -19,7 +19,7 @@ import { createPartialMock } from "../../../src/utils/test-utils/mocking";
 
 describe("session update command", () => {
   let testData: SessionTestData;
-  let mockGitService: ReturnType<typeof createMockGitService>;
+  let mockGitService: FakeGitService;
   let mockFs: ReturnType<typeof createMockFilesystem>;
 
   beforeEach(() => {
@@ -28,10 +28,9 @@ describe("session update command", () => {
 
     testData = createSessionTestData();
 
-    mockGitService = createMockGitService({
-      hasUncommittedChanges: async () => false,
-      fetchDefaultBranch: async () => "main",
-    });
+    mockGitService = new FakeGitService();
+    mockGitService.hasUncommittedChanges = async () => false;
+    mockGitService.fetchDefaultBranch = async () => "main";
   });
 
   afterEach(() => {

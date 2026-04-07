@@ -6,7 +6,7 @@ import { describe, test, expect } from "bun:test";
 import { GitService } from "./git";
 import { TASK_STATUS } from "./tasks";
 import { setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -14,7 +14,7 @@ setupTestMocks();
 describe("GitService Task Status Update", () => {
   test("should be able to update task status after PR creation", async () => {
     // Create mock GitService instance to avoid configuration dependencies
-    const gitService = createMockGitService({});
+    const gitService = new FakeGitService();
 
     // Verify we can create an instance
     expect(gitService).toBeDefined();

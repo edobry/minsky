@@ -17,13 +17,11 @@ import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT M
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-} from "../../utils/test-utils/index";
+import { FakeGitService } from "../git/fake-git-service";
 import { createPartialMock } from "../../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
+import { FakeTaskService } from "../tasks/fake-task-service";
+import { FakeSessionProvider } from "./fake-session-provider";
 
 describe("Session Approve Task Status Commit", () => {
   // Mock log functions used by session approve operations
@@ -72,91 +70,81 @@ describe("Session Approve Task Status Commit", () => {
     const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`; // TEMPLATE LITERAL: System uses qualified task ID in commit messages
 
     const gitCommands: string[] = [];
-    const mockGitService = createMockGitService({
-      execInRepository: (workdir: string, command: string) => {
-        gitCommands.push(command);
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = (_workdir: string, command: string) => {
+      gitCommands.push(command);
 
-        // Mock successful git operations
-        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
-          return Promise.resolve(""); // PR branch exists
-        }
-        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
-          return Promise.resolve("abc123commit");
-        }
-        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
-          return Promise.resolve(""); // Merge succeeds
-        }
-        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
-          return Promise.resolve("abc123commit");
-        }
-        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
-          return Promise.resolve("Test User");
-        }
-        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
-          // After task status update, tasks.md should be modified
-          return Promise.resolve("M process/tasks.md");
-        }
-        if (command.includes(GIT_COMMANDS.ADD_TASKS_MD)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(`git commit -m "${COMMIT_MESSAGE}"`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("");
-        }
-        if (command.includes("git push")) {
-          return Promise.resolve("");
-        }
-
+      // Mock successful git operations
+      if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
         return Promise.resolve("");
-      },
-    });
+      }
+      if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+        return Promise.resolve(""); // PR branch exists
+      }
+      if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
+        return Promise.resolve("abc123commit");
+      }
+      if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
+        return Promise.resolve(""); // Merge succeeds
+      }
+      if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
+        return Promise.resolve("abc123commit");
+      }
+      if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
+        return Promise.resolve("Test User");
+      }
+      if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
+        // After task status update, tasks.md should be modified
+        return Promise.resolve("M process/tasks.md");
+      }
+      if (command.includes(GIT_COMMANDS.ADD_TASKS_MD)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(`git commit -m "${COMMIT_MESSAGE}"`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("");
+      }
+      if (command.includes("git push")) {
+        return Promise.resolve("");
+      }
 
-    const mockSessionDB = createMockSessionProvider({
-      getSessionByTaskId: (taskId: string) =>
-        Promise.resolve({
-          session: `task-${taskId}`, // session ID from qualified id
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-          prBranch: `pr/task-${taskId}`,
-        }),
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-    });
+      return Promise.resolve("");
+    };
 
-    const mockTaskService = createMockTaskService({
-      getTask: () =>
-        Promise.resolve({
-          id: QUALIFIED_TASK_ID,
-          title: "Test Task",
-          status: "IN-PROGRESS",
-        }),
-      getTaskStatus: (taskId: string) => {
-        // Task is NOT already DONE, so status update should happen
-        return Promise.resolve("IN-PROGRESS");
-      },
-      setTaskStatus: (taskId: string, status: string) => {
-        // This simulates the task status update that modifies tasks.md
-        return Promise.resolve();
-      },
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSessionByTaskId = (taskId: string) =>
+      Promise.resolve({
+        session: `task-${taskId}`, // session ID from qualified id
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+        prBranch: `pr/task-${taskId}`,
+      });
+    mockSessionDB.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: QUALIFIED_TASK_ID,
+        prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
+
+    const mockTaskService = (() => {
+      const svc = new FakeTaskService({
+        initialTasks: [{ id: QUALIFIED_TASK_ID, title: "Test Task", status: "IN-PROGRESS" }],
+      });
+      svc.getTaskStatus = (_taskId: string) => Promise.resolve("IN-PROGRESS");
+      svc.setTaskStatus = (_taskId: string, _status: string) => Promise.resolve();
+      return svc;
+    })();
 
     // Mock repository backend to avoid filesystem validation
     const mockRepositoryBackend = {
