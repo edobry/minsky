@@ -1,33 +1,30 @@
 /**
  * Tests for session edit-file command
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { SessionEditFileCommand } from "../../../../../src/adapters/shared/commands/session/file-commands";
+import { describe, test, expect } from "bun:test";
+import { createSessionEditFileCommand } from "../../../../../src/adapters/shared/commands/session/file-commands";
+import type { SessionProviderInterface } from "../../../../../src/domain/session/session-db-adapter";
 
-describe("SessionEditFileCommand", () => {
-  let command: SessionEditFileCommand;
-
-  beforeEach(() => {
-    command = new SessionEditFileCommand();
-  });
+describe("session edit-file command definition", () => {
+  const deps = { sessionProvider: {} as SessionProviderInterface };
+  const command = createSessionEditFileCommand(deps);
 
   describe("command properties", () => {
     test("should have correct command id", () => {
-      expect(command.getCommandId()).toBe("session.edit-file");
+      expect(command.id).toBe("session.edit-file");
     });
 
     test("should have correct command name", () => {
-      expect(command.getCommandName()).toBe("edit-file");
+      expect(command.name).toBe("edit-file");
     });
 
     test("should have descriptive command description", () => {
-      const description = command.getCommandDescription();
-      expect(description).toContain("Edit a file");
-      expect(description).toContain("session workspace");
+      expect(command.description).toContain("Edit a file");
+      expect(command.description).toContain("session workspace");
     });
 
     test("should have parameter schema", () => {
-      const schema = command.getParameterSchema();
+      const schema = command.parameters as Record<string, any>;
       expect(schema).toBeDefined();
       expect(schema.path).toBeDefined();
       expect(schema.instruction).toBeDefined();
@@ -37,29 +34,26 @@ describe("SessionEditFileCommand", () => {
   });
 
   describe("parameter validation", () => {
+    const schema = command.parameters as Record<string, any>;
+
     test("should have required path parameter", () => {
-      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.path.required).toBe(true);
     });
 
     test("should have optional instruction parameter", () => {
-      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.instruction.required).toBe(false);
     });
 
     test("should have optional session parameter", () => {
-      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.session.required).toBe(false);
     });
 
     test("should have optional dryRun parameter with default false", () => {
-      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.dryRun.required).toBe(false);
       expect(schema.dryRun.defaultValue).toBe(false);
     });
 
     test("should have optional createDirs parameter with default true", () => {
-      const schema = command.getParameterSchema() as Record<string, any>;
       expect(schema.createDirs.required).toBe(false);
       expect(schema.createDirs.defaultValue).toBe(true);
     });

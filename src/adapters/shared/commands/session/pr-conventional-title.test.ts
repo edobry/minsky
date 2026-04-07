@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { composeConventionalTitle } from "./pr-subcommand-commands";
+import { composeConventionalTitle } from "./pr-conventional-title";
 import { ValidationError } from "../../../../errors";
 
 describe("Session PR Create - type/title validation", () => {
