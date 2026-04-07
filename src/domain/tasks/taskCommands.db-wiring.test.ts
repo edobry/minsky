@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeAll, mock } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
-import { createMockPersistenceService } from "../../utils/test-utils/dependencies";
 
 describe("DB wiring for minsky backend", () => {
   beforeAll(async () => {
     // Set up mock persistence provider before any tests run
     const { PersistenceService } = await import("../persistence/service");
-    const { createMockPersistenceProvider } = await import("../../utils/test-utils/dependencies");
+    const { FakePersistenceProvider } = await import("../persistence/fake-persistence-provider");
 
-    const mockProvider = createMockPersistenceProvider();
-    PersistenceService.setMockProvider(mockProvider);
+    const fakeProvider = new FakePersistenceProvider();
+    PersistenceService.setMockProvider(fakeProvider);
 
     // Initialize configuration for persistence tests
     const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");

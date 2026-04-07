@@ -3,6 +3,20 @@ const _TEST_VALUE = 123;
 /**
  * Dependency injection utilities for tests
  * This module provides functions to create test dependencies with sensible defaults
+ *
+ * @module
+ */
+
+/**
+ * @deprecated This file is being migrated to per-domain `FakeX` classes.
+ *
+ * New test doubles should be implemented as real classes extending or
+ * implementing the typed DI interface, colocated with the interface they
+ * fake. See `src/domain/persistence/fake-persistence-provider.ts` for the
+ * canonical example. Do NOT add new factories to this file.
+ *
+ * The remaining `createMockX` factories below are transitional and will
+ * be migrated to per-domain `FakeX` classes in follow-up tasks.
  */
 import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
@@ -16,7 +30,6 @@ import type {
 import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
-import type { PersistenceProvider, PersistenceCapabilities } from "../../domain/persistence/types";
 
 /**
  * Basic domain dependencies structure for common domain functions
@@ -677,96 +690,4 @@ export function createMockTaskService(
   mockTaskServiceWithInternals.currentBackend = options.currentBackend || "test";
 
   return mockTaskServiceWithInternals;
-}
-
-/**
- * Options for configuring PersistenceProvider mock behavior
- */
-export interface MockPersistenceProviderOptions {
-  capabilities?: {
-    sql?: boolean;
-    vectorStorage?: boolean;
-    transactions?: boolean;
-    jsonb?: boolean;
-    migrations?: boolean;
-  };
-  getDatabaseConnection?: PersistenceProvider["getDatabaseConnection"];
-  getStorage?: PersistenceProvider["getStorage"];
-  initialize?: () => Promise<void>;
-  close?: () => Promise<void>;
-  getCapabilities?: () => {
-    sql: boolean;
-    vectorStorage: boolean;
-    transactions: boolean;
-    jsonb: boolean;
-    migrations: boolean;
-  };
-}
-
-/**
- * Creates a mock PersistenceProvider with standard implementations
- *
- * @param options Configuration options for mock behavior
- * @returns A complete mock PersistenceProvider
- */
-export function createMockPersistenceProvider(
-  options: MockPersistenceProviderOptions = {}
-): PersistenceProvider {
-  const defaultCapabilities: PersistenceCapabilities = {
-    sql: true,
-    transactions: true,
-    jsonb: true,
-    vectorStorage: true,
-    migrations: true,
-  };
-  // Merge partial capability overrides with defaults to get a complete PersistenceCapabilities object
-  const capabilities: PersistenceCapabilities = options.capabilities
-    ? { ...defaultCapabilities, ...options.capabilities }
-    : defaultCapabilities;
-
-  return createPartialMock<PersistenceProvider>({
-    capabilities,
-    initialize: options.initialize || (() => Promise.resolve()),
-    getDatabaseConnection: options.getDatabaseConnection,
-    getStorage: options.getStorage,
-    close: options.close || (() => Promise.resolve()),
-    getCapabilities:
-      options.getCapabilities ||
-      (() => ({
-        sql: true,
-        vectorStorage: true,
-        transactions: true,
-        jsonb: true,
-        migrations: true,
-      })),
-  });
-}
-
-/**
- * Options for configuring PersistenceService mock behavior
- */
-export interface MockPersistenceServiceOptions {
-  provider?: PersistenceProvider;
-  isInitialized?: boolean;
-}
-
-/**
- * Creates a mock PersistenceService with standard implementations
- * This can be used with module mocking to replace the PersistenceService
- *
- * @param options Configuration options for mock behavior
- * @returns Mock PersistenceService implementation
- */
-export function createMockPersistenceService(options: MockPersistenceServiceOptions = {}) {
-  const mockProvider = options.provider || createMockPersistenceProvider();
-  const isInitialized = options.isInitialized ?? true;
-
-  return {
-    initialize: () => Promise.resolve(),
-    getProvider: () => mockProvider,
-    isInitialized: () => isInitialized,
-    close: () => Promise.resolve(),
-    reset: () => Promise.resolve(),
-    setMockProvider: () => {},
-  };
 }
