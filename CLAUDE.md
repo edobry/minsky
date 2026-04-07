@@ -7,6 +7,15 @@ When spawning subagents via the Agent tool, use the appropriate model to balance
 - **`model: "sonnet"`** — Well-defined implementation tasks: applying known fixes, editing specific lines, running tests, committing, file exploration, search, any task with clear instructions and bounded scope.
 - **`model: "opus"` (default)** — Complex bug investigation, architectural design and review, multi-step reasoning across many files, tasks where the approach isn't yet clear.
 
+### Subagent Type Routing
+
+Prefer specialized subagent types over `general-purpose` when one fits:
+
+- **`subagent_type: "refactor"`** — Structural code changes (renaming, moving, eliminating layers, consolidating, extracting). Has built-in coherence verification: re-reads modified files end-to-end and reports stale comments, redundant siblings, dead exports, and orphan code. Use whenever the task is a refactor rather than feature work. _Why_: relying on a remembered "verify the result is coherent" rule is structurally weak; the verification belongs in the agent's identity, not in your prompt.
+- **`subagent_type: "Explore"`** — Codebase exploration and search.
+- **`subagent_type: "Plan"`** — Designing implementation plans before coding.
+- **`subagent_type: "general-purpose"`** — Fallback for work that doesn't fit a specialized type.
+
 ## Minsky Session Workflow
 
 Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID>/` (branch names follow `task/<backend>-<id>` format). The correct working pattern:
