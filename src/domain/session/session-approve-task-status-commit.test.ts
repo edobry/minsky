@@ -17,6 +17,7 @@ import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT M
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
+import type { ApprovalInfo } from "../repository/approval-types";
 import { FakeGitService } from "../git/fake-git-service";
 import { createPartialMock } from "../../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
@@ -33,27 +34,29 @@ describe("Session Approve Task Status Commit", () => {
     warn: mock(() => {}),
   };
 
-  // Reusable mock for repository backend to prevent real shell execution
+  // Inline stub for repository backend — only getType, mergePullRequest, approvePullRequest are used
+  const makeRepositoryBackendStub = () =>
+    createPartialMock<RepositoryBackend>({
+      getType: () => "local",
+      mergePullRequest: (_prIdentifier: string | number, _session?: string): Promise<MergeInfo> =>
+        Promise.resolve({
+          commitHash: "abc123commit",
+          mergeDate: new Date().toISOString(),
+          mergedBy: "test-user",
+        }),
+      approvePullRequest: (
+        _prIdentifier: string | number,
+        _reviewComment?: string
+      ): Promise<ApprovalInfo> =>
+        Promise.resolve({
+          reviewId: "approval-default",
+          prNumber: "0",
+          approvedAt: new Date().toISOString(),
+          approvedBy: "test-user",
+        }),
+    });
   const createMockRepositoryBackend = () =>
-    mock((sessionRecord: any) =>
-      Promise.resolve({
-        getType: () => "local",
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123commit",
-            mergeDate: new Date(),
-            mergedBy: "test-user",
-          })
-        ),
-        approvePullRequest: mock(() =>
-          Promise.resolve({
-            approvalId: "approval-default",
-            approvedAt: new Date().toISOString(),
-            approvedBy: "test-user",
-          })
-        ), // EXPLICIT MOCK: Add required approvePullRequest method
-      })
-    );
+    mock(() => Promise.resolve(makeRepositoryBackendStub()));
 
   beforeEach(() => {
     // Mock cleanup handled by bun:test automatically

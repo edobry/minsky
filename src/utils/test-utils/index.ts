@@ -27,7 +27,6 @@ export {
   createTaskTestDeps,
   createSessionTestDeps,
   createGitTestDeps,
-  createMockRepositoryBackend,
   withMockedDeps,
   createDeepTestDeps,
   createPartialTestDeps,

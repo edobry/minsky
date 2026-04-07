@@ -1,29 +1,21 @@
 const _TEST_VALUE = 123;
 
 /**
- * Dependency injection utilities for tests
- * This module provides functions to create test dependencies with sensible defaults
+ * Test composition helpers built on per-domain `FakeX` classes.
  *
- * @module
- */
-
-/**
- * @deprecated This file is being migrated to per-domain `FakeX` classes.
- *
- * New test doubles should be implemented as real classes extending or
- * implementing the typed DI interface, colocated with the interface they
- * fake. See `src/domain/persistence/fake-persistence-provider.ts` for the
- * canonical example. Do NOT add new factories to this file.
- *
- * The remaining `createMockX` factories below are transitional and will
- * be migrated to per-domain `FakeX` classes in follow-up tasks.
+ * New test doubles should be implemented as `FakeX` classes colocated
+ * with the interface they fake — see `fake-persistence-provider.ts` for
+ * the canonical example. Do NOT add new single-service stub factories
+ * to this file. The helpers below compose existing `FakeX` instances
+ * (`FakeSessionProvider`, `FakeGitService`, `FakeTaskService`) plus
+ * small pass-through override utilities (`withMockedDeps`,
+ * `createDeepTestDeps`, `createPartialTestDeps`).
  */
 import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
-import type { RepositoryBackend } from "../../domain/repository";
 import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
 import { FakeGitService } from "../../domain/git/fake-git-service";
@@ -173,56 +165,6 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
     getSessionWorkdir,
     ...overrides,
   };
-}
-
-/**
- * Creates a mock repository backend for tests
- * @param overrides Partial implementation to override the defaults
- * @returns A complete mock repository backend
- */
-export function createMockRepositoryBackend(
-  overrides: Partial<RepositoryBackend> = {}
-): RepositoryBackend {
-  // Use createPartialMock to handle the interface requirements
-  return createPartialMock<RepositoryBackend>({
-    clone: () =>
-      Promise.resolve({
-        workdir: "/mock/workdir",
-        session: "test-session",
-      }),
-    branch: () =>
-      Promise.resolve({
-        workdir: "/mock/workdir",
-        branch: "test-_branch",
-      }),
-    getStatus: (_session?: string) =>
-      Promise.resolve({
-        clean: true,
-        branch: "test-_branch",
-        ahead: 0,
-        behind: 0,
-        dirty: false,
-        remotes: [],
-        changes: [],
-      }),
-    getPath: () => "/mock/repo/path",
-    validate: () =>
-      Promise.resolve({
-        success: true,
-        valid: true,
-      }),
-    push: () =>
-      Promise.resolve({
-        success: true,
-        message: "Successfully pushed",
-      }),
-    pull: () =>
-      Promise.resolve({
-        success: true,
-        message: "Successfully pulled",
-      }),
-    ...overrides,
-  });
 }
 
 /**
