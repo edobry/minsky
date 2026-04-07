@@ -33,9 +33,5 @@ export {
   createPartialTestDeps,
 } from "./dependencies";
 
-// Fake implementations (canonical FakeX pattern)
-export { FakeGitService } from "../../domain/git/fake-git-service";
-export { FakeSessionProvider } from "../../domain/session/fake-session-provider";
-
-// Original utilities (avoid conflicts)
+// Mocking primitives
 export { createMockFileSystem, setupTestMocks } from "./mocking";
