@@ -3,6 +3,10 @@
  *
  * Used by non-class command handlers and as the default provider source
  * for the session command class hierarchy.
+ *
+ * Note: test-facing API for injecting/resetting the cached provider lives
+ * in `./session-provider-cache-seams.ts`. Production code MUST NOT import
+ * from that module.
  */
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 
@@ -15,12 +19,11 @@ export async function getSharedSessionProvider(): Promise<SessionProviderInterfa
   return _cachedProvider;
 }
 
-/** Reset the cached provider (for testing). @internal */
-export function _resetSharedSessionProvider(): void {
-  _cachedProvider = null;
-}
-
-/** Inject a custom session provider (for testing). @internal */
-export function _setSharedSessionProvider(provider: SessionProviderInterface): void {
+/**
+ * @internal Test-only: low-level helper used by `session-provider-cache-seams.ts`
+ * to inject or reset the cached provider. Production code MUST NOT call this.
+ * Direct use from production would defeat the singleton semantics.
+ */
+export function _setProviderForTesting(provider: SessionProviderInterface | null): void {
   _cachedProvider = provider;
 }

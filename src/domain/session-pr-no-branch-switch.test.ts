@@ -4,9 +4,9 @@ import { preparePrImpl } from "./git/prepare-pr-operations";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import {
-  _setSharedSessionProvider,
-  _resetSharedSessionProvider,
-} from "./session/session-provider-cache";
+  setSharedSessionProvider,
+  resetSharedSessionProvider,
+} from "./session/session-provider-cache-seams";
 import type { GitServiceInterface } from "./git/types";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 
@@ -71,13 +71,13 @@ describe("Session PR Command Branch Behavior", () => {
       repoPath: WORKDIR,
       sessionWorkdir: WORKDIR,
     });
-    _setSharedSessionProvider(fakeSessionProvider);
+    setSharedSessionProvider(fakeSessionProvider);
 
     fakeGitService = buildFakeGitService(fakeSessionProvider);
   });
 
   afterEach(() => {
-    _resetSharedSessionProvider();
+    resetSharedSessionProvider();
   });
 
   test("should never switch user to PR branch (recovery path: PR branch already exists)", async () => {
