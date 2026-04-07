@@ -48,7 +48,7 @@ import type { SessionStartParameters, SessionUpdateParameters } from "../schemas
  * The superset of all dependencies needed by any session operation.
  */
 export interface SessionDeps {
-  sessionDB: SessionProviderInterface;
+  sessionProvider: SessionProviderInterface;
   gitService: GitServiceInterface;
   taskService: TaskServiceInterface & {
     /** Optional — available on backends that support spec retrieval */
@@ -66,16 +66,18 @@ export interface SessionDeps {
 /**
  * Creates all real-implementation dependencies for the SessionService.
  */
-export async function createSessionDeps(): Promise<SessionDeps> {
-  const sessionDB = await createSessionProvider();
+export async function createSessionDeps(
+  sessionProvider?: SessionProviderInterface
+): Promise<SessionDeps> {
+  const provider = sessionProvider ?? (await createSessionProvider());
   return {
-    sessionDB,
+    sessionProvider: provider,
     gitService: createGitService(),
     taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
-    workspaceUtils: createWorkspaceUtils(sessionDB),
+    workspaceUtils: createWorkspaceUtils(provider),
     // getCurrentSession returns string | undefined; wrap to match string | null contract
     getCurrentSession: async (repoPath: string) => {
-      const result = await getCurrentSession(repoPath, execAsync, sessionDB);
+      const result = await getCurrentSession(repoPath, execAsync, provider);
       return result ?? null;
     },
     getRepositoryBackend: getRepositoryBackendFromConfig,
@@ -106,14 +108,14 @@ export class SessionService {
    * Get a session by name, task ID, or repo path.
    */
   async get(params: SessionGetParams): Promise<Session | null> {
-    return getSessionImpl(params, { sessionDB: this.deps.sessionDB });
+    return getSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 
   /**
    * List all sessions.
    */
   async list(params: SessionListParams): Promise<Session[]> {
-    return listSessionsImpl(params, { sessionDB: this.deps.sessionDB });
+    return listSessionsImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 
   /**
@@ -136,7 +138,7 @@ export class SessionService {
     } as SessionStartParameters;
 
     return startSessionImpl(sessionStartParams, {
-      sessionDB: this.deps.sessionDB,
+      sessionDB: this.deps.sessionProvider,
       gitService: this.deps.gitService,
       taskService: this.deps.taskService,
       workspaceUtils: this.deps.workspaceUtils,
@@ -148,14 +150,14 @@ export class SessionService {
    * Delete a session.
    */
   async delete(params: SessionDeleteParams): Promise<boolean> {
-    return deleteSessionImpl(params, { sessionDB: this.deps.sessionDB });
+    return deleteSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 
   /**
    * Get the working directory for a session.
    */
   async getDir(params: SessionDirParams): Promise<string> {
-    return getSessionDirImpl(params, { sessionDB: this.deps.sessionDB });
+    return getSessionDirImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 
   /**
@@ -164,7 +166,7 @@ export class SessionService {
   async update(params: SessionUpdateParams): Promise<Session> {
     return updateSessionImpl(params as SessionUpdateParameters, {
       gitService: this.deps.gitService,
-      sessionDB: this.deps.sessionDB,
+      sessionDB: this.deps.sessionProvider,
       getCurrentSession: async (repoPath?: string) =>
         (await this.deps.getCurrentSession(repoPath ?? process.cwd())) ?? undefined,
     });
@@ -174,7 +176,7 @@ export class SessionService {
    * Inspect the current session from the working directory.
    */
   async inspect(params: { json?: boolean }): Promise<Session | null> {
-    return inspectSessionImpl(params, { sessionDB: this.deps.sessionDB });
+    return inspectSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 
   /**
@@ -182,7 +184,7 @@ export class SessionService {
    */
   async review(params: SessionReviewParams): Promise<SessionReviewResult> {
     return sessionReviewImpl(params, {
-      sessionDB: this.deps.sessionDB,
+      sessionDB: this.deps.sessionProvider,
       gitService: this.deps.gitService,
       taskService: this.deps.taskService,
       workspaceUtils: this.deps.workspaceUtils,
@@ -222,7 +224,7 @@ export class SessionService {
         reviewComment: params.reviewComment,
       },
       {
-        sessionDB: this.deps.sessionDB,
+        sessionDB: this.deps.sessionProvider,
         gitService: this.deps.gitService,
         taskService: this.deps.taskService,
         workspaceUtils: this.deps.workspaceUtils,

@@ -41,8 +41,9 @@ export async function registerSessionCommands(
   const { getSharedSessionProvider } = await import(
     "../../../domain/session/session-provider-cache"
   );
+  const { createSessionDeps } = await import("../../../domain/session/session-service");
   const sessionProvider = partialDeps?.sessionProvider ?? (await getSharedSessionProvider());
-  const deps: SessionCommandDependencies = { sessionProvider };
+  const deps: SessionCommandDependencies = await createSessionDeps(sessionProvider);
 
   const commands: CommandDefinition[] = [
     // Basic

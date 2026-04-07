@@ -4,15 +4,18 @@
 import { getErrorMessage } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
 import type { CommandDefinition, CommandExecutionContext } from "../../command-registry";
-import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
+import type { SessionDeps } from "../../../../domain/session/session-service";
 
 /**
  * Common dependencies injected into session command factories.
- * `sessionProvider` is always supplied by the composition root.
+ *
+ * Aliased to the domain `SessionDeps` superset (built once in the composition
+ * root via `createSessionDeps()`). Using the same type avoids parallel
+ * dep shapes and lets adapter commands consume any service the domain layer
+ * already wires up — gitService, taskService, workspaceUtils, getCurrentSession,
+ * etc. — without re-constructing them inline.
  */
-export interface SessionCommandDependencies {
-  sessionProvider: SessionProviderInterface;
-}
+export type SessionCommandDependencies = SessionDeps;
 
 /**
  * Minimal parameter shape used by the error-logging helper to extract

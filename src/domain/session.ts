@@ -81,18 +81,18 @@ async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<Sessi
   // Create individual defaults lazily — only instantiate what's actually missing.
   // This avoids triggering heavy service initialization (e.g. PersistenceService)
   // when tests provide their own mocks for the fields they care about.
-  const sessionDB = partial.sessionDB ?? (await createSessionProvider());
+  const sessionProvider = partial.sessionProvider ?? (await createSessionProvider());
   return {
-    sessionDB,
+    sessionProvider,
     gitService: partial.gitService ?? createGitService(),
     taskService:
       partial.taskService ?? (await createConfiguredTaskService({ workspacePath: process.cwd() })),
-    workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(sessionDB),
+    workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(sessionProvider),
     getCurrentSession:
       partial.getCurrentSession ??
       (async (p: string) => {
         const { execAsync } = await import("../utils/exec");
-        return (await getCurrentSession(p, execAsync, sessionDB)) ?? null;
+        return (await getCurrentSession(p, execAsync, sessionProvider)) ?? null;
       }),
     getRepositoryBackend: partial.getRepositoryBackend ?? getRepositoryBackendFromConfig,
   };
@@ -106,7 +106,9 @@ export async function getSessionFromParams(
   params: SessionGetParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<import("./session/types").Session | null> {
-  const service = new SessionService(await resolvePartialDeps(depsInput));
+  const service = new SessionService(
+    await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
+  );
   return service.get(params);
 }
 
@@ -117,7 +119,9 @@ export async function listSessionsFromParams(
   params: SessionListParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<import("./session/types").Session[]> {
-  const service = new SessionService(await resolvePartialDeps(depsInput));
+  const service = new SessionService(
+    await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
+  );
   return service.list(params);
 }
 
@@ -180,7 +184,7 @@ export async function startSessionFromParams(
   }
 
   const resolvedDeps = await resolvePartialDeps({
-    sessionDB: depsInput?.sessionDB,
+    sessionProvider: depsInput?.sessionDB,
     gitService: depsInput?.gitService,
     taskService: depsInput?.taskService,
     workspaceUtils: depsInput?.workspaceUtils,
@@ -211,7 +215,11 @@ export async function startSessionFromParams(
     // eslint-disable-next-line custom/no-excessive-as-unknown -- Zod-inferred type has branded defaults incompatible with plain object literal; structural bridge required
     const typedParams = sessionStartParams as unknown as import("./schemas").SessionStartParameters;
     return startSessionImpl(typedParams, {
-      ...resolvedDeps,
+      sessionDB: resolvedDeps.sessionProvider,
+      gitService: resolvedDeps.gitService,
+      taskService: resolvedDeps.taskService,
+      workspaceUtils: resolvedDeps.workspaceUtils,
+      getRepositoryBackend: resolvedDeps.getRepositoryBackend,
       fs: depsInput.fs,
     });
   }
@@ -226,7 +234,9 @@ export async function deleteSessionFromParams(
   params: SessionDeleteParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<boolean> {
-  const service = new SessionService(await resolvePartialDeps(depsInput));
+  const service = new SessionService(
+    await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
+  );
   return service.delete(params);
 }
 
@@ -237,7 +247,9 @@ export async function getSessionDirFromParams(
   params: SessionDirParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
 ): Promise<string> {
-  const service = new SessionService(await resolvePartialDeps(depsInput));
+  const service = new SessionService(
+    await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
+  );
   return service.getDir(params);
 }
 
@@ -262,7 +274,7 @@ export async function updateSessionFromParams(
 
   const service = new SessionService(
     await resolvePartialDeps({
-      sessionDB: depsInput?.sessionDB,
+      sessionProvider: depsInput?.sessionDB,
       gitService: depsInput?.gitService,
       getCurrentSession: wrappedGetCurrentSession,
     })
@@ -306,7 +318,7 @@ export async function sessionReviewFromParams(
 
   const service = new SessionService(
     await resolvePartialDeps({
-      sessionDB: depsInput?.sessionDB,
+      sessionProvider: depsInput?.sessionDB,
       gitService: depsInput?.gitService,
       taskService: depsInput?.taskService,
       workspaceUtils: depsInput?.workspaceUtils,
@@ -354,7 +366,7 @@ export async function approveSessionFromParams(
   // call approveSessionPr directly to pass it through
   const { approveSessionPr } = await import("./session/session-approval-operations");
 
-  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionDeps()).sessionDB;
+  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionDeps()).sessionProvider;
 
   let sessionToUse = params.session;
   if (!sessionToUse && !params.task && params.repo) {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { executeSessionPrEdit } from "./pr-edit-command";
 import type { CommandExecutionContext } from "../../command-registry";
-import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
+import type { SessionCommandDependencies } from "./types";
 
 /**
  * Unit tests for session pr edit title validation
@@ -14,8 +14,8 @@ describe("session pr edit - conventional commit title validation", () => {
     workingDirectory: "/tmp",
   } as any;
 
-  // Stub session provider — validation runs before any provider calls
-  const deps = { sessionProvider: {} as SessionProviderInterface };
+  // Validation runs before any dep calls — empty stub is sufficient
+  const deps = {} as SessionCommandDependencies;
 
   it("rejects non-conventional title when --type is not provided", async () => {
     await expect(

@@ -219,13 +219,6 @@ export function createSessionReviewCommand(deps: SessionCommandDependencies): Co
       const { sessionReviewImpl } = await import(
         "../../../../domain/session/session-review-operations"
       );
-      const { createGitService } = await import("../../../../domain/git");
-      const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-      const { getCurrentSession, createWorkspaceUtils } = await import(
-        "../../../../domain/workspace"
-      );
-
-      const sessionDB = deps.sessionProvider;
 
       const reviewResult = await sessionReviewImpl(
         {
@@ -236,17 +229,14 @@ export function createSessionReviewCommand(deps: SessionCommandDependencies): Co
           output: params.output as string | undefined,
           prBranch: params.prBranch as string | undefined,
         },
-        await (async () => {
-          const { execAsync } = await import("../../../../utils/exec");
-          return {
-            sessionDB,
-            gitService: createGitService(),
-            taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
-            workspaceUtils: createWorkspaceUtils(sessionDB),
-            getCurrentSession: async (repoPath: string) =>
-              getCurrentSession(repoPath, execAsync, sessionDB),
-          };
-        })()
+        {
+          sessionDB: deps.sessionProvider,
+          gitService: deps.gitService,
+          taskService: deps.taskService,
+          workspaceUtils: deps.workspaceUtils,
+          getCurrentSession: async (repoPath: string) =>
+            (await deps.getCurrentSession(repoPath)) ?? undefined,
+        }
       );
 
       if (params.ai && reviewResult.changeset) {
