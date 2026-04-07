@@ -12,7 +12,8 @@
  * The fake records every command via `recordedCommands`, exposes a
  * `callCount` getter, and supports `setCommandResponse(pattern, response)`
  * for tests that need specific command-pattern matching (the old factory's
- * `branchExists` flag is implemented via this).
+ * `branchExists` flag is implemented via this), and `setCommandError(pattern,
+ * error)` for tests that need specific commands to throw.
  *
  * Hermetic by construction: no shell, no git binary, no filesystem.
  *
@@ -64,6 +65,8 @@ export class FakeGitService implements GitServiceInterface {
   readonly recordedCommands: Array<{ workdir: string; command: string }> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
+  /** Configurable command-pattern errors (first match wins; checked before responses). */
+  private readonly errors: Array<{ pattern: RegExp | string; error: Error }> = [];
 
   private readonly defaultBranch: string;
   private readonly sessionWorkdir: string;
@@ -98,6 +101,14 @@ export class FakeGitService implements GitServiceInterface {
     this.responses.push({ pattern, response });
   }
 
+  /** Configure an error to be thrown for a specific command pattern. First match wins. Errors take priority over responses. */
+  setCommandError(pattern: RegExp | string, error: Error | string): void {
+    this.errors.push({
+      pattern,
+      error: typeof error === "string" ? new Error(error) : error,
+    });
+  }
+
   setBranchExists(value: boolean): void {
     this.branchExists = value;
   }
@@ -105,7 +116,14 @@ export class FakeGitService implements GitServiceInterface {
   async execInRepository(workdir: string, command: string): Promise<string> {
     this.recordedCommands.push({ workdir, command });
 
-    // Check user-configured responses first
+    // Check user-configured errors first — they take priority over responses
+    for (const { pattern, error } of this.errors) {
+      if (typeof pattern === "string" ? command.includes(pattern) : pattern.test(command)) {
+        throw error;
+      }
+    }
+
+    // Check user-configured responses next
     for (const { pattern, response } of this.responses) {
       if (typeof pattern === "string" ? command.includes(pattern) : pattern.test(command)) {
         return response;
