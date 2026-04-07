@@ -27,6 +27,7 @@ import * as WorkspaceUtils from "../workspace";
 import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
+import { assertSessionMutable } from "./session-mutability";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -226,6 +227,9 @@ The task exists but has no associated session to approve.
       sessionIdToUse
     );
   }
+
+  // Enforce merged-PR-freeze invariant
+  assertSessionMutable(sessionRecord, "approve a pull request");
 
   // BUG FIX: Use the original repo URL/path for task updates, not session workspace
   const originalRepoPath = params.repo || sessionRecord.repoUrl || process.cwd();

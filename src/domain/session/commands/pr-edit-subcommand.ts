@@ -8,6 +8,7 @@ import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../.
 import { log } from "../../../utils/logger";
 import { readTextFile } from "../../../utils/fs";
 import type { SessionProviderInterface } from "../types";
+import { assertSessionMutable } from "../session-mutability";
 
 export interface SessionPrEditDependencies {
   sessionDB: SessionProviderInterface;
@@ -56,6 +57,9 @@ export async function sessionPrEdit(
   if (!sessionRecord) {
     throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
   }
+
+  // Enforce merged-PR-freeze invariant
+  assertSessionMutable(sessionRecord, "edit a pull request");
 
   // Check for PR existence based on backend type
   const hasLocalPr = sessionRecord.prState && sessionRecord.prBranch;
