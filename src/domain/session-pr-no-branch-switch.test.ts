@@ -1,195 +1,169 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { preparePrFromParams } from "./git";
-import { createMock } from "../utils/test-utils/mocking";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { preparePrFromParams } from "./git/git-commands-modular";
+import { preparePrImpl } from "./git/prepare-pr-operations";
+import { FakeGitService } from "./git/fake-git-service";
+import { FakeSessionProvider } from "./session/fake-session-provider";
+import {
+  _setSharedSessionProvider,
+  _resetSharedSessionProvider,
+} from "./session/session-provider-cache";
+import type { GitServiceInterface } from "./git/types";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
-import { log } from "../utils/logger";
+
+const SESSION_BRANCH = "task#228";
+const PR_BRANCH = "pr/task#228";
+const WORKDIR = "/mock/repo/path";
+
+/**
+ * Build a FakeGitService wired up so that `gitService.preparePr(...)` runs
+ * the real `preparePrImpl` pipeline but routes every command through
+ * `fakeGitService.execInRepository`, which records them in
+ * `recordedCommands`. This is the seam the assertions read from.
+ */
+function buildFakeGitService(
+  fakeSessionProvider: FakeSessionProvider
+): FakeGitService & GitServiceInterface {
+  const fakeGitService = new FakeGitService();
+
+  // Default responses so preparePrImpl can complete the happy path:
+  //   - current branch lookup returns the session branch
+  //   - rev-parse --verify succeeds for the base branch but fails for the
+  //     PR branch (so we skip the recovery/cleanup path)
+  fakeGitService.setCommandResponse(/rev-parse --abbrev-ref HEAD/, SESSION_BRANCH);
+  fakeGitService.setCommandResponse(/rev-parse --verify main$/, "abcdef123");
+
+  const wired = fakeGitService as FakeGitService & GitServiceInterface;
+  wired.preparePr = async (options) =>
+    preparePrImpl(options, {
+      sessionDb: fakeSessionProvider,
+      getSessionWorkdir: () => WORKDIR,
+      execInRepository: (workdir, cmd) => fakeGitService.execInRepository(workdir, cmd),
+      gitFetch: async () => {},
+      gitPush: async () => {},
+    });
+
+  return wired;
+}
 
 describe("Session PR Command Branch Behavior", () => {
+  let fakeSessionProvider: FakeSessionProvider;
+  let fakeGitService: FakeGitService & GitServiceInterface;
+
   beforeEach(async () => {
-    // Set up mock persistence provider before any tests run
-    const { PersistenceService } = await import("./persistence/service");
-    const { FakePersistenceProvider } = await import("./persistence/fake-persistence-provider");
-
-    const fakeProvider = new FakePersistenceProvider();
-    PersistenceService.setMockProvider(fakeProvider);
-
-    // Initialize configuration to prevent "Configuration not initialized" errors
+    // Configuration is still required for various downstream code paths.
     const factory = new CustomConfigFactory();
     await initializeConfiguration(factory);
+
+    fakeSessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
+          session: SESSION_BRANCH,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          taskId: "228",
+          createdAt: "2026-01-01T00:00:00Z",
+          branch: SESSION_BRANCH,
+        },
+      ],
+      repoPath: WORKDIR,
+      sessionWorkdir: WORKDIR,
+    });
+    _setSharedSessionProvider(fakeSessionProvider);
+
+    fakeGitService = buildFakeGitService(fakeSessionProvider);
+  });
+
+  afterEach(() => {
+    _resetSharedSessionProvider();
   });
 
   test("should never switch user to PR branch during session pr creation", async () => {
-    const gitCommands: string[] = [];
-    const sessionBranch = "task#228";
-    const prBranch = "pr/task#228";
-
-    // Mock execAsync to capture all git commands
-    const mockExecAsync = mock(async (...args: unknown[]) => {
-      const command = args[0] as string;
-      gitCommands.push(command);
-
-      // Simulate different command responses
-      if (command.includes("git -C") && command.includes("rev-parse --abbrev-ref HEAD")) {
-        return { stdout: sessionBranch, stderr: "" };
-      }
-      if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
-        return { stdout: "origin/main", stderr: "" };
-      }
-      if (command.includes("fetch origin")) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes("rev-parse --verify")) {
-        return { stdout: "abcdef123", stderr: "" };
-      }
-      if (command.includes(`branch ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`switch ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes("merge --no-ff")) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`switch ${sessionBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`push origin ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-
-      return { stdout: "", stderr: "" };
-    });
-
-    // Mock session database
-    const mockSessionDb = {
-      getSession: mock(
-        (): Promise<any> =>
-          Promise.resolve({
-            session: "task#228",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "228",
-          })
-      ),
-    };
-
-    // Mock dependencies
-    const mockDeps = {
-      execAsync: mockExecAsync,
-      getSession: mockSessionDb.getSession,
-      getSessionWorkdir: mock(() => "/test/session/workdir"),
-      mkdir: mock(() => Promise.resolve()),
-      readdir: mock(() => Promise.resolve(["file1.txt"])),
-      access: mock(() => Promise.resolve()),
-    };
-
-    // Execute preparePr which is called by session pr
-    try {
-      await preparePrFromParams({
-        session: "task#228",
+    await preparePrFromParams(
+      {
+        session: SESSION_BRANCH,
         title: "Test PR",
         body: "Test body",
         baseBranch: "main",
-      });
+      },
+      { createGitService: () => fakeGitService }
+    );
 
-      // If we get here, verify the correct sequence of git commands
-      const relevantCommands = gitCommands.filter(
-        (cmd) => cmd.includes("branch ") || cmd.includes("switch ") || cmd.includes("checkout ")
-      );
+    const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
 
-      log.debug(`Git branch/switch commands executed: ${JSON.stringify(relevantCommands)}`);
-    } catch (error) {
-      // The test currently fails with a session/database-related error, which is expected
-      // since we're using mocked functions without proper session setup
-      expect(String(error)).toMatch(
-        /[Ss]ession.*[Nn]ot [Ff]ound|sessionDb\.getSession is not a function|[Ff]ailed to read session database/
-      );
-      return; // Test passes when session lookup fails as expected
-    }
-
-    // CRITICAL ASSERTIONS: Verify proper branch handling
-
-    // 1. PR branch should be created without checking it out
+    // 1. PR branch should be created (via `git branch ...`, not `git switch -C`)
     const createPrBranchCommand = gitCommands.find(
-      (cmd) => cmd.includes(`branch ${prBranch}`) && !cmd.includes("switch")
+      (cmd) => cmd.includes(`branch ${PR_BRANCH}`) && !cmd.includes("switch")
     );
     expect(createPrBranchCommand).toBeTruthy();
-    expect(createPrBranchCommand).toContain(`branch ${prBranch}`);
+    expect(createPrBranchCommand).toContain(`branch ${PR_BRANCH}`);
 
-    // 2. Should temporarily switch to PR branch ONLY for merge operation
-    const switchToPrCommand = gitCommands.find((cmd) => cmd.includes(`switch ${prBranch}`));
+    // 2. Should temporarily switch to PR branch (for the merge)
+    const switchToPrCommand = gitCommands.find((cmd) => cmd.includes(`switch ${PR_BRANCH}`));
     expect(switchToPrCommand).toBeTruthy();
 
     // 3. Should switch back to session branch after merge
-    const switchBackCommand = gitCommands.find((cmd) => cmd.includes(`switch ${sessionBranch}`));
+    const switchBackCommand = gitCommands.find((cmd) => cmd.includes(`switch ${SESSION_BRANCH}`));
     expect(switchBackCommand).toBeTruthy();
 
-    // 4. CRITICAL: Verify order - switch to PR, then merge, then switch back
+    // 4. CRITICAL: Verify order — switch to PR, then merge, then switch back
     const switchToPrIndex = gitCommands.indexOf(switchToPrCommand!);
     const mergeCommandIndex = gitCommands.findIndex((cmd) => cmd.includes("merge --no-ff"));
-    const switchBackIndex = gitCommands.indexOf(switchBackCommand!);
+    // switch-back after the merge, not the preparatory switch before it
+    const switchBackIndex = gitCommands.findIndex(
+      (cmd, i) => i > mergeCommandIndex && cmd.includes(`switch ${SESSION_BRANCH}`)
+    );
 
+    expect(mergeCommandIndex).toBeGreaterThan(-1);
     expect(switchToPrIndex).toBeLessThan(mergeCommandIndex);
-    expect(mergeCommandIndex).toBeLessThan(switchBackIndex);
+    expect(switchBackIndex).toBeGreaterThan(mergeCommandIndex);
 
-    // 5. Should NOT use `git switch -C` which creates and checks out simultaneously
+    // 5. Should NOT use `git switch -C` or `git checkout -b` (create + checkout in one)
     const badCreateAndSwitchCommand = gitCommands.find(
       (cmd) => cmd.includes("switch -C") || cmd.includes("checkout -b")
     );
     expect(badCreateAndSwitchCommand).toBeFalsy();
   });
 
-  test("should handle branch switch-back failure as critical error", async () => {
-    const sessionBranch = "task#228";
-    const prBranch = "pr/task#228";
-
-    // Mock execAsync to simulate switch-back failure
-    const mockExecAsync = mock(async (...args: unknown[]) => {
-      const command = args[0] as string;
-      // Simulate failure when switching back to session branch
-      if (command.includes(`switch ${sessionBranch}`)) {
+  test("should handle branch switch-back failure without corrupting the workflow", async () => {
+    // Configure the fake so that after the merge, switching back to the
+    // session branch fails. The production code logs a warning and
+    // swallows the error — the workflow still completes.
+    let mergeSeen = false;
+    const originalExec = fakeGitService.execInRepository.bind(fakeGitService);
+    fakeGitService.execInRepository = async (workdir: string, command: string) => {
+      if (command.includes("merge --no-ff")) {
+        mergeSeen = true;
+      }
+      if (mergeSeen && command.includes(`switch ${SESSION_BRANCH}`)) {
+        // Record the attempt so assertions can see it.
+        fakeGitService.recordedCommands.push({ workdir, command });
         throw new Error("Failed to switch back to session branch");
       }
-
-      // Simulate success for other commands
-      if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
-        return { stdout: "origin/main", stderr: "" };
-      }
-      if (command.includes("rev-parse --abbrev-ref HEAD")) {
-        return { stdout: sessionBranch, stderr: "" };
-      }
-
-      return { stdout: "", stderr: "" };
-    });
-
-    // Mock session database
-    const mockSessionDb = {
-      getSession: mock(() =>
-        Promise.resolve({
-          session: "task#228",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "228",
-        })
-      ),
+      return originalExec(workdir, command);
     };
 
-    // Test should complete without errors AND not switch to PR branch
-    try {
-      await preparePrFromParams({
-        session: "task#228",
-        title: "Test PR",
-        body: "Test body",
-        baseBranch: "main",
-      });
-    } catch (error) {
-      // The test currently fails with session not found, which is expected
-      // since we're using mocked functions without proper session setup
-      expect(String(error)).toMatch(
-        /[Ss]ession.*[Nn]ot [Ff]ound|sessionDb\.getSession is not a function/
-      );
-      return; // Test passes when session lookup fails
-    }
+    await expect(
+      preparePrFromParams(
+        {
+          session: SESSION_BRANCH,
+          title: "Test PR",
+          body: "Test body",
+          baseBranch: "main",
+        },
+        { createGitService: () => fakeGitService }
+      )
+    ).rejects.toThrow(/switch back to session branch|Failed to create prepared merge commit/i);
+
+    const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
+    const mergeIdx = gitCommands.findIndex((cmd) => cmd.includes("merge --no-ff"));
+    expect(mergeIdx).toBeGreaterThan(-1);
+
+    // The workflow must attempt the switch-back after merging (which is the
+    // failing operation we configured above).
+    const postMergeSwitchBack = gitCommands.findIndex(
+      (cmd, i) => i > mergeIdx && cmd.includes(`switch ${SESSION_BRANCH}`)
+    );
+    expect(postMergeSwitchBack).toBeGreaterThan(mergeIdx);
   });
 
   test("should document the behavioral change from switch -C to branch + switch pattern", () => {

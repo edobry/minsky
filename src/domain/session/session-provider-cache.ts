@@ -19,3 +19,8 @@ export async function getSharedSessionProvider(): Promise<SessionProviderInterfa
 export function _resetSharedSessionProvider(): void {
   _cachedProvider = null;
 }
+
+/** Inject a custom session provider (for testing). @internal */
+export function _setSharedSessionProvider(provider: SessionProviderInterface): void {
+  _cachedProvider = provider;
+}
