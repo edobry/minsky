@@ -21,7 +21,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
 import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
@@ -97,9 +97,8 @@ describe("Session Approve Workflow", () => {
     mockSessionDB.getSessionByTaskId = getSessionByTaskIdSpy;
     mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy;
 
-    mockGitService = createMockGitService({
-      execInRepository: execInRepositorySpy,
-    });
+    mockGitService = new FakeGitService();
+    mockGitService.execInRepository = execInRepositorySpy;
 
     mockTaskService = (() => {
       const svc = new FakeTaskService();
@@ -184,9 +183,8 @@ describe("Session Approve Workflow", () => {
     let failingExecSpy = mock(() => {});
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
 
-    const failingGitService = createMockGitService({
-      execInRepository: failingExecSpy as any,
-    });
+    const failingGitService = new FakeGitService();
+    failingGitService.execInRepository = failingExecSpy as any;
 
     await expect(
       approveSessionFromParams(

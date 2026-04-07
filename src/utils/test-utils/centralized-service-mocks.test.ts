@@ -6,10 +6,9 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createMockGitService } from "./dependencies";
+import { FakeGitService } from "../../domain/git/fake-git-service";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
 import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
-import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
 
 describe("Centralized Service Mock Factories", () => {
@@ -75,9 +74,9 @@ describe("Centralized Service Mock Factories", () => {
     });
   });
 
-  describe("createMockGitService", () => {
-    test("should create a mock GitService with all required methods", () => {
-      const mockGitService = createMockGitService();
+  describe("FakeGitService", () => {
+    test("should create a FakeGitService with all required methods", () => {
+      const mockGitService = new FakeGitService();
 
       // Verify all interface methods are present
       expect(typeof mockGitService.clone).toBe("function");
@@ -100,7 +99,7 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockGitService = createMockGitService();
+      const mockGitService = new FakeGitService();
 
       // Test default return values
       const cloneResult = await mockGitService.clone({
@@ -131,12 +130,13 @@ describe("Centralized Service Mock Factories", () => {
       expect(hasChanges).toBe(false);
     });
 
-    test("should allow method overrides", async () => {
-      const mockGitService = createMockGitService({
-        clone: () => Promise.resolve({ workdir: "/custom/workdir", session: "custom-session" }),
-        execInRepository: () => Promise.resolve("custom git output"),
-        getStatus: () => Promise.resolve({ modified: ["file1.ts"], untracked: [], deleted: [] }),
-      });
+    test("should allow method overrides via reassignment", async () => {
+      const mockGitService = new FakeGitService();
+      mockGitService.clone = () =>
+        Promise.resolve({ workdir: "/custom/workdir", session: "custom-session" });
+      mockGitService.execInRepository = () => Promise.resolve("custom git output");
+      mockGitService.getStatus = () =>
+        Promise.resolve({ modified: ["file1.ts"], untracked: [], deleted: [] });
 
       const cloneResult = await mockGitService.clone({
         repoUrl: "test",

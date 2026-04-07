@@ -20,7 +20,7 @@ import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
 } from "../../../src/utils/test-utils/test-constants";
-import { createMockGitService } from "../../../src/utils/test-utils/dependencies";
+import { FakeGitService } from "../../../src/domain/git/fake-git-service";
 import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
@@ -44,15 +44,17 @@ describe("Session CLI Commands", () => {
 
     testData = createSessionTestData();
 
-    mockGitService = createMockGitService({
-      getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
-      execInRepository: async (workdir: string, command: string) => {
-        if (command.includes("git remote get-url origin")) {
-          return "https://github.com/test/repo.git";
-        }
-        return "";
-      },
-    });
+    const fakeGit = new FakeGitService();
+    fakeGit.getSessionWorkdir = () =>
+      join(testData.tempDir, "test-repo", "sessions", "test-session");
+    fakeGit.execInRepository = async (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
+      if (command.includes("git remote get-url origin")) {
+        return "https://github.com/test/repo.git";
+      }
+      return "";
+    };
+    mockGitService = fakeGit;
 
     mockSessionProvider = createPartialMock<SessionProviderInterface>({
       getSession: (sessionId: string) =>
@@ -280,10 +282,9 @@ describe("Session CLI Commands", () => {
         getSessionWorkdir: () => Promise.resolve(sessionPath),
       });
 
-      const mockGitServiceWithCommands = createMockGitService({
-        hasUncommittedChanges: async () => false,
-        fetchDefaultBranch: async () => "main",
-      });
+      const mockGitServiceWithCommands = new FakeGitService();
+      mockGitServiceWithCommands.hasUncommittedChanges = async () => false;
+      mockGitServiceWithCommands.fetchDefaultBranch = async () => "main";
 
       const result = await updateSessionFromParams(
         {

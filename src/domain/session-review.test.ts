@@ -2,7 +2,7 @@ import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { TaskServiceInterface } from "./tasks/taskService";
@@ -55,9 +55,8 @@ describe("sessionReviewFromParams", () => {
     mockSessionDB.getSession = getSessionSpy;
     mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
-    const mockGitService = createMockGitService({
-      execInRepository: execInRepositorySpy,
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = execInRepositorySpy;
 
     const mockTaskService = createPartialMock<
       TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
@@ -144,9 +143,8 @@ describe("sessionReviewFromParams", () => {
     mockSessionDB.getSessionByTaskId = getSessionByTaskIdSpy;
     mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
-    const mockGitService = createMockGitService({
-      execInRepository: execInRepositorySpy,
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = execInRepositorySpy;
 
     const mockTaskService = createPartialMock<
       TaskServiceInterface & { getTaskSpecData?: (taskId: string) => Promise<unknown> }
@@ -189,7 +187,7 @@ describe("sessionReviewFromParams", () => {
     mockSessionDB.getSession = () => Promise.resolve(null);
     mockSessionDB.getSessionByTaskId = () => Promise.resolve(null);
 
-    const mockGitService = createMockGitService({});
+    const mockGitService = new FakeGitService();
     const mockTaskService = new FakeTaskService();
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
@@ -222,7 +220,7 @@ describe("sessionReviewFromParams", () => {
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.getSession = () => Promise.resolve(null);
 
-    const mockGitService = createMockGitService({});
+    const mockGitService = new FakeGitService();
     const mockTaskService = new FakeTaskService();
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({

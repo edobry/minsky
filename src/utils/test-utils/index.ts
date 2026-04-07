@@ -31,13 +31,10 @@ export {
   withMockedDeps,
   createDeepTestDeps,
   createPartialTestDeps,
-  // Individual service mock factories
-  createMockGitService,
-  type MockGitServiceOptions,
-  type MockGitServiceWithCallCount,
 } from "./dependencies";
 
 // Fake implementations (canonical FakeX pattern)
+export { FakeGitService } from "../../domain/git/fake-git-service";
 export { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 
 // Original utilities (avoid conflicts)

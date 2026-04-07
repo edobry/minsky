@@ -1,7 +1,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { WorkspaceUtilsInterface } from "./workspace";
@@ -45,9 +45,11 @@ describe("Session Approve Branch Cleanup", () => {
 
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: createMockGitService({
-        execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-      }),
+      gitService: (() => {
+        const g = new FakeGitService();
+        g.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
+        return g;
+      })(),
       taskService: (() => {
         const svc = new FakeTaskService({
           initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
@@ -97,9 +99,11 @@ describe("Session Approve Branch Cleanup", () => {
 
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: createMockGitService({
-        execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-      }),
+      gitService: (() => {
+        const g = new FakeGitService();
+        g.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
+        return g;
+      })(),
       taskService: (() => {
         const svc = new FakeTaskService({
           initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
@@ -150,9 +154,11 @@ describe("Session Approve Branch Cleanup", () => {
 
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: createMockGitService({
-        execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-      }),
+      gitService: (() => {
+        const g = new FakeGitService();
+        g.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
+        return g;
+      })(),
       taskService: (() => {
         const svc = new FakeTaskService({
           initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],

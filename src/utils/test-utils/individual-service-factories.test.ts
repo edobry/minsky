@@ -1,9 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import {
-  createMockGitService,
-  type MockGitServiceOptions,
-  type MockGitServiceWithCallCount,
-} from "./dependencies";
+import { FakeGitService } from "../../domain/git/fake-git-service";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
 import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import type { SessionRecord } from "../../domain/session";
@@ -102,9 +98,9 @@ describe("Individual Service Mock Factories", () => {
     });
   });
 
-  describe("createMockGitService", () => {
+  describe("FakeGitService", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
       expect(
         await mockService.clone({
@@ -129,8 +125,8 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("supports branch existence configuration", async () => {
-      const mockServiceExists = createMockGitService({ branchExists: true });
-      const mockServiceNotExists = createMockGitService({ branchExists: false });
+      const mockServiceExists = new FakeGitService({ branchExists: true });
+      const mockServiceNotExists = new FakeGitService({ branchExists: false });
 
       expect(await mockServiceExists.execInRepository("/test", "show-ref pr/123")).toBe(
         "ref-exists"
@@ -145,31 +141,28 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("tracks git call count", async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
+      expect(mockService.callCount).toBe(0);
 
       await mockService.execInRepository("/test", "status");
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(1);
+      expect(mockService.callCount).toBe(1);
 
       await mockService.execInRepository("/test", "log");
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(2);
+      expect(mockService.callCount).toBe(2);
 
-      (mockService as MockGitServiceWithCallCount).resetGitCallCount();
-      expect((mockService as MockGitServiceWithCallCount).getGitCallCount()).toBe(0);
+      mockService.resetCallCount();
+      expect(mockService.callCount).toBe(0);
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
-      const customOptions: MockGitServiceOptions = {
-        clone: () =>
-          Promise.resolve({
-            workdir: "/custom/workdir",
-            session: "custom-session",
-          }),
-        getSessionWorkdir: () => "/custom/session/workdir",
-      };
-
-      const mockService = createMockGitService(customOptions);
+      const mockService = new FakeGitService();
+      mockService.clone = () =>
+        Promise.resolve({
+          workdir: "/custom/workdir",
+          session: "custom-session",
+        });
+      mockService.getSessionWorkdir = () => "/custom/session/workdir";
 
       expect(
         await mockService.clone({
@@ -185,7 +178,7 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("handles non-PR git commands", async () => {
-      const mockService = createMockGitService();
+      const mockService = new FakeGitService();
 
       expect(await mockService.execInRepository("/test", "status")).toBe("mock git output");
       expect(await mockService.execInRepository("/test", "log --oneline")).toBe("mock git output");
@@ -301,7 +294,7 @@ describe("Individual Service Mock Factories", () => {
       ];
 
       const mockSessionProvider = new FakeSessionProvider({ initialSessions: sessions });
-      const mockGitService = createMockGitService({ branchExists: true });
+      const mockGitService = new FakeGitService({ branchExists: true });
       const mockTaskService = new FakeTaskService({
         initialTasks: [{ id: "md#001", title: "Integration Task", status: "IN_PROGRESS" }],
       });
@@ -322,7 +315,7 @@ describe("Individual Service Mock Factories", () => {
     test("factories can be used independently", async () => {
       // Each factory should work on its own without dependencies
       const sessionProvider = new FakeSessionProvider();
-      const gitService = createMockGitService();
+      const gitService = new FakeGitService();
       const taskService = new FakeTaskService();
 
       expect(sessionProvider).toBeDefined();

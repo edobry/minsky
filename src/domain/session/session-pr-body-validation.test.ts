@@ -19,7 +19,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
 import { ValidationError, MinskyError } from "../../errors";
-import { createMockGitService } from "../../utils/test-utils/dependencies";
+import { FakeGitService } from "../git/fake-git-service";
 import { FakeSessionProvider } from "./fake-session-provider";
 import { FakeTaskService } from "../tasks/fake-task-service";
 
@@ -38,9 +38,8 @@ import { FakeTaskService } from "../tasks/fake-task-service";
 describe("Session PR Body Validation Bug Fix", () => {
   test("should throw ValidationError for new PR without body", async () => {
     // Arrange: Set up minimal mocks for dependencies
-    const mockGitService = createMockGitService({
-      getCurrentBranch: () => Promise.resolve("main"),
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.getCurrentBranch = () => Promise.resolve("main");
 
     const mockSessionProvider = new FakeSessionProvider({
       initialSessions: [

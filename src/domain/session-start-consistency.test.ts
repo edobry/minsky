@@ -13,7 +13,7 @@ import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createMockGitService } from "../utils/test-utils/index";
+import { FakeGitService } from "./git/fake-git-service";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 
@@ -39,10 +39,11 @@ describe("Session Start Consistency Tests", () => {
     });
     mockSessionDB.getSession = () => Promise.resolve(null); // No existing session
 
-    mockGitService = createMockGitService({
-      clone: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: TEST_UUID }),
-      branch: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" }),
-    });
+    mockGitService = new FakeGitService();
+    mockGitService.clone = () =>
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: TEST_UUID });
+    mockGitService.branch = () =>
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" });
 
     mockTaskService = new FakeTaskService({
       initialTasks: [{ id: "md#160", title: "Test Task", status: "TODO" }],

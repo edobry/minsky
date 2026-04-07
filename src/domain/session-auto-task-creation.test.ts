@@ -11,7 +11,6 @@ import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
-import { createMockGitService } from "../utils/test-utils/dependencies";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";

@@ -3,7 +3,7 @@ import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
-import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import type { TaskServiceInterface } from "./tasks/taskService";
@@ -53,9 +53,8 @@ describe("Session Approve", () => {
     expect(session).not.toBeNull();
 
     // Now test with minimal deps
-    const mockGitService = createMockGitService({
-      execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
 
     const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),
@@ -117,9 +116,8 @@ describe("Session Approve", () => {
       ],
     });
 
-    const mockGitService = createMockGitService({
-      execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
 
     const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),
@@ -185,11 +183,11 @@ describe("Session Approve", () => {
       ],
     });
 
+    const _inlineGitService = new FakeGitService();
+    _inlineGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: createMockGitService({
-        execInRepository: () => Promise.resolve(TEST_COMMIT_HASH),
-      }),
+      gitService: _inlineGitService,
       taskService: createPartialMock<TaskServiceInterface>({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: (() =>
@@ -235,9 +233,8 @@ describe("Session Approve", () => {
       getSessionWorkdir: mock(() => Promise.resolve("")),
     });
 
-    const mockGitService = createMockGitService({
-      execInRepository: () => Promise.resolve(""),
-    });
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = () => Promise.resolve("");
 
     const mockTaskService = createPartialMock<TaskServiceInterface>({
       setTaskStatus: () => Promise.resolve(),

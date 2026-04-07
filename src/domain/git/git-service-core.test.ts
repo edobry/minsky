@@ -4,8 +4,9 @@
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git";
-import { createTestDeps, createMockGitService } from "../../utils/test-utils/dependencies";
+import { createTestDeps } from "../../utils/test-utils/dependencies";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";
+import { FakeGitService } from "./fake-git-service";
 
 describe("GitService", () => {
   let deps: DomainDependencies;
@@ -13,25 +14,24 @@ describe("GitService", () => {
 
   beforeEach(() => {
     // Use established DI patterns instead of global mocking
-    deps = createTestDeps({
-      gitService: createMockGitService({
-        getStatus: () =>
-          Promise.resolve({
-            modified: ["file1.ts", "file2.ts"],
-            untracked: ["newfile1.ts", "newfile2.ts"],
-            deleted: ["deletedfile1.ts"],
-          }),
-        execInRepository: (workdir: string, command: string) => {
-          if (command === "rev-parse --abbrev-ref HEAD") {
-            return Promise.resolve("main");
-          }
-          if (command === "rev-parse --show-toplevel") {
-            return Promise.resolve("/mock/repo/path");
-          }
-          return Promise.resolve("");
-        },
-      }),
-    });
+    const fakeGit = new FakeGitService();
+    fakeGit.getStatus = () =>
+      Promise.resolve({
+        modified: ["file1.ts", "file2.ts"],
+        untracked: ["newfile1.ts", "newfile2.ts"],
+        deleted: ["deletedfile1.ts"],
+      });
+    fakeGit.execInRepository = (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
+      if (command === "rev-parse --abbrev-ref HEAD") {
+        return Promise.resolve("main");
+      }
+      if (command === "rev-parse --show-toplevel") {
+        return Promise.resolve("/mock/repo/path");
+      }
+      return Promise.resolve("");
+    };
+    deps = createTestDeps({ gitService: fakeGit });
 
     // Use the mocked git service from dependencies
     gitService = deps.gitService as GitService;
