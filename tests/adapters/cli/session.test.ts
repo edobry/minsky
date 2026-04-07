@@ -20,10 +20,8 @@ import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
 } from "../../../src/utils/test-utils/test-constants";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-} from "../../../src/utils/test-utils/dependencies";
+import { createMockGitService } from "../../../src/utils/test-utils/dependencies";
+import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
@@ -325,14 +323,13 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderWorkspace = createMockSessionProvider({
-        getSession: (sessionId: string) => {
-          if (sessionId === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
-            return Promise.resolve(sessionRecord);
-          }
-          return Promise.resolve(null);
-        },
-      });
+      const mockSessionProviderWorkspace = new FakeSessionProvider();
+      mockSessionProviderWorkspace.getSession = (sessionId: string) => {
+        if (sessionId === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
+          return Promise.resolve(sessionRecord);
+        }
+        return Promise.resolve(null);
+      };
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {
@@ -368,14 +365,13 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderDirectory = createMockSessionProvider({
-        getSession: (sessionId: string) => {
-          if (sessionId === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
-            return Promise.resolve(sessionRecord);
-          }
-          return Promise.resolve(null);
-        },
-      });
+      const mockSessionProviderDirectory = new FakeSessionProvider();
+      mockSessionProviderDirectory.getSession = (sessionId: string) => {
+        if (sessionId === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
+          return Promise.resolve(sessionRecord);
+        }
+        return Promise.resolve(null);
+      };
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {

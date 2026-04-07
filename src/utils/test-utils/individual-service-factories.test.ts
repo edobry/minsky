@@ -1,25 +1,24 @@
 import { describe, test, expect } from "bun:test";
 import {
-  createMockSessionProvider,
   createMockGitService,
-  type MockSessionProviderOptions,
   type MockGitServiceOptions,
   type MockGitServiceWithCallCount,
 } from "./dependencies";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
+import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import type { SessionRecord } from "../../domain/session";
 import type { Task } from "../../domain/tasks";
 import { TEST_DESC_PATTERNS } from "./test-constants";
 
 describe("Individual Service Mock Factories", () => {
-  describe("createMockSessionProvider", () => {
+  describe("FakeSessionProvider", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
-      const mockProvider = createMockSessionProvider();
+      const mockProvider = new FakeSessionProvider();
 
       expect(await mockProvider.listSessions()).toEqual([]);
       expect(await mockProvider.getSession("test")).toBeNull();
       expect(await mockProvider.getSessionByTaskId("123")).toBeNull();
-      expect(await mockProvider.deleteSession("test")).toBe(true);
+      expect(await mockProvider.deleteSession("test")).toBe(false);
       expect(
         await mockProvider.getRepoPath({
           session: "test",
@@ -51,7 +50,7 @@ describe("Individual Service Mock Factories", () => {
         },
       ];
 
-      const mockProvider = createMockSessionProvider({ sessions });
+      const mockProvider = new FakeSessionProvider({ initialSessions: sessions });
 
       expect(await mockProvider.listSessions()).toEqual(sessions);
       expect(await mockProvider.getSession("test-session")).toEqual(sessions[0] ?? null);
@@ -60,18 +59,15 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
-      const customOptions: MockSessionProviderOptions = {
-        getSession: () =>
-          Promise.resolve({
-            session: "custom",
-            repoName: "custom-repo",
-            repoUrl: "https://github.com/custom/repo",
-            createdAt: "2023-01-01T00:00:00Z",
-          }),
-        deleteSession: () => Promise.resolve(false),
-      };
-
-      const mockProvider = createMockSessionProvider(customOptions);
+      const mockProvider = new FakeSessionProvider();
+      mockProvider.getSession = () =>
+        Promise.resolve({
+          session: "custom",
+          repoName: "custom-repo",
+          repoUrl: "https://github.com/custom/repo",
+          createdAt: "2023-01-01T00:00:00Z",
+        });
+      mockProvider.deleteSession = () => Promise.resolve(false);
 
       const result = await mockProvider.getSession("any");
       expect(result?.session).toBe("custom");
@@ -79,7 +75,29 @@ describe("Individual Service Mock Factories", () => {
     });
 
     test("supports empty options", async () => {
-      const mockProvider = createMockSessionProvider({});
+      const mockProvider = new FakeSessionProvider({});
+      expect(await mockProvider.listSessions()).toEqual([]);
+    });
+
+    test("maintains state across calls", async () => {
+      const mockProvider = new FakeSessionProvider();
+
+      expect(await mockProvider.listSessions()).toEqual([]);
+
+      const record: SessionRecord = {
+        session: "new-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/repo",
+        createdAt: "2023-01-01T00:00:00Z",
+      };
+      await mockProvider.addSession(record);
+      expect(await mockProvider.listSessions()).toHaveLength(1);
+
+      await mockProvider.updateSession("new-session", { taskId: "md#42" });
+      const updated = await mockProvider.getSession("new-session");
+      expect(updated?.taskId).toBe("md#42");
+
+      expect(await mockProvider.deleteSession("new-session")).toBe(true);
       expect(await mockProvider.listSessions()).toEqual([]);
     });
   });
@@ -282,7 +300,7 @@ describe("Individual Service Mock Factories", () => {
         },
       ];
 
-      const mockSessionProvider = createMockSessionProvider({ sessions });
+      const mockSessionProvider = new FakeSessionProvider({ initialSessions: sessions });
       const mockGitService = createMockGitService({ branchExists: true });
       const mockTaskService = new FakeTaskService({
         initialTasks: [{ id: "md#001", title: "Integration Task", status: "IN_PROGRESS" }],
@@ -303,7 +321,7 @@ describe("Individual Service Mock Factories", () => {
 
     test("factories can be used independently", async () => {
       // Each factory should work on its own without dependencies
-      const sessionProvider = createMockSessionProvider();
+      const sessionProvider = new FakeSessionProvider();
       const gitService = createMockGitService();
       const taskService = new FakeTaskService();
 

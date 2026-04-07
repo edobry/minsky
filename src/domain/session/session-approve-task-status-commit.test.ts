@@ -17,10 +17,11 @@ import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT M
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
-import { createMockSessionProvider, createMockGitService } from "../../utils/test-utils/index";
+import { createMockGitService } from "../../utils/test-utils/index";
 import { createPartialMock } from "../../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 import { FakeTaskService } from "../tasks/fake-task-service";
+import { FakeSessionProvider } from "./fake-session-provider";
 
 describe("Session Approve Task Status Commit", () => {
   // Mock log functions used by session approve operations
@@ -117,26 +118,25 @@ describe("Session Approve Task Status Commit", () => {
       },
     });
 
-    const mockSessionDB = createMockSessionProvider({
-      getSessionByTaskId: (taskId: string) =>
-        Promise.resolve({
-          session: `task-${taskId}`, // session ID from qualified id
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-          prBranch: `pr/task-${taskId}`,
-        }),
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSessionByTaskId = (taskId: string) =>
+      Promise.resolve({
+        session: `task-${taskId}`, // session ID from qualified id
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+        prBranch: `pr/task-${taskId}`,
+      });
+    mockSessionDB.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: QUALIFIED_TASK_ID,
+        prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
 
     const mockTaskService = (() => {
       const svc = new FakeTaskService({

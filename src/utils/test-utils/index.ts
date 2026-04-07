@@ -32,12 +32,13 @@ export {
   createDeepTestDeps,
   createPartialTestDeps,
   // Individual service mock factories
-  createMockSessionProvider,
   createMockGitService,
-  type MockSessionProviderOptions,
   type MockGitServiceOptions,
   type MockGitServiceWithCallCount,
 } from "./dependencies";
+
+// Fake implementations (canonical FakeX pattern)
+export { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 
 // Original utilities (avoid conflicts)
 export { createMockFileSystem, setupTestMocks } from "./mocking";

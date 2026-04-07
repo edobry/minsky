@@ -1,7 +1,8 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
@@ -29,8 +30,8 @@ describe("Session Approve Branch Cleanup", () => {
     // Test-scoped constants removed - using module level TEST_PR_NUMBER
 
     // Clean DI approach for branch cleanup
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
@@ -81,8 +82,8 @@ describe("Session Approve Branch Cleanup", () => {
 
   test("should handle branch cleanup failures gracefully without failing the operation", async () => {
     // Clean DI approach
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
@@ -133,8 +134,8 @@ describe("Session Approve Branch Cleanup", () => {
 
   test("should not attempt branch cleanup for already approved sessions", async () => {
     // Clean DI approach
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,

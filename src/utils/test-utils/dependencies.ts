@@ -22,7 +22,6 @@ import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
-import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
 
@@ -427,69 +426,6 @@ export function createPartialTestDeps(
  * These factories eliminate duplication by providing centralized mock implementations
  * that can be used across multiple test files.
  */
-
-/**
- * Options for configuring SessionProviderInterface mock behavior
- */
-export interface MockSessionProviderOptions {
-  sessions?: SessionRecord[];
-  getSession?: (sessionId: string) => Promise<SessionRecord | null>;
-  getSessionByTaskId?: (taskId: string) => Promise<SessionRecord | null>;
-  addSession?: () => Promise<void>;
-  updateSession?: () => Promise<void>;
-  deleteSession?: () => Promise<boolean>;
-  getRepoPath?: () => Promise<string>;
-  getSessionWorkdir?: () => Promise<string>;
-  listSessions?: () => Promise<SessionRecord[]>;
-}
-
-/**
- * Creates a mock SessionProviderInterface with comprehensive interface coverage
- * Eliminates duplication across test files by providing a centralized implementation
- *
- * @param options Configuration options for mock behavior
- * @returns A complete mock SessionProviderInterface
- */
-export function createMockSessionProvider(
-  options: MockSessionProviderOptions = {}
-): SessionProviderInterface {
-  const { sessions = [] } = options;
-
-  const mockProvider = createPartialMock<SessionProviderInterface>({
-    listSessions: options.listSessions || (() => Promise.resolve(sessions)),
-
-    getSession:
-      options.getSession ||
-      ((sessionId: string) => {
-        const session = sessions.find((s) => s.session === sessionId);
-        return Promise.resolve(session || null);
-      }),
-
-    getSessionByTaskId:
-      options.getSessionByTaskId ||
-      ((taskId: string) => {
-        // Use same normalization logic as real SessionDbAdapter for consistency
-        const validatedTaskId = validateQualifiedTaskId(taskId);
-        if (!validatedTaskId) return Promise.resolve(null);
-
-        const session = sessions.find((s) => {
-          if (!s.taskId) return false;
-          const storedNormalized = validateQualifiedTaskId(s.taskId);
-          return storedNormalized === validatedTaskId;
-        });
-        return Promise.resolve(session || null);
-      }),
-
-    addSession: options.addSession || (() => Promise.resolve()),
-    updateSession: options.updateSession || (() => Promise.resolve()),
-    deleteSession: options.deleteSession || (() => Promise.resolve(true)),
-    getRepoPath: options.getRepoPath || (() => Promise.resolve("/mock/repo/path")),
-    getSessionWorkdir:
-      options.getSessionWorkdir || (() => Promise.resolve("/mock/session/workdir")),
-  });
-
-  return mockProvider;
-}
 
 /**
  * Extended GitServiceInterface mock with call-counting utilities

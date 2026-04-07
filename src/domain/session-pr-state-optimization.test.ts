@@ -12,7 +12,8 @@ import {
   type SessionProviderInterface,
 } from "./session";
 import { type GitServiceInterface } from "./git";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/index";
+import { createMockGitService } from "../utils/test-utils/index";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 // Mock session DB helper for this specific test's needs
 type MockSessionDBWithHelpers = SessionProviderInterface & {
@@ -20,30 +21,17 @@ type MockSessionDBWithHelpers = SessionProviderInterface & {
 };
 
 const createMockSessionDBWithHelpers = (): MockSessionDBWithHelpers => {
-  const sessions = new Map<string, unknown>();
+  const provider = new FakeSessionProvider();
 
-  const mockSessionDB = createMockSessionProvider({
-    getSession: (sessionId: string) =>
-      Promise.resolve(
-        (sessions.get(sessionId) as Awaited<ReturnType<SessionProviderInterface["getSession"]>>) ??
-          null
-      ),
-    updateSession: ((sessionId: string, updates: unknown) => {
-      const existing = (sessions.get(sessionId) as Record<string, unknown>) || {};
-      sessions.set(sessionId, { ...existing, ...(updates as Record<string, unknown>) });
-      return Promise.resolve();
-    }) as any,
-  });
-
-  // Add helper method for test setup using typed extension
-  (mockSessionDB as unknown as MockSessionDBWithHelpers)._setSession = (
+  // Expose a helper to inject partial session data for test setup
+  (provider as unknown as MockSessionDBWithHelpers)._setSession = (
     sessionId: string,
     data: unknown
   ) => {
-    sessions.set(sessionId, data);
+    void provider.addSession(data as Parameters<typeof provider.addSession>[0]);
   };
 
-  return mockSessionDB as unknown as MockSessionDBWithHelpers;
+  return provider as unknown as MockSessionDBWithHelpers;
 };
 
 type MockGitServiceWithCallTracking = GitServiceInterface & {

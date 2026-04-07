@@ -11,10 +11,11 @@ import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -44,12 +45,7 @@ describe("Session Auto-Task Creation", () => {
     );
 
     // Mock session database using centralized factory
-    mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null),
-      addSession: () => Promise.resolve(void 0),
-      listSessions: () => Promise.resolve([]),
-      deleteSession: () => Promise.resolve(true),
-    });
+    mockSessionDB = new FakeSessionProvider();
 
     // Mock git service using createPartialMock for full control
     mockGitService = createPartialMock<GitServiceInterface>({

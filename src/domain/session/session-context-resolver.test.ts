@@ -12,15 +12,15 @@ import {
   type ResolvedSessionContext,
 } from "./session-context-resolver";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { createMockSessionProvider } from "../../utils/test-utils/index";
+import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionProviderInterface } from "../session";
 
 describe("resolveSessionContext", () => {
   let mockSessionProvider: SessionProviderInterface;
 
   beforeEach(() => {
-    mockSessionProvider = createMockSessionProvider({
-      sessions: [
+    mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
         {
           session: "test-session",
           repoName: "test-repo",
@@ -117,8 +117,8 @@ describe("resolveSessionContext", () => {
 
 describe("resolveSessionId", () => {
   test("returns just the session ID", async () => {
-    const mockSessionProvider = createMockSessionProvider({
-      sessions: [
+    const mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
         {
           session: "test-session",
           repoName: "test-repo",
@@ -141,8 +141,8 @@ describe("resolveSessionId", () => {
 
 describe("validateSessionContext", () => {
   test("returns true for valid session", async () => {
-    const mockSessionProvider = createMockSessionProvider({
-      sessions: [
+    const mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
         {
           session: "test-session",
           repoName: "test-repo",
@@ -163,7 +163,7 @@ describe("validateSessionContext", () => {
   });
 
   test("returns false for invalid session", async () => {
-    const mockSessionProvider = createMockSessionProvider();
+    const mockSessionProvider = new FakeSessionProvider();
 
     const isValid = await validateSessionContext({
       session: "non-existent",

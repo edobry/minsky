@@ -6,16 +6,16 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createMockSessionProvider, createMockGitService } from "./dependencies";
+import { createMockGitService } from "./dependencies";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
-import type { SessionProviderInterface } from "../../domain/session";
+import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
 
 describe("Centralized Service Mock Factories", () => {
-  describe("createMockSessionProvider", () => {
-    test("should create a mock SessionProvider with all required methods", () => {
-      const mockSessionProvider = createMockSessionProvider();
+  describe("FakeSessionProvider", () => {
+    test("should create a FakeSessionProvider with all required methods", () => {
+      const mockSessionProvider = new FakeSessionProvider();
 
       // Verify all interface methods are present
       expect(typeof mockSessionProvider.listSessions).toBe("function");
@@ -29,42 +29,41 @@ describe("Centralized Service Mock Factories", () => {
     });
 
     test("should return default mock values", async () => {
-      const mockSessionProvider = createMockSessionProvider();
+      const mockSessionProvider = new FakeSessionProvider();
 
       // Test default return values
       expect(await mockSessionProvider.listSessions()).toEqual([]);
       expect(await mockSessionProvider.getSession("test")).toBeNull();
       expect(await mockSessionProvider.getSessionByTaskId("test")).toBeNull();
-      expect(await mockSessionProvider.deleteSession("test")).toBe(true);
+      expect(await mockSessionProvider.deleteSession("test")).toBe(false);
       expect(await mockSessionProvider.getRepoPath({} as any)).toBe("/mock/repo/path");
       expect(await mockSessionProvider.getSessionWorkdir("test")).toBe("/mock/session/workdir");
     });
 
-    test("should allow method overrides", async () => {
-      const mockSessionProvider = createMockSessionProvider({
-        getSession: () =>
-          Promise.resolve({
-            session: "custom-session",
-            repoName: "custom-repo",
-            repoUrl: "https://custom.com/repo",
+    test("should allow method overrides via reassignment", async () => {
+      const mockSessionProvider = new FakeSessionProvider();
+      mockSessionProvider.getSession = () =>
+        Promise.resolve({
+          session: "custom-session",
+          repoName: "custom-repo",
+          repoUrl: "https://custom.com/repo",
+          createdAt: "2023-01-01T00:00:00Z",
+          taskId: "123",
+          branch: "custom-branch",
+          repoPath: "/custom/path",
+        });
+      mockSessionProvider.listSessions = () =>
+        Promise.resolve([
+          {
+            session: "session1",
+            repoName: "repo1",
+            repoUrl: "https://example.com/repo1",
             createdAt: "2023-01-01T00:00:00Z",
-            taskId: "123",
-            branch: "custom-branch",
-            repoPath: "/custom/path",
-          }),
-        listSessions: () =>
-          Promise.resolve([
-            {
-              session: "session1",
-              repoName: "repo1",
-              repoUrl: "https://example.com/repo1",
-              createdAt: "2023-01-01T00:00:00Z",
-              taskId: "001",
-              branch: "main",
-              repoPath: "/path/to/repo1",
-            },
-          ]),
-      });
+            taskId: "001",
+            branch: "main",
+            repoPath: "/path/to/repo1",
+          },
+        ]);
 
       const session = await mockSessionProvider.getSession("test");
       expect(session?.session).toBe("custom-session");

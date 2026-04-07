@@ -11,7 +11,7 @@ import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { createPartialMock } from "../utils/test-utils/mocking";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
-import { createMockSessionProvider } from "../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
@@ -37,12 +37,8 @@ describe("Session Git Clone Bug Regression Test", () => {
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
     );
 
-    const mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null),
-      listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy,
-      deleteSession: () => Promise.resolve(true),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.addSession = addSessionSpy;
 
     const mockGitService = createPartialMock<GitServiceInterface>({
       clone: cloneSpy,
@@ -110,12 +106,8 @@ describe("Session Git Clone Bug Regression Test", () => {
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
     );
 
-    const mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null),
-      listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy,
-      deleteSession: () => Promise.resolve(true),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.addSession = addSessionSpy;
 
     const mockGitService = createPartialMock<GitServiceInterface>({
       clone: cloneSpy,

@@ -2,7 +2,8 @@ import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { WorkspaceUtilsInterface } from "./workspace";
@@ -50,10 +51,9 @@ describe("sessionReviewFromParams", () => {
     );
 
     // Create mocks using centralized factories with spy integration
-    const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionWorkdir: getSessionWorkdirSpy as any,
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = getSessionSpy;
+    mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
     const mockGitService = createMockGitService({
       execInRepository: execInRepositorySpy,
@@ -139,11 +139,10 @@ describe("sessionReviewFromParams", () => {
     });
 
     // Create mocks using centralized factories with spy integration
-    const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionByTaskId: getSessionByTaskIdSpy,
-      getSessionWorkdir: getSessionWorkdirSpy as any,
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = getSessionSpy;
+    mockSessionDB.getSessionByTaskId = getSessionByTaskIdSpy;
+    mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
     const mockGitService = createMockGitService({
       execInRepository: execInRepositorySpy,
@@ -186,10 +185,9 @@ describe("sessionReviewFromParams", () => {
 
   test("throws ValidationError when no session detected", async () => {
     // Create mocks using centralized factories
-    const mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null),
-      getSessionByTaskId: () => Promise.resolve(null),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = () => Promise.resolve(null);
+    mockSessionDB.getSessionByTaskId = () => Promise.resolve(null);
 
     const mockGitService = createMockGitService({});
     const mockTaskService = new FakeTaskService();
@@ -221,9 +219,8 @@ describe("sessionReviewFromParams", () => {
 
   test("throws ResourceNotFoundError when session not found", async () => {
     // Create mocks using centralized factories
-    const mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = () => Promise.resolve(null);
 
     const mockGitService = createMockGitService({});
     const mockTaskService = new FakeTaskService();

@@ -3,7 +3,8 @@ import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { SessionProviderInterface } from "./session";
@@ -34,8 +35,8 @@ describe("Session Approve", () => {
   test("simple approval test with working mock", async () => {
     // Test-scoped constants removed - using module level TEST_PR_NUMBER
 
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
@@ -103,8 +104,8 @@ describe("Session Approve", () => {
 
   test("successfully approves and merges a PR branch", async () => {
     // Clean DI approach - just mock data and verify results
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
@@ -171,8 +172,8 @@ describe("Session Approve", () => {
 
   test("detects current session when repo path is provided", async () => {
     // Clean DI approach - mock a detectable session
-    const mockSessionDB = createMockSessionProvider({
-      sessions: [
+    const mockSessionDB = new FakeSessionProvider({
+      initialSessions: [
         {
           session: "current-session",
           repoName: TEST_REPO_NAME,

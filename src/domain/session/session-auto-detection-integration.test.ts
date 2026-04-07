@@ -13,14 +13,14 @@ import { sessionGet, updateSessionFromParams, sessionDelete } from "../session/c
 import { type SessionProviderInterface } from "../session";
 import { type SessionRecord } from "../session/types";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { createMockSessionProvider } from "../../utils/test-utils/index";
+import { FakeSessionProvider } from "./fake-session-provider";
 
 describe("Session Command Domain Logic", () => {
   let mockSessionProvider: SessionProviderInterface;
 
   beforeEach(() => {
-    mockSessionProvider = createMockSessionProvider({
-      sessions: [
+    mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
         {
           session: "test-session",
           repoName: "test-repo",
@@ -134,8 +134,8 @@ describe("Session Command Domain Logic", () => {
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
       // Create a specific mock that returns false for non-existent sessions
-      const mockProviderWithProperDelete = createMockSessionProvider({
-        sessions: [
+      const mockProviderWithProperDelete = new FakeSessionProvider({
+        initialSessions: [
           {
             session: "test-session",
             repoName: "test-repo",
@@ -144,11 +144,6 @@ describe("Session Command Domain Logic", () => {
             taskId: "123",
           },
         ],
-        deleteSession: ((sessionId: string) => {
-          // Return false for non-existent sessions
-          const sessionExists = sessionId === "test-session";
-          return Promise.resolve(sessionExists);
-        }) as any,
       });
 
       const result = await sessionDelete(

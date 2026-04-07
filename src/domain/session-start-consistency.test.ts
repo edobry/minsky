@@ -13,8 +13,9 @@ import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/index";
+import { createMockGitService } from "../utils/test-utils/index";
 import { FakeTaskService } from "./tasks/fake-task-service";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -32,14 +33,11 @@ describe("Session Start Consistency Tests", () => {
 
   beforeEach(() => {
     // Create centralized mocks with default successful responses
-    mockSessionDB = createMockSessionProvider({
-      getSession: () => Promise.resolve(null), // No existing session
-      listSessions: () => Promise.resolve([]),
-      addSession: () => Promise.resolve(),
-      deleteSession: () => Promise.resolve(true),
-      getRepoPath: () => Promise.resolve(TEST_PATHS.SESSION_MD_160),
-      getSessionWorkdir: () => Promise.resolve(TEST_PATHS.SESSION_MD_160),
+    mockSessionDB = new FakeSessionProvider({
+      repoPath: TEST_PATHS.SESSION_MD_160,
+      sessionWorkdir: TEST_PATHS.SESSION_MD_160,
     });
+    mockSessionDB.getSession = () => Promise.resolve(null); // No existing session
 
     mockGitService = createMockGitService({
       clone: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: TEST_UUID }),
@@ -349,7 +347,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should successfully add session record only after all operations complete", async () => {
       // Arrange
-      const sessionDbMock = createMockSessionProvider();
+      const sessionDbMock = new FakeSessionProvider();
       const addSessionSpy = mock(() => Promise.resolve());
       sessionDbMock.addSession = addSessionSpy;
 

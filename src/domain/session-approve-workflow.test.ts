@@ -21,10 +21,11 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
 import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import type { WorkspaceUtilsInterface } from "./workspace";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 // Remove global module mocks - use dependency injection instead
 
@@ -91,11 +92,10 @@ describe("Session Approve Workflow", () => {
     setTaskStatusSpy = mock(() => Promise.resolve(true));
 
     // Create mocks using centralized factories with spy integration
-    mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionByTaskId: getSessionByTaskIdSpy,
-      getSessionWorkdir: getSessionWorkdirSpy,
-    });
+    mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = getSessionSpy;
+    mockSessionDB.getSessionByTaskId = getSessionByTaskIdSpy;
+    mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy;
 
     mockGitService = createMockGitService({
       execInRepository: execInRepositorySpy,

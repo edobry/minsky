@@ -11,16 +11,15 @@ import { describe, test, expect } from "bun:test";
 import { updateSessionFromParams } from "./session";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
 import { setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockGitService, createMockSessionProvider } from "../utils/test-utils/dependencies";
+import { createMockGitService } from "../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./session/fake-session-provider";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
 describe("updateSessionFromParams - Basic Validation", () => {
   test("throws ValidationError when name is not provided", async () => {
-    const mockEmptySessionProvider = createMockSessionProvider({
-      listSessions: () => Promise.resolve([]), // No sessions available for auto-detection
-    });
+    const mockEmptySessionProvider = new FakeSessionProvider();
 
     const mockGitService = createMockGitService();
 
@@ -48,10 +47,7 @@ describe("updateSessionFromParams - Basic Validation", () => {
   });
 
   test("throws ResourceNotFoundError when session does not exist", async () => {
-    const mockEmptySessionProvider = createMockSessionProvider({
-      getSession: () => Promise.resolve(null), // Session not found
-      listSessions: () => Promise.resolve([]), // No sessions
-    });
+    const mockEmptySessionProvider = new FakeSessionProvider();
 
     const mockGitService = createMockGitService();
 

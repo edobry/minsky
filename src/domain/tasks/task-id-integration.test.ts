@@ -7,10 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { setupTestMocks, createPartialMock } from "../../utils/test-utils/mocking";
 import { log } from "../utils/logger";
-import {
-  createMockSessionProvider,
-  createMockGitService,
-} from "../../utils/test-utils/dependencies";
+import { createMockGitService } from "../../utils/test-utils/dependencies";
 import { FakeTaskService } from "./fake-task-service";
 import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 

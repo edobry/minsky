@@ -1,9 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionPr } from "./session-approval-operations";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-} from "../../utils/test-utils/dependencies";
+import { createMockGitService } from "../../utils/test-utils/dependencies";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 
 describe("Session Approve - Bug Regression Tests", () => {

@@ -19,10 +19,8 @@
 import { describe, test, expect, mock } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
 import { ValidationError, MinskyError } from "../../errors";
-import {
-  createMockGitService,
-  createMockSessionProvider,
-} from "../../utils/test-utils/dependencies";
+import { createMockGitService } from "../../utils/test-utils/dependencies";
+import { FakeSessionProvider } from "./fake-session-provider";
 import { FakeTaskService } from "../tasks/fake-task-service";
 
 /**
@@ -44,35 +42,33 @@ describe("Session PR Body Validation Bug Fix", () => {
       getCurrentBranch: () => Promise.resolve("main"),
     });
 
-    const mockSessionProvider = createMockSessionProvider({
-      getSession: () =>
-        Promise.resolve({
+    const mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
           session: "test-session",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           taskId: "123",
           createdAt: new Date().toISOString(),
-        }),
-      // Also provide getSessionByTaskId and listSessions for comprehensive coverage
-      getSessionByTaskId: () =>
-        Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString(),
-        }),
-      listSessions: () =>
-        Promise.resolve([
-          {
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
-            createdAt: new Date().toISOString(),
-          },
-        ]),
+        },
+      ],
     });
+    mockSessionProvider.getSession = () =>
+      Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "123",
+        createdAt: new Date().toISOString(),
+      });
+    mockSessionProvider.getSessionByTaskId = () =>
+      Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "123",
+        createdAt: new Date().toISOString(),
+      });
 
     const mockTaskService = new FakeTaskService({
       initialTasks: [{ id: "#123", title: "Test Task", status: "TODO" }],
