@@ -22,7 +22,6 @@ import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerChangesetTools } from "../../adapters/mcp/changeset";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerTaskRelationshipTools } from "../../adapters/mcp/task-relationships-tools";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -39,8 +38,6 @@ function registerAllTools(commandMapper: CommandMapper): void {
   // Register main application tools
   log.debug("[MCP] About to register task tools");
   registerTaskTools(commandMapper);
-  // Register task relationship tools (graph MVP)
-  registerTaskRelationshipTools(commandMapper);
   log.debug("[MCP] About to register session tools");
   registerSessionTools(commandMapper);
   registerSessionWorkspaceTools(commandMapper);

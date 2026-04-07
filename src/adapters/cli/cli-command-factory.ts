@@ -6,10 +6,10 @@
  *   - core/cli-command-factory-core.ts — Factory class and singleton
  *   - setup/command-setup.ts — Initialization and customization wiring
  *   - customizations/ — Per-category CLI customizations
- *   - legacy/legacy-exports.ts — Deprecated function-based API
  *   - utilities/formatting-utilities.ts — Output formatting helpers
  *
- * This file preserves the original public API so existing imports continue to work.
+ * Callers should use the `cliFactory` singleton (or `CliCommandFactory` class)
+ * for command registration and customization.
  */
 
 // Core factory class and singleton
@@ -22,12 +22,3 @@ export {
 
 // Setup and initialization
 export { setupCommonCommandCustomizations, initializeCliCommands } from "./setup/command-setup";
-
-// Legacy function exports (deprecated, kept for backward compatibility)
-export {
-  customizeCommand,
-  customizeCategory,
-  createCommand,
-  createCategoryCommand,
-  registerAllCommands,
-} from "./legacy/legacy-exports";

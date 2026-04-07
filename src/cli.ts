@@ -15,10 +15,7 @@ import { createMCPCommand } from "./commands/mcp/index";
 import { createGitHubCommand } from "./commands/github/index";
 import { createContextCommand } from "./commands/context/index";
 import { createLintCommand } from "./commands/lint/index";
-import {
-  setupCommonCommandCustomizations,
-  registerAllCommands,
-} from "./adapters/cli/cli-command-factory";
+import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateProcess } from "./schemas/runtime";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
 
@@ -40,7 +37,7 @@ export async function createCli(): Promise<Command> {
   await registerAllSharedCommands();
 
   // Register all commands via CLI command factory (which applies customizations)
-  registerAllCommands(cli);
+  cliFactory.registerAllCommands(cli);
 
   // Add MCP command (this is not yet migrated to shared commands)
   cli.addCommand(await createMCPCommand());

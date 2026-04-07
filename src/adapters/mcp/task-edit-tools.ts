@@ -9,7 +9,8 @@ import { z } from "zod";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { getTaskSpecContentFromParams, updateTaskFromParams } from "../../domain/tasks";
 import { log } from "../../utils/logger";
-import { applyEditPattern, countOccurrences } from "./session-edit-tools";
+import { applyEditPattern } from "../../domain/ai/edit-pattern-service";
+import { countOccurrences } from "./session-edit-tools";
 
 // ========================
 // SCHEMAS
