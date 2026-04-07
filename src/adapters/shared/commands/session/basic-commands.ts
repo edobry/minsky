@@ -1,15 +1,10 @@
 /**
  * Basic Session Commands
  *
- * Commands for basic session operations (list, get, start, dir).
- * Extracted from session.ts as part of modularization effort.
+ * Factories for basic session operations (list, get, start, dir, search).
  */
-import {
-  BaseSessionCommand,
-  type BaseSessionCommandParams,
-  type SessionCommandDependencies,
-} from "./base-session-command";
-import { type CommandExecutionContext } from "../../command-registry";
+import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { type SessionCommandDependencies, withErrorLogging } from "./types";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -18,340 +13,193 @@ import {
   sessionSearchCommandParams,
 } from "./session-parameters";
 
-/**
- * Parameters for session list command
- */
-interface SessionListParams extends BaseSessionCommandParams {
-  since?: string;
-  until?: string;
-}
+export function createSessionListCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.list",
+    category: CommandCategory.SESSION,
+    name: "list",
+    description: "List all sessions",
+    parameters: sessionListCommandParams,
+    execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
+      const { listSessionsFromParams } = await import("../../../../domain/session");
 
-/**
- * Parameters for session get command
- */
-interface SessionGetParams extends BaseSessionCommandParams {
-  since?: string;
-  until?: string;
-}
+      let sessions = await listSessionsFromParams({
+        repo: params.repo as string | undefined,
+        json: params.json as boolean | undefined,
+      });
 
-/**
- * Parameters for session start command
- */
-interface SessionStartParams extends BaseSessionCommandParams {
-  description?: string;
-  branch?: string;
-  session?: string;
-  quiet?: boolean;
-  noStatusUpdate?: boolean;
-  skipInstall?: boolean;
-  packageManager?: string;
-}
-
-/**
- * Parameters for session dir command
- */
-interface SessionDirParams extends BaseSessionCommandParams {}
-
-/**
- * Parameters for session search command
- */
-interface SessionSearchParams extends BaseSessionCommandParams {
-  query: string;
-  limit?: number;
-}
-
-/**
- * Session List Command
- */
-export class SessionListCommand extends BaseSessionCommand<
-  SessionListParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.list";
-  }
-
-  getCommandName(): string {
-    return "list";
-  }
-
-  getCommandDescription(): string {
-    return "List all sessions";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionListCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionListParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { listSessionsFromParams } = await import("../../../../domain/session");
-
-    let sessions = await listSessionsFromParams({
-      repo: params.repo,
-      json: params.json,
-    });
-
-    // Apply time filtering on createdAt
-    try {
-      const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
-      const sinceTs = parseTime(params.since);
-      const untilTs = parseTime(params.until);
-      sessions = filterByTimeRange(
-        sessions.map((s) => ({ ...s, updatedAt: s.createdAt })),
-        sinceTs,
-        untilTs
-      );
-    } catch {
-      // ignore
-    }
-
-    return this.createSuccessResult({ sessions });
-  }
-}
-
-/**
- * Session Get Command
- */
-export class SessionGetCommand extends BaseSessionCommand<
-  SessionGetParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.get";
-  }
-
-  getCommandName(): string {
-    return "get";
-  }
-
-  getCommandDescription(): string {
-    return "Get details of a specific session";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionGetCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionGetParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { getSessionFromParams } = await import("../../../../domain/session");
-
-    const session = await getSessionFromParams({
-      name: params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
-    });
-
-    if (!session) {
-      const identifier = params.name || params.task || "unknown";
-      throw new Error(`Session '${identifier}' not found`);
-    }
-
-    // Optional time constraint: createdAt within window
-    try {
-      const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
-      const sinceTs = parseTime(params.since);
-      const untilTs = parseTime(params.until);
-      const [matched] = filterByTimeRange([{ updatedAt: session.createdAt }], sinceTs, untilTs);
-      if ((sinceTs !== null || untilTs !== null) && !matched) {
-        throw new Error("Session does not match time constraints");
+      try {
+        const {
+          parseTime,
+          filterByTimeRange,
+        } = require("../../../../utils/result-handling/filters");
+        const sinceTs = parseTime(params.since as string | undefined);
+        const untilTs = parseTime(params.until as string | undefined);
+        sessions = filterByTimeRange(
+          sessions.map((s) => ({ ...s, updatedAt: s.createdAt })),
+          sinceTs,
+          untilTs
+        );
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
 
-    return this.createSuccessResult({ session });
-  }
+      return { success: true, sessions };
+    }),
+  };
 }
 
-/**
- * Session Start Command
- */
-export class SessionStartCommand extends BaseSessionCommand<
-  SessionStartParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.start";
-  }
+export function createSessionGetCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.get",
+    category: CommandCategory.SESSION,
+    name: "get",
+    description: "Get details of a specific session",
+    parameters: sessionGetCommandParams,
+    execute: withErrorLogging("session.get", async (params: Record<string, unknown>) => {
+      const { getSessionFromParams } = await import("../../../../domain/session");
 
-  getCommandName(): string {
-    return "start";
-  }
+      const session = await getSessionFromParams({
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+        repo: params.repo as string | undefined,
+        json: params.json as boolean | undefined,
+      });
 
-  getCommandDescription(): string {
-    return "Start a new session";
-  }
+      if (!session) {
+        const identifier = params.name || params.task || "unknown";
+        throw new Error(`Session '${identifier}' not found`);
+      }
 
-  getParameterSchema(): Record<string, unknown> {
-    return sessionStartCommandParams;
-  }
+      try {
+        const {
+          parseTime,
+          filterByTimeRange,
+        } = require("../../../../utils/result-handling/filters");
+        const sinceTs = parseTime(params.since as string | undefined);
+        const untilTs = parseTime(params.until as string | undefined);
+        const [matched] = filterByTimeRange([{ updatedAt: session.createdAt }], sinceTs, untilTs);
+        if ((sinceTs !== null || untilTs !== null) && !matched) {
+          throw new Error("Session does not match time constraints");
+        }
+      } catch {
+        // ignore
+      }
 
-  async executeCommand(
-    params: SessionStartParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    // Validate that task association is provided
-    if (!params.task && !params.description) {
-      throw new Error(
-        'Task association is required for proper tracking.\nPlease provide one of:\n  --task <id>           Associate with existing task\n  --description <text>  Create new task automatically\n\nExamples:\n  minsky session start --task 123\n  minsky session start --description "Fix login issue" my-session'
+      return { success: true, session };
+    }),
+  };
+}
+
+export function createSessionStartCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.start",
+    category: CommandCategory.SESSION,
+    name: "start",
+    description: "Start a new session",
+    parameters: sessionStartCommandParams,
+    execute: withErrorLogging("session.start", async (params: Record<string, unknown>) => {
+      if (!params.task && !params.description) {
+        throw new Error(
+          'Task association is required for proper tracking.\nPlease provide one of:\n  --task <id>           Associate with existing task\n  --description <text>  Create new task automatically\n\nExamples:\n  minsky session start --task 123\n  minsky session start --description "Fix login issue" my-session'
+        );
+      }
+
+      const { startSessionFromParams } = await import("../../../../domain/session");
+
+      const session = await startSessionFromParams({
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+        description: params.description as string | undefined,
+        branch: params.branch as string | undefined,
+        repo: params.repo as string | undefined,
+        session: params.session as string | undefined,
+        json: (params.json as boolean | undefined) ?? false,
+        quiet: (params.quiet as boolean | undefined) ?? false,
+        noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
+        skipInstall: (params.skipInstall as boolean | undefined) ?? false,
+        packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+      });
+
+      return {
+        success: true,
+        session,
+        quiet: params.quiet,
+        json: params.json,
+      };
+    }),
+  };
+}
+
+export function createSessionDirCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.dir",
+    category: CommandCategory.SESSION,
+    name: "dir",
+    description: "Get the directory of a session",
+    parameters: sessionDirCommandParams,
+    execute: withErrorLogging("session.dir", async (params: Record<string, unknown>) => {
+      const { getSessionDirFromParams } = await import(
+        "../../../../domain/session/commands/dir-command"
       );
-    }
 
-    const { startSessionFromParams } = await import("../../../../domain/session");
+      const directory = await getSessionDirFromParams({
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+        repo: params.repo as string | undefined,
+        json: params.json as boolean | undefined,
+      });
 
-    const session = await startSessionFromParams({
-      name: params.name,
-      task: params.task,
-      description: params.description,
-      branch: params.branch,
-      repo: params.repo,
-      session: params.session,
-      json: params.json ?? false,
-      quiet: params.quiet ?? false,
-      noStatusUpdate: params.noStatusUpdate ?? false,
-      skipInstall: params.skipInstall ?? false,
-      packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
-    });
-
-    return this.createSuccessResult({
-      session,
-      quiet: params.quiet,
-      json: params.json,
-    });
-  }
+      return { success: true, directory };
+    }),
+  };
 }
 
-/**
- * Session Directory Command
- */
-export class SessionDirCommand extends BaseSessionCommand<
-  SessionDirParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.dir";
-  }
+export function createSessionSearchCommand(deps: SessionCommandDependencies): CommandDefinition {
+  return {
+    id: "session.search",
+    category: CommandCategory.SESSION,
+    name: "search",
+    description: "Search sessions by query string across multiple fields",
+    parameters: sessionSearchCommandParams,
+    execute: withErrorLogging("session.search", async (params: Record<string, unknown>) => {
+      const query = params.query as string;
+      const limit = params.limit as number | undefined;
 
-  getCommandName(): string {
-    return "dir";
-  }
+      const { log } = await import("../../../../utils/logger");
+      const sessions = await deps.sessionProvider.listSessions();
 
-  getCommandDescription(): string {
-    return "Get the directory of a session";
-  }
+      const lowerQuery = query.toLowerCase();
 
-  getParameterSchema(): Record<string, unknown> {
-    return sessionDirCommandParams;
-  }
+      const matchingSessions = sessions.filter((session) => {
+        return (
+          session.session?.toLowerCase().includes(lowerQuery) ||
+          session.repoName?.toLowerCase().includes(lowerQuery) ||
+          session.repoUrl?.toLowerCase().includes(lowerQuery) ||
+          session.taskId?.toLowerCase().includes(lowerQuery) ||
+          session.prBranch?.toLowerCase().includes(lowerQuery) ||
+          session.prState?.branchName?.toLowerCase().includes(lowerQuery)
+        );
+      });
 
-  async executeCommand(
-    params: SessionDirParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { getSessionDirFromParams } = await import(
-      "../../../../domain/session/commands/dir-command"
-    );
+      const limitedResults = matchingSessions.slice(0, limit);
 
-    const directory = await getSessionDirFromParams({
-      name: params.name,
-      task: params.task,
-      repo: params.repo,
-      json: params.json,
-    });
+      log.debug(`Session search found ${matchingSessions.length} matches for query: ${query}`, {
+        totalSessions: sessions.length,
+        matchCount: matchingSessions.length,
+        limitedCount: limitedResults.length,
+        limit,
+      });
 
-    return this.createSuccessResult({ directory });
-  }
+      return {
+        success: true,
+        sessions: limitedResults,
+        query,
+        totalMatches: matchingSessions.length,
+        limitedCount: limitedResults.length,
+        totalSessions: sessions.length,
+        limit,
+      };
+    }),
+  };
 }
-
-/**
- * Factory functions for creating basic session commands
- */
-export const createSessionListCommand = (deps?: SessionCommandDependencies) =>
-  new SessionListCommand(deps);
-
-export const createSessionGetCommand = (deps?: SessionCommandDependencies) =>
-  new SessionGetCommand(deps);
-
-export const createSessionStartCommand = (deps?: SessionCommandDependencies) =>
-  new SessionStartCommand(deps);
-
-export const createSessionDirCommand = (deps?: SessionCommandDependencies) =>
-  new SessionDirCommand(deps);
-
-/**
- * Session search command for finding sessions by query
- */
-export class SessionSearchCommand extends BaseSessionCommand<
-  SessionSearchParams,
-  Record<string, unknown>
-> {
-  getCommandId(): string {
-    return "session.search";
-  }
-
-  getCommandName(): string {
-    return "search";
-  }
-
-  getCommandDescription(): string {
-    return "Search sessions by query string across multiple fields";
-  }
-
-  getParameterSchema(): Record<string, unknown> {
-    return sessionSearchCommandParams;
-  }
-
-  async executeCommand(
-    params: SessionSearchParams,
-    context: CommandExecutionContext
-  ): Promise<Record<string, unknown>> {
-    const { query, limit } = params;
-
-    const { log } = await import("../../../../utils/logger");
-    const sessionProvider = this.deps.sessionProvider!;
-    const sessions = await sessionProvider.listSessions();
-
-    const lowerQuery = query.toLowerCase();
-
-    // Search across multiple fields
-    const matchingSessions = sessions.filter((session) => {
-      return (
-        session.session?.toLowerCase().includes(lowerQuery) ||
-        session.repoName?.toLowerCase().includes(lowerQuery) ||
-        session.repoUrl?.toLowerCase().includes(lowerQuery) ||
-        session.taskId?.toLowerCase().includes(lowerQuery) ||
-        session.prBranch?.toLowerCase().includes(lowerQuery) ||
-        session.prState?.branchName?.toLowerCase().includes(lowerQuery)
-      );
-    });
-
-    // Apply limit
-    const limitedResults = matchingSessions.slice(0, limit);
-
-    log.debug(`Session search found ${matchingSessions.length} matches for query: ${query}`, {
-      totalSessions: sessions.length,
-      matchCount: matchingSessions.length,
-      limitedCount: limitedResults.length,
-      limit,
-    });
-
-    return this.createSuccessResult({
-      sessions: limitedResults,
-      query,
-      totalMatches: matchingSessions.length,
-      limitedCount: limitedResults.length,
-      totalSessions: sessions.length,
-      limit,
-    });
-  }
-}
-
-export const createSessionSearchCommand = (deps?: SessionCommandDependencies) =>
-  new SessionSearchCommand(deps);
