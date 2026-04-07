@@ -5,7 +5,7 @@
  * real business logic: parameter validation, ID normalization, workspace resolution, etc.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, beforeAll, afterAll } from "bun:test";
 import {
   getTaskStatusFromParams,
   getTaskFromParams,
@@ -21,6 +21,25 @@ import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
 import path from "path";
 
 describe("Interface-Agnostic Task Command Functions", () => {
+  beforeAll(async () => {
+    const { PersistenceService } = await import("../persistence/service");
+    const { FakePersistenceProvider } = await import("../persistence/fake-persistence-provider");
+    const { FakeSessionProvider } = await import("../session/fake-session-provider");
+    const { setSharedSessionProvider } = await import("../session/session-provider-cache-seams");
+
+    PersistenceService.setMockProvider(new FakePersistenceProvider());
+    setSharedSessionProvider(new FakeSessionProvider());
+
+    // Initialize configuration too — some downstream code paths require it
+    const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
+    await initializeConfiguration(new CustomConfigFactory());
+  });
+
+  afterAll(async () => {
+    const { resetSharedSessionProvider } = await import("../session/session-provider-cache-seams");
+    resetSharedSessionProvider();
+  });
+
   const testWorkspacePath = "/tmp/test-minsky-workspace";
   const testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
 
