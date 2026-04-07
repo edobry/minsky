@@ -27,8 +27,11 @@ function buildFakeGitService(
 
   // Default responses so preparePrImpl can complete the happy path:
   //   - current branch lookup returns the session branch
-  //   - rev-parse --verify succeeds for the base branch but fails for the
-  //     PR branch (so we skip the recovery/cleanup path)
+  //   - rev-parse --verify succeeds for the base branch (returns a commit hash)
+  //   - rev-parse --verify for the PR branch falls through to the default
+  //     "mock git output" response, causing preparePrImpl to treat the PR
+  //     branch as existing and take the recovery path. Tests that want the
+  //     clean-create path use setCommandError to make the PR-branch check fail.
   fakeGitService.setCommandResponse(/rev-parse --abbrev-ref HEAD/, SESSION_BRANCH);
   fakeGitService.setCommandResponse(/rev-parse --verify main$/, "abcdef123");
 
@@ -77,7 +80,7 @@ describe("Session PR Command Branch Behavior", () => {
     _resetSharedSessionProvider();
   });
 
-  test("should never switch user to PR branch during session pr creation", async () => {
+  test("should never switch user to PR branch (recovery path: PR branch already exists)", async () => {
     await preparePrFromParams(
       {
         session: SESSION_BRANCH,
@@ -124,10 +127,52 @@ describe("Session PR Command Branch Behavior", () => {
     expect(badCreateAndSwitchCommand).toBeFalsy();
   });
 
+  test("should cleanly create PR branch when none exists (first-time case)", async () => {
+    // Configure the fake so rev-parse --verify of the PR branch throws
+    // (simulating "branch does not exist"). This forces preparePrImpl to
+    // take the clean-create path, not the recovery-cleanup path.
+    fakeGitService.setCommandError(
+      /rev-parse --verify pr\//,
+      new Error("fatal: Needed a single revision")
+    );
+
+    await preparePrFromParams(
+      {
+        session: SESSION_BRANCH,
+        title: "Test PR",
+        body: "Test body",
+        baseBranch: "main",
+      },
+      { createGitService: () => fakeGitService }
+    );
+
+    const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
+
+    // 1. PR branch created via `git branch ...`, not `git switch -C`
+    const createPrBranchCommand = gitCommands.find(
+      (cmd) => cmd.includes(`branch ${PR_BRANCH}`) && !cmd.includes("switch")
+    );
+    expect(createPrBranchCommand).toBeTruthy();
+
+    // 2. No `branch -D` cleanup commands — the recovery path was NOT taken
+    const cleanupCommand = gitCommands.find((cmd) => cmd.includes(`branch -D ${PR_BRANCH}`));
+    expect(cleanupCommand).toBeFalsy();
+
+    // 3. Should NOT use `git switch -C` or `git checkout -b`
+    const badCreateAndSwitchCommand = gitCommands.find(
+      (cmd) => cmd.includes("switch -C") || cmd.includes("checkout -b")
+    );
+    expect(badCreateAndSwitchCommand).toBeFalsy();
+  });
+
   test("should handle branch switch-back failure without corrupting the workflow", async () => {
-    // Configure the fake so that after the merge, switching back to the
-    // session branch fails. The production code logs a warning and
-    // swallows the error — the workflow still completes.
+    // NOTE: setCommandError doesn't yet support "fire only after merge" semantics
+    // (it would require stateful/nth-occurrence configuration). Using method
+    // reassignment here to distinguish the pre-merge switch (preparatory) from
+    // the post-merge switch-back (the one we want to fail).
+    //
+    // If FakeGitService gains stateful error configuration in the future, this
+    // test can be migrated to use setCommandError.
     let mergeSeen = false;
     const originalExec = fakeGitService.execInRepository.bind(fakeGitService);
     fakeGitService.execInRepository = async (workdir: string, command: string) => {
@@ -135,7 +180,7 @@ describe("Session PR Command Branch Behavior", () => {
         mergeSeen = true;
       }
       if (mergeSeen && command.includes(`switch ${SESSION_BRANCH}`)) {
-        // Record the attempt so assertions can see it.
+        // recordedCommands still captures the command (invariant: record before throwing)
         fakeGitService.recordedCommands.push({ workdir, command });
         throw new Error("Failed to switch back to session branch");
       }
