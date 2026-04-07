@@ -32,9 +32,7 @@ async function resolveSessionId(
     return params.session;
   }
 
-  const { getCurrentSession } = await import("../../../../domain/workspace");
-  const { execAsync } = await import("../../../../utils/exec");
-  const currentSession = await getCurrentSession(process.cwd(), execAsync, deps.sessionProvider);
+  const currentSession = await deps.getCurrentSession(process.cwd());
 
   if (!currentSession) {
     throw new MinskyError(

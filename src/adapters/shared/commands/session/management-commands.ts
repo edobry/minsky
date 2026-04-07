@@ -93,29 +93,28 @@ export function createSessionMigrateBackendCommand(
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
         );
-        const { createGitService } = await import("../../../../domain/git");
         const { extractGitHubInfoFromUrl } = await import(
           "../../../../domain/session/repository-backend-detection"
         );
 
-        const sessionDB = deps.sessionProvider;
-        const gitService = createGitService();
+        const sessionProvider = deps.sessionProvider;
+        const gitService = deps.gitService;
 
         const resolved = await resolveSessionContextWithFeedback({
           session: params.name as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
-          sessionProvider: sessionDB,
+          sessionProvider,
           allowAutoDetection: true,
         });
 
         const sessionId = resolved.sessionId;
-        const record = await sessionDB.getSession(sessionId);
+        const record = await sessionProvider.getSession(sessionId);
         if (!record) {
           throw new Error(`Session '${sessionId}' not found`);
         }
 
-        const workdir = await sessionDB.getSessionWorkdir(sessionId);
+        const workdir = await sessionProvider.getSessionWorkdir(sessionId);
         if (!workdir) {
           throw new Error(`Could not resolve session workspace for '${sessionId}'`);
         }
@@ -255,7 +254,7 @@ export function createSessionMigrateBackendCommand(
           sessionUpdates.repoName = "local-minsky";
         }
 
-        await sessionDB.updateSession(sessionId, sessionUpdates);
+        await sessionProvider.updateSession(sessionId, sessionUpdates);
 
         return {
           success: true,

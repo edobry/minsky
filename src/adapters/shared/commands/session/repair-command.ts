@@ -10,7 +10,6 @@ import {
 } from "../../../../domain/session/commands/repair-command";
 import { log } from "../../../../utils/logger";
 import { toJsonRecord } from "../../../../utils/type-utils";
-import { createGitService } from "../../../../domain/git";
 import { getErrorMessage } from "../../../../errors/index";
 
 export function createSessionRepairCommand(deps: SessionCommandDependencies): CommandDefinition {
@@ -35,10 +34,9 @@ export function createSessionRepairCommand(deps: SessionCommandDependencies): Co
           debug: params.debug as boolean | undefined,
         };
 
-        const gitService = createGitService();
         const result = await sessionRepair(repairParams, {
           sessionDB: deps.sessionProvider,
-          gitService,
+          gitService: deps.gitService,
         });
 
         if (params.json) {

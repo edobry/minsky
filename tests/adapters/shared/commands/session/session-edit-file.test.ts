@@ -3,10 +3,12 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createSessionEditFileCommand } from "../../../../../src/adapters/shared/commands/session/file-commands";
-import type { SessionProviderInterface } from "../../../../../src/domain/session/session-db-adapter";
+import type { SessionCommandDependencies } from "../../../../../src/adapters/shared/commands/session/types";
 
 describe("session edit-file command definition", () => {
-  const deps = { sessionProvider: {} as SessionProviderInterface };
+  // The factory only constructs the command definition; execute is never invoked
+  // in this suite, so an empty deps cast is sufficient.
+  const deps = {} as SessionCommandDependencies;
   const command = createSessionEditFileCommand(deps);
 
   describe("command properties", () => {
