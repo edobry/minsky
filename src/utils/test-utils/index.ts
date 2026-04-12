@@ -27,9 +27,6 @@ export {
   createTaskTestDeps,
   createSessionTestDeps,
   createGitTestDeps,
-  withMockedDeps,
-  createDeepTestDeps,
-  createPartialTestDeps,
 } from "./dependencies";
 
 // Mocking primitives

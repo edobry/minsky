@@ -154,42 +154,6 @@ const sessionDeps = createSessionTestDeps();
 const gitDeps = createGitTestDeps();
 ```
 
-### Dependency Composition
-
-```typescript
-import { withMockedDeps, createDeepTestDeps } from "../utils/test-utils";
-
-// Temporarily override dependencies for a specific test
-const result = withMockedDeps(
-  originalDeps,
-  {
-    sessionDB: {
-      getSession: createMock(() =>
-        Promise.resolve({
-          session: "temp-session",
-          // other properties
-        })
-      ),
-    },
-  },
-  async (mockDeps) => {
-    // Use mockDeps here with the temporary override
-    const session = await mockDeps.sessionDB.getSession("any");
-    return session;
-  }
-);
-
-// Create deeply nested dependencies with overrides
-const deepDeps = createDeepTestDeps({
-  sessionDB: {
-    getSession: createMock(() => Promise.resolve({ name: "test-session" })),
-  },
-  gitService: {
-    repoStatus: createMock(() => Promise.resolve({ clean: false })),
-  },
-});
-```
-
 ## Test Data Generation
 
 ### Domain Entity Factories
@@ -280,7 +244,6 @@ const user = {
 
 - Use `setupTestMocks()` to ensure automatic mock cleanup
 - Register cleanup functions with `withCleanup()` for any resources created during tests
-- Use `withMockedDeps()` for temporary dependency overrides
 
 ### Type Safety
 
