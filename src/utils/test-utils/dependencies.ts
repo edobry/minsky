@@ -5,9 +5,7 @@
  * with the interface they fake — see `fake-persistence-provider.ts` for
  * the canonical example. Do NOT add new single-service stub factories
  * to this file. The helpers below compose existing `FakeX` instances
- * (`FakeSessionProvider`, `FakeGitService`, `FakeTaskService`) plus
- * small pass-through override utilities (`withMockedDeps`,
- * `createDeepTestDeps`, `createPartialTestDeps`).
+ * (`FakeSessionProvider`, `FakeGitService`, `FakeTaskService`).
  */
 import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface } from "../../domain/session";
@@ -163,110 +161,4 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
     getSessionWorkdir,
     ...overrides,
   };
-}
-
-/**
- * Applies mock dependencies temporarily within a test function.
- * This allows replacing dependencies just for a specific test without
- * affecting the original dependencies.
- *
- * @template T The type of dependencies
- * @template R The return type of the test function
- * @param originalDeps The original dependencies object
- * @param mockOverrides Partial mock implementations to apply
- * @param testFn The test function to execute with mocked dependencies
- * @returns The result of the test function
- */
-export function withMockedDeps<T extends Record<string, unknown>, R>(
-  originalDeps: T,
-  mockOverrides: Partial<T>,
-  testFn: (deps: unknown) => R
-): R {
-  // Create a shallow copy of the original deps
-  const tempDeps = { ...originalDeps };
-
-  // Apply overrides to the temporary dependencies
-  Object.keys(mockOverrides).forEach((key) => {
-    const k = key as keyof T;
-    const override = mockOverrides[k];
-
-    if (
-      typeof override === "object" &&
-      override !== null &&
-      typeof tempDeps[k] === "object" &&
-      tempDeps[k] !== null
-    ) {
-      // For object properties, merge with original instead of replacing
-      tempDeps[k] = {
-        ...tempDeps[k],
-        ...override,
-      } as T[typeof k];
-    } else {
-      // For primitive properties, replace
-      tempDeps[k] = override as T[typeof k];
-    }
-  });
-
-  // Run the test function with the temporary dependencies
-  return testFn(tempDeps);
-}
-
-/**
- * Creates deeply nested test dependencies with type safety
- * @param partialDeps Partial nested dependencies to apply
- * @returns A complete set of deeply nested dependencies with mocks
- */
-export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): DomainDependencies {
-  // Start with a base set of dependencies
-  const baseDeps = createTestDeps();
-
-  // Apply deep overrides
-  return deepMergeDeps(baseDeps, partialDeps);
-}
-
-/**
- * Helper function to deep merge dependencies
- * @param target The target object to merge into
- * @param source The source object with overrides
- * @returns The merged object
- */
-function deepMergeDeps<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
-  const output = { ...target };
-
-  Object.keys(source).forEach((key) => {
-    const k = key as keyof T;
-    const sourceValue = source[k];
-    const targetValue = target[k];
-
-    if (
-      typeof sourceValue === "object" &&
-      sourceValue !== null &&
-      !Array.isArray(sourceValue) &&
-      typeof targetValue === "object" &&
-      targetValue !== null &&
-      !Array.isArray(targetValue)
-    ) {
-      // For object properties, recursively merge
-      output[k] = deepMergeDeps(
-        targetValue as Record<string, unknown>,
-        sourceValue as Record<string, unknown>
-      ) as T[typeof k];
-    } else {
-      // For other properties, replace
-      output[k] = sourceValue as T[typeof k];
-    }
-  });
-
-  return output;
-}
-
-/**
- * Creates partial test dependencies with specific overrides for targeted testing
- * @param overrides Specific dependency overrides to apply
- * @returns A partial set of domain dependencies for testing
- */
-export function createPartialTestDeps(
-  overrides: Partial<DomainDependencies> = {}
-): Partial<DomainDependencies> {
-  return overrides;
 }

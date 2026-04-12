@@ -42,6 +42,7 @@ batch-results.json
 
 # backup files
 *.bak
+*.backup
 
 # local configuration overrides (secrets, personal prefs)
 .minsky/config.local.yaml
