@@ -24,11 +24,12 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID
 2. **Main agent** orchestrates: create tasks, start sessions, launch subagents, review PRs, merge.
 3. **Subagents** do the full workflow in session directories: edit code → `mcp__minsky__session_commit` → `mcp__minsky__session_pr_create`. They do NOT merge — that happens after review.
 4. **Before creating a PR**, always ensure the session is up-to-date with main. `mcp__minsky__session_pr_create` automatically calls `session_update` (which rebases the session on latest main) before creating the PR — this prevents merge-induced formatting drift and ensures clean fast-forward merges. You can also call `mcp__minsky__session_update` explicitly before committing if needed.
-5. **Main agent reviews** the PR by reading the actual diff (via GitHub MCP `pull_request_read` with `get_diff`), then merges with `mcp__minsky__session_pr_merge`. Never approve without reviewing.
-6. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
-7. All file operations in sessions MUST use absolute paths.
-8. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
-9. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+5. **Main agent reviews** the PR using the `/review-pr` skill, which verifies findings against the actual codebase and posts the review to GitHub. Never merge without a posted GitHub review.
+6. **After merging a PR**, the local workspace is stale (merge happens on GitHub). A PostToolUse hook auto-pulls after `session_pr_merge`. If starting a fresh conversation after prior merges, verify the workspace is current before analyzing code.
+7. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
+8. All file operations in sessions MUST use absolute paths.
+9. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
+10. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
 
 ### Session lifecycle: one session, one merge
 
@@ -53,6 +54,10 @@ When launching multiple subagents in parallel, **check for file overlap** betwee
 
 Merging parallel PRs that touch the same files causes cascading conflicts that require session recreation.
 
+## PR Reviews
+
+**Always use the `/review-pr` skill when reviewing any PR.** This includes "review PR #X", "check this PR", "look at the diff", or reviewing after subagent work. A review that isn't posted to GitHub is not a review.
+
 ## Task Completion Protocol
 
 A PR merging is NOT the same as a task being complete. Before marking any task DONE:
@@ -63,6 +68,30 @@ A PR merging is NOT the same as a task being complete. Before marking any task D
 4. **If criteria can't be verified**, the task is not DONE — use IN-REVIEW or create follow-up tasks
 
 Never treat "code merged" as equivalent to "task complete." The spec defines completeness, not the PR.
+
+### Pre-flight: Verify spec before starting work
+
+Task specs may be stale — written in a prior conversation when the codebase was different. Before starting a session:
+
+1. Fetch the task spec with `tasks_spec_get`
+2. For each specific item (file:line references, counts, etc.), verify against the **current** codebase
+3. If items are already done or no longer applicable, update the spec before starting work
+4. This prevents wasted effort on stale targets and ensures subagents get accurate instructions
+
+### Spec verification gates merge
+
+The `/review-pr` skill requires a **Spec verification** section in every review. The pre-merge hook (`require-review-before-merge.sh`) blocks merges if the review lacks this section. This ensures:
+
+- Every spec criterion is checked before merge
+- Scope reductions are caught and documented
+- Follow-up tasks are created for deferred work
+
+## Work Completion
+
+- **Do not defer identified, actionable work.** If the current task's success criteria have unmet items and the work to address them is known (not blocked, not requiring new research), complete it. Do not create follow-up tasks, update specs to reduce scope, or propose partial PRs without explicitly asking the user.
+- **The user decides scope, not the agent.** Never unilaterally decide "this is a good stopping point." If uncertain whether to continue, ask.
+- **Artifact creation is not progress.** Creating tasks, updating specs, writing rules, and process discussion are not substitutes for doing the work. If you can describe exactly what needs to be done, do it.
+- **Before proposing to ship**, check the task spec's success criteria. If items are unmet and actionable, keep working.
 
 ## MCP Tools
 
