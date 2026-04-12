@@ -7,7 +7,6 @@
  * to this file. The helpers below compose existing `FakeX` instances
  * (`FakeSessionProvider`, `FakeGitService`, `FakeTaskService`).
  */
-import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
@@ -15,6 +14,7 @@ import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import { FakeSessionProvider } from "../../domain/session/fake-session-provider";
 import { FakeTaskService } from "../../domain/tasks/fake-task-service";
 import { FakeGitService } from "../../domain/git/fake-git-service";
+import { FakeWorkspaceUtils } from "../../domain/workspace/fake-workspace-utils";
 
 /**
  * Basic domain dependencies structure for common domain functions
@@ -80,16 +80,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
   const gitService = overrides.gitService ?? new FakeGitService();
   const taskService = overrides.taskService ?? new FakeTaskService();
 
-  // No FakeWorkspaceUtils exists yet — keep createPartialMock for workspace utils
-  const workspaceUtils =
-    overrides.workspaceUtils ??
-    createPartialMock<WorkspaceUtilsInterface>({
-      isWorkspace: () => Promise.resolve(true),
-      isSessionWorkspace: () => false,
-      getCurrentSession: () => Promise.resolve(undefined),
-      getSessionFromWorkspace: () => Promise.resolve(undefined),
-      resolveWorkspacePath: () => Promise.resolve("/mock/workspace/path"),
-    });
+  const workspaceUtils = overrides.workspaceUtils ?? new FakeWorkspaceUtils();
 
   return {
     sessionDB,
