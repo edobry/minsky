@@ -4,7 +4,7 @@
  * Tests for session update command functionality
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { FakeGitService } from "../../../src/domain/git/fake-git-service";
@@ -213,50 +213,5 @@ describe("session update command", () => {
 
     expect(result).toBeDefined();
     expect(result.session).toBeTruthy();
-  });
-
-  // Skipped: dryRun path goes through ConflictDetectionService which calls execAsync directly,
-  // bypassing the injected gitService. Needs ConflictDetectionService DI refactor (mt#530).
-  test.skip("should handle dry run mode", async () => {
-    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "dry-run-session");
-
-    mockFs.ensureDirectoryExists(sessionPath);
-
-    const sessionRecord: SessionRecord = {
-      session: "dry-run-session",
-      repoName: "test/repo",
-      createdAt: new Date().toISOString(),
-      name: "dry-run-session",
-      taskId: "131415",
-      repoUrl: "https://github.com/test/repo.git",
-      workspacePath: join(testData.tempDir, "test-repo"),
-      sessionPath,
-      branch: "staging",
-      created: new Date().toISOString(),
-    };
-
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: (() => sessionRecord) as any,
-      updateSession: createMock() as any,
-      getSessionWorkdir: createMock(() => sessionPath) as any,
-    });
-
-    const result = await updateSessionFromParams(
-      {
-        name: "dry-run-session",
-        dryRun: true,
-        force: true,
-      } as any,
-      {
-        gitService: mockGitService,
-        sessionDB: mockSessionDB,
-        getCurrentSession: async () => "dry-run-session", // Mock current session detection
-      }
-    );
-
-    expect(result).toBeDefined();
-    expect(result.session).toBeTruthy();
-    // In dry run mode, updateSession should not be called
-    expect(mockSessionDB.updateSession).not.toHaveBeenCalled();
   });
 });

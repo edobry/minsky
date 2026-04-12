@@ -32,7 +32,6 @@ export const TEST_PATHS = {
   SESSION_MD_160: "/test/sessions/task-md#160",
   CURRENT_DIRECTORY: "/current/directory",
   MOCK_ROOT: "/mock/r",
-  MOCK_WORKSPACE: "/mock/workspace",
   MOCK_WORKDIR: "/mock/workdir",
   SESSION_EXPLICIT: "explicit-session",
   MINSKY_SESSIONS_TASK: "/Users/edobry/.local/state/minsky/sessions/task#150",
@@ -91,7 +90,6 @@ export const CLI_COMMANDS = {
   MINSKY_SESSION_START_TASK: "minsky session start --task 123",
   MCP_MINSKY_TASKS_LIST: "mcp_minsky-server_tasks_list",
   SHOWING_ACTIVE_TASKS: "Showing active tasks (use --all to include completed tasks)",
-  JSONSCHEMA_FUNCTIONS_AVAILABLE: "Here are the functions available in JSONSchema format:",
 } as const;
 
 // Error and validation messages

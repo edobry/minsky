@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import {
   validateRepositoryPath,
   createProjectContext,
@@ -23,6 +23,9 @@ describe("ProjectContext", () => {
       statSync: mockFs.statSync,
       readdirSync: mockFs.readdirSync,
     } as unknown as SyncFsLike;
+
+    // Mock process.cwd() to return a consistent mock directory
+    (process as unknown as Record<string, unknown>).cwd = mock(() => "/mock/projects/minsky");
 
     // Set up mock directories
     mockFs.ensureDirectoryExists("/mock/projects/minsky");
@@ -74,9 +77,9 @@ describe("ProjectContext", () => {
 
   describe("createProjectContextFromCwd", () => {
     test("creates a ProjectContext from current working directory", () => {
-      // createProjectContextFromCwd uses real fs — just verify it doesn't crash
-      // This tests the integration path without mocking
-      const context = createProjectContextFromCwd();
+      // process.cwd() is mocked to return /mock/projects/minsky (see beforeEach)
+      // syncFs is injected so validateRepositoryPath uses the mock filesystem
+      const context = createProjectContextFromCwd({ fs: syncFs });
 
       expect(context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
