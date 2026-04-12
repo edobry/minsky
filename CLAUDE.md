@@ -12,6 +12,7 @@ When spawning subagents via the Agent tool, use the appropriate model to balance
 Prefer specialized subagent types over `general-purpose` when one fits:
 
 - **`subagent_type: "refactor"`** — Structural code changes (renaming, moving, eliminating layers, consolidating, extracting). Has built-in coherence verification: re-reads modified files end-to-end and reports stale comments, redundant siblings, dead exports, and orphan code. Use whenever the task is a refactor rather than feature work. _Why_: relying on a remembered "verify the result is coherent" rule is structurally weak; the verification belongs in the agent's identity, not in your prompt.
+- **`subagent_type: "verify-completion"`** — Task completion verification. Reads the task spec, checks each success criterion against the current codebase, returns structured pass/fail. Use before marking any task DONE. _Why_: the doer is biased toward "I did what was asked." A fresh agent objectively evaluates completion.
 - **`subagent_type: "Explore"`** — Codebase exploration and search.
 - **`subagent_type: "Plan"`** — Designing implementation plans before coding.
 - **`subagent_type: "general-purpose"`** — Fallback for work that doesn't fit a specialized type.
