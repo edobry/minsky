@@ -85,7 +85,6 @@ const patterns = {
     mocking: /mocking\.ts/g,
     factories: /factories\.ts/g,
     dependencies: /dependencies\.ts/g,
-    withMockedDeps: /withMockedDeps\(/g,
     createTestDeps: /createTestDeps\(/g,
     createTestSuite: /createTestSuite\(/g,
     withCleanup: /withCleanup\(/g,
