@@ -31,7 +31,7 @@ setupTestMocks();
 
 describe("Error Message Templates", () => {
   beforeEach(() => {
-    // Mock TEST_PATHS.MOCK_WORKSPACE to return consistent mock directory
+    // Mock process.cwd to return consistent mock directory
 
     (process as any).cwd = mock(() => "/mock/projects/minsky");
   });

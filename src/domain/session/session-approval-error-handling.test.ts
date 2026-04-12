@@ -60,55 +60,6 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
       mockPersistenceProvider;
   });
 
-  test.skip("should handle missing session for task", async () => {
-    // Test Case 1: Task with no associated session (like task 3283)
-
-    // Create mock SessionProvider that returns no sessions
-    const mockSessionProvider = {
-      getSessionByTaskId: async () => null, // No session found for task
-      getSession: async () => null,
-      listSessions: async () => [],
-      addSession: async () => {},
-      updateSession: async () => {},
-      deleteSession: async () => true,
-      getRepoPath: async () => "/mock/repo",
-      getSessionWorkdir: async () => "/mock/workdir",
-    };
-
-    await expect(
-      approveSessionPr(
-        {
-          task: "md#3283", // Task with no session
-          json: false,
-        },
-        { sessionDB: mockSessionProvider }
-      )
-    ).rejects.toThrow(ResourceNotFoundError);
-
-    try {
-      await approveSessionPr(
-        {
-          task: "md#3283",
-          json: false,
-        },
-        { sessionDB: mockSessionProvider as unknown as SessionProviderInterface }
-      );
-    } catch (error) {
-      if (error instanceof ResourceNotFoundError) {
-        // Verify error message is clear and indicates missing session
-        expect(error.message).toContain("No session found for task md#3283");
-
-        // Verify resource type is correct
-        expect(error.resourceType).toBe("session");
-        expect(error.resourceId).toBe("md#3283");
-      } else {
-        throw new Error(
-          `Expected ResourceNotFoundError, got ${error instanceof Error ? error.constructor.name : String(error)}`
-        );
-      }
-    }
-  });
-
   test("should handle task without session using mocked sessionDB", async () => {
     // Mock SessionDB to return no session for the task
     const mockSessionDB = {
@@ -116,7 +67,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
       getSession: async () => null,
     };
 
-    // Test Case 2: Task without session (using mocked sessionDB)
+    // Task without session (using mocked sessionDB)
     try {
       await approveSessionPr(
         {
@@ -147,7 +98,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
   });
 
   test("should require session ID or task ID", async () => {
-    // Test Case 3: No session ID or task ID provided
+    // No session ID or task ID provided
     const mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSessionByTaskId: async () => null,
       getSession: async () => null,

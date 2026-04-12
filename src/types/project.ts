@@ -72,9 +72,10 @@ export function createProjectContext(
 
 /**
  * Creates a ProjectContext using the current working directory.
+ * @param deps Optional dependencies for testing
  * @returns A ProjectContext object using process.cwd() as the repository path
  * @throws Error if the current directory is invalid as a repository path
  */
-export function createProjectContextFromCwd(): ProjectContext {
-  return createProjectContext(process.cwd());
+export function createProjectContextFromCwd(deps?: { fs?: SyncFsLike }): ProjectContext {
+  return createProjectContext(process.cwd(), deps);
 }
