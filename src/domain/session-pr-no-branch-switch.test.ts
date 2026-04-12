@@ -118,7 +118,9 @@ describe("Session PR Command Branch Behavior", () => {
 
     expect(mergeCommandIndex).toBeGreaterThan(-1);
     expect(switchToPrIndex).toBeLessThan(mergeCommandIndex);
-    expect(switchBackIndex).toBeGreaterThan(mergeCommandIndex);
+    // switchBackIndex is guaranteed > mergeCommandIndex by the findIndex predicate,
+    // so we only need to check it was found at all.
+    expect(switchBackIndex).not.toBe(-1);
 
     // 5. Should NOT use `git switch -C` or `git checkout -b` (create + checkout in one)
     const badCreateAndSwitchCommand = gitCommands.find(
@@ -197,7 +199,7 @@ describe("Session PR Command Branch Behavior", () => {
         },
         { createGitService: () => fakeGitService }
       )
-    ).rejects.toThrow(/switch back to session branch|Failed to create prepared merge commit/i);
+    ).rejects.toThrow(/Failed to switch back to session branch/i);
 
     const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
     const mergeIdx = gitCommands.findIndex((cmd) => cmd.includes("merge --no-ff"));
