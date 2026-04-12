@@ -1,0 +1,122 @@
+---
+name: review-pr
+description: >-
+  Review a pull request with codebase-verified findings and spec verification,
+  posted as an actual GitHub PR review.
+  Use when asked to review a PR, or when a PR is ready for review after subagent work.
+user-invocable: true
+---
+
+# PR Review Skill
+
+Review a pull request thoroughly and post the review to GitHub.
+
+## Arguments
+
+The argument is a PR number (e.g., `/review-pr 328`) or a GitHub PR URL.
+
+## Process
+
+### 1. Gather context
+
+Fetch in parallel:
+
+- PR metadata: `mcp__github__pull_request_read` with `method: "get"`
+- CI status: `mcp__github__pull_request_read` with `method: "get_check_runs"`
+- Changed files list: `mcp__github__pull_request_read` with `method: "get_files"`
+
+### 2. Identify the task
+
+Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/mt-671`). If there's an associated task, fetch its spec with `mcp__minsky__tasks_spec_get`. This is needed for step 6.
+
+### 3. Read the diff
+
+Use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
+
+### 4. Analyze changes
+
+For each file changed, understand:
+
+- What was removed and what replaced it
+- Whether the change is purely mechanical or behavioral
+
+### 5. Verify concerns against the codebase
+
+**This is the critical step.** When you identify a potential issue in the diff:
+
+- **DO NOT report it based on the diff alone.** Read the actual source files in the repo to verify.
+- If a function call looks unsafe, read the function's implementation to check for internal guards.
+- If a type/field name looks wrong, read the schema/interface definition to confirm.
+- If behavior looks changed, read the surrounding code to understand the full context.
+- Classify each finding with evidence:
+  - **Blocking** — verified real issue introduced by this PR, with file:line evidence
+  - **Non-blocking** — real concern but low risk or stylistic
+  - **Pre-existing** — real issue but not introduced by this PR (note for follow-up)
+  - **False positive** — concern was disproven by reading the source (do not include in review)
+
+Only include verified findings in the GitHub review. Drop false positives entirely rather than padding the review.
+
+### 6. Verify against task spec
+
+**This step is mandatory.** If a task spec exists:
+
+1. Read every success criterion in the spec
+2. For each criterion, verify the PR actually delivers it by checking the code
+3. Classify each criterion:
+   - **Met** — the code change satisfies it, with evidence
+   - **Not met** — the PR does not deliver this criterion
+   - **Not applicable** — criterion was stale or already satisfied before this PR
+4. If any criteria are **not met**, this must be flagged as blocking. Before the PR can merge:
+   - The task spec must be updated to reflect actual scope
+   - Follow-up tasks must be created for deferred items
+   - The review must explicitly list what was deferred and why
+
+### 7. Post to GitHub
+
+Use `mcp__github__pull_request_review_write` to post the review:
+
+- `method: "create"` with `event` to submit immediately
+- For line-level comments: create a pending review first, add comments with `add_comment_to_pending_review`, then `submit_pending`
+- Use `event: "APPROVE"` only if you are not the PR author and there are no blocking issues
+- Use `event: "COMMENT"` if you are the PR author or there are only non-blocking issues
+- Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria
+
+### 8. Review body format
+
+```markdown
+## Review: <short description>
+
+**CI status:** <pass/fail/pending>
+
+### Findings
+
+<For each verified finding:>
+**[BLOCKING/NON-BLOCKING/PRE-EXISTING]** <file:line> — <description>
+<evidence from source code that confirms this is real>
+
+### Checked and clear
+
+<Brief list of areas reviewed with no issues — shows coverage>
+
+### Spec verification
+
+**Task:** <task ID>
+
+| Criterion             | Status          | Evidence                   |
+| --------------------- | --------------- | -------------------------- |
+| <criterion from spec> | Met/Not met/N/A | <file:line or explanation> |
+
+<If any criteria not met:>
+**Action required:** <spec update needed / follow-up task needed / blocking>
+
+(Had Claude look into this — AI-assisted review)
+```
+
+## Key principles
+
+- **A review that isn't on GitHub isn't a review.** Always post via GitHub MCP tools.
+- **Never flag unverified concerns.** Every finding must be confirmed by reading the actual source, not just the diff.
+- **The diff shows what changed; the codebase shows whether the change is correct.** Always check both.
+- **Include CI status.** Don't approve with failing checks.
+- **Spec verification is mandatory.** The review must include a spec verification table. The pre-merge hook will reject merges without it.
+- **Attribute AI involvement** per user preferences.
