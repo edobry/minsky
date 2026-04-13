@@ -4,6 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { rebaseFromParams } from "../rebase-command";
+import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import { log } from "../../../../utils/logger";
 import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
@@ -62,15 +63,19 @@ export async function executeRebaseCommand(
   const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;
 
-  const result = await rebaseFromParams({
-    baseBranch,
-    featureBranch,
-    session,
-    repo,
-    preview,
-    autoResolve,
-    conflictStrategy,
-  });
+  const sessionProvider = await getSharedSessionProvider();
+  const result = await rebaseFromParams(
+    {
+      baseBranch,
+      featureBranch,
+      session,
+      repo,
+      preview,
+      autoResolve,
+      conflictStrategy,
+    },
+    { sessionProvider }
+  );
 
   if (context.debug) {
     log.debug("Rebase command executed successfully", { result });

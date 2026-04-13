@@ -4,6 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { commitChangesFromParams } from "../commit-command";
+import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import { log } from "../../../../utils/logger";
 import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
@@ -68,14 +69,18 @@ export async function executeCommitCommand(
 ): Promise<{ commitHash: string; message: string }> {
   const { message, all, amend, noStage, repo, session } = context.parameters;
 
-  const result = await commitChangesFromParams({
-    message,
-    session,
-    repo,
-    all,
-    amend,
-    noStage,
-  });
+  const sessionProvider = await getSharedSessionProvider();
+  const result = await commitChangesFromParams(
+    {
+      message,
+      session,
+      repo,
+      all,
+      amend,
+      noStage,
+    },
+    { sessionProvider }
+  );
 
   if (context.debug) {
     log.debug("Commit command executed successfully", { result });

@@ -4,6 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { checkoutFromParams } from "../checkout-command";
+import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
@@ -60,14 +61,18 @@ export async function executeCheckoutCommand(
 ): Promise<unknown> {
   const { branch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
 
-  const result = await checkoutFromParams({
-    branch,
-    session,
-    repo,
-    preview,
-    autoResolve,
-    conflictStrategy,
-  });
+  const sessionProvider = await getSharedSessionProvider();
+  const result = await checkoutFromParams(
+    {
+      branch,
+      session,
+      repo,
+      preview,
+      autoResolve,
+      conflictStrategy,
+    },
+    { sessionProvider }
+  );
 
   if (context.debug) {
     log.debug("Checkout command executed successfully", { result });
