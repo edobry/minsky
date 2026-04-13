@@ -11,7 +11,6 @@ import { SessionPathResolver } from "../../domain/session/session-path-resolver"
 import { getErrorMessage } from "../../errors/index";
 import {
   FileReadSchema,
-  BaseFileOperationSchema,
   FileWriteSchema,
   DirectoryListSchema,
   FileExistsSchema,
@@ -682,14 +681,13 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           outputLength: output.length,
         });
 
-        return {
-          success: true,
+        return createSuccessResponse({
           session: typedArgs.sessionId,
           diff: output,
           staged: typedArgs.staged ?? false,
-          ...(typedArgs.path && { path: typedArgs.path }),
           isEmpty: output.trim().length === 0,
-        };
+          ...(typedArgs.path && { path: typedArgs.path }),
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session diff failed", {
@@ -770,15 +768,14 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           untrackedCount: untracked.length,
         });
 
-        return {
-          success: true,
+        return createSuccessResponse({
           session: typedArgs.sessionId,
-          status: output,
           staged,
           unstaged,
           untracked,
-          clean: lines.length === 0,
-        };
+          clean: staged.length === 0 && unstaged.length === 0 && untracked.length === 0,
+          raw: output,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session status failed", {
