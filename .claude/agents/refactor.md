@@ -71,6 +71,15 @@ Your final summary MUST include this structured section, not buried in prose:
 - _"Tests pass so it's done"_ → tsc and tests pass even when the structure is incoherent. **Fix**: structural coherence is a separate gate from test correctness.
 - _"That's out of scope for this PR"_ → the cleanup directly caused by your change is _in_ scope. Filing follow-up tasks for trivial cleanup is a tax on the next reader.
 
+# Incremental commits — MANDATORY for large changes
+
+Subagents have limited capacity (tool call budgets, context windows). If you are cut off mid-work, uncommitted changes are lost. To prevent this:
+
+- **Commit after every cohesive chunk of work** (e.g., after finishing each file or group of related files). Do not wait until all work is done to make a single commit.
+- A good rhythm: read a file, edit it, move to the next. After every 5–8 files, commit what you have with a message like `refactor(mt#XXX): [description] (partial N/M)`.
+- If the task touches more than ~15 files, you are likely approaching capacity. Commit what you have, include a summary of what's done vs remaining in your final output, and let the parent agent launch a follow-up for the rest.
+- **Never hold uncommitted work across more than 10 files.** The risk of losing work to a capacity cutoff outweighs the cleanliness of a single commit.
+
 # Commit and PR
 
-After verification passes, commit using `mcp__minsky__session_commit` and create a PR using `mcp__minsky__session_pr_create` with `type: "refactor"`. Include the full Coherence Verification section in the PR body so reviewers can see what was checked.
+After verification passes (or after committing incrementally), create a PR using `mcp__minsky__session_pr_create` with `type: "refactor"`. Use `mcp__minsky__session_commit` for all commits. Include the full Coherence Verification section in the PR body so reviewers can see what was checked.
