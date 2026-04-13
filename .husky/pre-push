@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 echo "Running tests before push..."
 
 # Run tests and capture exit code before piping
