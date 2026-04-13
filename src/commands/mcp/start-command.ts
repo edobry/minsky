@@ -20,6 +20,7 @@ import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-worksp
 import { registerPersistenceTools } from "../../adapters/mcp/persistence";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerChangesetTools } from "../../adapters/mcp/changeset";
+import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 
@@ -53,6 +54,7 @@ function registerAllTools(commandMapper: CommandMapper): void {
 
   registerInitTools(commandMapper);
   registerRulesTools(commandMapper);
+  registerConfigTools(commandMapper);
   registerChangesetTools(commandMapper);
 }
 
