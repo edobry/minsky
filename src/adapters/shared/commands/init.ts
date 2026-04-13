@@ -17,6 +17,7 @@ import { TaskBackend } from "../../../domain/configuration/backend-detection";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
+import { isInteractive } from "../../../utils/interactive";
 // Removed unused initParamsSchema import
 
 const initParams = composeParams(
@@ -94,7 +95,7 @@ export function registerInitCommands() {
           let backend = params.backend;
           if (!backend) {
             // Check if we're in an interactive environment
-            if (!process.stdout.isTTY) {
+            if (!isInteractive()) {
               throw new ValidationError(
                 `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MARKDOWN}, ${TaskBackend.JSON_FILE}, or ${TaskBackend.GITHUB_ISSUES}`
               );
@@ -130,7 +131,7 @@ export function registerInitCommands() {
 
           if (backend === TaskBackend.GITHUB_ISSUES) {
             if (!githubOwner) {
-              if (!process.stdout.isTTY) {
+              if (!isInteractive()) {
                 throw new ValidationError(
                   "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
                 );
@@ -156,7 +157,7 @@ export function registerInitCommands() {
             }
 
             if (!githubRepo) {
-              if (!process.stdout.isTTY) {
+              if (!isInteractive()) {
                 throw new ValidationError(
                   "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
                 );
@@ -185,7 +186,7 @@ export function registerInitCommands() {
           // Interactive rule format selection if not provided
           let ruleFormat = params.ruleFormat;
           if (!ruleFormat) {
-            if (!process.stdout.isTTY) {
+            if (!isInteractive()) {
               // Default to cursor in non-interactive mode
               ruleFormat = "cursor";
             } else {
@@ -226,7 +227,7 @@ export function registerInitCommands() {
               port: params.mcpPort ? Number(params.mcpPort) : undefined,
               host: params.mcpHost,
             };
-          } else if (process.stdout.isTTY && !params.mcpOnly) {
+          } else if (isInteractive() && !params.mcpOnly) {
             // Interactive MCP configuration
             const enableMcp = await confirm({
               message: "Enable MCP (Model Context Protocol) configuration?",
@@ -301,7 +302,7 @@ export function registerInitCommands() {
           const detectedRepo = detectRepositoryBackend(repoPath);
 
           if (detectedRepo.backend !== "local") {
-            if (process.stdout.isTTY) {
+            if (isInteractive()) {
               // Interactive mode: show detection and ask for confirmation
               const detectionLabel =
                 detectedRepo.backend === "github" && detectedRepo.github
