@@ -12,6 +12,7 @@ import type { TaskData, TaskSpecData } from "../../types/tasks/taskData";
 import { TASK_STATUS, type TaskStatus } from "./taskConstants";
 import { getTaskIdNumber, formatTaskIdForDisplay } from "./task-id-utils";
 import { getTaskSpecRelativePath } from "./taskIO";
+import { elementAt } from "../../utils/array-safety";
 
 /**
  * Determine the next local ID from existing tasks.
@@ -32,7 +33,7 @@ export function resolveLocalId(specId: string | undefined, existingTasks: TaskDa
   if (specId) {
     // If spec.id is qualified (md#123), extract local part (123)
     if (specId.includes("#")) {
-      return specId.split("#")[1]!;
+      return elementAt(specId.split("#"), 1, "qualified task ID local part");
     }
     return specId;
   }

@@ -18,6 +18,7 @@ import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readTextFile } from "../../utils/fs";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
 import { resolve, join } from "path";
+import { first } from "../../utils/array-safety";
 
 /**
  * Module-level wrapper that lazily creates a sessionProvider for bare resolveRepoPath calls.
@@ -175,7 +176,7 @@ export async function getTaskFromParams(
     // Get the task
     log.debug("[getTaskFromParams] About to get task");
     const taskIdStr = Array.isArray(validParams.taskId)
-      ? validParams.taskId[0]!
+      ? first(validParams.taskId, "taskId array")
       : validParams.taskId;
     const task = await taskService.getTask(taskIdStr);
     log.debug("[getTaskFromParams] Task retrieved", { taskExists: !!task });

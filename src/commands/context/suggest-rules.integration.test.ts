@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, mock } from "bun:test";
 import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
 import type { RuleSuggestionRequest } from "../../domain/context/types";
 import type { Rule } from "../../domain/rules/types";
+import { first, elementAt } from "../../utils/array-safety";
 import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("suggest-rules service integration", () => {
@@ -136,9 +137,10 @@ describe("suggest-rules service integration", () => {
     // Verify response structure
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
-    expect(response.suggestions[0]!.ruleId).toBe("test-driven-bugfix");
-    expect(response.suggestions[0]!.relevanceScore).toBe(0.9);
-    expect(response.suggestions[0]!.confidenceLevel).toBe("high");
+    const firstSuggestion = first(response.suggestions);
+    expect(firstSuggestion.ruleId).toBe("test-driven-bugfix");
+    expect(firstSuggestion.relevanceScore).toBe(0.9);
+    expect(firstSuggestion.confidenceLevel).toBe("high");
     expect(response.queryAnalysis.intent).toContain("bug");
     expect(response.totalRulesAnalyzed).toBe(3);
   });
@@ -153,8 +155,9 @@ describe("suggest-rules service integration", () => {
 
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
-    expect(response.suggestions[0]!.ruleId).toBe(RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES);
-    expect(response.suggestions[0]!.relevanceScore).toBe(0.8);
+    const firstSuggestion = first(response.suggestions);
+    expect(firstSuggestion.ruleId).toBe(RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES);
+    expect(firstSuggestion.relevanceScore).toBe(0.8);
     expect(response.queryAnalysis.intent).toContain("modules");
   });
 
@@ -237,8 +240,8 @@ describe("suggest-rules service integration", () => {
     const response = await limitedService.suggestRules(request);
 
     expect(response.suggestions).toHaveLength(2); // Limited to 2
-    expect(response.suggestions[0]!.relevanceScore).toBeGreaterThan(
-      response.suggestions[1]!.relevanceScore
+    expect(first(response.suggestions).relevanceScore).toBeGreaterThan(
+      elementAt(response.suggestions, 1).relevanceScore
     ); // Sorted by relevance
   });
 

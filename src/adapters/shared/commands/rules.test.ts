@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, test, expect } from "bun:test";
 import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands, type RulesCommandsDeps } from "./rules";
+import { first, elementAt } from "../../../utils/array-safety";
 
 /** Shape returned by rules.generate command */
 interface RulesGenerateResult {
@@ -81,7 +82,7 @@ describe("Rules Commands", () => {
         expect(result.rules).toHaveLength(1);
         expect(result.generated).toBe(1);
         expect(result.errors).toHaveLength(0);
-        expect(result.rules[0]!.id).toBe("test-rule");
+        expect(first(result.rules).id).toBe("test-rule");
       }
     });
 
@@ -288,13 +289,15 @@ describe("Rules Commands", () => {
         }
 
         // Verify specific rule properties are preserved
-        expect(result.rules[0]!.id).toBe("test-rule-1");
-        expect(result.rules[0]!.name).toBe("Test Rule 1");
-        expect(result.rules[0]!.tags).toEqual(["test"]);
-        expect(result.rules[0]!.globs).toEqual(["*.ts"]);
+        const firstRule = first(result.rules);
+        expect(firstRule.id).toBe("test-rule-1");
+        expect(firstRule.name).toBe("Test Rule 1");
+        expect(firstRule.tags).toEqual(["test"]);
+        expect(firstRule.globs).toEqual(["*.ts"]);
 
-        expect(result.rules[1]!.id).toBe("test-rule-2");
-        expect(result.rules[1]!.name).toBe("Test Rule 2");
+        const secondRule = elementAt(result.rules, 1);
+        expect(secondRule.id).toBe("test-rule-2");
+        expect(secondRule.name).toBe("Test Rule 2");
       }
     });
 

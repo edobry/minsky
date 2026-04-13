@@ -4,6 +4,7 @@
  * Uses dependency injection instead of mock.module().
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { first } from "../../utils/array-safety";
 import {
   createSessionProvider,
   SessionDbAdapter,
@@ -101,7 +102,7 @@ describe("createSessionProvider", () => {
     // Verify it calls the persistence layer
     expect(mockStorage.readState).toHaveBeenCalledTimes(1);
     expect(sessions).toHaveLength(2);
-    expect(sessions[0]!.session).toBe("test-session-1");
+    expect(first(sessions).session).toBe("test-session-1");
   });
 
   test("SessionDbAdapter.getSessionByTaskId() filters correctly", async () => {

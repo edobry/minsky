@@ -6,11 +6,12 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { PostgresPersistenceProvider } from "./postgres-provider";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
+import { first } from "../../../utils/array-safety";
 
 // Mock SQL client — injected via initialize()
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
-  const queryString = strings[0]!;
+  const queryString = first(strings as unknown as string[], "SQL template strings");
   if (queryString.includes("pg_extension") && queryString.includes("vector")) {
     return Promise.resolve([{ exists: true }]); // Mock pgvector as available
   }

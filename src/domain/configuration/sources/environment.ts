@@ -5,6 +5,7 @@
  */
 
 import type { PartialConfiguration } from "../schemas";
+import { elementAt } from "../../../utils/array-safety";
 
 /**
  * Environment variable to configuration path mappings
@@ -167,7 +168,7 @@ function envVarToConfigPath(envVar: string): string | null {
   // Handle known patterns
   if (parts[0] === "ai" && parts[1] === "providers" && parts.length >= 3) {
     // AI_PROVIDERS_OPENAI_API_KEY -> ai.providers.openai.apiKey
-    const provider = parts[2]!;
+    const provider = elementAt(parts, 2, "env var AI provider part");
     const field = parts.slice(3).join("_");
     return `ai.providers.${provider}.${camelCase(field)}`;
   }
@@ -176,9 +177,9 @@ function envVarToConfigPath(envVar: string): string | null {
     // SESSIONDB_BACKEND -> sessiondb.backend
     // SESSIONDB_SQLITE_PATH -> sessiondb.sqlite.path
     if (parts.length === 2) {
-      return `sessiondb.${camelCase(parts[1]!)}`;
+      return `sessiondb.${camelCase(elementAt(parts, 1, "sessiondb field"))}`;
     } else if (parts.length === 3) {
-      return `sessiondb.${parts[1]}.${camelCase(parts[2]!)}`;
+      return `sessiondb.${parts[1]}.${camelCase(elementAt(parts, 2, "sessiondb subfield"))}`;
     }
   }
 

@@ -12,6 +12,7 @@ import { FakeTaskService } from "./fake-task-service";
 import { FakeSessionProvider } from "../session/fake-session-provider";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { first, elementAt } from "../../utils/array-safety";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
@@ -81,9 +82,9 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
 
       // Verify qualified task IDs are handled correctly
       expect(tasks).toHaveLength(2);
-      expect(tasks[0]!.id).toBe("md#999");
-      expect(tasks[1]!.id).toBe("gh#888");
-      expect(tasks[0]!.title).toContain("Test Qualified Task md#999");
+      expect(first(tasks).id).toBe("md#999");
+      expect(elementAt(tasks, 1).id).toBe("gh#888");
+      expect(first(tasks).title).toContain("Test Qualified Task md#999");
     });
 
     test("should retrieve specific qualified task by ID", async () => {
@@ -165,7 +166,9 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       expect(addSessionSpy).toHaveBeenCalled();
 
       // Verify the session record contains the qualified task ID
-      const addSessionCall = addSessionSpy.mock.calls[0]![0] as { taskId: string };
+      const addSessionCall = first(addSessionSpy.mock.calls as unknown[][])[0] as {
+        taskId: string;
+      };
       expect(addSessionCall.taskId).toBe("md#999");
     });
   });
@@ -235,7 +238,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       // Step 2: Verify task appears in list
       const tasks = await mockTaskService.listTasks();
       expect(tasks).toHaveLength(1);
-      expect(tasks[0]!.id).toBe(qualifiedId);
+      expect(first(tasks).id).toBe(qualifiedId);
 
       // Step 3: Verify session can be created (mocked)
       const sessionCreated = true; // Simplified for this test

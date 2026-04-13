@@ -9,6 +9,7 @@ import type { LocalTokenizer, TokenizerRegistry, TokenizerConfig } from "./types
 import { GptTokenizer } from "./gpt-tokenizer";
 import { TiktokenTokenizer } from "./tiktoken-tokenizer";
 import { log } from "../../../utils/logger";
+import { first } from "../../../utils/array-safety";
 
 /**
  * Default tokenizer registry implementation
@@ -92,7 +93,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
       );
 
     if (candidates.length > 0) {
-      const selected = candidates[0]!;
+      const selected = first(candidates, "tokenizer candidates");
       log.debug(`Selected tokenizer for ${modelId}: ${selected.id}`);
       return selected;
     }

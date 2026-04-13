@@ -13,6 +13,7 @@ import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import fs from "fs/promises";
 import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
+import { first } from "../../utils/array-safety";
 
 interface SuggestRulesOptions {
   json?: boolean;
@@ -260,7 +261,7 @@ function outputHumanReadableResults(
   // Usage hints
   if (response.suggestions.length > 0) {
     log.debug(`💡 To use a rule: Add it to your Cursor Rules or check its content with:`);
-    log.debug(`   minsky rules get ${response.suggestions[0]!.ruleId}`);
+    log.debug(`   minsky rules get ${first(response.suggestions, "suggestions").ruleId}`);
   }
 }
 

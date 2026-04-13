@@ -5,6 +5,7 @@ import path from "path";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 import { RULES_TEST_PATTERNS } from "../utils/test-utils/test-constants";
+import { first } from "../utils/array-safety";
 
 // No global module mocks. Each test creates its own mock filesystem and injects it
 
@@ -94,8 +95,9 @@ describe("RuleService", () => {
       const rules = await ruleService.listRules({ format: "cursor" });
 
       expect(rules.length).toBe(1);
-      expect(rules[0]!.id).toBe("test-cursor");
-      expect(rules[0]!.format).toBe("cursor");
+      const firstRule = first(rules);
+      expect(firstRule.id).toBe("test-cursor");
+      expect(firstRule.format).toBe("cursor");
     });
 
     test("lists only generic rules when format is generic", async () => {
@@ -115,8 +117,9 @@ describe("RuleService", () => {
       const rules = await ruleService.listRules({ format: "generic" });
 
       expect(rules.length).toBe(1);
-      expect(rules[0]!.id).toBe("test-generic");
-      expect(rules[0]!.format).toBe("generic");
+      const firstRule = first(rules);
+      expect(firstRule.id).toBe("test-generic");
+      expect(firstRule.format).toBe("generic");
     });
   });
 

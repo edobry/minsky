@@ -4,6 +4,7 @@ import { createToolSimilarityCore } from "./create-tool-similarity-core";
 
 // Ensure embeddings path does not short-circuit core behavior in test
 import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embeddings-backend";
+import { first } from "../../../utils/array-safety";
 
 describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)", () => {
   beforeAll(async () => {
@@ -63,7 +64,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
       return;
     }
 
-    const targetToolId = searchResults[0]!.id;
+    const targetToolId = first(searchResults).id;
     const results = await service.similarToTool(targetToolId, 2);
 
     expect(Array.isArray(results)).toBe(true);

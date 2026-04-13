@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from "bun:test";
 import type { SessionProviderInterface, SessionRecord } from "./types";
 import { SessionMigrationService, type SessionMigrationOptions } from "./migration-command";
 import { isUuidSessionId } from "../tasks/task-id";
+import { first, elementAt } from "../../utils/array-safety";
 
 // Mock session data for testing
 const createMockSessionData = () => {
@@ -150,13 +151,13 @@ describe("Session Migration Command", () => {
 
       it("should show detailed changes for each session", async () => {
         const mockData = createMockSessionData();
-        const sessionDB = createMockSessionDB([mockData.legacy[0]!]); // Just one legacy session
+        const sessionDB = createMockSessionDB([first(mockData.legacy)]); // Just one legacy session
         const migrationService = new SessionMigrationService(sessionDB);
 
         const report = await migrationService.preview();
 
         expect(report.results).toHaveLength(1);
-        const result = report.results[0]!;
+        const result = first(report.results);
 
         // Ensure result exists before checking properties
         expect(result).toBeDefined();
@@ -275,7 +276,7 @@ describe("Session Migration Command", () => {
 
         // Should only process the session that would become 'md' backend
         expect(report.results).toHaveLength(1);
-        expect(report.results[0]!.original.session).toBe("task123");
+        expect(first(report.results).original.session).toBe("task123");
       });
 
       it("should filter by date", async () => {
@@ -305,7 +306,7 @@ describe("Session Migration Command", () => {
 
         // Should only process sessions created before the cutoff
         expect(report.results).toHaveLength(1);
-        expect(report.results[0]!.original.session).toBe("task123");
+        expect(first(report.results).original.session).toBe("task123");
       });
 
       it("should filter by session ID pattern", async () => {
@@ -348,8 +349,8 @@ describe("Session Migration Command", () => {
         const report = await migrationService.migrate({ backup: false });
 
         expect(report.progress.failed).toBe(1);
-        expect(report.results[0]!.success).toBe(false);
-        expect(report.results[0]!.error).toBe("Migration failed");
+        expect(first(report.results).success).toBe(false);
+        expect(first(report.results).error).toBe("Migration failed");
       });
 
       it("should handle database update failures", async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { cursorRulesTarget, buildCursorRulesContent, serializeRuleToMdc } from "./cursor-rules";
 import type { Rule } from "../../types";
 import { SOME_RULE_CONTENT } from "./test-fixtures";
+import { first } from "../../../../utils/array-safety";
 
 // Helper to create a minimal Rule object
 function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
@@ -137,15 +138,16 @@ describe("cursor-rules target", () => {
     it("each file path is in the output directory with .mdc extension", () => {
       const rules = [makeRule("my-rule", "Content")];
       const { files } = buildCursorRulesContent(rules, "/output/dir");
-      expect(files[0]!.path).toBe("/output/dir/my-rule.mdc");
+      expect(first(files).path).toBe("/output/dir/my-rule.mdc");
     });
 
     it("file content is the serialized .mdc for the rule", () => {
       const rules = [makeRule("test-rule", "Rule body text", { name: "Test Rule" })];
       const { files } = buildCursorRulesContent(rules, "/output");
-      expect(files[0]!.content).toContain("name:");
-      expect(files[0]!.content).toContain("Test Rule");
-      expect(files[0]!.content).toContain("Rule body text");
+      const file = first(files);
+      expect(file.content).toContain("name:");
+      expect(file.content).toContain("Test Rule");
+      expect(file.content).toContain("Rule body text");
     });
 
     it("all rules are included in rulesIncluded", () => {
@@ -171,8 +173,9 @@ describe("cursor-rules target", () => {
     it("uses the rule id as the filename (not the path or name)", () => {
       const rule = makeRule("my-rule-id", "Content", { name: "Some Other Name" });
       const { files } = buildCursorRulesContent([rule], "/output");
-      expect(files[0]!.path).toContain("my-rule-id.mdc");
-      expect(files[0]!.path).not.toContain("Some Other Name");
+      const file = first(files);
+      expect(file.path).toContain("my-rule-id.mdc");
+      expect(file.path).not.toContain("Some Other Name");
     });
   });
 });

@@ -8,6 +8,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { ConfigWriter, createConfigWriter } from "./config-writer";
 import type { SyncFs } from "./config-writer";
 import matter from "gray-matter";
+import { first } from "../../utils/array-safety";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 import { CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import { log } from "../../utils/logger";
@@ -69,7 +70,7 @@ describe("ConfigWriter", () => {
 
       // Should create backup with timestamp
       expect(mockFs.copyFileSync).toHaveBeenCalled();
-      const copyCall = mockFs.copyFileSync.mock.calls[0]!;
+      const copyCall = first(mockFs.copyFileSync.mock.calls as unknown[][]);
       expect(copyCall[0]).toBe(mockConfigFile);
       expect(copyCall[1]).toMatch(/config\.yaml\.backup\./);
       expect(result.success).toBe(true);
@@ -87,7 +88,7 @@ describe("ConfigWriter", () => {
 
       // Should have written the nested structure
       expect(mockFs.writeFileSync).toHaveBeenCalled();
-      const writeCall = mockFs.writeFileSync.mock.calls[0]!;
+      const writeCall = first(mockFs.writeFileSync.mock.calls as unknown[][]);
       expect(writeCall[0]).toBe(mockConfigFile);
     });
 

@@ -11,6 +11,7 @@ import { EnhancedAICompletionService } from "./enhanced-completion-service";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { RateLimitError, AuthenticationError, ServerError } from "./enhanced-error-types";
+import { first } from "../../utils/array-safety";
 import {
   analyzeEditPattern,
   createMorphCompletionParams,
@@ -66,7 +67,7 @@ export async function applyEditPattern(
 
   if (fastApplyProviders.length > 0) {
     // Use fast-apply provider
-    provider = fastApplyProviders[0]!;
+    provider = first(fastApplyProviders, "fast-apply providers");
     model = provider === "morph" ? "morph-v3-large" : undefined;
     isFastApply = true;
     log.debug(`Using fast-apply provider: ${provider}`);

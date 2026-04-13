@@ -7,6 +7,7 @@ import { FakeSessionProvider } from "./fake-session-provider";
 import { FakeGitService } from "../git/fake-git-service";
 import { FakeTaskService } from "../tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
+import { first } from "../../utils/array-safety";
 
 function createDeps(repoUrl: string): StartSessionDependencies & {
   addSessionSpy: ReturnType<typeof mock>;
@@ -58,7 +59,7 @@ describe("startSessionImpl - backendType", () => {
     const deps = createDeps("https://github.com/owner/repo.git");
     const params = { task: "md#999" } as unknown as SessionStartParameters;
     await startSessionImpl(params, deps);
-    const added = deps.addSessionSpy.mock.calls[0]![0] as SessionRecord;
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
     expect(added.backendType).toBe("github");
   });
 
@@ -66,7 +67,7 @@ describe("startSessionImpl - backendType", () => {
     const deps = createDeps("/Users/test/Projects/repo");
     const params = { task: "md#999" } as unknown as SessionStartParameters;
     await startSessionImpl(params, deps);
-    const added = deps.addSessionSpy.mock.calls[0]![0] as SessionRecord;
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
     expect(added.backendType).toBe("local");
   });
 });

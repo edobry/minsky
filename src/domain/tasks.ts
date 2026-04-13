@@ -9,6 +9,7 @@
 import { log } from "../utils/logger";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { ResourceNotFoundError } from "../errors/index";
+import { first } from "../utils/array-safety";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
@@ -90,7 +91,9 @@ export async function getTaskFromParams(params: Record<string, unknown>) {
   log.debug("tasks.get created TaskService", {
     backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
-  const taskId = Array.isArray(validParams.taskId) ? validParams.taskId[0]! : validParams.taskId;
+  const taskId = Array.isArray(validParams.taskId)
+    ? first(validParams.taskId, "taskId array")
+    : validParams.taskId;
   const task = await taskService.getTask(taskId);
   if (!task) {
     throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);

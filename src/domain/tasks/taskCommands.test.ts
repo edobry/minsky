@@ -6,6 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, beforeAll, afterAll } from "bun:test";
+import { first, elementAt } from "../../utils/array-safety";
 import {
   getTaskStatusFromParams,
   getTaskFromParams,
@@ -596,7 +597,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await listTasksFromParams(params, mockDeps as any);
-      expect(result).toEqual([mockTasks[0]!]);
+      expect(result).toEqual([first(mockTasks)]);
     });
 
     test("should filter out DONE tasks when all is false", async () => {
@@ -640,7 +641,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await listTasksFromParams(params, mockDeps as any);
-      expect(result).toEqual([mockTasks[0]!, mockTasks[1]!]);
+      expect(result).toEqual([first(mockTasks), elementAt(mockTasks, 1)]);
     });
   });
 
