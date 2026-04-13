@@ -301,15 +301,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   /**
    * Delete a single session by ID (compatibility method for SessionDbAdapter)
+   * Storage errors propagate — only returns false for "not found".
    */
   async delete(id: string): Promise<boolean> {
-    try {
-      return await this.deleteEntity(id);
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      log.warn(`Failed to delete session from PostgreSQL: ${typedError.message}`);
-      return false;
-    }
+    return await this.deleteEntity(id);
   }
 
   /**
