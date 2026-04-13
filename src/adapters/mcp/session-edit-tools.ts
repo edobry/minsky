@@ -177,7 +177,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
   // Session search replace tool
   commandMapper.addCommand({
     name: "session.search_replace",
-    description: "Replace a single occurrence of text in a file within a session workspace",
+    description:
+      "Replace text in a file within a session workspace. By default, requires exactly one occurrence (for safety). Set replace_all=true to replace all occurrences.",
     parameters: SessionSearchReplaceSchema,
     handler: async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
       const args = rawArgs as SearchReplaceArgs;
@@ -213,14 +214,25 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           throw new Error(`Search text not found in file: "${args.search}"`);
         }
 
-        if (occurrences > 1) {
+        const replaceAll = args.replace_all ?? false;
+
+        if (!replaceAll && occurrences > 1) {
           throw new Error(
-            `Search text found ${occurrences} times. Please provide more context to make it unique.`
+            `Search text found ${occurrences} times. Please provide more context to make it unique, or set replace_all=true to replace all occurrences.`
           );
         }
 
         // Perform replacement
-        const newContent = content.replace(args.search, args.replace);
+        let newContent: string;
+        let replacementCount: number;
+
+        if (replaceAll) {
+          newContent = content.replaceAll(args.search, args.replace);
+          replacementCount = occurrences;
+        } else {
+          newContent = content.replace(args.search, args.replace);
+          replacementCount = 1;
+        }
 
         // Write back
         await writeFile(resolvedPath, newContent, "utf8");
@@ -231,6 +243,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           resolvedPath,
           searchLength: args.search.length,
           replaceLength: args.replace.length,
+          replacementCount,
+          replaceAll,
         });
 
         return createSuccessResponse({
@@ -238,6 +252,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           session: args.sessionId,
           edited: true,
           replaced: true,
+          replacementCount,
           searchText: args.search,
           replaceText: args.replace,
         });
