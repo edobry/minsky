@@ -11,6 +11,7 @@ import { ValidationError } from "../../../../errors/index";
 import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
+import { isInteractive } from "../../../../utils/interactive";
 
 /**
  * Parameters for tasks status get command
@@ -131,7 +132,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
    */
   private async promptForStatus(currentStatus: string): Promise<string> {
     // Check if we're in an interactive environment
-    if (!process.stdout.isTTY) {
+    if (!isInteractive()) {
       throw new ValidationError("Status parameter is required in non-interactive mode");
     }
 
