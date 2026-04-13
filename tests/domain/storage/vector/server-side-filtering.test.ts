@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { first, elementAt } from "../../../../src/utils/array-safety";
 import { MemoryVectorStorage } from "../../../../src/domain/storage/vector/memory-vector-storage";
 import type { SearchOptions } from "../../../../src/domain/storage/vector/types";
 
@@ -71,9 +72,9 @@ describe("VectorStorage Server-Side Filtering", () => {
     const results = await storage.search(queryVector, options);
 
     expect(results).toHaveLength(1);
-    expect(results[0]!.id).toBe("task2");
-    expect(results[0]!.metadata?.status).toBe("IN-PROGRESS");
-    expect(results[0]!.metadata?.backend).toBe("github");
+    expect(first(results).id).toBe("task2");
+    expect(first(results).metadata?.status).toBe("IN-PROGRESS");
+    expect(first(results).metadata?.backend).toBe("github");
   });
 
   it("should return empty results when no matches found", async () => {
@@ -98,7 +99,7 @@ describe("VectorStorage Server-Side Filtering", () => {
     const results = await storage.search(queryVector, options);
 
     expect(results).toHaveLength(1);
-    expect(results[0]!.metadata?.backend).toBe("github");
+    expect(first(results).metadata?.backend).toBe("github");
   });
 
   it("should order results by similarity score", async () => {
@@ -111,8 +112,8 @@ describe("VectorStorage Server-Side Filtering", () => {
     const results = await storage.search(queryVector, options);
 
     expect(results).toHaveLength(3);
-    expect(results[0]!.id).toBe("task1"); // Exact match should be first
-    expect(results[0]!.score).toBe(0); // Distance 0 for exact match
+    expect(first(results).id).toBe("task1"); // Exact match should be first
+    expect(first(results).score).toBe(0); // Distance 0 for exact match
 
     // Verify scores are in ascending order (lower score = better match)
     for (let i = 1; i < results.length; i++) {

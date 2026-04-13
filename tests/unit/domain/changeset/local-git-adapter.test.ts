@@ -10,6 +10,7 @@ import {
   type LocalGitAdapterDeps,
 } from "../../../../src/domain/changeset/adapters/local-git-adapter";
 import type { Changeset, ChangesetListOptions } from "../../../../src/domain/changeset/types";
+import { first, elementAt } from "../../../../src/utils/array-safety";
 
 // Mock execSync via DI
 const mockExecSync = mock((command: string) => {
@@ -70,9 +71,9 @@ describe("LocalGitChangesetAdapter", () => {
     const changesets = await adapter.list();
 
     expect(changesets).toHaveLength(2);
-    expect(changesets[0]!.id).toBe("pr/test-session");
-    expect(changesets[1]!.id).toBe("pr/feature-123");
-    expect(changesets[0]!.platform).toBe("local-git");
+    expect(first(changesets).id).toBe("pr/test-session");
+    expect(elementAt(changesets, 1).id).toBe("pr/feature-123");
+    expect(first(changesets).platform).toBe("local-git");
   });
 
   test("filters changesets by status", async () => {
@@ -155,10 +156,11 @@ describe("LocalGitChangesetAdapter", () => {
     const changeset = await adapter.get("pr/test-session");
 
     expect(changeset?.commits).toHaveLength(1);
-    expect(changeset?.commits[0]!.sha).toBe("abc123");
-    expect(changeset?.commits[0]!.message).toBe("feat: test commit");
-    expect(changeset?.commits[0]!.author.username).toBe("testuser");
-    expect(changeset?.commits[0]!.filesChanged).toContain("src/test.ts");
+    const firstCommit = changeset?.commits ? first(changeset.commits) : undefined;
+    expect(firstCommit?.sha).toBe("abc123");
+    expect(firstCommit?.message).toBe("feat: test commit");
+    expect(firstCommit?.author.username).toBe("testuser");
+    expect(firstCommit?.filesChanged).toContain("src/test.ts");
   });
 
   test("reports correct feature support", () => {

@@ -1,5 +1,6 @@
 import type { CommandMapper } from "../../src/mcp/command-mapper.js";
 import { dirname } from "path";
+import { first, firstMatch } from "../../src/utils/array-safety";
 import {
   mockFiles,
   createMockFile,
@@ -95,7 +96,7 @@ async function loggingApplyEditPattern(
     let isFastApply = false;
 
     if (fastApplyProviders.length > 0) {
-      provider = fastApplyProviders[0]!; // Use the first available fast-apply provider
+      provider = first(fastApplyProviders); // Use the first available fast-apply provider
       model = aiConfig.providers[provider]?.model;
       isFastApply = true;
       console.log(`   Using fast-apply provider: ${provider} with model: ${model}`);
@@ -109,7 +110,7 @@ async function loggingApplyEditPattern(
         throw new Error("No enabled AI providers found for edit operations");
       }
 
-      provider = enabledProviders[0]!;
+      provider = first(enabledProviders);
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fallback provider: ${provider} with model: ${model}`);
     }
@@ -266,7 +267,7 @@ require("fs/promises").writeFile = async (
   // Extract session ID from path
   const sessionMatch = path.match(/^([^/]+)\//);
   const sessionId = sessionMatch ? (sessionMatch[1] ?? "") : "";
-  const filePath = sessionMatch ? path.substring(sessionMatch[1]!.length + 1) : path;
+  const filePath = sessionMatch ? path.substring((sessionMatch[1] ?? "").length + 1) : path;
 
   createMockFile(sessionId, filePath, content);
   return Promise.resolve();
