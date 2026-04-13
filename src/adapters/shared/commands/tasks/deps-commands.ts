@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { PersistenceService } from "../../../../domain/persistence/service";
+import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
@@ -52,8 +52,9 @@ export function createTasksDepsAddCommand() {
     parameters: tasksDepsAddParams,
     execute: async (params: InferParams<typeof tasksDepsAddParams>) => {
       // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const db = await persistence.getDatabaseConnection();
+      if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
 
@@ -74,8 +75,9 @@ export function createTasksDepsRmCommand() {
     parameters: tasksDepsRmParams,
     execute: async (params: InferParams<typeof tasksDepsRmParams>) => {
       // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const db = await persistence.getDatabaseConnection();
+      if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -96,8 +98,9 @@ export function createTasksDepsListCommand() {
     parameters: tasksDepsListParams,
     execute: async (params: InferParams<typeof tasksDepsListParams>) => {
       // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const db = await persistence.getDatabaseConnection();
+      if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);
       const dependents = await service.listDependents(params.task);

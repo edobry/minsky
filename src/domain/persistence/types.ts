@@ -8,6 +8,7 @@
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage } from "../storage/vector/types";
 import type { DatabaseStorage as StorageDatabaseStorage } from "../storage/database-storage";
+import type { SessionRecord, SessionDbState } from "../session/session-db";
 
 /**
  * Capabilities exposed by different persistence providers
@@ -47,12 +48,19 @@ export interface PersistenceConfig {
 export type { StorageDatabaseStorage as DatabaseStorage };
 
 /**
+ * Session storage type alias — makes the persistence layer explicit about
+ * the single entity type it currently stores.  Uses a type-only import so
+ * there is no runtime dependency on the session module.
+ */
+export type SessionStorage = StorageDatabaseStorage<SessionRecord, SessionDbState>;
+
+/**
  * Base interface for all persistence providers
  */
 export interface BasePersistenceProvider {
   readonly capabilities: PersistenceCapabilities;
   getCapabilities(): PersistenceCapabilities;
-  getStorage<T, S>(): StorageDatabaseStorage<T, S>;
+  getStorage(): SessionStorage;
   initialize(): Promise<void>;
   close(): Promise<void>;
   getConnectionInfo(): string;
@@ -81,18 +89,16 @@ export interface VectorCapablePersistenceProvider extends BasePersistenceProvide
 export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
   abstract getCapabilities(): PersistenceCapabilities;
-  abstract getStorage<T, S>(): StorageDatabaseStorage<T, S>;
+  abstract getStorage(): SessionStorage;
   abstract initialize(): Promise<void>;
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
 
   // Optional capability methods — implemented by SQL/vector-capable subclasses.
-  // These use 'any' in the base class because SQLite and PostgreSQL return different concrete
-  // DB types; callers that need typed connections should cast via SqlCapablePersistenceProvider.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL); callers narrow via SqlCapablePersistenceProvider
-  getDatabaseConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL)
-  getRawSqlConnection?(): Promise<any>;
+  // Base class uses `unknown` because SQLite and PostgreSQL return different concrete
+  // DB types; callers that need typed connections should narrow via SqlCapablePersistenceProvider.
+  getDatabaseConnection?(): Promise<unknown>;
+  getRawSqlConnection?(): Promise<unknown>;
   getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
 }
 

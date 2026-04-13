@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { log } from "../../../utils/logger";
 
@@ -15,11 +15,11 @@ export interface PostgresVectorStorageConfig {
 
 export class PostgresVectorStorage implements VectorStorage {
   private readonly sql: ReturnType<typeof postgres>;
-  private readonly db: ReturnType<typeof drizzle>;
+  private readonly db: PostgresJsDatabase;
 
   constructor(
     sql: ReturnType<typeof postgres>,
-    db: ReturnType<typeof drizzle>,
+    db: PostgresJsDatabase,
     private readonly dimension: number,
     private readonly config: PostgresVectorStorageConfig
   ) {
@@ -40,8 +40,12 @@ export class PostgresVectorStorage implements VectorStorage {
       throw new Error("Current persistence provider does not support SQL or vector storage");
     }
 
-    const sql = await provider.getRawSqlConnection?.();
-    const db = await provider.getDatabaseConnection?.();
+    // After the capability check above, the provider is SQL-capable and has
+    // typed getDatabaseConnection/getRawSqlConnection methods.
+    const sqlProvider = provider as import("../../persistence/types").SqlCapablePersistenceProvider;
+
+    const sql = await sqlProvider.getRawSqlConnection?.();
+    const db = await sqlProvider.getDatabaseConnection();
 
     if (!sql || !db) {
       throw new Error("Failed to get database connections from persistence provider");

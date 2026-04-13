@@ -14,7 +14,7 @@ import {
   SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  DatabaseStorage,
+  type SessionStorage,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
@@ -103,7 +103,7 @@ export class PostgresPersistenceProvider
   /**
    * Get storage instance for domain entities
    */
-  getStorage<T, S>(): DatabaseStorage<T, S> {
+  getStorage(): SessionStorage {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
@@ -121,7 +121,7 @@ export class PostgresPersistenceProvider
         error: err instanceof Error ? err.message : String(err),
       });
     });
-    return storage as DatabaseStorage<T, S>;
+    return storage as SessionStorage;
   }
 
   /**
@@ -273,18 +273,12 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
-    return new PostgresVectorStorage(
-      this.sql,
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- PostgresJsDatabase and ReturnType<typeof drizzle> are structurally incompatible at the generic parameter level; bridge required for the constructor
-      this.db as unknown as ReturnType<typeof drizzle>,
-      dimension,
-      {
-        tableName: "tasks_embeddings",
-        idColumn: "task_id",
-        embeddingColumn: "vector",
-        lastIndexedAtColumn: "indexed_at",
-      }
-    );
+    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+      tableName: "tasks_embeddings",
+      idColumn: "task_id",
+      embeddingColumn: "vector",
+      lastIndexedAtColumn: "indexed_at",
+    });
   }
 
   getConnectionInfo(): string {

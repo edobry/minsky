@@ -80,6 +80,8 @@ export function createTasksAvailableCommand() {
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
+      type SqlProvider =
+        import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
 
       // PersistenceService should already be initialized at application startup
       const provider = PersistenceService.getProvider();
@@ -88,7 +90,7 @@ export function createTasksAvailableCommand() {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = await provider.getDatabaseConnection?.();
+      const db = await (provider as SqlProvider).getDatabaseConnection();
 
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");
@@ -202,6 +204,8 @@ export function createTasksRouteCommand() {
     execute: async (params: InferParams<typeof tasksRouteParams>) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
+      type SqlProvider =
+        import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
 
       // PersistenceService should already be initialized at application startup
       const provider = PersistenceService.getProvider();
@@ -210,7 +214,7 @@ export function createTasksRouteCommand() {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = await provider.getDatabaseConnection?.();
+      const db = await (provider as SqlProvider).getDatabaseConnection();
 
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");

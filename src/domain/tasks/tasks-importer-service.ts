@@ -83,8 +83,10 @@ export class TasksImporterService {
       throw new Error("Current persistence provider does not support SQL operations");
     }
 
-    const sql = await provider.getRawSqlConnection?.();
-    const db = await provider.getDatabaseConnection?.();
+    type SqlProvider = import("../persistence/types").SqlCapablePersistenceProvider;
+    const sqlProvider = provider as SqlProvider;
+    const sql = await sqlProvider.getRawSqlConnection?.();
+    const db = await sqlProvider.getDatabaseConnection();
 
     if (!sql) {
       throw new Error("Failed to get raw SQL connection from persistence provider");

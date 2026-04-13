@@ -21,7 +21,7 @@ import type {
   DatabaseWriteResult,
   DatabaseQueryOptions,
 } from "../storage/database-storage";
-import { PersistenceProvider, type PersistenceCapabilities } from "./types";
+import { PersistenceProvider, type PersistenceCapabilities, type SessionStorage } from "./types";
 
 /**
  * In-memory FakePersistenceProvider for hermetic tests.
@@ -51,8 +51,8 @@ export class FakePersistenceProvider extends PersistenceProvider {
     return this.capabilities;
   }
 
-  getStorage<T, S>(): DatabaseStorage<T, S> {
-    return this.storage as DatabaseStorage<T, S>;
+  getStorage(): SessionStorage {
+    return this.storage as SessionStorage;
   }
 
   async initialize(): Promise<void> {

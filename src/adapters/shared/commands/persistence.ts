@@ -18,7 +18,7 @@ import {
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
-import type { SessionRecord, SessionDbState } from "../../../domain/session/session-db";
+import type { SessionRecord } from "../../../domain/session/session-db";
 import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../../utils/paths";
 import {
   runMigrationsWithDrizzleKit,
@@ -354,7 +354,7 @@ const persistenceMigrateRegistration = defineCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
-      const targetStorage = targetProvider.getStorage<SessionRecord, SessionDbState>();
+      const targetStorage = targetProvider.getStorage();
       const writeResult = await targetStorage.writeState(sourceState);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);

@@ -33,7 +33,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!this.storage) {
       log.debug("Storage not cached, calling persistence.getStorage()");
       try {
-        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
+        this.storage = this.persistence.getStorage();
         // Initialize the storage
         await this.storage!.initialize();
         log.debug(`Successfully got storage: ${this.storage!.constructor.name}`);

@@ -5,7 +5,7 @@
  * with Drizzle ORM for session record management.
  */
 
-import { drizzle } from "drizzle-orm/postgres-js";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -52,7 +52,7 @@ export interface PostgresStorageConfig {
  */
 export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
   private sql: ReturnType<typeof postgres> | null = null;
-  private drizzle: ReturnType<typeof drizzle> | null = null;
+  private drizzle: PostgresJsDatabase | null = null;
   private readonly connectionString: string;
 
   constructor(config: PostgresStorageConfig) {
@@ -78,9 +78,12 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       throw new Error("Current persistence provider does not support SQL operations");
     }
 
+    // After the capability check, narrow to the SQL-capable interface for typed connections
+    const sqlProvider = provider as import("../../persistence/types").SqlCapablePersistenceProvider;
+
     // Get both drizzle and raw SQL connections from the provider
-    this.drizzle = await provider.getDatabaseConnection?.();
-    this.sql = await provider.getRawSqlConnection?.();
+    this.drizzle = await sqlProvider.getDatabaseConnection();
+    this.sql = (await sqlProvider.getRawSqlConnection?.()) ?? null;
 
     if (!this.drizzle) {
       throw new Error("Failed to get database connection from persistence provider");

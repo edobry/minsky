@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { PersistenceService } from "../../../../domain/persistence/service";
+import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
@@ -104,8 +104,9 @@ interface TasksDepsGraphParams {
 }
 
 async function createServices() {
-  const persistence = PersistenceService.getProvider();
-  const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+  const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+  const db = await persistence.getDatabaseConnection();
+  if (!db) throw new Error("Database connection not available");
   const graphService = new TaskGraphService(db);
   const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
   return { graphService, taskService };

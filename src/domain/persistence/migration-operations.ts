@@ -77,11 +77,8 @@ export async function runMigrationsWithDrizzleKit(options: {
     if (options.dryRun) {
       // For dry run, we'll use our existing preview logic since drizzle-kit
       // doesn't have a dry-run mode for migrate
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- migration result types lack the 'message' field expected by this function's return type; structural mismatch from original any-typed API
-      return runSchemaMigrationsForConfiguredBackend({ dryRun: true }) as unknown as Promise<{
-        message: string;
-        printed: boolean;
-      }>;
+      await runSchemaMigrationsForConfiguredBackend({ dryRun: true });
+      return { message: "Dry run complete", printed: true };
     }
 
     // Early exit for Postgres when there is nothing to apply (reused status helper)

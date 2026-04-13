@@ -8,7 +8,7 @@ import {
   PersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  DatabaseStorage,
+  type SessionStorage,
 } from "../types";
 import { JsonFileStorage } from "../../storage/json-file-storage";
 import type { JsonFileStorageOptions } from "../../storage/json-file-storage";
@@ -74,11 +74,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
         prettyPrint: true,
       };
 
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- narrowing typed JsonFileStorage to unknown generics for internal storage field
-      this.storage = new JsonFileStorage(storageOptions) as unknown as JsonFileStorage<
-        unknown,
-        unknown
-      >;
+      this.storage = new JsonFileStorage(storageOptions) as JsonFileStorage<unknown, unknown>;
       await this.storage.initialize();
 
       this.isInitialized = true;
@@ -102,12 +98,11 @@ export class JsonPersistenceProvider extends PersistenceProvider {
   /**
    * Get storage instance for domain entities
    */
-  getStorage<T, S>(): DatabaseStorage<T, S> {
+  getStorage(): SessionStorage {
     if (!this.storage) {
       throw new Error("JsonPersistenceProvider not initialized");
     }
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- generic narrowing from concrete storage type to typed DatabaseStorage<T,S> is unavoidable
-    return this.storage as unknown as DatabaseStorage<T, S>;
+    return this.storage as SessionStorage;
   }
 
   /**

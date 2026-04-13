@@ -12,6 +12,7 @@ import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import { PersistenceService } from "./service";
+import type { SqlCapablePersistenceProvider } from "./types";
 import { getPostgresMigrationsStatus } from "./migration-operations";
 
 /**
@@ -136,7 +137,8 @@ export async function validatePostgresBackend(): Promise<{
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
-      const rawConnection = await provider.getRawSqlConnection?.();
+      const sqlProvider = provider as SqlCapablePersistenceProvider;
+      const rawConnection = await sqlProvider.getRawSqlConnection?.();
       if (rawConnection) {
         // Test SQL query
         await rawConnection`SELECT 1 as test`;

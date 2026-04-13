@@ -180,8 +180,7 @@ export type TaskOperationFactory<TParams, TResult> = (
  * Task operation registry for managing operation instances
  */
 export class TaskOperationRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry; get<TParams,TResult>() provides typed access with an unsafe cast
-  private operations = new Map<string, BaseTaskOperation<any, any>>();
+  private operations = new Map<string, BaseTaskOperation<unknown, unknown>>();
 
   /**
    * Register a task operation
@@ -194,7 +193,7 @@ export class TaskOperationRegistry {
    * Get a task operation by name
    */
   get<TParams, TResult>(name: string): BaseTaskOperation<TParams, TResult> | undefined {
-    return this.operations.get(name);
+    return this.operations.get(name) as BaseTaskOperation<TParams, TResult> | undefined;
   }
 
   /**

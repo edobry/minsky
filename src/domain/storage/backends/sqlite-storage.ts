@@ -14,7 +14,10 @@ import type {
   DatabaseWriteResult,
   DatabaseQueryOptions,
 } from "../database-storage";
-import type { SessionRecord as DomainSessionRecord } from "../../session/session-db";
+import type {
+  SessionRecord as DomainSessionRecord,
+  SessionDbState,
+} from "../../session/session-db";
 import { sqliteSessions, toSqliteInsert } from "../schemas/session-schema";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
@@ -30,15 +33,14 @@ export interface SqliteStorageConfig {
 // Use the standard schema definition from session-schema.ts
 const sessionsTable = sqliteSessions;
 
-type SessionRecord = typeof sessionsTable.$inferSelect;
-type NewSessionRecord = typeof sessionsTable.$inferInsert;
-
 /**
- * SQLite storage implementation using Drizzle ORM with Bun's native driver
+ * SQLite storage implementation using Drizzle ORM with Bun's native driver.
+ *
+ * Concrete to SessionRecord/SessionDbState — the only entity type persisted
+ * in SQLite. Previously generic, but every internal operation was hardwired
+ * to session columns, making the generics a lie.
  */
-export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
-  implements DatabaseStorage<TEntity, TState>
-{
+export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, SessionDbState> {
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
   private initialized = false;
@@ -129,7 +131,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async readState(): Promise<DatabaseReadResult<TState>> {
+  async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     if (!this.drizzleDb) {
       return { success: false, error: new Error("Database not initialized") };
     }
@@ -137,17 +139,14 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     try {
       const sessions = await this.drizzleDb.select().from(sessionsTable);
 
-      // Construct state object - this assumes TState has a sessions array
-      // and possibly other fields like baseDir
-      const state = {
-        sessions,
+      const state: SessionDbState = {
+        sessions: sessions as DomainSessionRecord[],
         baseDir: process.env.XDG_STATE_HOME
           ? `${process.env.XDG_STATE_HOME}/minsky`
           : `${process.env.HOME}/.local/state/minsky`,
       };
 
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- constructed state object is structurally TState but requires bridge due to generic constraint
-      return { success: true, data: state as unknown as TState };
+      return { success: true, data: state };
     } catch (error) {
       return {
         success: false,
@@ -156,13 +155,13 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async writeState(state: TState): Promise<DatabaseWriteResult> {
+  async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     if (!this.drizzleDb) {
       return { success: false, error: new Error("Database not initialized") };
     }
 
     try {
-      const sessions = (state as Record<string, unknown> & { sessions?: unknown[] }).sessions || [];
+      const sessions = state.sessions || [];
 
       // Use Drizzle transaction
       await this.drizzleDb.transaction(async (tx) => {
@@ -171,10 +170,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
         // Insert new sessions
         if (sessions.length > 0) {
-          const sessionRecords = sessions.map((session: unknown) =>
-            // eslint-disable-next-line custom/no-excessive-as-unknown -- TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
-            toSqliteInsert(session as unknown as DomainSessionRecord)
-          );
+          const sessionRecords = sessions.map((session) => toSqliteInsert(session));
           await tx.insert(sessionsTable).values(sessionRecords);
         }
       });
@@ -188,7 +184,10 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<TEntity | null> {
+  async getEntity(
+    id: string,
+    _options?: DatabaseQueryOptions
+  ): Promise<DomainSessionRecord | null> {
     if (!this.drizzleDb) {
       return null;
     }
@@ -200,7 +199,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
         .where(eq(sessionsTable.session, id))
         .limit(1);
 
-      return (result[0] as TEntity) || null;
+      return (result[0] as DomainSessionRecord) || null;
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -208,7 +207,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async getEntities(options?: DatabaseQueryOptions): Promise<TEntity[]> {
+  async getEntities(options?: DatabaseQueryOptions): Promise<DomainSessionRecord[]> {
     if (!this.drizzleDb) {
       return [];
     }
@@ -239,13 +238,14 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
-          // eslint-disable-next-line custom/no-excessive-as-unknown -- Drizzle's where() changes the query builder return type; cast required to reassign to the outer variable
-          query = query.where(and(...conditions)) as unknown as typeof query;
+          // Drizzle's where() changes the query builder return type; cast
+          // required to reassign to the outer `let query` variable.
+          query = query.where(and(...conditions)) as typeof query;
         }
       }
 
       const sessions = await query;
-      return sessions as TEntity[];
+      return sessions as DomainSessionRecord[];
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       log.error(`Failed to get sessions: ${errorMessage}`);
@@ -253,14 +253,13 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async createEntity(entity: TEntity): Promise<TEntity> {
+  async createEntity(entity: DomainSessionRecord): Promise<DomainSessionRecord> {
     if (!this.drizzleDb) {
       throw new Error("Database not initialized");
     }
 
     try {
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
-      const sessionRecord = toSqliteInsert(entity as unknown as DomainSessionRecord);
+      const sessionRecord = toSqliteInsert(entity);
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
@@ -270,7 +269,10 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
     }
   }
 
-  async updateEntity(id: string, updates: Partial<TEntity>): Promise<TEntity | null> {
+  async updateEntity(
+    id: string,
+    updates: Partial<DomainSessionRecord>
+  ): Promise<DomainSessionRecord | null> {
     if (!this.drizzleDb) {
       return null;
     }
@@ -284,8 +286,7 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 
       // Prepare update data using schema conversion
       const mergedEntity = { ...existing, ...updates };
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- merged TEntity is SessionRecord-shaped at runtime; bridge required for toSqliteInsert which expects concrete SessionRecord
-      const updateData = toSqliteInsert(mergedEntity as unknown as DomainSessionRecord);
+      const updateData = toSqliteInsert(mergedEntity);
 
       // Remove the session field from updates (it's the primary key)
       delete (updateData as Partial<typeof updateData>).session;
@@ -361,8 +362,8 @@ export class SqliteStorage<TEntity extends Record<string, unknown>, TState>
 /**
  * Create SQLite storage backend using Drizzle ORM with Bun's native driver
  */
-export function createSqliteStorage<TEntity extends Record<string, unknown>, TState>(
+export function createSqliteStorage(
   config: SqliteStorageConfig
-): DatabaseStorage<TEntity, TState> {
-  return new SqliteStorage<TEntity, TState>(config);
+): DatabaseStorage<DomainSessionRecord, SessionDbState> {
+  return new SqliteStorage(config);
 }
