@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, mock } from "bun:test";
+import { first } from "../utils/array-safety";
 import { startSessionFromParams } from "./session";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import { FakeSessionProvider } from "./session/fake-session-provider";
@@ -161,7 +162,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       })
     );
     // Verify the session ID in the record is a UUID
-    const addedRecord = (addSessionSpy.mock.calls as unknown[][])[0]![0] as any;
+    const addedRecord = first(addSessionSpy.mock.calls as unknown[][])[0] as any;
     expect(addedRecord.session).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );

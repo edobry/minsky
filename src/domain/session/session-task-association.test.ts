@@ -3,6 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { first, elementAt } from "../../utils/array-safety";
 import {
   updateSessionTaskAssociation,
   findSessionsByTaskId,
@@ -48,8 +49,8 @@ describe("Session Task Association", () => {
     // Make updateSession a spy so tests can assert on calls
     mockProvider.updateSession = mock(() => Promise.resolve());
     // Reset the mock sessions to original state
-    mockSessions[0]!.taskId = "123";
-    mockSessions[1]!.taskId = "456";
+    first(mockSessions).taskId = "123";
+    elementAt(mockSessions, 1).taskId = "456";
   });
 
   describe("updateSessionTaskAssociation", () => {

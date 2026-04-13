@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
 import { log } from "../../../utils/logger";
+import { first } from "../../../utils/array-safety";
 
 /**
  * Detect unknown fields in an object and log warnings
@@ -243,7 +244,7 @@ export const aiValidation = {
 
     // Fall back to first ready provider
     const readyProviders = aiValidation.getReadyProviders(config);
-    return readyProviders.length > 0 ? readyProviders[0]! : null;
+    return readyProviders.length > 0 ? first(readyProviders, "ready AI providers") : null;
   },
 
   /**

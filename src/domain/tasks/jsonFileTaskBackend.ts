@@ -24,6 +24,7 @@ import { getTaskSpecRelativePath, readTaskSpecFile } from "./taskIO";
 import { validateQualifiedTaskId } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
 import { get as getConfig, has as hasConfig } from "../configuration";
+import { firstMatch } from "../../utils/array-safety";
 
 // TaskState is now imported from schemas/storage
 
@@ -96,7 +97,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     const tasks = await this.getAllTasks();
     const maxId = tasks.reduce((max, task) => {
       const match = task.id.match(/^json-file#(\d+)$/);
-      return match ? Math.max(max, parseInt(match[1]!, 10)) : max;
+      return match ? Math.max(max, parseInt(firstMatch(match, "json-file task ID"), 10)) : max;
     }, 0);
 
     const newId = `json-file#${maxId + 1}`;

@@ -25,6 +25,7 @@ import {
   type ErrorTemplate,
 } from "./message-templates";
 import { CLI_COMMANDS, TEST_PATHS } from "../utils/test-utils/test-constants";
+import { first, elementAt } from "../utils/array-safety";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -341,8 +342,9 @@ describe("Error Message Templates", () => {
       const context = createErrorContext().addCurrentDirectory().build();
 
       expect(context).toHaveLength(1);
-      expect(context[0]!.label).toBe("Current directory");
-      expect(context[0]!.value).toBe("/mock/projects/minsky");
+      const firstCtx = first(context);
+      expect(firstCtx.label).toBe("Current directory");
+      expect(firstCtx.value).toBe("/mock/projects/minsky");
     });
 
     test("adds session information", () => {
@@ -404,10 +406,10 @@ describe("Error Message Templates", () => {
         .build();
 
       expect(context).toHaveLength(4);
-      expect(context[0]!.label).toBe("Session");
-      expect(context[1]!.label).toBe("Task ID");
-      expect(context[2]!.label).toBe("Repository");
-      expect(context[3]!.label).toBe("Current directory");
+      expect(first(context).label).toBe("Session");
+      expect(elementAt(context, 1).label).toBe("Task ID");
+      expect(elementAt(context, 2).label).toBe("Repository");
+      expect(elementAt(context, 3).label).toBe("Current directory");
     });
   });
 

@@ -5,6 +5,7 @@ import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import type { PersistenceProvider } from "../persistence/types";
 import { createHash } from "crypto";
 import { createTaskSimilarityCore } from "../similarity/create-task-similarity-core";
+import { first } from "../../utils/array-safety";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
@@ -84,7 +85,7 @@ export class TaskSimilarityService {
     const uniqueTerms = Array.from(new Set(terms.map((t) => t.toLowerCase())));
 
     if (uniqueTerms.length === 1) {
-      return uniqueTerms[0]!;
+      return first(uniqueTerms, "search query terms");
     }
 
     // For multiple terms, create a coherent query

@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { log } from "../../utils/logger";
 import { getTasksFilePath, getTaskSpecFilePath } from "./taskIO";
 import { parseTasksFromMarkdown } from "./taskFunctions";
+import { elementAt } from "../../utils/array-safety";
 
 export interface ImportOptions {
   dryRun?: boolean;
@@ -36,8 +37,8 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
   if (parts.length !== 2) {
     throw new Error(`Invalid qualified task ID: ${id}`);
   }
-  const prefix = parts[0]!;
-  const sourceTaskId = parts[1]!;
+  const prefix = elementAt(parts, 0, "task ID prefix");
+  const sourceTaskId = elementAt(parts, 1, "task ID source");
 
   const backendMap: Record<string, string> = {
     md: "markdown",
@@ -46,7 +47,7 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
     jf: "json-file",
   };
 
-  const backend = backendMap[prefix]!;
+  const backend = backendMap[prefix];
   if (!backend) {
     throw new Error(`Unknown task ID prefix: ${prefix}`);
   }

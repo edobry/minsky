@@ -3,6 +3,7 @@ import { join } from "path";
 import { TASK_STATUS } from "./taskConstants";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 import type { TaskBackend, TaskBackendConfig } from "./types";
+import { first, elementAt, firstMatch } from "../../utils/array-safety";
 describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   let mockFs: any;
   let backend: TaskBackend & Record<string, any>;
@@ -91,7 +92,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         const normalizeId = (taskId: string) => {
           // Extract just the numeric part, removing leading zeros
           const match = taskId.match(/(\d+)$/);
-          return match ? parseInt(match[1]!, 10).toString() : taskId;
+          return match ? parseInt(firstMatch(match, "task ID number"), 10).toString() : taskId;
         };
 
         const searchIdNormalized = normalizeId(id);
@@ -332,7 +333,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     const title = titleMatch ? titleMatch[1] : "Untitled Task";
 
     const contextMatch = content.match(/## Context\n\n(.+)/s);
-    const description = contextMatch ? contextMatch[1]!.trim() : "";
+    const description = contextMatch ? firstMatch(contextMatch, "context section").trim() : "";
 
     return { title, description };
   }
@@ -433,20 +434,20 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       expect(tasks).toHaveLength(3);
 
       // Should convert to qualified IDs
-      expect(tasks[0]).toBeDefined();
-      expect(tasks[0]!.id).toBe("md#001");
-      expect(tasks[0]!.title).toBe("Legacy Task One");
-      expect(tasks[0]!.status).toBe(TASK_STATUS.TODO);
+      const task0 = first(tasks);
+      expect(task0.id).toBe("md#001");
+      expect(task0.title).toBe("Legacy Task One");
+      expect(task0.status).toBe(TASK_STATUS.TODO);
 
-      expect(tasks[1]).toBeDefined();
-      expect(tasks[1]!.id).toBe("md#002");
-      expect(tasks[1]!.title).toBe("Legacy Task Two");
-      expect(tasks[1]!.status).toBe(TASK_STATUS.DONE);
+      const task1 = elementAt(tasks, 1);
+      expect(task1.id).toBe("md#002");
+      expect(task1.title).toBe("Legacy Task Two");
+      expect(task1.status).toBe(TASK_STATUS.DONE);
 
-      expect(tasks[2]).toBeDefined();
-      expect(tasks[2]!.id).toBe("md#003");
-      expect(tasks[2]!.title).toBe("Legacy Task Three");
-      expect(tasks[2]!.status).toBe(TASK_STATUS.TODO);
+      const task2 = elementAt(tasks, 2);
+      expect(task2.id).toBe("md#003");
+      expect(task2.title).toBe("Legacy Task Three");
+      expect(task2.status).toBe(TASK_STATUS.TODO);
     });
 
     it("should retrieve legacy tasks by various ID formats", async () => {
@@ -512,14 +513,11 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       const inProgressTasks = await backend.listTasks({ status: TASK_STATUS.IN_PROGRESS });
 
       expect(todoTasks).toHaveLength(2);
-      expect(todoTasks[0]).toBeDefined();
-      expect(todoTasks[0]!.title).toBe("Todo Task");
-      expect(todoTasks[1]).toBeDefined();
-      expect(todoTasks[1]!.title).toBe("Another Todo Task");
+      expect(first(todoTasks).title).toBe("Todo Task");
+      expect(elementAt(todoTasks, 1).title).toBe("Another Todo Task");
 
       expect(doneTasks).toHaveLength(1);
-      expect(doneTasks[0]).toBeDefined();
-      expect(doneTasks[0]!.title).toBe("Done Task");
+      expect(first(doneTasks).title).toBe("Done Task");
 
       // IN-PROGRESS not supported in markdown format
       expect(inProgressTasks).toHaveLength(0);
@@ -532,8 +530,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       const ghTasks = await backend.listTasks({ backend: "gh" });
 
       expect(mdTasks).toHaveLength(1);
-      expect(mdTasks[0]).toBeDefined();
-      expect(mdTasks[0]!.title).toBe("Markdown Task");
+      expect(first(mdTasks).title).toBe("Markdown Task");
 
       expect(ghTasks).toHaveLength(0);
     });

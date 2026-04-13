@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { SESSION_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { first, elementAt } from "../../utils/array-safety";
 import {
   addSessionFn,
   deleteSessionFn,
@@ -106,8 +107,8 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const sessions = listSessionsFn(state);
       expect(sessions).toHaveLength(2);
-      expect(sessions[0]!.session).toBe("test-session-1");
-      expect(sessions[1]!.session).toBe("test-session-2");
+      expect(first(sessions).session).toBe("test-session-1");
+      expect(elementAt(sessions, 1).session).toBe("test-session-2");
     });
   });
 
@@ -163,8 +164,9 @@ describe("SessionDB Functional Implementation", () => {
 
       const newState = addSessionFn(state, newSession);
       expect(newState.sessions).toHaveLength(3);
-      expect(newState.sessions[2]!.session).toBe("test-session-3");
-      expect(newState.sessions[2]!.taskId).toBe("103");
+      const thirdSession = elementAt(newState.sessions, 2);
+      expect(thirdSession.session).toBe("test-session-3");
+      expect(thirdSession.taskId).toBe("103");
     });
   });
 
@@ -212,7 +214,7 @@ describe("SessionDB Functional Implementation", () => {
       expect(newState.sessions).toHaveLength(1);
       expect(getSessionFn(newState, "test-session-1")).toBeNull();
       // Check that only test-session-2 remains
-      expect(newState.sessions[0]!.session).toBe("test-session-2");
+      expect(first(newState.sessions).session).toBe("test-session-2");
     });
 
     it("should not modify state if session not found", () => {

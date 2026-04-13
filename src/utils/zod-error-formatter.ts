@@ -4,6 +4,7 @@
 import { ZodError, ZodIssue } from "zod";
 import { createValidationErrorMessage } from "../errors/message-templates";
 import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
+import { first } from "./array-safety";
 
 /**
  * Format a Zod validation error into a user-friendly message
@@ -18,7 +19,7 @@ export function formatZodError(error: ZodError, context?: string): string {
 
   // Handle single issue
   if (error.issues.length === 1) {
-    return formatSingleZodIssue(error.issues[0]!, context);
+    return formatSingleZodIssue(first(error.issues, "zod error issues"), context);
   }
 
   // Handle multiple issues

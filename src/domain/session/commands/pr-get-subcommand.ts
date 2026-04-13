@@ -12,6 +12,7 @@ import {
   getErrorMessage,
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
+import { first } from "../../../utils/array-safety";
 
 /**
  * Shape of the live PR data returned from GitHub Octokit pulls.get / pulls.list responses.
@@ -149,7 +150,8 @@ export async function sessionPrGet(
 
         if (pulls.length > 0) {
           // Found a PR! Repair the session record with essential workflow state only
-          const githubPr = pulls[0]!; // Non-null assertion safe because we checked length > 0
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const githubPr: any = first(pulls, "GitHub PRs for branch");
           const repairedPrData: PullRequestInfo = {
             number: githubPr.number,
             url: githubPr.html_url,

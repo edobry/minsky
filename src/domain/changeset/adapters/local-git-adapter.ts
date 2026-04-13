@@ -32,6 +32,7 @@ import {
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { execSync as defaultExecSync } from "child_process";
+import { first } from "../../../utils/array-safety";
 
 /**
  * Dependencies for LocalGitChangesetAdapter (injectable for testing)
@@ -422,8 +423,10 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       }
 
       // Get creation date from first commit
-      const createdAt = commits.length > 0 ? commits[commits.length - 1]!.timestamp : new Date();
-      const updatedAt = commits.length > 0 ? commits[0]!.timestamp : new Date();
+      const lastCommit = commits.length > 0 ? commits[commits.length - 1] : undefined;
+      const createdAt = lastCommit ? lastCommit.timestamp : new Date();
+      const updatedAt =
+        commits.length > 0 ? first(commits, "changeset commits").timestamp : new Date();
 
       return {
         id: prBranch,

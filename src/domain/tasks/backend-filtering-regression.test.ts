@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { TASK_STATUS } from "./taskConstants";
 import type { Task, TaskListOptions } from "./types";
+import { first } from "../../utils/array-safety";
 
 /**
  * Regression test for CLOSED task filtering bug
@@ -99,8 +100,8 @@ describe("Backend CLOSED task filtering regression test", () => {
 
     expect(closedTasks).toHaveLength(1);
     expect(closedTasks[0]).toBeDefined();
-    expect(closedTasks[0]!.status).toBe(TASK_STATUS.CLOSED);
-    expect(closedTasks[0]!.title).toBe("Closed Task");
+    expect(first(closedTasks).status).toBe(TASK_STATUS.CLOSED);
+    expect(first(closedTasks).title).toBe("Closed Task");
   });
 
   it("should filter to DONE status specifically", () => {

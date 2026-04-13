@@ -13,6 +13,7 @@ import type {
   ComponentBreakdown,
 } from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
+import { first } from "../../utils/array-safety";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayContextVisualization } from "./generate-visualization";
 
@@ -110,8 +111,9 @@ export async function displayModelComparison(models: string[], options: Generate
     });
 
     if (options.visualize && comparisons.length > 0) {
-      log.cli(`\n📊 Visualization for ${comparisons[0]!.model}`);
-      displayContextVisualization(comparisons[0]!.result, options);
+      const firstComparison = first(comparisons, "comparisons");
+      log.cli(`\n📊 Visualization for ${firstComparison.model}`);
+      displayContextVisualization(firstComparison.result, options);
     }
   }
 }

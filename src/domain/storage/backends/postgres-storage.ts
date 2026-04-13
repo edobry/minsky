@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
+import { first } from "../../../utils/array-safety";
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
 import { getMinskyStateDir } from "../../../utils/paths";
@@ -324,7 +325,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .where(eq(postgresSessions.session, id))
         .limit(1);
 
-      return result.length > 0 ? fromPostgresSelect(result[0]!) : null;
+      return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to get session from PostgreSQL: ${typedError.message}`);

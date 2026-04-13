@@ -8,6 +8,7 @@ const TEST_ARRAY_SIZE = 3;
 import { describe, test, expect } from "bun:test";
 import type { TaskData } from "../../types/tasks/taskData";
 import { TaskStatus } from "./taskConstants";
+import { first, elementAt } from "../../utils/array-safety";
 import { RULES_TEST_PATTERNS, TEST_DATA_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   parseTasksFromMarkdown,
@@ -54,16 +55,19 @@ describe("Task Functions", () => {
       const tasks = parseTasksFromMarkdown(markdown);
       expect(tasks).toHaveLength(3);
 
-      expect(tasks[0]!.id).toBe("#001");
-      expect(tasks[0]!.title).toBe("First task");
-      expect(tasks[0]!.status).toBe(TaskStatus.TODO);
-      expect(tasks[0]!.description).toBe("Description line 1\nDescription line 2");
+      const task0 = first(tasks);
+      expect(task0.id).toBe("#001");
+      expect(task0.title).toBe("First task");
+      expect(task0.status).toBe(TaskStatus.TODO);
+      expect(task0.description).toBe("Description line 1\nDescription line 2");
 
-      expect(tasks[1]!.id).toBe("#002");
-      expect(tasks[1]!.status).toBe(TaskStatus.DONE);
+      const task1 = elementAt(tasks, 1);
+      expect(task1.id).toBe("#002");
+      expect(task1.status).toBe(TaskStatus.DONE);
 
-      expect(tasks[2]!.id).toBe("#003");
-      expect(tasks[2]!.status).toBe(TaskStatus.IN_PROGRESS);
+      const task2 = elementAt(tasks, 2);
+      expect(task2.id).toBe("#003");
+      expect(task2.status).toBe(TaskStatus.IN_PROGRESS);
     });
 
     test("should ignore tasks in code blocks", () => {
@@ -80,8 +84,8 @@ Code block with task-like content:
 
       const tasks = parseTasksFromMarkdown(markdown);
       expect(tasks).toHaveLength(2);
-      expect(tasks[0]!.id).toBe("#001");
-      expect(tasks[1]!.id).toBe("#003");
+      expect(first(tasks).id).toBe("#001");
+      expect(elementAt(tasks, 1).id).toBe("#003");
     });
   });
 
@@ -205,13 +209,13 @@ Code block with task-like content:
 
     test("should update a task's status", () => {
       const updatedTasks = setTaskStatus(testTasks, "md#001", TaskStatus.DONE);
-      expect(updatedTasks[0]!.status).toBe(TaskStatus.DONE);
-      expect(updatedTasks[1]!.status).toBe(TaskStatus.IN_PROGRESS); // unchanged
+      expect(first(updatedTasks).status).toBe(TaskStatus.DONE);
+      expect(elementAt(updatedTasks, 1).status).toBe(TaskStatus.IN_PROGRESS); // unchanged
     });
 
     test("should work with task ID variations", () => {
       const updatedTasks = setTaskStatus(testTasks, "md#002", TaskStatus.DONE);
-      expect(updatedTasks[1]!.status).toBe(TaskStatus.DONE);
+      expect(elementAt(updatedTasks, 1).status).toBe(TaskStatus.DONE);
     });
 
     test("should return original array if task not found", () => {
@@ -256,8 +260,9 @@ Code block with task-like content:
       const updatedTasks = addTask(testTasks, taskWithoutId);
 
       expect(updatedTasks).toHaveLength(3);
-      expect(updatedTasks[2]!.id).toBe("003"); // Next available ID in storage format
-      expect(updatedTasks[2]!.title).toBe("New Task");
+      const newTask = elementAt(updatedTasks, 2);
+      expect(newTask.id).toBe("003"); // Next available ID in storage format
+      expect(newTask.title).toBe("New Task");
     });
   });
 
@@ -275,7 +280,7 @@ Code block with task-like content:
     test("should filter by status", () => {
       const filtered = filterTasks(testTasks, { status: TaskStatus.TODO });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0]!.id).toBe("#001");
+      expect(first(filtered).id).toBe("#001");
     });
 
     test("should filter by ID", () => {
