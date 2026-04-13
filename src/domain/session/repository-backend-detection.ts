@@ -7,6 +7,7 @@ import {
   type RepositoryBackend,
   type RepositoryBackendConfig,
 } from "../repository/index";
+import type { SessionProviderInterface } from "./types";
 
 /**
  * Dependencies for repository backend detection, injectable for testing
@@ -168,7 +169,8 @@ export async function resolveRepositoryAndBackend(
  */
 export async function createRepositoryBackendFromSessionUrl(
   repoUrl: string,
-  workdir: string
+  workdir: string,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
 
@@ -188,7 +190,7 @@ export async function createRepositoryBackendFromSessionUrl(
     }
   }
 
-  return await createRepositoryBackend(config);
+  return await createRepositoryBackend(config, sessionDB);
 }
 
 /**
@@ -199,6 +201,7 @@ export async function createRepositoryBackendFromSessionUrl(
  */
 export async function createRepositoryBackendForSession(
   workdir: string,
+  sessionDB: SessionProviderInterface,
   deps: RepositoryBackendDetectionDeps = defaultDeps
 ): Promise<RepositoryBackend> {
   const backendType = detectRepositoryBackendType(workdir, deps);
@@ -228,7 +231,7 @@ export async function createRepositoryBackendForSession(
       }
     }
 
-    return await createRepositoryBackend(config);
+    return await createRepositoryBackend(config, sessionDB);
   } catch (error) {
     throw new Error(`Failed to create repository backend: ${getErrorMessage(error)}`);
   }

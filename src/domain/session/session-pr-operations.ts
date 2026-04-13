@@ -42,7 +42,8 @@ export interface SessionPrDependencies {
  * instead of auto-detecting from git remote
  */
 export async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord
+  sessionRecord: SessionRecord,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   // Determine backend type from session configuration
   let backendType: RepositoryBackendType;
@@ -88,7 +89,7 @@ export async function createRepositoryBackendFromSession(
     }
   }
 
-  return await createRepositoryBackend(config);
+  return await createRepositoryBackend(config, sessionDB);
 }
 
 /**
@@ -324,7 +325,7 @@ Please provide a title for your pull request:
     } else if (sessionRecord?.repoUrl) {
       // Use session record's stored repository configuration (preferred)
       log.cli("📋 Using session repository configuration...");
-      repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+      repositoryBackend = await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
     } else {
       // Fall back to config-based detection (session missing repoUrl)
       log.warn(
@@ -332,7 +333,11 @@ Please provide a title for your pull request:
           "Re-run 'minsky init' to write repository config and avoid this warning."
       );
       const { repoUrl: fallbackRepoUrl } = await getRepositoryBackendFromConfig();
-      repositoryBackend = await createRepositoryBackendFromSessionUrl(fallbackRepoUrl, currentDir);
+      repositoryBackend = await createRepositoryBackendFromSessionUrl(
+        fallbackRepoUrl,
+        currentDir,
+        deps.sessionDB
+      );
     }
 
     // STEP 7.5: Validate and sanitize PR content for title duplication

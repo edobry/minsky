@@ -88,7 +88,7 @@ export async function sessionPrEdit(
 
   // Import the function from the correct location
   const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
-  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
 
   // Read body from file if bodyPath is provided but body is not
   let finalBody = params.body;

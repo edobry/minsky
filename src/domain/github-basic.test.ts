@@ -7,17 +7,24 @@
  */
 import { describe, test, expect } from "bun:test";
 import { GitHubBackend } from "./repository/github";
+import type { SessionProviderInterface } from "./session";
+
+const mockSessionDB = {} as SessionProviderInterface;
+
 describe("GitHub Basic Functionality", () => {
   test("initializes with correct repository URL", () => {
     const repoUrl = "https://github.com/username/repo.git";
-    const backend = new GitHubBackend({
-      type: "github",
-      repoUrl,
-      github: {
-        owner: "username",
-        repo: "repo",
+    const backend = new GitHubBackend(
+      {
+        type: "github",
+        repoUrl,
+        github: {
+          owner: "username",
+          repo: "repo",
+        },
       },
-    });
+      mockSessionDB
+    );
 
     const config = backend.getConfig();
     expect(config.repoUrl).toBe(repoUrl);
@@ -28,14 +35,17 @@ describe("GitHub Basic Functionality", () => {
     const owner = "username";
     const repo = "repo";
 
-    const backend = new GitHubBackend({
-      type: "github",
-      repoUrl,
-      github: {
-        owner,
-        repo,
+    const backend = new GitHubBackend(
+      {
+        type: "github",
+        repoUrl,
+        github: {
+          owner,
+          repo,
+        },
       },
-    });
+      mockSessionDB
+    );
 
     const config = backend.getConfig();
     expect(config.github?.owner).toBe(owner);
@@ -43,14 +53,17 @@ describe("GitHub Basic Functionality", () => {
   });
 
   test("correctly identifies backend type", () => {
-    const backend = new GitHubBackend({
-      type: "github",
-      repoUrl: "https://github.com/username/repo.git",
-      github: {
-        owner: "username",
-        repo: "repo",
+    const backend = new GitHubBackend(
+      {
+        type: "github",
+        repoUrl: "https://github.com/username/repo.git",
+        github: {
+          owner: "username",
+          repo: "repo",
+        },
       },
-    });
+      mockSessionDB
+    );
 
     expect(backend.getType()).toBe("github");
   });

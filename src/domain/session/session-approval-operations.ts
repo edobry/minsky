@@ -27,7 +27,8 @@ import type { WorkspaceUtilsInterface } from "../workspace";
  * instead of auto-detecting from git remote
  */
 async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord
+  sessionRecord: SessionRecord,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   // Determine backend type from session configuration
   let backendType: RepositoryBackendType;
@@ -73,7 +74,7 @@ async function createRepositoryBackendFromSession(
     }
   }
 
-  return await createRepositoryBackend(config);
+  return await createRepositoryBackend(config, sessionDB);
 }
 
 /**
@@ -199,7 +200,7 @@ export async function approveSessionPr(
   // Prefer injected factory (for testing), fall back to session record config
   const repositoryBackend = deps?.createRepositoryBackendForSession
     ? await deps.createRepositoryBackendForSession("/test/workdir")
-    : await createRepositoryBackendFromSession(sessionRecord);
+    : await createRepositoryBackendFromSession(sessionRecord, deps!.sessionDB);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);

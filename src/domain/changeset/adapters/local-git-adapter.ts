@@ -78,7 +78,8 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
           type: RepositoryBackendType.LOCAL,
           repoUrl: this.repositoryUrl,
         };
-        this.repositoryBackend = await createRepositoryBackend(config);
+        const sessionProvider = await this.getSessionProvider();
+        this.repositoryBackend = await createRepositoryBackend(config, sessionProvider);
       }
 
       // Check if this is a git repository

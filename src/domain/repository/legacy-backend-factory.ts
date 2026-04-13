@@ -9,7 +9,7 @@
  * the newer RepositoryBackendConfig interface with repoUrl.
  */
 import { normalizeRepoName } from "../repo-utils";
-import { createSessionProvider } from "../session";
+import type { SessionProviderInterface } from "../session";
 import { RepositoryBackendType } from "./legacy-types";
 import type {
   RepositoryConfig,
@@ -26,10 +26,12 @@ import type {
  * Create a repository backend instance based on the provided configuration.
  *
  * @param config Repository configuration
+ * @param sessionDB Session provider for database operations
  * @returns RepositoryBackend instance
  */
 export async function createRepositoryBackend(
-  config: RepositoryConfig
+  config: RepositoryConfig,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   switch (config.type) {
     case RepositoryBackendType.LOCAL: {
@@ -63,8 +65,7 @@ export async function createRepositoryBackend(
         getStatus: async (session?: string): Promise<RepositoryStatus> => {
           // If no session is provided, work with the most recent session
           if (!session) {
-            const sessionDb = await createSessionProvider();
-            const sessions = await sessionDb.listSessions();
+            const sessions = await sessionDB.listSessions();
             const repoName = normalizeRepoName(config.url || "");
             const repoSession = sessions.find((s) => s.repoName === repoName);
             if (!repoSession) {
@@ -107,8 +108,7 @@ export async function createRepositoryBackend(
         getPath: async (session?: string): Promise<string> => {
           // If no session is provided, work with the most recent session
           if (!session) {
-            const sessionDb = await createSessionProvider();
-            const sessions = await sessionDb.listSessions();
+            const sessions = await sessionDB.listSessions();
             const repoName = normalizeRepoName(config.url || "");
             const repoSession = sessions.find((s) => s.repoName === repoName);
             if (!repoSession) {
@@ -141,8 +141,7 @@ export async function createRepositoryBackend(
 
         push: async (_branch?: string): Promise<{ success: boolean; message: string }> => {
           // Find an existing session for this repository
-          const sessionDb = await createSessionProvider();
-          const sessions = await sessionDb.listSessions();
+          const sessions = await sessionDB.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
 
@@ -162,8 +161,7 @@ export async function createRepositoryBackend(
 
         pull: async (_branch?: string): Promise<{ success: boolean; message: string }> => {
           // Find an existing session for this repository
-          const sessionDb = await createSessionProvider();
-          const sessions = await sessionDb.listSessions();
+          const sessions = await sessionDB.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
 
@@ -193,8 +191,7 @@ export async function createRepositoryBackend(
 
         checkout: async (branch: string): Promise<void> => {
           // Find an existing session for this repository
-          const sessionDb = await createSessionProvider();
-          const sessions = await sessionDb.listSessions();
+          const sessions = await sessionDB.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
 

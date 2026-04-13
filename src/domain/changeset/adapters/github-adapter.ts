@@ -30,6 +30,10 @@ import type {
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
 import { extractGitHubInfoFromUrl } from "../../session/repository-backend-detection";
+import {
+  createSessionProvider as defaultCreateSessionProvider,
+  type SessionProviderInterface,
+} from "../../session/index";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { Octokit } from "@octokit/rest";
@@ -51,15 +55,27 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private octokit: Octokit;
   private owner?: string;
   private repo?: string;
+  private sessionProvider: SessionProviderInterface | null = null;
+  private readonly createSessionProvider: typeof defaultCreateSessionProvider;
+
+  private async getSessionProvider(): Promise<SessionProviderInterface> {
+    if (!this.sessionProvider) {
+      this.sessionProvider = await this.createSessionProvider();
+    }
+    return this.sessionProvider;
+  }
 
   constructor(
     private repositoryUrl: string,
-    private config?: { token?: string; workdir?: string }
+    private config?: { token?: string; workdir?: string },
+    deps?: { createSessionProvider?: typeof defaultCreateSessionProvider }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
     this.owner = githubInfo?.owner;
     this.repo = githubInfo?.repo;
+
+    this.createSessionProvider = deps?.createSessionProvider ?? defaultCreateSessionProvider;
 
     // Initialize Octokit
     this.octokit = new Octokit({
@@ -90,7 +106,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
             token: this.config?.token,
           },
         };
-        this.repositoryBackend = await createRepositoryBackend(backendConfig);
+        const sessionProvider = await this.getSessionProvider();
+        this.repositoryBackend = await createRepositoryBackend(backendConfig, sessionProvider);
       }
 
       return true;

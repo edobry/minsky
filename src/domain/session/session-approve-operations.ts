@@ -40,7 +40,8 @@ import {
  * instead of auto-detecting from git remote
  */
 async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord
+  sessionRecord: SessionRecord,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   // Determine backend type from session configuration
   let backendType: RepositoryBackendType;
@@ -78,7 +79,7 @@ async function createRepositoryBackendFromSession(
   // Add GitHub-specific configuration if available
   // For GitHub, owner/repo will be derived from repoUrl by the backend
 
-  return await createRepositoryBackend(config);
+  return await createRepositoryBackend(config, sessionDB);
 }
 
 /**
@@ -329,7 +330,8 @@ The task exists but has no associated session to approve.
 
     // Create repository backend from session record's stored configuration
     const createBackendFn =
-      depsInput?.createRepositoryBackend || createRepositoryBackendFromSession;
+      depsInput?.createRepositoryBackend ||
+      ((record: SessionRecord) => createRepositoryBackendFromSession(record, depsInput.sessionDB));
     const repositoryBackend = await createBackendFn(sessionRecord);
     const backendType = repositoryBackend.getType();
 
