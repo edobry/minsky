@@ -18,8 +18,6 @@ import {
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
 
-// Re-export utilities from submodules for backward compatibility
-export { initializeProjectWithFS } from "./init/legacy-fs";
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
 
 /**

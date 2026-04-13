@@ -5,7 +5,7 @@
  * backup functionality and validation.
  */
 
-import { join, dirname } from "path";
+import { join } from "path";
 import { parse, stringify } from "yaml";
 import {
   getUserConfigDir as defaultGetUserConfigDir,
