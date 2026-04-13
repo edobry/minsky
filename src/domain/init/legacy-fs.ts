@@ -1,5 +1,5 @@
 import * as path from "path";
-import type { FileSystem } from "./file-system";
+import type { FsLike } from "../interfaces/fs-like";
 import { getMinskyRuleContent, getRulesIndexContent } from "./rule-templates";
 import { getMCPConfigContent, getMCPRuleContent } from "./config-content";
 
@@ -23,7 +23,7 @@ export interface LegacyInitOptions {
  */
 export async function initializeProjectWithFS(
   options: LegacyInitOptions,
-  fileSystem: FileSystem
+  fileSystem: FsLike
 ): Promise<void> {
   const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
 
@@ -35,25 +35,25 @@ export async function initializeProjectWithFS(
       const tasksDirPath = path.join(repoPath, "process", "tasks");
 
       // Check if files exist
-      if (fileSystem.existsSync(tasksFilePath) && !overwrite) {
+      if ((await fileSystem.exists(tasksFilePath)) && !overwrite) {
         throw new Error(`File already exists: ${tasksFilePath}`);
       }
 
       // Create directories
-      if (!fileSystem.existsSync(tasksDirPath)) {
-        fileSystem.mkdirSync(tasksDirPath, { recursive: true });
+      if (!(await fileSystem.exists(tasksDirPath))) {
+        await fileSystem.mkdir(tasksDirPath, { recursive: true });
       }
 
       // Create tasks.md file
-      fileSystem.writeFileSync(tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
+      await fileSystem.writeFile(tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
     }
 
     // Handle rule format based on options
     const rulesDirPath = path.join(repoPath, ruleFormat === "cursor" ? ".cursor" : ".ai", "rules");
 
     // Create directories for rules
-    if (!fileSystem.existsSync(rulesDirPath)) {
-      fileSystem.mkdirSync(rulesDirPath, { recursive: true });
+    if (!(await fileSystem.exists(rulesDirPath))) {
+      await fileSystem.mkdir(rulesDirPath, { recursive: true });
     }
 
     // Create rule files
@@ -61,12 +61,12 @@ export async function initializeProjectWithFS(
       const workflowRulePath = path.join(rulesDirPath, "minsky-workflow.mdc");
       const indexRulePath = path.join(rulesDirPath, "index.mdc");
 
-      if (fileSystem.existsSync(workflowRulePath) && !overwrite) {
+      if ((await fileSystem.exists(workflowRulePath)) && !overwrite) {
         throw new Error(`File already exists: ${workflowRulePath}`);
       }
 
-      fileSystem.writeFileSync(workflowRulePath, getMinskyRuleContent());
-      fileSystem.writeFileSync(indexRulePath, getRulesIndexContent());
+      await fileSystem.writeFile(workflowRulePath, getMinskyRuleContent());
+      await fileSystem.writeFile(indexRulePath, getRulesIndexContent());
     }
 
     // MCP Configuration
@@ -75,21 +75,21 @@ export async function initializeProjectWithFS(
 
       // Create .cursor directory if it doesn't exist (even for generic rule format)
       const cursorDirPath = path.join(repoPath, ".cursor");
-      if (!fileSystem.existsSync(cursorDirPath)) {
-        fileSystem.mkdirSync(cursorDirPath, { recursive: true });
+      if (!(await fileSystem.exists(cursorDirPath))) {
+        await fileSystem.mkdir(cursorDirPath, { recursive: true });
       }
 
-      if (fileSystem.existsSync(mcpConfigPath) && !overwrite) {
+      if ((await fileSystem.exists(mcpConfigPath)) && !overwrite) {
         throw new Error(`File already exists: ${mcpConfigPath}`);
       }
 
       // Create MCP config file
-      fileSystem.writeFileSync(mcpConfigPath, getMCPConfigContent(mcp));
+      await fileSystem.writeFile(mcpConfigPath, getMCPConfigContent(mcp));
 
       // Create MCP usage rule
       const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
-      if (!fileSystem.existsSync(mcpRuleFilePath) || overwrite) {
-        fileSystem.writeFileSync(mcpRuleFilePath, getMCPRuleContent());
+      if (!(await fileSystem.exists(mcpRuleFilePath)) || overwrite) {
+        await fileSystem.writeFile(mcpRuleFilePath, getMCPRuleContent());
       }
     }
   } else if (backend === "tasks.csv") {

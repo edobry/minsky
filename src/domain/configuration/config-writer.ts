@@ -5,7 +5,6 @@
  * backup functionality and validation.
  */
 
-import * as nodeFs from "fs";
 import { join, dirname } from "path";
 import { parse, stringify } from "yaml";
 import {
@@ -14,17 +13,8 @@ import {
 } from "./sources/user";
 import { ConfigSchema } from "./config-schemas";
 import { log } from "../../utils/logger";
-
-/**
- * Synchronous filesystem interface used by ConfigWriter
- */
-export interface SyncFs {
-  readFileSync: (path: string, encoding: string) => string;
-  writeFileSync: (path: string, data: string, encoding: string) => void;
-  existsSync: (path: string) => boolean;
-  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
-  copyFileSync: (src: string, dest: string) => void;
-}
+import type { FsLike } from "../interfaces/fs-like";
+import { createRealFs } from "../interfaces/real-fs";
 
 /**
  * Configuration writer options
@@ -70,13 +60,13 @@ export interface ConfigBackupResult {
 export class ConfigWriter {
   private readonly options: Required<ConfigWriterOptions>;
   private readonly configDir: string;
-  private readonly fs: SyncFs;
+  private readonly fs: FsLike;
   private readonly userConfigFiles: readonly string[];
 
   constructor(
     options: ConfigWriterOptions = {},
     deps?: {
-      fs?: SyncFs;
+      fs?: FsLike;
       getUserConfigDir?: () => string;
       userConfigFiles?: readonly string[];
     }
@@ -93,15 +83,7 @@ export class ConfigWriter {
     const getUserConfigDir = deps?.getUserConfigDir ?? defaultGetUserConfigDir;
     this.userConfigFiles = deps?.userConfigFiles ?? defaultUserConfigFiles;
     this.configDir = this.options.configDir || getUserConfigDir();
-    this.fs = (deps?.fs || {
-      readFileSync: (path: string, encoding: string) =>
-        nodeFs.readFileSync(path, encoding as BufferEncoding) as string,
-      writeFileSync: (path: string, data: string, encoding: string) =>
-        nodeFs.writeFileSync(path, data, encoding as BufferEncoding),
-      existsSync: nodeFs.existsSync,
-      mkdirSync: nodeFs.mkdirSync,
-      copyFileSync: nodeFs.copyFileSync,
-    }) as SyncFs;
+    this.fs = deps?.fs ?? createRealFs();
   }
 
   /**
@@ -111,19 +93,19 @@ export class ConfigWriter {
     try {
       // Ensure config directory exists
       if (this.options.createDir) {
-        this.ensureConfigDir();
+        await this.ensureConfigDir();
       }
 
       // Find or create config file
-      const configFile = this.findOrCreateConfigFile();
+      const configFile = await this.findOrCreateConfigFile();
 
       // Load current configuration
-      const currentConfig = this.loadConfigFile(configFile);
+      const currentConfig = await this.loadConfigFile(configFile);
 
       // Create backup if requested (only if file exists)
       let backupPath: string | undefined;
-      if (this.options.createBackup && this.fs.existsSync(configFile)) {
-        const backupResult = this.createBackup(configFile);
+      if (this.options.createBackup && (await this.fs.exists(configFile))) {
+        const backupResult = await this.createBackup(configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -146,7 +128,7 @@ export class ConfigWriter {
         if (!validationResult.success) {
           // Restore from backup if validation fails
           if (backupPath) {
-            this.restoreFromBackup(configFile, backupPath);
+            await this.restoreFromBackup(configFile, backupPath);
           }
           return {
             success: false,
@@ -158,7 +140,7 @@ export class ConfigWriter {
       }
 
       // Write updated configuration
-      this.writeConfigFile(configFile, currentConfig);
+      await this.writeConfigFile(configFile, currentConfig);
 
       log.debug(`Config value set: ${keyPath} = ${JSON.stringify(value)}`);
 
@@ -184,7 +166,7 @@ export class ConfigWriter {
   async unsetConfigValue(keyPath: string): Promise<ConfigModificationResult> {
     try {
       // Find existing config file
-      const configFile = this.findConfigFile();
+      const configFile = await this.findConfigFile();
       if (!configFile) {
         return {
           success: false,
@@ -194,7 +176,7 @@ export class ConfigWriter {
       }
 
       // Load current configuration
-      const currentConfig = this.loadConfigFile(configFile);
+      const currentConfig = await this.loadConfigFile(configFile);
 
       // Get previous value for reporting
       const previousValue = this.getNestedValue(currentConfig, keyPath);
@@ -209,8 +191,8 @@ export class ConfigWriter {
 
       // Create backup if requested (only if file exists)
       let backupPath: string | undefined;
-      if (this.options.createBackup && this.fs.existsSync(configFile)) {
-        const backupResult = this.createBackup(configFile);
+      if (this.options.createBackup && (await this.fs.exists(configFile))) {
+        const backupResult = await this.createBackup(configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -230,7 +212,7 @@ export class ConfigWriter {
         if (!validationResult.success) {
           // Restore from backup if validation fails
           if (backupPath) {
-            this.restoreFromBackup(configFile, backupPath);
+            await this.restoreFromBackup(configFile, backupPath);
           }
           return {
             success: false,
@@ -242,7 +224,7 @@ export class ConfigWriter {
       }
 
       // Write updated configuration
-      this.writeConfigFile(configFile, currentConfig);
+      await this.writeConfigFile(configFile, currentConfig);
 
       log.debug(`Config value unset: ${keyPath}`);
 
@@ -265,12 +247,12 @@ export class ConfigWriter {
   /**
    * Create a backup of the configuration file
    */
-  private createBackup(configFile: string): ConfigBackupResult {
+  private async createBackup(configFile: string): Promise<ConfigBackupResult> {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
 
-      this.fs.copyFileSync(configFile, backupPath);
+      await this.fs.copyFile(configFile, backupPath);
 
       return {
         success: true,
@@ -290,9 +272,9 @@ export class ConfigWriter {
   /**
    * Restore configuration from backup
    */
-  private restoreFromBackup(configFile: string, backupPath: string): void {
+  private async restoreFromBackup(configFile: string, backupPath: string): Promise<void> {
     try {
-      this.fs.copyFileSync(backupPath, configFile);
+      await this.fs.copyFile(backupPath, configFile);
       log.debug(`Configuration restored from backup: ${backupPath}`);
     } catch (error) {
       log.error(`Failed to restore from backup: ${error}`);
@@ -302,19 +284,19 @@ export class ConfigWriter {
   /**
    * Ensure configuration directory exists
    */
-  private ensureConfigDir(): void {
-    if (!this.fs.existsSync(this.configDir)) {
-      this.fs.mkdirSync(this.configDir, { recursive: true });
+  private async ensureConfigDir(): Promise<void> {
+    if (!(await this.fs.exists(this.configDir))) {
+      await this.fs.mkdir(this.configDir, { recursive: true });
     }
   }
 
   /**
    * Find existing configuration file
    */
-  private findConfigFile(): string | null {
+  private async findConfigFile(): Promise<string | null> {
     for (const configFile of this.userConfigFiles) {
       const filePath = join(this.configDir, configFile);
-      if (this.fs.existsSync(filePath)) {
+      if (await this.fs.exists(filePath)) {
         return filePath;
       }
     }
@@ -324,8 +306,8 @@ export class ConfigWriter {
   /**
    * Find existing configuration file or create a new one
    */
-  private findOrCreateConfigFile(): string {
-    const existing = this.findConfigFile();
+  private async findOrCreateConfigFile(): Promise<string> {
+    const existing = await this.findConfigFile();
     if (existing) {
       return existing;
     }
@@ -346,13 +328,13 @@ export class ConfigWriter {
   /**
    * Load configuration from file
    */
-  private loadConfigFile(filePath: string): Record<string, unknown> {
-    if (!this.fs.existsSync(filePath)) {
+  private async loadConfigFile(filePath: string): Promise<Record<string, unknown>> {
+    if (!(await this.fs.exists(filePath))) {
       return {};
     }
 
     try {
-      const content = this.fs.readFileSync(filePath, "utf8");
+      const content = await this.fs.readFile(filePath, "utf8");
       const extension = filePath.split(".").pop()?.toLowerCase();
 
       switch (extension) {
@@ -372,7 +354,7 @@ export class ConfigWriter {
   /**
    * Write configuration to file
    */
-  private writeConfigFile(filePath: string, config: Record<string, unknown>): void {
+  private async writeConfigFile(filePath: string, config: Record<string, unknown>): Promise<void> {
     const extension = filePath.split(".").pop()?.toLowerCase();
     let content: string;
 
@@ -392,7 +374,7 @@ ${stringify(config, { indent: 2 })}`;
         throw new Error(`Unsupported file format: ${extension}`);
     }
 
-    this.fs.writeFileSync(filePath, content, "utf8");
+    await this.fs.writeFile(filePath, content);
   }
 
   /**
@@ -481,7 +463,7 @@ ${stringify(config, { indent: 2 })}`;
  */
 export function createConfigWriter(
   options?: ConfigWriterOptions,
-  deps?: { fs?: SyncFs; getUserConfigDir?: () => string; userConfigFiles?: readonly string[] }
+  deps?: { fs?: FsLike; getUserConfigDir?: () => string; userConfigFiles?: readonly string[] }
 ): ConfigWriter {
   return new ConfigWriter(options, deps);
 }

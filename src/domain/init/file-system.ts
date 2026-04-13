@@ -1,24 +1,16 @@
-import * as fs from "fs";
 import * as path from "path";
-
-/**
- * Test utility for mocking file system operations
- */
-export interface FileSystem {
-  existsSync: (path: fs.PathLike) => boolean;
-  mkdirSync: (path: fs.PathLike, options?: fs.MakeDirectoryOptions) => string | undefined;
-  writeFileSync: (path: fs.PathLike, data: string) => void;
-}
+import type { FsLike } from "../interfaces/fs-like";
+import { createRealFs } from "../interfaces/real-fs";
 
 /**
  * Creates a directory and all parent directories if they don't exist
  */
 export async function createDirectoryIfNotExists(
   dirPath: string,
-  fileSystem: FileSystem = fs
+  fileSystem: FsLike = createRealFs()
 ): Promise<void> {
-  if (!fileSystem.existsSync(dirPath)) {
-    fileSystem.mkdirSync(dirPath, { recursive: true });
+  if (!(await fileSystem.exists(dirPath))) {
+    await fileSystem.mkdir(dirPath, { recursive: true });
   }
 }
 
@@ -29,9 +21,9 @@ export async function createFileIfNotExists(
   filePath: string,
   content: string,
   overwrite = false,
-  fileSystem: FileSystem = fs
+  fileSystem: FsLike = createRealFs()
 ): Promise<void> {
-  if (fileSystem.existsSync(filePath)) {
+  if (await fileSystem.exists(filePath)) {
     if (!overwrite) {
       throw new Error(`File already exists: ${filePath}`);
     }
@@ -43,5 +35,5 @@ export async function createFileIfNotExists(
   await createDirectoryIfNotExists(dirPath, fileSystem);
 
   // Write the file
-  fileSystem.writeFileSync(filePath, content);
+  await fileSystem.writeFile(filePath, content);
 }
