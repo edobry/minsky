@@ -183,19 +183,24 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
     handler: async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
       const args = rawArgs as SearchReplaceArgs;
       try {
+        // Resolve parameter aliases: old_string/new_string (Claude Code Edit tool convention)
+        // take precedence when provided, falling back to search/replace
+        const searchText = args.search ?? args.old_string;
+        const replaceText = args.replace ?? args.new_string;
+
         // Validate required parameters to catch parameter naming mismatches early
-        if (args.search == null || typeof args.search !== "string") {
+        if (searchText == null || typeof searchText !== "string") {
           const receivedKeys = Object.keys(args).join(", ");
           throw new Error(
-            `Missing required parameter "search". Received parameters: [${receivedKeys}]. ` +
-              `Expected: sessionId, path, search, replace`
+            `Missing required parameter "search" (or alias "old_string"). Received parameters: [${receivedKeys}]. ` +
+              `Expected: sessionId, path, search, replace (or old_string, new_string)`
           );
         }
-        if (args.replace == null || typeof args.replace !== "string") {
+        if (replaceText == null || typeof replaceText !== "string") {
           const receivedKeys = Object.keys(args).join(", ");
           throw new Error(
-            `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
-              `Expected: sessionId, path, search, replace`
+            `Missing required parameter "replace" (or alias "new_string"). Received parameters: [${receivedKeys}]. ` +
+              `Expected: sessionId, path, search, replace (or old_string, new_string)`
           );
         }
 
@@ -208,10 +213,10 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         const content = await readTextFile(resolvedPath);
 
         // Count occurrences
-        const occurrences = countOccurrences(content, args.search);
+        const occurrences = countOccurrences(content, searchText);
 
         if (occurrences === 0) {
-          throw new Error(`Search text not found in file: "${args.search}"`);
+          throw new Error(`Search text not found in file: "${searchText}"`);
         }
 
         const replaceAll = args.replace_all ?? false;
@@ -227,10 +232,10 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         let replacementCount: number;
 
         if (replaceAll) {
-          newContent = content.replaceAll(args.search, args.replace);
+          newContent = content.replaceAll(searchText, replaceText);
           replacementCount = occurrences;
         } else {
-          newContent = content.replace(args.search, args.replace);
+          newContent = content.replace(searchText, replaceText);
           replacementCount = 1;
         }
 
@@ -241,8 +246,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           session: args.sessionId,
           path: args.path,
           resolvedPath,
-          searchLength: args.search.length,
-          replaceLength: args.replace.length,
+          searchLength: searchText.length,
+          replaceLength: replaceText.length,
           replacementCount,
           replaceAll,
         });
@@ -253,8 +258,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           edited: true,
           replaced: true,
           replacementCount,
-          searchText: args.search,
-          replaceText: args.replace,
+          searchText,
+          replaceText,
         });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
