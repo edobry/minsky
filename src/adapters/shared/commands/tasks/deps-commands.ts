@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { PersistenceService } from "../../../../domain/persistence/service";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
@@ -44,15 +44,14 @@ const tasksDepsListParams = {
   },
 } satisfies CommandParameterMap;
 
-export function createTasksDepsAddCommand() {
+export function createTasksDepsAddCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.add",
     name: "add",
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: tasksDepsAddParams,
     execute: async (params: InferParams<typeof tasksDepsAddParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
+      const persistence = getPersistenceProvider();
       const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
@@ -66,15 +65,14 @@ export function createTasksDepsAddCommand() {
   };
 }
 
-export function createTasksDepsRmCommand() {
+export function createTasksDepsRmCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.rm",
     name: "rm",
     description: "Remove a dependency edge",
     parameters: tasksDepsRmParams,
     execute: async (params: InferParams<typeof tasksDepsRmParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
+      const persistence = getPersistenceProvider();
       const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
@@ -88,15 +86,14 @@ export function createTasksDepsRmCommand() {
   };
 }
 
-export function createTasksDepsListCommand() {
+export function createTasksDepsListCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.list",
     name: "list",
     description: "List dependencies for a task",
     parameters: tasksDepsListParams,
     execute: async (params: InferParams<typeof tasksDepsListParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
+      const persistence = getPersistenceProvider();
       const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);

@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { PersistenceService } from "../../../domain/persistence/service";
 import { createTasksRouteCommand } from "../../shared/commands/tasks/routing-commands";
 import { log } from "../../../utils/logger";
 import { handleCliError } from "../utils/error-handler";
@@ -7,7 +8,7 @@ import { handleCliError } from "../utils/error-handler";
  * Create the tasks route command
  */
 export function createRouteCommand(): Command {
-  const routeCommand = createTasksRouteCommand();
+  const routeCommand = createTasksRouteCommand(() => PersistenceService.getProvider());
   const command = new Command("route");
 
   command

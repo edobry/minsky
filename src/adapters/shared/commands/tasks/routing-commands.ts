@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { TaskRoutingService, type RouteStep } from "../../../../domain/tasks/task-routing-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
@@ -71,18 +72,14 @@ const tasksRouteParams = {
 /**
  * Command to show all tasks currently available to work on (unblocked)
  */
-export function createTasksAvailableCommand() {
+export function createTasksAvailableCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.available",
     name: "available",
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
-      // Get database connection using PersistenceService
-      const { PersistenceService } = await import("../../../../domain/persistence/service");
-
-      // PersistenceService should already be initialized at application startup
-      const provider = PersistenceService.getProvider();
+      const provider = getPersistenceProvider();
 
       if (!provider.capabilities.sql) {
         throw new Error("Current persistence provider does not support SQL operations");
@@ -193,18 +190,14 @@ export function createTasksAvailableCommand() {
 /**
  * Command to generate implementation route to a target task
  */
-export function createTasksRouteCommand() {
+export function createTasksRouteCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.route",
     name: "route",
     description: "Generate implementation route to target task",
     parameters: tasksRouteParams,
     execute: async (params: InferParams<typeof tasksRouteParams>) => {
-      // Get database connection using PersistenceService
-      const { PersistenceService } = await import("../../../../domain/persistence/service");
-
-      // PersistenceService should already be initialized at application startup
-      const provider = PersistenceService.getProvider();
+      const provider = getPersistenceProvider();
 
       if (!provider.capabilities.sql) {
         throw new Error("Current persistence provider does not support SQL operations");

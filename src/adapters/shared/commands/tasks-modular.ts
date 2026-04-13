@@ -7,6 +7,7 @@
 import { sharedCommandRegistry, defineCommand } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
+import { PersistenceService } from "../../../domain/persistence/service";
 import {
   createTasksListCommand,
   createTasksGetCommand,
@@ -63,14 +64,15 @@ export class ModularTasksCommandManager {
       const searchCommand = new TasksSearchCommand();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
 
-      const depsAddCommand = createTasksDepsAddCommand();
-      const depsRmCommand = createTasksDepsRmCommand();
-      const depsListCommand = createTasksDepsListCommand();
-      const depsTreeCommand = createTasksDepsTreeCommand();
-      const depsGraphCommand = createTasksDepsGraphCommand();
+      const getPersistenceProvider = () => PersistenceService.getProvider();
+      const depsAddCommand = createTasksDepsAddCommand(getPersistenceProvider);
+      const depsRmCommand = createTasksDepsRmCommand(getPersistenceProvider);
+      const depsListCommand = createTasksDepsListCommand(getPersistenceProvider);
+      const depsTreeCommand = createTasksDepsTreeCommand(getPersistenceProvider);
+      const depsGraphCommand = createTasksDepsGraphCommand(getPersistenceProvider);
 
-      const availableCommand = createTasksAvailableCommand();
-      const routeCommand = createTasksRouteCommand();
+      const availableCommand = createTasksAvailableCommand(getPersistenceProvider);
+      const routeCommand = createTasksRouteCommand(getPersistenceProvider);
 
       // Register list command
       sharedCommandRegistry.registerCommand(
