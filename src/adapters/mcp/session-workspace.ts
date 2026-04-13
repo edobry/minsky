@@ -5,6 +5,7 @@
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from "fs/promises";
 import { dirname, relative } from "path";
+import { z } from "zod";
 import { log } from "../../utils/logger";
 import { SessionPathResolver } from "../../domain/session/session-path-resolver";
 import { getErrorMessage } from "../../errors/index";
@@ -624,6 +625,171 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
           session: typedArgs.sessionId,
           query: typedArgs.query,
+        };
+      }
+    },
+  });
+
+  // Session diff tool
+  const SessionDiffSchema = z.object({
+    sessionId: z.string().describe("Session identifier (ID or task ID)"),
+    path: z.string().optional().describe("Specific file or directory path to diff (optional)"),
+    staged: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Show staged changes (git diff --cached) instead of unstaged changes"),
+  });
+
+  commandMapper.addCommand({
+    name: "session.diff",
+    description:
+      "Show git diff output for a session workspace. Returns unstaged changes by default, or staged changes with staged=true.",
+    parameters: SessionDiffSchema,
+    handler: async (args): Promise<Record<string, unknown>> => {
+      const typedArgs = args as z.infer<typeof SessionDiffSchema>;
+      try {
+        const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(
+          typedArgs.sessionId
+        );
+
+        const gitArgs = ["git", "diff"];
+        if (typedArgs.staged) {
+          gitArgs.push("--cached");
+        }
+        if (typedArgs.path) {
+          gitArgs.push("--", typedArgs.path);
+        }
+
+        const proc = Bun.spawn(gitArgs, {
+          cwd: sessionWorkspacePath,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const output = await new Response(proc.stdout).text();
+        const errorOutput = await new Response(proc.stderr).text();
+        await proc.exited;
+
+        if (proc.exitCode !== 0) {
+          throw new Error(`git diff failed: ${errorOutput}`);
+        }
+
+        log.debug("Session diff successful", {
+          session: typedArgs.sessionId,
+          staged: typedArgs.staged,
+          path: typedArgs.path,
+          outputLength: output.length,
+        });
+
+        return {
+          success: true,
+          session: typedArgs.sessionId,
+          diff: output,
+          staged: typedArgs.staged ?? false,
+          ...(typedArgs.path && { path: typedArgs.path }),
+          isEmpty: output.trim().length === 0,
+        };
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        log.error("Session diff failed", {
+          session: typedArgs.sessionId,
+          staged: typedArgs.staged,
+          path: typedArgs.path,
+          error: errorMessage,
+        });
+
+        return {
+          success: false,
+          error: errorMessage,
+          session: typedArgs.sessionId,
+        };
+      }
+    },
+  });
+
+  // Session status tool
+  const SessionStatusSchema = z.object({
+    sessionId: z.string().describe("Session identifier (ID or task ID)"),
+  });
+
+  commandMapper.addCommand({
+    name: "session.status",
+    description:
+      "Show git status for a session workspace. Returns modified, staged, and untracked files.",
+    parameters: SessionStatusSchema,
+    handler: async (args): Promise<Record<string, unknown>> => {
+      const typedArgs = args as z.infer<typeof SessionStatusSchema>;
+      try {
+        const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(
+          typedArgs.sessionId
+        );
+
+        const proc = Bun.spawn(["git", "status", "--porcelain=v1"], {
+          cwd: sessionWorkspacePath,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const output = await new Response(proc.stdout).text();
+        const errorOutput = await new Response(proc.stderr).text();
+        await proc.exited;
+
+        if (proc.exitCode !== 0) {
+          throw new Error(`git status failed: ${errorOutput}`);
+        }
+
+        // Parse porcelain output into structured data
+        const staged: string[] = [];
+        const unstaged: string[] = [];
+        const untracked: string[] = [];
+
+        const lines = output.trim() ? output.trim().split("\n") : [];
+        for (const line of lines) {
+          if (line.length < 3) continue;
+          const x = line[0]; // staged status
+          const y = line[1]; // unstaged status
+          const filePath = line.slice(3);
+
+          if (x === "?" && y === "?") {
+            untracked.push(filePath);
+          } else {
+            if (x && x !== " " && x !== "?") {
+              staged.push(filePath);
+            }
+            if (y && y !== " " && y !== "?") {
+              unstaged.push(filePath);
+            }
+          }
+        }
+
+        log.debug("Session status successful", {
+          session: typedArgs.sessionId,
+          stagedCount: staged.length,
+          unstagedCount: unstaged.length,
+          untrackedCount: untracked.length,
+        });
+
+        return {
+          success: true,
+          session: typedArgs.sessionId,
+          status: output,
+          staged,
+          unstaged,
+          untracked,
+          clean: lines.length === 0,
+        };
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        log.error("Session status failed", {
+          session: typedArgs.sessionId,
+          error: errorMessage,
+        });
+
+        return {
+          success: false,
+          error: errorMessage,
+          session: typedArgs.sessionId,
         };
       }
     },
