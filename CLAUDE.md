@@ -17,6 +17,15 @@ Prefer specialized subagent types over `general-purpose` when one fits:
 - **`subagent_type: "Plan"`** — Designing implementation plans before coding.
 - **`subagent_type: "general-purpose"`** — Fallback for work that doesn't fit a specialized type.
 
+### Subagent Capacity
+
+Subagents have limited tool-call budgets and context windows. They cannot detect when they're approaching limits and get no cleanup chance when cut off. Uncommitted work is lost.
+
+- **Scope subagent work to fit within capacity.** A subagent touching 15+ files is at risk. For large refactors, split into waves of 8–12 files each.
+- **Instruct subagents to commit incrementally**, not in one final commit. The refactor subagent already has this in its system prompt.
+- **If a subagent returns incomplete work** (changes applied but not committed/PR'd), check the session's `git diff` and `git status`, then finish the commit/PR from the main agent.
+- **For cascading changes** (where editing one file forces changes in its callers), the blast radius is unpredictable. Err on the side of smaller scope and let the cascade determine one wave's natural boundary.
+
 ## Minsky Session Workflow
 
 Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID>/` (branch names follow `task/<backend>-<id>` format). The correct working pattern:
