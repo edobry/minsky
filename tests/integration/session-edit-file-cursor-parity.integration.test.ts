@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
 import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
 import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
+import { first } from "../../src/utils/array-safety";
 
 // Configuration system imports
 import {
@@ -139,7 +140,7 @@ async function loggingApplyEditPattern(
     let model: string | undefined;
 
     if (fastApplyProviders.length > 0) {
-      provider = fastApplyProviders[0]!; // Use the first available fast-apply provider
+      provider = first(fastApplyProviders); // Use the first available fast-apply provider
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fast-apply provider: ${provider} with model: ${model}`);
     } else {
@@ -152,7 +153,7 @@ async function loggingApplyEditPattern(
         throw new Error("No enabled AI providers found for edit operations");
       }
 
-      provider = enabledProviders[0]!;
+      provider = first(enabledProviders);
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fallback provider: ${provider} with model: ${model}`);
     }

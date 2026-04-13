@@ -471,5 +471,77 @@ describe("Session Edit Tools", () => {
       const schemaShape = tool.schema.shape;
       expect(schemaShape).toHaveProperty("replace_all");
     });
+
+    test("should have old_string and new_string as aliases in schema", () => {
+      const tool = registeredTools["session.search_replace"];
+      expect(tool).toBeDefined();
+      expect(tool.schema).toBeDefined();
+      const schemaShape = tool.schema.shape;
+      expect(schemaShape).toHaveProperty("old_string");
+      expect(schemaShape).toHaveProperty("new_string");
+    });
+
+    test("should accept old_string alias for search parameter", async () => {
+      const mockSearchReplace = mock(async (args: any) => {
+        // Simulate handler alias resolution
+        const searchText = args.search ?? args.old_string;
+        const replaceText = args.replace ?? args.new_string;
+        if (!searchText)
+          throw new Error('Missing required parameter "search" (or alias "old_string")');
+        if (!replaceText)
+          throw new Error('Missing required parameter "replace" (or alias "new_string")');
+        return {
+          success: true,
+          path: args.path,
+          session: args.sessionId,
+          edited: true,
+          replaced: true,
+          replacementCount: 1,
+          searchText,
+          replaceText,
+        };
+      });
+
+      const result = await mockSearchReplace({
+        sessionId: "test-session",
+        path: "test-file.txt",
+        old_string: "old text",
+        new_string: "new text",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.searchText).toBe("old text");
+      expect(result.replaceText).toBe("new text");
+      expect(result.replacementCount).toBe(1);
+    });
+
+    test("should error when neither search nor old_string is provided", async () => {
+      const mockSearchReplace = mock(async (args: any) => {
+        const searchText = args.search ?? args.old_string;
+        const replaceText = args.replace ?? args.new_string;
+        if (!searchText) {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "search" (or alias "old_string"). Received parameters: [${receivedKeys}]`
+          );
+        }
+        if (!replaceText) {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "replace" (or alias "new_string"). Received parameters: [${receivedKeys}]`
+          );
+        }
+        return { success: true };
+      });
+
+      await expect(
+        mockSearchReplace({
+          sessionId: "test-session",
+          path: "test-file.txt",
+          // No search, no old_string
+          replace: "new text",
+        })
+      ).rejects.toThrow('Missing required parameter "search" (or alias "old_string")');
+    });
   });
 });

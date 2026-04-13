@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { first } from "../../../src/utils/array-safety";
 import {
   parseStatusFilter,
   parseBackendFilter,
@@ -75,7 +76,7 @@ describe("result-handling/filters: filterByBackend", () => {
     ];
     const res = filterByBackend(items, "github");
     expect(res).toHaveLength(1);
-    expect(res[0]!.backendType).toBe("github");
+    expect(first(res).backendType).toBe("github");
   });
 });
 
@@ -91,6 +92,6 @@ describe("result-handling/filters: filterByTimeRange", () => {
     const until = now - 10 * 60000; // 10m ago
     const res = filterByTimeRange(items, since, until);
     expect(res).toHaveLength(1);
-    expect(res[0]!.updatedAt).toBeDefined();
+    expect(first(res).updatedAt).toBeDefined();
   });
 });
