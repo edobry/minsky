@@ -263,6 +263,21 @@ export const DirectoryCreateSchema = z.object({
 });
 
 /**
+ * Grep search limit schema - max number of matches to return
+ */
+export const GrepSearchLimitSchema = z.number().int().positive().default(50);
+
+/**
+ * Files only flag schema - return just file paths instead of full match content
+ */
+export const FilesOnlySchema = z.boolean().default(false);
+
+/**
+ * Max context lines schema - control how many context lines around each match
+ */
+export const MaxContextLinesSchema = z.number().int().min(0).default(0);
+
+/**
  * Grep search operation schema
  */
 export const GrepSearchSchema = z.object({
@@ -271,6 +286,9 @@ export const GrepSearchSchema = z.object({
   case_sensitive: CaseSensitiveSchema,
   include_pattern: IncludePatternSchema,
   exclude_pattern: ExcludePatternSchema,
+  limit: GrepSearchLimitSchema,
+  files_only: FilesOnlySchema,
+  max_context_lines: MaxContextLinesSchema,
 });
 
 // ========================

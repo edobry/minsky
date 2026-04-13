@@ -470,16 +470,26 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           typedArgs.sessionId
         );
 
+        const limit = typedArgs.limit;
+        const filesOnly = typedArgs.files_only;
+        const maxContextLines = typedArgs.max_context_lines;
+
         // Build ripgrep command arguments
         const rgArgs = [
-          "--line-number",
-          "--no-heading",
           "--color",
           "never",
-          "--max-count",
-          "50", // Limit to 50 matches as per Cursor behavior
           typedArgs.case_sensitive ? "--case-sensitive" : "--ignore-case",
         ];
+
+        if (filesOnly) {
+          // files-with-matches mode: just return file paths
+          rgArgs.push("--files-with-matches");
+        } else {
+          rgArgs.push("--line-number", "--no-heading");
+          if (maxContextLines > 0) {
+            rgArgs.push("--context", String(maxContextLines));
+          }
+        }
 
         // Add include pattern if specified
         if (typedArgs.include_pattern) {
@@ -510,43 +520,74 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           throw new Error(`Ripgrep search failed: ${errorOutput}`);
         }
 
-        // Parse ripgrep output into Cursor-compatible format
-        const results: string[] = [];
-        if (output.trim()) {
-          const lines = output.trim().split("\n");
-          let currentFile = "";
+        let resultCount = 0;
+        let truncated = false;
+        let totalMatches = 0;
+        let resultsText = "";
 
-          for (const line of lines) {
-            // ripgrep output format: path:line_number:content
-            const match = line.match(/^([^:]+):(\d+):(.*)$/);
-            if (match && match[1]) {
-              const filePath = match[1] || "";
-              const lineNumber = match[2] || "";
-              const content = match[3] || "";
+        if (filesOnly) {
+          // files_only mode: return unique file paths
+          const allFiles = output.trim() ? output.trim().split("\n").filter(Boolean) : [];
+          totalMatches = allFiles.length;
+          const limitedFiles = allFiles.slice(0, limit);
+          truncated = allFiles.length > limit;
+          resultCount = limitedFiles.length;
+          resultsText = limitedFiles.join("\n");
+        } else {
+          // Normal match mode: parse ripgrep output into structured format
+          const results: string[] = [];
+          if (output.trim()) {
+            const lines = output.trim().split("\n");
+            let currentFile = "";
+            let matchLines = 0;
 
-              // Convert to absolute file:// URL format like Cursor
-              const absolutePath = filePath.startsWith("/")
-                ? filePath
-                : `${sessionWorkspacePath}/${filePath}`;
-              const fileUrl = `file://${absolutePath}`;
-
-              // Add file header if it's a new file
-              if (currentFile !== fileUrl) {
-                currentFile = fileUrl;
-                results.push(`File: ${fileUrl}`);
+            for (const line of lines) {
+              // Context separator lines (emitted between context groups by ripgrep)
+              if (line === "--") {
+                results.push("--");
+                continue;
               }
+              // ripgrep output format: path:line_number:content
+              const match = line.match(/^([^:]+):(\d+):(.*)$/);
+              if (match && match[1]) {
+                totalMatches++;
+                if (matchLines >= limit) {
+                  // Count remaining matches without adding them
+                  continue;
+                }
 
-              results.push(`Line ${lineNumber}: ${content}`);
+                const filePath = match[1] || "";
+                const lineNumber = match[2] || "";
+                const content = match[3] || "";
+
+                // Convert to absolute file:// URL format like Cursor
+                const absolutePath = filePath.startsWith("/")
+                  ? filePath
+                  : `${sessionWorkspacePath}/${filePath}`;
+                const fileUrl = `file://${absolutePath}`;
+
+                // Add file header if it's a new file
+                if (currentFile !== fileUrl) {
+                  currentFile = fileUrl;
+                  results.push(`File: ${fileUrl}`);
+                }
+
+                results.push(`Line ${lineNumber}: ${content}`);
+                matchLines++;
+              } else if (maxContextLines > 0) {
+                // Context line (path-linenum-content format with dash separator)
+                const contextMatch = line.match(/^([^:]+)-(\d+)-(.*)$/);
+                if (contextMatch && matchLines < limit) {
+                  results.push(`  ${contextMatch[3]}`);
+                }
+              }
             }
-          }
-        }
 
-        // Add "more results available" message if we hit the limit
-        const resultCount = results.filter((line) => line.startsWith("Line ")).length;
-        if (resultCount >= 50) {
-          results.push(
-            "NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope."
-          );
+            truncated = totalMatches > limit;
+            resultCount = matchLines;
+          }
+
+          resultsText = results.join("\n");
         }
 
         log.debug("Session grep search successful", {
@@ -555,15 +596,20 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           caseSensitive: typedArgs.case_sensitive,
           includePattern: typedArgs.include_pattern,
           excludePattern: typedArgs.exclude_pattern,
+          filesOnly,
+          limit,
+          maxContextLines,
           resultCount,
+          truncated,
         });
 
         return {
           success: true,
-          results: results.join("\n\n"),
+          results: resultsText,
           session: typedArgs.sessionId,
           query: typedArgs.query,
           matchCount: resultCount,
+          ...(truncated && { truncated: true, total_matches: totalMatches }),
         };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
