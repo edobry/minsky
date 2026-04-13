@@ -86,16 +86,23 @@ export async function deleteSessionImpl(
 ): Promise<DeleteSessionResult> {
   const { name, task, repo } = params;
 
+  // Delete is destructive — require explicit identification, never auto-detect
+  if (!name && !task && !repo) {
+    return {
+      deleted: false,
+      error: "Session delete requires a session name (--name) or task ID (--task)",
+    };
+  }
+
   let resolvedSessionId: string;
 
   try {
-    // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
-      allowAutoDetection: true,
+      allowAutoDetection: false,
     });
     resolvedSessionId = resolvedContext.sessionId;
   } catch (error) {
