@@ -1,12 +1,9 @@
-import * as fs from "fs";
 import * as path from "path";
 import { z } from "zod";
 import { enumSchemas } from "./configuration/schemas/base";
-import {
-  type FileSystem,
-  createDirectoryIfNotExists,
-  createFileIfNotExists,
-} from "./init/file-system";
+import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-system";
+import type { FsLike } from "./interfaces/fs-like";
+import { createRealFs } from "./interfaces/real-fs";
 import {
   getMinskyConfigContent,
   getMinskyConfigContentYaml,
@@ -21,9 +18,6 @@ import {
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
 
-// Re-export types and utilities from submodules for backward compatibility
-export type { FileSystem };
-export { initializeProjectWithFS } from "./init/legacy-fs";
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
 
 /**
@@ -118,7 +112,7 @@ export async function initializeProject(
     overwrite = false,
     repository,
   }: InitializeProjectOptions,
-  fileSystem: FileSystem = fs
+  fileSystem: FsLike = createRealFs()
 ): Promise<void> {
   // When mcpOnly is true, we only set up MCP configuration and skip other setup
   if (!mcpOnly) {

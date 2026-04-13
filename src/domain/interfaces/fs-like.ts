@@ -17,6 +17,8 @@ export interface FsLike {
   stat(path: string): Promise<FsStats>;
   access(path: string): Promise<void>;
   unlink(path: string): Promise<void>;
+  copyFile(src: string, dest: string): Promise<void>;
+  exists(path: string): Promise<boolean>;
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
 }
 
