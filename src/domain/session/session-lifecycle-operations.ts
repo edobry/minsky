@@ -64,41 +64,82 @@ export async function listSessionsImpl(
 }
 
 /**
+ * Structured result returned by deleteSessionImpl.
+ */
+export interface DeleteSessionResult {
+  deleted: boolean;
+  error?: string;
+}
+
+/**
  * Deletes a session based on parameters
  * Using proper dependency injection for better testability
+ *
+ * Returns a structured result so callers can surface error messages.
+ * Also removes the session's workspace directory from the filesystem.
  */
 export async function deleteSessionImpl(
   params: SessionDeleteParams,
   deps: {
     sessionDB: SessionProviderInterface;
   }
-): Promise<boolean> {
+): Promise<DeleteSessionResult> {
   const { name, task, repo } = params;
 
+  // Delete is destructive — require explicit identification, never auto-detect
+  if (!name && !task && !repo) {
+    return {
+      deleted: false,
+      error: "Session delete requires a session name (--name) or task ID (--task)",
+    };
+  }
+
+  let resolvedSessionId: string;
+
   try {
-    // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
-      allowAutoDetection: true,
+      allowAutoDetection: false,
     });
-
-    // Delete the session using the resolved session ID
-    return deps.sessionDB.deleteSession(resolvedContext.sessionId);
+    resolvedSessionId = resolvedContext.sessionId;
   } catch (error) {
-    // Non-existent session is not an error for delete — return false
+    // Non-existent session is not an error for delete — return structured false
     if (error instanceof ResourceNotFoundError) {
-      log.debug(`Session not found for deletion: ${name || task || repo}`);
-      return false;
+      const msg = `Session not found: ${name || task || repo}`;
+      log.debug(msg);
+      return { deleted: false, error: msg };
     }
     if (error instanceof ValidationError) {
-      log.debug(`No session context resolved for deletion: ${name || task || repo}`);
-      return false;
+      const msg = `No session context resolved for deletion: ${name || task || repo}`;
+      log.debug(msg);
+      return { deleted: false, error: msg };
     }
     throw error;
   }
+
+  // Remove workspace directory from filesystem (if it exists)
+  const sessionWorkspaceDir = `${getSessionsDir()}/${resolvedSessionId}`;
+  try {
+    if (existsSync(sessionWorkspaceDir)) {
+      log.debug(`Removing session workspace directory: ${sessionWorkspaceDir}`);
+      rmSync(sessionWorkspaceDir, { recursive: true, force: true });
+      log.debug(`Successfully removed session workspace directory: ${sessionWorkspaceDir}`);
+    } else {
+      log.debug(`Session workspace directory does not exist, skipping: ${sessionWorkspaceDir}`);
+    }
+  } catch (error) {
+    // Filesystem removal failure is non-fatal — log but continue with DB deletion
+    log.warn(
+      `Failed to remove session workspace directory '${sessionWorkspaceDir}': ${getErrorMessage(error)}`
+    );
+  }
+
+  // Delete the session record from the database
+  const deleted = await deps.sessionDB.deleteSession(resolvedSessionId);
+  return { deleted };
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   deleteSessionImpl,
   getSessionDirImpl,
   inspectSessionImpl,
+  type DeleteSessionResult,
 } from "./session-lifecycle-operations";
 import { startSessionImpl } from "./start-session-operations";
 import { updateSessionImpl } from "./session-update-operations";
@@ -149,7 +150,7 @@ export class SessionService {
   /**
    * Delete a session.
    */
-  async delete(params: SessionDeleteParams): Promise<boolean> {
+  async delete(params: SessionDeleteParams): Promise<DeleteSessionResult> {
     return deleteSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 

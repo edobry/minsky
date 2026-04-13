@@ -233,7 +233,7 @@ export async function startSessionFromParams(
 export async function deleteSessionFromParams(
   params: SessionDeleteParams,
   depsInput?: { sessionDB?: SessionProviderInterface }
-): Promise<boolean> {
+): Promise<import("./session/session-lifecycle-operations").DeleteSessionResult> {
   const service = new SessionService(
     await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
   );

@@ -21,7 +21,7 @@ export function createSessionDeleteCommand(deps: SessionCommandDependencies): Co
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
       const { deleteSessionFromParams } = await import("../../../../domain/session");
 
-      const deleted = await deleteSessionFromParams({
+      const result = await deleteSessionFromParams({
         name: params.name as string | undefined,
         task: params.task as string | undefined,
         force: (params.force as boolean | undefined) ?? false,
@@ -30,8 +30,9 @@ export function createSessionDeleteCommand(deps: SessionCommandDependencies): Co
       });
 
       return {
-        success: deleted,
+        success: result.deleted,
         session: params.name || params.task,
+        ...(result.error ? { error: result.error } : {}),
       };
     }),
   };
