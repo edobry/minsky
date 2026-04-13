@@ -5,18 +5,18 @@
  * instead of executing CLI commands, following proper testing architecture.
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { setupTestMocks, createPartialMock } from "../../utils/test-utils/mocking";
+import { setupTestMocks } from "../../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 import { FakeGitService } from "../git/fake-git-service";
 import { FakeTaskService } from "./fake-task-service";
+import { FakeSessionProvider } from "../session/fake-session-provider";
+import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
 import { startSessionFromParams } from "../session";
 import { createConfiguredTaskService, type TaskServiceInterface } from "./taskService";
-import type { SessionProviderInterface } from "../session";
-import type { WorkspaceUtilsInterface } from "../workspace";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -124,23 +124,18 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
     test("should start session with qualified task ID", async () => {
       const addSessionSpy = mock(async (record: unknown) => record);
 
-      const mockSessionDB = createPartialMock<SessionProviderInterface>({
-        getSession: mock(async () => null), // No existing session
-        addSession: addSessionSpy as any,
-        updateSession: mock(async () => {}),
-        deleteSession: mock(async () => true),
-        listSessions: mock(async () => []),
-      });
+      const mockSessionDB = new FakeSessionProvider();
+      mockSessionDB.getSession = async () => null;
+      mockSessionDB.addSession = addSessionSpy as any;
+      mockSessionDB.updateSession = mock(async () => {});
+      mockSessionDB.deleteSession = mock(async () => true);
+      mockSessionDB.listSessions = mock(async () => []);
 
       const mockGitService = new FakeGitService();
       const mockTaskService = new FakeTaskService();
 
-      const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-        isSessionWorkspace: () => false,
-        getCurrentSession: mock(async () => undefined),
-        resolveWorkspacePath: mock(async () => "/test/workspace"),
-        getSessionFromWorkspace: mock(async () => undefined),
-      });
+      const mockWorkspaceUtils = new FakeWorkspaceUtils();
+      mockWorkspaceUtils.resolveWorkspacePath = mock(async () => "/test/workspace");
 
       // Test session start with qualified task ID
       const session = await startSessionFromParams(

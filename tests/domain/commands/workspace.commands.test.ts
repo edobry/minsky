@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { setupTestMocks, createPartialMock } from "../../../src/utils/test-utils/mocking";
+import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
-import type { SessionProviderInterface } from "../../../src/domain/session";
+import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   isSessionWorkspace,
@@ -116,15 +116,17 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       // Create mock sessionDB
-      const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionId: string) => ({
-          session: sessionId,
-          repoName: "repo-name",
-          repoUrl: "https://github.com/org/repo.git",
-          branch: `task#${TEST_VALUE}`,
-          taskId: TEST_VALUE.toString(),
-          createdAt: new Date().toISOString(),
-        }),
+      const sessionDbMock = new FakeSessionProvider({
+        initialSessions: [
+          {
+            session: "session-id",
+            repoName: "repo-name",
+            repoUrl: "https://github.com/org/repo.git",
+            branch: `task#${TEST_VALUE}`,
+            taskId: TEST_VALUE.toString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
 
       try {
@@ -147,9 +149,7 @@ describe("Workspace Domain Methods", () => {
       // Arrange
       const repoPath = "/Users/test/projects/non-session-repo";
       const execAsyncMock = mockGitRootExecAsync(repoPath);
-      const mockSessionDB = createPartialMock<SessionProviderInterface>({
-        getSession: mock(() => Promise.resolve(null)),
-      });
+      const mockSessionDB = new FakeSessionProvider();
 
       // Act
       const result = await getSessionFromWorkspace(repoPath, execAsyncMock, mockSessionDB);
@@ -167,10 +167,8 @@ describe("Workspace Domain Methods", () => {
       const originalHome = process.env.HOME;
       process.env.HOME = "/Users/test";
 
-      // Create mock sessionDB that returns null
-      const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async () => null,
-      });
+      // Create mock sessionDB that returns null (empty store → getSession returns null)
+      const sessionDbMock = new FakeSessionProvider();
 
       try {
         // Act
@@ -193,15 +191,17 @@ describe("Workspace Domain Methods", () => {
       const originalHome = process.env.HOME;
       process.env.HOME = "/Users/test";
 
-      const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionId: string) => ({
-          session: sessionId,
-          repoName: "repo-name",
-          repoUrl: "https://github.com/org/repo.git",
-          branch: `task#${TEST_VALUE}`,
-          taskId: TEST_VALUE.toString(),
-          createdAt: new Date().toISOString(),
-        }),
+      const sessionDbMock = new FakeSessionProvider({
+        initialSessions: [
+          {
+            session: "session-id",
+            repoName: "repo-name",
+            repoUrl: "https://github.com/org/repo.git",
+            branch: `task#${TEST_VALUE}`,
+            taskId: TEST_VALUE.toString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
 
       try {
@@ -229,15 +229,17 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       // Create mock sessionDB
-      const sessionDbMock = createPartialMock<SessionProviderInterface>({
-        getSession: async (sessionId: string) => ({
-          session: sessionId,
-          repoName: "repo-name",
-          repoUrl: "https://github.com/org/repo.git",
-          branch: `task#${TEST_VALUE}`,
-          taskId: TEST_VALUE.toString(),
-          createdAt: new Date().toISOString(),
-        }),
+      const sessionDbMock = new FakeSessionProvider({
+        initialSessions: [
+          {
+            session: "session-id",
+            repoName: "repo-name",
+            repoUrl: "https://github.com/org/repo.git",
+            branch: `task#${TEST_VALUE}`,
+            taskId: TEST_VALUE.toString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
 
       try {
@@ -256,9 +258,7 @@ describe("Workspace Domain Methods", () => {
       // Arrange
       const notSessionPath = "/Users/test/projects/non-session";
       const execAsyncMock = mockGitRootExecAsync(notSessionPath);
-      const mockSessionDB = createPartialMock<SessionProviderInterface>({
-        getSession: mock(() => Promise.resolve(null)),
-      });
+      const mockSessionDB = new FakeSessionProvider();
 
       // Act
       const result = await getCurrentSession(notSessionPath, execAsyncMock, mockSessionDB);

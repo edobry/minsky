@@ -1,28 +1,21 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { approveSessionImpl } from "./session-approve-operations";
-import type { SessionProviderInterface } from "./session-db-adapter";
-import type { GitServiceInterface } from "../git";
 import type { SessionRecord } from "./types";
-import type { RepositoryBackend, MergeInfo } from "../repository/index";
-import type { TaskServiceInterface } from "../tasks/taskService";
-import { createPartialMock } from "../../utils/test-utils/mocking";
+import type { RepositoryBackend } from "../repository/index";
+import { FakeSessionProvider } from "./fake-session-provider";
+import { FakeGitService } from "../git/fake-git-service";
+import { FakeTaskService } from "../tasks/fake-task-service";
 
 describe("Session Approval Repository Backend Bug", () => {
-  let mockSessionDB: SessionProviderInterface;
-  let mockGitService: GitServiceInterface;
+  let mockSessionDB: FakeSessionProvider;
+  let mockGitService: FakeGitService;
   let mockRepositoryBackend: RepositoryBackend;
   let mockCreateRepositoryBackend: ReturnType<typeof mock>;
-  let mockTaskService: TaskServiceInterface;
+  let mockTaskService: FakeTaskService;
 
   beforeEach(() => {
-    mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: mock(() => Promise.resolve(null)),
-      getSessionByTaskId: mock(() => Promise.resolve(null)),
-    });
-
-    mockGitService = createPartialMock<GitServiceInterface>({
-      execInRepository: mock(() => Promise.resolve("")),
-    });
+    mockSessionDB = new FakeSessionProvider();
+    mockGitService = new FakeGitService();
 
     mockRepositoryBackend = {
       getType: mock(() => "local"),
@@ -35,11 +28,12 @@ describe("Session Approval Repository Backend Bug", () => {
       ),
     } as unknown as RepositoryBackend;
 
-    mockTaskService = createPartialMock<TaskServiceInterface>({
-      getTask: mock(() => Promise.resolve({ id: "test", title: "Test Task" })) as any,
-      setTaskStatus: mock(() => Promise.resolve()),
-      getTaskStatus: mock(() => Promise.resolve("TODO")),
-    });
+    mockTaskService = new FakeTaskService();
+    mockTaskService.getTask = mock(() =>
+      Promise.resolve({ id: "test", title: "Test Task", status: "TODO" })
+    ) as any;
+    mockTaskService.setTaskStatus = mock(() => Promise.resolve()) as any;
+    mockTaskService.getTaskStatus = mock(() => Promise.resolve("TODO")) as any;
 
     // Mock createRepositoryBackend to return our mock backend
     mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -67,9 +61,8 @@ describe("Session Approval Repository Backend Bug", () => {
       // Note: no backendType set, which should default to LOCAL based on repoUrl
     };
 
-    // Configure mock session database
-    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(localSessionRecord));
-    mockSessionDB.getSession = mock(() => Promise.resolve(localSessionRecord));
+    // Configure fake session database
+    mockSessionDB = new FakeSessionProvider({ initialSessions: [localSessionRecord] });
 
     // Configure mock repository backend for LOCAL type
     mockRepositoryBackend.getType = mock(() => "local");
@@ -133,9 +126,8 @@ describe("Session Approval Repository Backend Bug", () => {
       },
     };
 
-    // Configure mock session database
-    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(githubSessionRecord));
-    mockSessionDB.getSession = mock(() => Promise.resolve(githubSessionRecord));
+    // Configure fake session database
+    mockSessionDB = new FakeSessionProvider({ initialSessions: [githubSessionRecord] });
 
     // Configure mock repository backend for GitHub type
     mockRepositoryBackend.getType = mock(() => "github");

@@ -8,7 +8,8 @@ import {
   findSessionsByTaskId,
   hasSessionsForTask,
 } from "./session-task-association";
-import type { SessionProviderInterface, SessionRecord } from "./types";
+import type { SessionRecord } from "./types";
+import { FakeSessionProvider } from "./fake-session-provider";
 
 // Mock session data
 const mockSessions: SessionRecord[] = [
@@ -36,22 +37,16 @@ const mockSessions: SessionRecord[] = [
 ];
 
 // Mock session provider
-const createMockSessionProvider = (): SessionProviderInterface => ({
-  listSessions: mock(() => Promise.resolve([...mockSessions])),
-  getSession: mock(() => Promise.resolve(mockSessions[0])) as any,
-  getSessionByTaskId: mock(() => Promise.resolve(null)),
-  addSession: mock(() => Promise.resolve()),
-  updateSession: mock(() => Promise.resolve()),
-  deleteSession: mock(() => Promise.resolve(true)),
-  getRepoPath: mock(() => Promise.resolve("/fake/repo")),
-  getSessionWorkdir: mock(() => Promise.resolve("/fake/path")),
-});
+const createMockSessionProvider = (): FakeSessionProvider =>
+  new FakeSessionProvider({ initialSessions: [...mockSessions] });
 
 describe("Session Task Association", () => {
-  let mockProvider: SessionProviderInterface;
+  let mockProvider: FakeSessionProvider;
 
   beforeEach(() => {
     mockProvider = createMockSessionProvider();
+    // Make updateSession a spy so tests can assert on calls
+    mockProvider.updateSession = mock(() => Promise.resolve());
     // Reset the mock sessions to original state
     mockSessions[0]!.taskId = "123";
     mockSessions[1]!.taskId = "456";

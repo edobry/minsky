@@ -1,10 +1,9 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
-import { createPartialMock } from "../utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
-import type { WorkspaceUtilsInterface } from "./workspace";
+import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
 // Remove global module mock - use dependency injection instead
 
@@ -58,7 +57,7 @@ describe("Session Approve Branch Cleanup", () => {
           Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
         return svc;
       })(),
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
@@ -112,7 +111,7 @@ describe("Session Approve Branch Cleanup", () => {
           Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
         return svc;
       })(),
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
@@ -167,7 +166,7 @@ describe("Session Approve Branch Cleanup", () => {
           Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
         return svc;
       })(),
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),

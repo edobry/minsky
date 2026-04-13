@@ -11,8 +11,7 @@ import { ResourceNotFoundError } from "../../errors/index";
 import { initializeConfiguration, CustomConfigFactory } from "../../domain/configuration";
 import { PersistenceService } from "../persistence/service";
 import type { PersistenceProvider } from "../persistence/types";
-import type { SessionProviderInterface } from "./types";
-import { createPartialMock } from "../../utils/test-utils/mocking";
+import { FakeSessionProvider } from "./fake-session-provider";
 
 // Create mock persistence provider for testing that returns empty sessions
 const mockPersistenceProvider = {
@@ -75,10 +74,12 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
           json: false,
         },
         {
-          sessionDB: createPartialMock<SessionProviderInterface>({
-            getSessionByTaskId: mockSessionDB.getSessionByTaskId,
-            getSession: mockSessionDB.getSession,
-          }),
+          sessionDB: (() => {
+            const fake = new FakeSessionProvider();
+            fake.getSessionByTaskId = mockSessionDB.getSessionByTaskId;
+            fake.getSession = mockSessionDB.getSession;
+            return fake;
+          })(),
         }
       );
     } catch (error) {
@@ -99,10 +100,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
 
   test("should require session ID or task ID", async () => {
     // No session ID or task ID provided
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSessionByTaskId: async () => null,
-      getSession: async () => null,
-    });
+    const mockSessionDB = new FakeSessionProvider();
     await expect(
       approveSessionPr(
         {
@@ -116,10 +114,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
 
   test("should provide clear error message for missing session", async () => {
     // Test that error messages are clear and concise for the new approve function
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSessionByTaskId: async () => null,
-      getSession: async () => null,
-    });
+    const mockSessionDB = new FakeSessionProvider();
     try {
       await approveSessionPr(
         {
