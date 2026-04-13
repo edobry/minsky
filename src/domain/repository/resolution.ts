@@ -5,7 +5,7 @@
  * Extracted from the parent repository.ts file.
  */
 import { normalizeRepositoryUri, UriFormat } from "../uri-utils";
-import { createSessionProvider } from "../session";
+import type { SessionProviderInterface } from "../session";
 import { getCurrentWorkingDirectory } from "../../utils/process";
 import { ValidationError, MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
@@ -28,7 +28,8 @@ import type { RepositoryResolutionOptions, ResolvedRepository } from "./legacy-t
  * @throws ValidationError if repository cannot be resolved
  */
 export async function resolveRepository(
-  options: RepositoryResolutionOptions = {}
+  options: RepositoryResolutionOptions = {},
+  deps?: { sessionDB: SessionProviderInterface }
 ): Promise<ResolvedRepository> {
   const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
@@ -41,8 +42,10 @@ export async function resolveRepository(
   }
   // 2. Try to resolve from session
   else if (session) {
-    const sessionDb = await createSessionProvider();
-    const sessionRecord = await sessionDb.getSession(session);
+    if (!deps?.sessionDB) {
+      throw new ValidationError("sessionDB dependency is required when resolving by session");
+    }
+    const sessionRecord = await deps.sessionDB.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
@@ -52,9 +55,11 @@ export async function resolveRepository(
   }
   // 3. Try to resolve from task ID
   else if (taskId) {
+    if (!deps?.sessionDB) {
+      throw new ValidationError("sessionDB dependency is required when resolving by task ID");
+    }
     const validatedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const sessionDb = await createSessionProvider();
-    const sessionRecord = await sessionDb.getSessionByTaskId(validatedTaskId);
+    const sessionRecord = await deps.sessionDB.getSessionByTaskId(validatedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
     }

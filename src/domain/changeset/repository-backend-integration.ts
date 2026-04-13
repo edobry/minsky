@@ -9,6 +9,7 @@ import { ChangesetService, createChangesetService } from "./changeset-service";
 import type { RepositoryBackend, RepositoryBackendConfig } from "../repository/index";
 import type { Changeset, CreateChangesetOptions } from "./types";
 import { getRepositoryBackendFromConfig } from "../session/repository-backend-detection";
+import type { SessionProviderInterface } from "../session/types";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 
@@ -86,6 +87,7 @@ export function withChangesetSupport<T extends RepositoryBackend>(
  */
 export async function createChangesetAwareRepositoryBackend(
   repositoryUrl: string,
+  sessionDB: SessionProviderInterface,
   workdir?: string
 ): Promise<ChangesetAwareRepositoryBackend> {
   try {
@@ -113,7 +115,7 @@ export async function createChangesetAwareRepositoryBackend(
 
     // Create base repository backend
     const { createRepositoryBackend } = await import("../repository/index");
-    const repositoryBackend = await createRepositoryBackend(config);
+    const repositoryBackend = await createRepositoryBackend(config, sessionDB);
 
     // Enhance with changeset support
     return withChangesetSupport(repositoryBackend, repositoryUrl, workdir);

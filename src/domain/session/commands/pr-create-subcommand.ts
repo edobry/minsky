@@ -63,7 +63,7 @@ export async function sessionPrCreate(
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
-    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord, sessionDB);
     if (repositoryBackend.constructor.name !== "GitHubBackend") {
       throw new ValidationError(
         "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."

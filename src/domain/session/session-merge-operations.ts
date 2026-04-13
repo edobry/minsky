@@ -207,7 +207,9 @@ export async function mergeSessionPr(
     }
   }
 
-  const createBackendFunc = deps?.createRepositoryBackend || createRepositoryBackend;
+  const createBackendFunc =
+    deps?.createRepositoryBackend ||
+    ((c: RepositoryBackendConfig) => createRepositoryBackend(c, sessionDB));
   const repositoryBackend = await createBackendFunc(config);
 
   // Removed implementation detail - backend type is apparent from context
