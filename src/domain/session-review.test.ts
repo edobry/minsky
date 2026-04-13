@@ -6,9 +6,6 @@ import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
-const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 3;
-
 describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
@@ -27,23 +24,6 @@ describe("sessionReviewFromParams", () => {
       Promise.resolve("/fake/path/to/session")
     );
 
-    const execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
-      const cmd = command as string;
-      if (cmd.includes("git ls-remote")) {
-        return Promise.resolve("refs/heads/pr/testSession");
-      }
-      if (cmd.includes("log -1")) {
-        return Promise.resolve("PR Title\n\nPR Description body");
-      }
-      if (cmd.includes("diff --stat")) {
-        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
-      }
-      if (cmd.includes("git diff")) {
-        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
-      }
-      return Promise.resolve("");
-    });
-
     const getTaskSpecDataSpy = mock(() =>
       Promise.resolve({ title: "Test Task", description: "Test description" })
     );
@@ -54,7 +34,6 @@ describe("sessionReviewFromParams", () => {
     mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
     const mockGitService = new FakeGitService();
-    mockGitService.execInRepository = execInRepositorySpy;
 
     const mockTaskService = Object.assign(new FakeTaskService(), {
       getTaskSpecData: getTaskSpecDataSpy,
@@ -78,11 +57,12 @@ describe("sessionReviewFromParams", () => {
     // Verify calls with individual spies
     expect(getSessionSpy).toHaveBeenCalledWith("testSession");
     expect(getSessionWorkdirSpy).toHaveBeenCalledWith("testSession");
-    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
 
     // Verify result structure
     expect(result.session).toBe("testSession");
     expect(result.taskId).toBe("123");
+    // The repository backend should have resolved the PR branch from session data
+    expect(result.prBranch).toBeDefined();
   });
 
   test("reviews session by task ID", async () => {
@@ -113,23 +93,6 @@ describe("sessionReviewFromParams", () => {
       Promise.resolve("/fake/path/to/session")
     );
 
-    const execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
-      const cmd = command as string;
-      if (cmd.includes("git ls-remote")) {
-        return Promise.resolve("refs/heads/pr/task123");
-      }
-      if (cmd.includes("log -1")) {
-        return Promise.resolve("PR Title\n\nPR Description body");
-      }
-      if (cmd.includes("diff --stat")) {
-        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
-      }
-      if (cmd.includes("git diff")) {
-        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
-      }
-      return Promise.resolve("");
-    });
-
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.getSession = getSessionSpy;
@@ -137,7 +100,6 @@ describe("sessionReviewFromParams", () => {
     mockSessionDB.getSessionWorkdir = getSessionWorkdirSpy as any;
 
     const mockGitService = new FakeGitService();
-    mockGitService.execInRepository = execInRepositorySpy;
 
     const mockTaskService = Object.assign(new FakeTaskService(), {
       getTaskSpecData: mock(() =>
@@ -163,10 +125,11 @@ describe("sessionReviewFromParams", () => {
     // Verify calls with individual spies
     expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("md#123");
     expect(getSessionWorkdirSpy).toHaveBeenCalledWith("task123");
-    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
 
     // Verify result
     expect(result.taskId).toBe("md#123");
+    // The repository backend should have resolved the PR branch from session data
+    expect(result.prBranch).toBeDefined();
   });
 
   test("throws ValidationError when no session detected", async () => {

@@ -279,7 +279,7 @@ async function analyzeBackendSyncIssues(
 
   // Check if backend type matches actual repository
   try {
-    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord, sessionDB);
     const actualBackendType = repositoryBackend.constructor.name
       .toLowerCase()
       .replace("backend", "");

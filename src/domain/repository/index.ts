@@ -17,6 +17,7 @@ import { getErrorMessage } from "../../errors/index";
 import { execAsync } from "../../utils/exec";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 import type { SessionRecord } from "../session/types";
+import type { SessionProviderInterface } from "../session/types";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -381,7 +382,8 @@ export interface Result {
  * @returns Repository backend instance
  */
 export async function createRepositoryBackend(
-  config: RepositoryBackendConfig
+  config: RepositoryBackendConfig,
+  sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
   // Validate common configuration
   if (!config.type) {
@@ -410,7 +412,7 @@ export async function createRepositoryBackend(
       }
 
       const { LocalGitBackend } = await import("./local");
-      return new LocalGitBackend(config);
+      return new LocalGitBackend(config, sessionDB);
     }
 
     case RepositoryBackendType.REMOTE: {
@@ -444,7 +446,7 @@ export async function createRepositoryBackend(
       }
 
       const { RemoteGitBackend } = await import("./remote");
-      return new RemoteGitBackend(config);
+      return new RemoteGitBackend(config, sessionDB);
     }
 
     case RepositoryBackendType.GITHUB: {
@@ -465,7 +467,7 @@ export async function createRepositoryBackend(
       }
 
       const { GitHubBackend } = await import("./github");
-      return new GitHubBackend(config);
+      return new GitHubBackend(config, sessionDB);
     }
 
     default:
