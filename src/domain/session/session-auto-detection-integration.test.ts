@@ -114,7 +114,7 @@ describe("Session Command Domain Logic", () => {
         }
       );
 
-      expect(result).toBe(true);
+      expect(result.deleted).toBe(true);
     });
 
     test("deletes session by explicit task ID", async () => {
@@ -129,7 +129,7 @@ describe("Session Command Domain Logic", () => {
         }
       );
 
-      expect(result).toBe(true);
+      expect(result.deleted).toBe(true);
     });
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
@@ -157,7 +157,8 @@ describe("Session Command Domain Logic", () => {
         }
       );
 
-      expect(result).toBe(false);
+      expect(result.deleted).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 
@@ -178,7 +179,7 @@ describe("Session Command Domain Logic", () => {
         { task: taskId, force: true, json: false },
         { sessionDB: mockSessionProvider }
       );
-      expect(deleteResult).toBe(true);
+      expect(deleteResult.deleted).toBe(true);
 
       // All commands should have resolved to the same session
     });

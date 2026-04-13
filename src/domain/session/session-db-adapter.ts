@@ -107,19 +107,19 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   async deleteSession(sessionId: string): Promise<boolean> {
     log.debug(`Deleting session: ${sessionId}`);
-    try {
-      const storage = await this.getStorage();
-      const deleted = await storage.deleteEntity(sessionId);
-      if (deleted) {
-        log.debug(`Session deleted successfully: ${sessionId}`);
-      } else {
-        log.debug(`Session not found: ${sessionId}`);
-      }
-      return deleted;
-    } catch (error) {
-      log.error(`Failed to delete session '${sessionId}': ${getErrorMessage(error)}`);
-      return false;
+    // Note: we do NOT wrap this in a catch-all.  Storage errors (permission denied,
+    // corruption, etc.) must propagate so callers can surface them to the user.
+    // Returning `false` is only appropriate for "session not found" — a legitimate
+    // outcome for idempotent delete — which the underlying storage signals by
+    // returning `false` from `deleteEntity` rather than throwing.
+    const storage = await this.getStorage();
+    const deleted = await storage.deleteEntity(sessionId);
+    if (deleted) {
+      log.debug(`Session deleted successfully: ${sessionId}`);
+    } else {
+      log.debug(`Session not found for deletion: ${sessionId}`);
     }
+    return deleted;
   }
 
   async doesSessionExist(sessionId: string): Promise<boolean> {
