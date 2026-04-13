@@ -414,7 +414,10 @@ ${stringify(config, { indent: 2 })}`;
    */
   private setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const keys = path.split(".");
-    const lastKey = keys.pop()!;
+    const lastKey = keys.pop();
+    if (!lastKey) {
+      throw new Error(`Invalid config path: "${path}"`);
+    }
 
     let current: Record<string, unknown> = obj;
     for (const key of keys) {
@@ -433,7 +436,10 @@ ${stringify(config, { indent: 2 })}`;
    */
   private unsetNestedValue(obj: Record<string, unknown>, path: string): void {
     const keys = path.split(".");
-    const lastKey = keys.pop()!;
+    const lastKey = keys.pop();
+    if (!lastKey) {
+      throw new Error(`Invalid config path: "${path}"`);
+    }
 
     let current: Record<string, unknown> = obj;
     for (const key of keys) {

@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach } from "bun:test";
+import { first } from "../../../src/utils/array-safety";
 import {
   TaskRoutingService,
   type AvailableTask,
@@ -328,8 +329,8 @@ describe("TaskRoutingService", () => {
 
       // Should handle missing dependencies gracefully
       expect(availableTasks.length).toBe(1);
-      expect(availableTasks[0]!.taskId).toBe("task-x");
-      expect(availableTasks[0]!.readinessScore).toBe(1.0); // Should be ready since dep doesn't exist
+      expect(first(availableTasks).taskId).toBe("task-x");
+      expect(first(availableTasks).readinessScore).toBe(1.0); // Should be ready since dep doesn't exist
     });
 
     test("handles circular dependency detection in route generation", async () => {

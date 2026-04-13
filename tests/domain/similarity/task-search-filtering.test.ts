@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { first } from "../../../src/utils/array-safety";
 import { EmbeddingsSimilarityBackend } from "../../../src/domain/similarity/backends/embeddings-backend";
 import type { SimilarityQuery } from "../../../src/domain/similarity/types";
 import { MemoryVectorStorage } from "../../../src/domain/storage/vector/memory-vector-storage";
@@ -100,9 +101,9 @@ describe("Task Search Server-Side Filtering Integration", () => {
     const results = await backend.search(query);
 
     expect(results).toHaveLength(1);
-    expect(results[0]!.id).toBe("gh#002");
-    expect(results[0]!.metadata?.status).toBe("TODO");
-    expect(results[0]!.metadata?.backend).toBe("github");
+    expect(first(results).id).toBe("gh#002");
+    expect(first(results).metadata?.status).toBe("TODO");
+    expect(first(results).metadata?.backend).toBe("github");
   });
 
   it("should respect limit with filters", async () => {
@@ -115,8 +116,8 @@ describe("Task Search Server-Side Filtering Integration", () => {
     const results = await backend.search(query);
 
     expect(results).toHaveLength(1);
-    expect(["gh#001", "gh#002"]).toContain(results[0]!.id);
-    expect(results[0]!.metadata?.backend).toBe("github");
+    expect(["gh#001", "gh#002"]).toContain(first(results).id);
+    expect(first(results).metadata?.backend).toBe("github");
   });
 
   it("should return empty results for non-matching filters", async () => {

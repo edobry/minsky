@@ -5,6 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { firstMatch } from "../../../src/utils/array-safety";
 import { join } from "path";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import type { SessionTestData } from "./session-test-utilities";
@@ -135,7 +136,7 @@ describe("session pr command", () => {
         if (command.includes("git switch") || command.includes("git checkout")) {
           const branchMatch = command.match(/(?:switch|checkout)\s+(?:-C\s+)?([^\s]+)/);
           if (branchMatch) {
-            currentBranch = branchMatch[1]!;
+            currentBranch = firstMatch(branchMatch);
             branchHistory.push(currentBranch);
           }
         }
