@@ -6,48 +6,47 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git";
 import { createTestDeps } from "../../utils/test-utils/dependencies";
-import { createPartialMock } from "../../utils/test-utils/mocking";
+import { FakeGitService } from "./fake-git-service";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";
-import type { CloneOptions, GitServiceInterface } from "./types";
+import type { CloneOptions } from "./types";
 
 describe("Clone Operations with Dependency Injection", () => {
   let deps: DomainDependencies;
   let gitService: GitService;
 
   beforeEach(() => {
-    // Create custom mock for clone operations using createPartialMock
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      pullLatest: (_repoPath: string, _remote?: string) =>
-        Promise.resolve({ workdir: _repoPath, updated: false }),
-      clone: (options: CloneOptions) => {
-        // Mock different clone scenarios based on repoUrl
-        if (options?.repoUrl?.includes("nonexistent")) {
-          return Promise.reject(new Error("Repository not found"));
-        }
-        if (options?.repoUrl?.includes("local/path/to/repo")) {
-          return Promise.reject(new Error("Repository does not exist"));
-        }
-        // Default successful clone
-        return Promise.resolve({
-          workdir: options?.workdir || "/test/workdir",
-          session: "test-session",
-        });
-      },
-      execInRepository: (workdir: string, command: string) => {
-        // Mock git commands for clone operations
-        if (command.includes("rev-parse --show-toplevel")) {
-          return Promise.resolve(workdir);
-        }
-        if (command.includes("status --porcelain")) {
-          return Promise.resolve("");
-        }
+    // Create custom mock for clone operations using FakeGitService
+    const mockGitService = new FakeGitService();
+    mockGitService.pullLatest = (_repoPath: string, _remote?: string) =>
+      Promise.resolve({ workdir: _repoPath, updated: false });
+    mockGitService.clone = (options: CloneOptions) => {
+      // Mock different clone scenarios based on repoUrl
+      if (options?.repoUrl?.includes("nonexistent")) {
+        return Promise.reject(new Error("Repository not found"));
+      }
+      if (options?.repoUrl?.includes("local/path/to/repo")) {
+        return Promise.reject(new Error("Repository does not exist"));
+      }
+      // Default successful clone
+      return Promise.resolve({
+        workdir: options?.workdir || "/test/workdir",
+        session: "test-session",
+      });
+    };
+    mockGitService.execInRepository = (workdir: string, command: string) => {
+      // Mock git commands for clone operations
+      if (command.includes("rev-parse --show-toplevel")) {
+        return Promise.resolve(workdir);
+      }
+      if (command.includes("status --porcelain")) {
         return Promise.resolve("");
-      },
-    });
+      }
+      return Promise.resolve("");
+    };
 
     // Use established DI patterns with custom git service mock
     deps = createTestDeps({
-      gitService: mockGitService as any,
+      gitService: mockGitService,
     });
 
     gitService = deps.gitService as GitService;

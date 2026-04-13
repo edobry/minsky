@@ -1,13 +1,12 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMock } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
-import type { WorkspaceUtilsInterface } from "./workspace";
-import type { TaskServiceInterface } from "./tasks/taskService";
-import type { SessionProviderInterface } from "./session";
+import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
+import { FakeTaskService } from "./tasks/fake-task-service";
 
 // Mock logger
 // Remove global module mock - use dependency injection instead
@@ -56,24 +55,21 @@ describe("Session Approve", () => {
     const mockGitService = new FakeGitService();
     mockGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
 
-    const mockTaskService = createPartialMock<TaskServiceInterface>({
-      setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: (() =>
-        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-      getTask: () =>
-        Promise.resolve({
-          id: TEST_TASK_ID,
-          title: TEST_TASK_TITLE,
-          status: TEST_TASK_STATUS,
-          createdAt: new Date().toISOString(),
-        }),
-    });
+    const mockTaskService = (() => {
+      const svc = new FakeTaskService({
+        initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+      });
+      svc.setTaskStatus = () => Promise.resolve();
+      svc.getBackendForTask = (() =>
+        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+      return svc;
+    })();
 
     const simpleDeps = {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
@@ -119,24 +115,21 @@ describe("Session Approve", () => {
     const mockGitService = new FakeGitService();
     mockGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
 
-    const mockTaskService = createPartialMock<TaskServiceInterface>({
-      setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: (() =>
-        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-      getTask: () =>
-        Promise.resolve({
-          id: TEST_TASK_ID,
-          title: TEST_TASK_TITLE,
-          status: TEST_TASK_STATUS,
-          createdAt: new Date().toISOString(),
-        }),
-    });
+    const mockTaskService = (() => {
+      const svc = new FakeTaskService({
+        initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+      });
+      svc.setTaskStatus = () => Promise.resolve();
+      svc.getBackendForTask = (() =>
+        Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+      return svc;
+    })();
 
     const testDeps = {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
@@ -188,19 +181,16 @@ describe("Session Approve", () => {
     const testDeps = {
       sessionDB: mockSessionDB,
       gitService: _inlineGitService,
-      taskService: createPartialMock<TaskServiceInterface>({
-        setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: (() =>
-          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
-        getTask: () =>
-          Promise.resolve({
-            id: "md#456",
-            title: TEST_TASK_TITLE,
-            status: TEST_TASK_STATUS,
-            createdAt: new Date().toISOString(),
-          }),
-      }),
-      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+      taskService: (() => {
+        const svc = new FakeTaskService({
+          initialTasks: [{ id: "md#456", title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
+        });
+        svc.setTaskStatus = () => Promise.resolve();
+        svc.getBackendForTask = (() =>
+          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
+        return svc;
+      })(),
+      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
@@ -227,19 +217,20 @@ describe("Session Approve", () => {
 
   test("throws error when session is not found", async () => {
     // Create mocks using centralized factories
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: () => Promise.resolve(null),
-      getSessionByTaskId: () => Promise.resolve(null),
-      getSessionWorkdir: mock(() => Promise.resolve("")),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSession = () => Promise.resolve(null);
+    mockSessionDB.getSessionByTaskId = () => Promise.resolve(null);
+    mockSessionDB.getSessionWorkdir = mock(() => Promise.resolve(""));
 
     const mockGitService = new FakeGitService();
     mockGitService.execInRepository = () => Promise.resolve("");
 
-    const mockTaskService = createPartialMock<TaskServiceInterface>({
-      setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: (() => Promise.resolve({})) as any,
-    });
+    const mockTaskService = (() => {
+      const svc = new FakeTaskService();
+      svc.setTaskStatus = () => Promise.resolve();
+      svc.getBackendForTask = (() => Promise.resolve({})) as any;
+      return svc;
+    })();
 
     // Create test dependencies
     const testDeps = {

@@ -14,8 +14,6 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT MOCK: Use the function that actually merges, not just approves
-import type { SessionProviderInterface } from "../session";
-import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 import type { ApprovalInfo } from "../repository/approval-types";
 import { FakeGitService } from "../git/fake-git-service";
@@ -207,67 +205,65 @@ describe("Session Approve Task Status Commit", () => {
     const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`;
 
     const gitCommands: string[] = [];
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      execInRepository: (workdir: string, command: string) => {
-        gitCommands.push(command);
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = (workdir: string, command: string) => {
+      gitCommands.push(command);
 
-        // Mock git operations
-        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("");
-        }
-        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("def456commit");
-        }
-        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
-          return Promise.resolve("def456commit");
-        }
-        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
-          return Promise.resolve("Test User");
-        }
-        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
-          // No changes after task status update
-          return Promise.resolve("");
-        }
-
+      // Mock git operations
+      if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
         return Promise.resolve("");
-      },
-    });
+      }
+      if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("");
+      }
+      if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("def456commit");
+      }
+      if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("");
+      }
+      if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
+        return Promise.resolve("def456commit");
+      }
+      if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
+        return Promise.resolve("Test User");
+      }
+      if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
+        // No changes after task status update
+        return Promise.resolve("");
+      }
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSessionByTaskId: (taskId: string) =>
-        Promise.resolve({
-          session: `task#${taskId}`,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-          prBranch: `pr/task#${taskId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-    });
+      return Promise.resolve("");
+    };
+
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSessionByTaskId = (taskId: string) =>
+      Promise.resolve({
+        session: `task#${taskId}`,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+        prBranch: `pr/task#${taskId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
+    mockSessionDB.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: QUALIFIED_TASK_ID,
+        prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
 
     const mockTaskService = {
       getTask: () =>
@@ -341,66 +337,64 @@ describe("Session Approve Task Status Commit", () => {
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      execInRepository: (workdir: string, command: string) => {
-        gitCommands.push(command);
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = (workdir: string, command: string) => {
+      gitCommands.push(command);
 
-        // Early exit commands should be handled first
-        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
-          // EXPLICIT MOCK: Use correct PR branch name with dash (task-md#125)
-          // PR branch doesn't exist - this should trigger early exit
-          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
-        }
-        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
-          return Promise.resolve("ghi789commit");
-        }
-        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
-          return Promise.resolve("Test User");
-        }
+      // Early exit commands should be handled first
+      if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+        // EXPLICIT MOCK: Use correct PR branch name with dash (task-md#125)
+        // PR branch doesn't exist - this should trigger early exit
+        throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
+      }
+      if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
+        return Promise.resolve("ghi789commit");
+      }
+      if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
+        return Promise.resolve("Test User");
+      }
 
-        // Normal merge flow commands (should not be reached due to early exit)
-        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
-          return Promise.resolve("");
-        }
-        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("ghi789commit");
-        }
-        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
-          return Promise.resolve("");
-        }
-        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
-          return Promise.resolve("");
-        }
-
+      // Normal merge flow commands (should not be reached due to early exit)
+      if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
         return Promise.resolve("");
-      },
-    });
+      }
+      if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
+        return Promise.resolve("");
+      }
+      if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("ghi789commit");
+      }
+      if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
+        // TEMPLATE LITERAL: Use extracted constant
+        return Promise.resolve("");
+      }
+      if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
+        return Promise.resolve("");
+      }
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSessionByTaskId: (taskId: string) =>
-        Promise.resolve({
-          session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#125)
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-          prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
-        }),
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-    });
+      return Promise.resolve("");
+    };
+
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSessionByTaskId = (taskId: string) =>
+      Promise.resolve({
+        session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#125)
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+        prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
+      });
+    mockSessionDB.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: QUALIFIED_TASK_ID,
+        prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
 
     const mockTaskService = {
       getTask: () =>
@@ -469,46 +463,44 @@ describe("Session Approve Task Status Commit", () => {
     const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      execInRepository: (workdir: string, command: string) => {
-        gitCommands.push(command);
+    const mockGitService = new FakeGitService();
+    mockGitService.execInRepository = (workdir: string, command: string) => {
+      gitCommands.push(command);
 
-        // Mock git operations
-        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
-          // PR branch doesn't exist - this should trigger early exit
-          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
-        }
-        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
-          return Promise.resolve("c89cf17c");
-        }
-        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
-          return Promise.resolve("Eugene Dobry");
-        }
+      // Mock git operations
+      if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+        // PR branch doesn't exist - this should trigger early exit
+        throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
+      }
+      if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
+        return Promise.resolve("c89cf17c");
+      }
+      if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
+        return Promise.resolve("Eugene Dobry");
+      }
 
-        return Promise.resolve("");
-      },
-    });
+      return Promise.resolve("");
+    };
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSessionByTaskId: (taskId: string) =>
-        Promise.resolve({
-          session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#266)
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-          prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
-        }),
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: QUALIFIED_TASK_ID,
-          prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
-        }),
-    });
+    const mockSessionDB = new FakeSessionProvider();
+    mockSessionDB.getSessionByTaskId = (taskId: string) =>
+      Promise.resolve({
+        session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#266)
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+        prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
+      });
+    mockSessionDB.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: QUALIFIED_TASK_ID,
+        prBranch: `pr/${sessionId}`, // EXPLICIT MOCK: Add required prBranch property
+      });
 
     const mockTaskService = {
       getTask: () =>
