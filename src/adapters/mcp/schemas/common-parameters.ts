@@ -167,6 +167,13 @@ export const ShowHiddenFilesSchema = z.object({
 export const SearchReplaceSchema = z.object({
   search: z.string().describe("Text to search for (must be unique in the file)"),
   replace: z.string().describe("Text to replace with"),
+  replace_all: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "When true, replace ALL occurrences of the search text. When false (default), require exactly one occurrence and replace it."
+    ),
 });
 
 /**
