@@ -1,7 +1,7 @@
 import { join } from "path";
 import { HTTP_OK } from "../../utils/constants";
 import { mkdir } from "fs/promises";
-import { createSessionProvider, type SessionProviderInterface } from "../session";
+import type { SessionProviderInterface } from "../session";
 import { execAsync } from "../../utils/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
@@ -52,14 +52,15 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly repoName!: string;
   private readonly owner?: string;
   private readonly repo?: string;
-  private sessionDB: SessionProviderInterface | null = null;
+  private readonly sessionDB: SessionProviderInterface;
   private gitService: GitService;
 
   /**
    * Create a new GitHubBackend instance
    * @param config Backend configuration
+   * @param sessionDB Session provider for database operations
    */
-  constructor(config: RepositoryBackendConfig) {
+  constructor(config: RepositoryBackendConfig, sessionDB: SessionProviderInterface) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
@@ -95,16 +96,14 @@ export class GitHubBackend implements RepositoryBackend {
         // Ignore parsing errors; explicit config may still provide these later
       }
     }
+    this.sessionDB = sessionDB;
     this.gitService = new GitService(this.baseDir);
   }
 
   /**
-   * Initialize session database lazily
+   * Get the session database provider
    */
   private async getSessionDB(): Promise<SessionProviderInterface> {
-    if (!this.sessionDB) {
-      this.sessionDB = await createSessionProvider();
-    }
     return this.sessionDB;
   }
 

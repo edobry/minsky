@@ -1,6 +1,6 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { createSessionProvider, type SessionProviderInterface } from "../session";
+import type { SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout, gitCloneWithTimeout } from "../../utils/git-exec";
 import { log } from "../../utils/logger";
@@ -42,23 +42,21 @@ export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
   private readonly repoUrl!: string;
   private readonly repoName!: string;
-  private sessionDB: SessionProviderInterface | null = null;
+  private readonly sessionDB: SessionProviderInterface;
   private config: RepositoryBackendConfig;
 
-  constructor(config: RepositoryBackendConfig) {
+  constructor(config: RepositoryBackendConfig, sessionDB: SessionProviderInterface) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.config = config;
+    this.sessionDB = sessionDB;
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────
 
   private async getSessionDB(): Promise<SessionProviderInterface> {
-    if (!this.sessionDB) {
-      this.sessionDB = await createSessionProvider();
-    }
     return this.sessionDB;
   }
 

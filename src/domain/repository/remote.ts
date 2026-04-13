@@ -1,6 +1,6 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { createSessionProvider, type SessionProviderInterface } from "../session";
+import type { SessionProviderInterface } from "../session";
 import { execAsync } from "../../utils/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout } from "../../utils/git-exec";
@@ -33,13 +33,14 @@ export class RemoteGitBackend implements RepositoryBackend {
   private readonly repoUrl!: string;
   private readonly repoName!: string;
   private readonly defaultBranch?: string;
-  private sessionDB: SessionProviderInterface | null = null;
+  private readonly sessionDB: SessionProviderInterface;
 
   /**
    * Create a new RemoteGitBackend instance
    * @param config Backend configuration
+   * @param sessionDB Session provider for database operations
    */
-  constructor(config: RepositoryBackendConfig) {
+  constructor(config: RepositoryBackendConfig, sessionDB: SessionProviderInterface) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
@@ -52,15 +53,13 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
+    this.sessionDB = sessionDB;
   }
 
   /**
-   * Initialize session database lazily
+   * Get the session database provider
    */
   private async getSessionDB(): Promise<SessionProviderInterface> {
-    if (!this.sessionDB) {
-      this.sessionDB = await createSessionProvider();
-    }
     return this.sessionDB;
   }
 
