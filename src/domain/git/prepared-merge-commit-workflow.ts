@@ -1,13 +1,7 @@
 import { execGitWithTimeout } from "../../utils/git-exec";
-import {
-  MinskyError,
-  SessionConflictError,
-  GitOperationError,
-  getErrorMessage,
-} from "../../errors/index";
+import { MinskyError, SessionConflictError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { ConflictDetectionService } from "./conflict-detection";
-import { createSessionProvider, type SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "../repository/index";
 
 /**

@@ -11,12 +11,9 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from "fs";
-import { resolve, join } from "path";
+import { resolve } from "path";
 import { log } from "../src/utils/logger";
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-} from "../src/domain/tasks/task-id-utils";
+import { normalizeTaskIdForStorage } from "../src/domain/tasks/task-id-utils";
 
 interface MigrationOptions {
   dryRun: boolean;

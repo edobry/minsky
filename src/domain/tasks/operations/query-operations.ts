@@ -4,8 +4,6 @@
  * Operations for querying tasks (list, get, status, spec).
  * Extracted from taskCommands.ts as part of modularization effort.
  */
-import { readFile } from "fs/promises";
-import { TASK_STATUS } from "../taskConstants";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,

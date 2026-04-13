@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import { TASK_STATUS } from "./taskConstants";
 import type { Task, TaskListOptions } from "./types";
 import { first } from "../../utils/array-safety";

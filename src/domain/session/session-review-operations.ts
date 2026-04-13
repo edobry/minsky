@@ -1,27 +1,11 @@
-import { existsSync } from "fs";
-import { readFile, writeFile, mkdir, access } from "fs/promises";
-import { join } from "path";
-import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
-import {
-  MinskyError,
-  ResourceNotFoundError,
-  ValidationError,
-  getErrorMessage,
-  createCommandFailureMessage,
-} from "../../errors/index";
+import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
-import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
-import { execAsync } from "../../utils/exec";
-import {
-  type WorkspaceUtilsInterface,
-  getCurrentSession,
-  getCurrentSessionContext,
-} from "../workspace";
+import { type TaskServiceInterface } from "../tasks";
+import { type WorkspaceUtilsInterface } from "../workspace";
 import { type SessionProviderInterface } from "./session-db-adapter";
-import { gitFetchWithTimeout } from "../../utils/git-exec";
 
 // Import changeset abstraction for enhanced review capabilities
 import { createChangesetService } from "../changeset/changeset-service";

@@ -12,7 +12,6 @@ import {
   type RuleGenerationConfig,
   type TemplateContext,
 } from "./template-system";
-import type { RuleFormat } from "./types";
 import * as grayMatterNamespace from "gray-matter";
 import { log } from "../../utils/logger";
 import { serializeYamlFrontmatter } from "./utils/yaml-frontmatter";

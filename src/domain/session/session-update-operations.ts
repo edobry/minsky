@@ -1,24 +1,17 @@
-import { existsSync } from "fs";
-import { readFile, writeFile, mkdir, access } from "fs/promises";
-import { join } from "path";
-import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-  createCommandFailureMessage,
 } from "../../errors/index";
 import type { SessionUpdateParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { getCurrentSession } from "../workspace";
 import { ConflictDetectionService } from "../git/conflict-detection";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { gitFetchWithTimeout } from "../../utils/git-exec";
 import { assertSessionMutable } from "./session-mutability";
-import { type WorkspaceUtilsInterface } from "../workspace";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;

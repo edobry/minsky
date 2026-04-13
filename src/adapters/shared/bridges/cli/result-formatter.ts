@@ -13,7 +13,6 @@ import {
   formatSessionApprovalDetails,
   formatDebugEchoDetails,
   formatRuleDetails,
-  formatRuleSummary,
 } from "../cli-result-formatters";
 
 /**

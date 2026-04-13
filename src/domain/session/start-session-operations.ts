@@ -17,7 +17,6 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
-import { getRepositoryBackendFromConfig } from "./repository-backend-detection";
 import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 

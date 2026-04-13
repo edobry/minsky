@@ -16,8 +16,7 @@ import { createGitHubCommand } from "./commands/github/index";
 import { createContextCommand } from "./commands/context/index";
 import { createLintCommand } from "./commands/lint/index";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
-import { validateProcess } from "./schemas/runtime";
-import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
+import { validateError } from "./schemas/error";
 
 /**
  * Root CLI command

@@ -6,7 +6,6 @@
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { join } from "path";
 import { FakeGitService } from "./git/fake-git-service";
 
 describe("Session Lookup Bug Integration Test", () => {

@@ -29,8 +29,6 @@ import {
   type Task,
   TASK_STATUS,
 } from "./tasks";
-import { ValidationError, ResourceNotFoundError } from "../errors/index";
-import { expectToBeInstanceOf } from "../utils/test-utils/assertions";
 import { createTaskTestDeps } from "../utils/test-utils/dependencies";
 import type { TaskDependencies } from "../utils/test-utils/dependencies";
 import * as taskServiceModule from "./tasks/taskService";

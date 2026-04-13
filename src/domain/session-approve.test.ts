@@ -1,7 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
-import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import { createMock } from "../utils/test-utils/mocking";
+import { ResourceNotFoundError } from "../errors/index";
 import { log } from "../utils/logger";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";

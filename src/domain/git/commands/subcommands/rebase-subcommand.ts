@@ -5,11 +5,7 @@ import {
 } from "../../../../adapters/shared/command-registry";
 import { rebaseFromParams } from "../rebase-command";
 import { log } from "../../../../utils/logger";
-import {
-  REPO_DESCRIPTION,
-  SESSION_DESCRIPTION,
-  GIT_BRANCH_DESCRIPTION,
-} from "../../../../utils/option-descriptions";
+import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
 /**
  * Parameters for the rebase command

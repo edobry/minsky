@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test";
 import {
-  type TaskId,
   parseTaskId,
   isQualifiedTaskId,
   formatTaskId,

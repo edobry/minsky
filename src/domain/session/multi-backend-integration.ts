@@ -4,7 +4,6 @@ import {
   sessionIdToTaskId,
   isQualifiedTaskId,
   extractBackend,
-  extractLocalId,
   generateSessionId,
   isUuidSessionId,
 } from "../tasks/task-id";

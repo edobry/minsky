@@ -16,8 +16,7 @@ import type { Task } from "./types";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readTextFile } from "../../utils/fs";
-import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
-import { resolve, join } from "path";
+import { join } from "path";
 import { first } from "../../utils/array-safety";
 
 /**
@@ -33,7 +32,6 @@ async function resolveRepoPath(options: { repo?: string; session?: string }): Pr
 export type {} from "../../types/tasks/taskData";
 
 // Import task status constants from centralized location
-import { TASK_STATUS } from "./taskConstants";
 export { TASK_STATUS } from "./taskConstants";
 export type { TaskStatus } from "./taskConstants";
 

@@ -11,7 +11,6 @@ import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
-import { FileEditSchema } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 import { applyEditPattern } from "../../domain/ai/edit-pattern-service";
 import { generateUnifiedDiff, generateDiffSummary } from "../../utils/diff";

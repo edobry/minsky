@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, mock } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
 
 describe("Task Dependencies Visualization - DOT Quote Escaping", () => {
   beforeAll(async () => {

@@ -1,11 +1,6 @@
 import type { CommandMapper } from "../../src/mcp/command-mapper.js";
-import { dirname } from "path";
-import { first, firstMatch } from "../../src/utils/array-safety";
-import {
-  mockFiles,
-  createMockFile,
-  getMockFile,
-} from "./session-edit-file-cursor-parity.integration.test";
+import { first } from "../../src/utils/array-safety";
+import { createMockFile, getMockFile } from "./session-edit-file-cursor-parity.integration.test";
 import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
 
 // Mock SessionPathResolver

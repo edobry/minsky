@@ -4,11 +4,7 @@ import { enumSchemas } from "./configuration/schemas/base";
 import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-system";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
-import {
-  getMinskyConfigContent,
-  getMinskyConfigContentYaml,
-  getMCPConfigContent,
-} from "./init/config-content";
+import { getMinskyConfigContentYaml, getMCPConfigContent } from "./init/config-content";
 import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,

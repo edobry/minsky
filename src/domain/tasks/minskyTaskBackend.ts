@@ -1,14 +1,8 @@
 import { eq, not, and, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 // Remove configuration import - dependencies should be injected
-import {
-  tasksTable,
-  taskSpecsTable,
-  tasksEmbeddingsTable,
-} from "../storage/schemas/task-embeddings";
+import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
 import { first } from "../../utils/array-safety";
 import type {
   Task,

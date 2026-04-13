@@ -4,8 +4,6 @@
  * Operates directly in the main workspace.
  */
 
-import { join } from "path";
-import { existsSync } from "fs";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
 import type { TaskBackend } from "./types";
 import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";

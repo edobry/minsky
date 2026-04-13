@@ -13,7 +13,6 @@ import {
   initializeConfiguration,
   getConfiguration,
 } from "../src/domain/configuration";
-import { log } from "../src/utils/logger";
 
 interface TestResult {
   name: string;

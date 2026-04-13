@@ -1,8 +1,4 @@
-import { promises as fs } from "fs";
 import { readTextFile } from "../../utils/fs";
-import { join } from "path";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { log } from "../../utils/logger";
 import { getTasksFilePath, getTaskSpecFilePath } from "./taskIO";
 import { parseTasksFromMarkdown } from "./taskFunctions";
 import { elementAt } from "../../utils/array-safety";

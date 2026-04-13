@@ -9,10 +9,7 @@ import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
-import {
-  createConfiguredTaskService,
-  TaskServiceInterface,
-} from "../../../../domain/tasks/taskService";
+import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import {
   _backendDetectionService,
   TaskBackend,

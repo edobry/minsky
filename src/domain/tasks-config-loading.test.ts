@@ -13,9 +13,7 @@
  * 3. Functions should use minsky backend but were falling back to markdown
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { listTasksFromParams, getTaskFromParams } from "./tasks";
-import { ConfigurationLoader } from "./configuration/loader";
+import { describe, it, expect } from "bun:test";
 
 // Mock the configuration loader to simulate the bug scenario
 const mockConfigLoader = {

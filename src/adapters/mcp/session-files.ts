@@ -11,15 +11,8 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import type { ErrorContext } from "../../utils/semantic-error-classifier";
 import {
-  FileReadSchema,
-  FileWriteSchema,
-  DirectoryListSchema,
-  FileExistsSchema,
-  FileDeleteSchema,
   FileMoveSchema,
   FileRenameSchema,
-  DirectoryCreateSchema,
-  GrepSearchSchema,
   FileOperationResponse,
   FileMoveParameters,
   FileRenameParameters,

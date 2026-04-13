@@ -6,7 +6,7 @@
  */
 
 import { mock } from "bun:test";
-import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
+import { mockLogger } from "../src/utils/test-utils/mock-logger";
 
 // Global test setup - logger mocks apply to all tests
 // Use Bun's mock system to replace the logger module

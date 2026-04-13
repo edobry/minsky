@@ -8,7 +8,6 @@ import { join } from "path";
 import type { SessionDbState, SessionRecord } from "./session-db"; // Type-only imports
 import {
   initializeSessionDbState,
-  listSessionsFn,
   getSessionFn,
   getSessionByTaskIdFn,
   addSessionFn,

@@ -1,5 +1,4 @@
 import { join, dirname } from "node:path";
-import { normalizeRepoName } from "../repo-utils";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 

@@ -5,9 +5,8 @@
 
 import { join, dirname } from "path";
 import { promises as fs } from "fs";
-import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import type { Task, CreateTaskOptions } from "../tasks";
+import type { Task } from "../tasks";
 import type { TaskData, TaskSpecData } from "../../types/tasks/taskData";
 import { TASK_STATUS, type TaskStatus } from "./taskConstants";
 import { getTaskIdNumber, formatTaskIdForDisplay } from "./task-id-utils";

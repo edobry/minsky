@@ -6,8 +6,7 @@
  */
 import { z } from "zod";
 import { type CommandParameterMap } from "../../command-registry";
-import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
-import { CommonParameters, TaskParameters, composeParams } from "../../common-parameters";
+import { CommonParameters, TaskParameters } from "../../common-parameters";
 
 /**
  * Common task identification parameters (using shared parameters)

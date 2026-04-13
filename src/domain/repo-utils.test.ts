@@ -1,6 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
 import { resolveRepoPath, normalizeRepoName, type RepoUtilsDependencies } from "./repo-utils";
-import { createMock } from "../utils/test-utils/mocking";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 
 describe("Repo Utils", () => {

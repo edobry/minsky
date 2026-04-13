@@ -7,7 +7,7 @@
  * @migrated Enhanced with DI patterns and comprehensive coverage
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { GitService } from "./git";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";

@@ -11,7 +11,6 @@ import { resolveMainWorkspacePath } from "../../workspace";
 import { createSessionProvider } from "../../session";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 // normalizeTaskId removed: strict qualified IDs expected upstream
-import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
 import {
   createConfiguredTaskService,
   TaskServiceOptions,

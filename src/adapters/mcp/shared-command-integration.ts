@@ -11,7 +11,6 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-  type CommandParameterDefinition,
 } from "../shared/command-registry";
 import { log } from "../../utils/logger";
 import { z } from "zod";

@@ -1,5 +1,4 @@
-import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
-import { text } from "drizzle-orm/pg-core";
+import { createEmbeddingsTable } from "./embeddings-schema-factory";
 
 // Tool embeddings configuration following standardized patterns
 const TOOL_EMBEDDINGS_CONFIG = {

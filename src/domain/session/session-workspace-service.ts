@@ -1,4 +1,4 @@
-import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { type SessionProviderInterface } from "../session";
 import { SessionPathResolver, SessionNotFoundError } from "./session-path-resolver";
 import {
   WorkspaceBackend,

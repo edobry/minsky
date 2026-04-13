@@ -4,7 +4,6 @@ import {
   DEFAULT_CLI_CONFIG,
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG,
-  type RuleGenerationConfig,
   type TemplateContext,
   type TemplateContextDeps,
 } from "./template-system";

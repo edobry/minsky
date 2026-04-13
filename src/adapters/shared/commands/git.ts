@@ -10,7 +10,6 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
 import {
@@ -27,15 +26,7 @@ import {
   conflictsCommandParams,
 } from "../../../domain/git/commands/subcommands/conflicts-subcommand";
 import { log } from "../../../utils/logger";
-import {
-  REPO_DESCRIPTION,
-  SESSION_DESCRIPTION,
-  GIT_REMOTE_DESCRIPTION,
-  GIT_FORCE_DESCRIPTION,
-  DEBUG_DESCRIPTION,
-  GIT_BRANCH_DESCRIPTION,
-  NO_STATUS_UPDATE_DESCRIPTION,
-} from "../../../utils/option-descriptions";
+import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
 
 /**

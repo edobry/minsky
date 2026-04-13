@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { TASK_STATUS } from "./taskConstants";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
-import type { TaskBackend, TaskBackendConfig } from "./types";
+import type { TaskBackend } from "./types";
 import { first, elementAt, firstMatch } from "../../utils/array-safety";
 describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   let mockFs: any;

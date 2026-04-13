@@ -3,7 +3,7 @@
  * This module contains all file system operations separated from pure functions
  */
 
-import { dirname, join } from "path";
+import { dirname } from "path";
 import type { SyncFsLike } from "../interfaces/fs-like";
 import { createRealSyncFs } from "../interfaces/fs-like";
 import { SessionRecord, SessionDbState } from "./session-db";

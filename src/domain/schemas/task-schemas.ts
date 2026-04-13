@@ -12,15 +12,12 @@ import {
   NormalizedTaskIdSchema,
   BackendIdSchema,
   RepoIdSchema,
-  WorkspacePathSchema,
-  SessionIdSchema,
   BaseBackendParametersSchema,
   BaseExecutionContextSchema,
   BaseListingParametersSchema,
   BaseSuccessResponseSchema,
   BaseErrorResponseSchema,
   ForceSchema,
-  OutputFormatSchema,
 } from "./common-schemas";
 
 // ========================

@@ -10,7 +10,6 @@ import {
   ErrorTemplate,
   buildErrorMessage,
   formatCommandSuggestions,
-  formatContextInfo,
   type CommandSuggestion,
   type ContextInfo,
 } from "./message-templates";

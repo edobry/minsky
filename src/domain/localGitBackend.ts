@@ -4,7 +4,6 @@
  */
 
 import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
-import { execAsync } from "../utils/exec";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";

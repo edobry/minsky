@@ -6,7 +6,6 @@ import {
   CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
-  type CommandExecutionContext,
 } from "../../command-registry";
 import { type RuleFormat } from "../../../../domain/rules";
 import { log } from "../../../../utils/logger";
@@ -22,10 +21,6 @@ import {
   rulesGenerateCommandParams,
   rulesCreateCommandParams,
   rulesUpdateCommandParams,
-  type RulesGetParams,
-  type RulesGenerateParams,
-  type RulesCreateParams,
-  type RulesUpdateParams,
 } from "./rules-parameters";
 
 /**

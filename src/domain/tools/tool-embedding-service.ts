@@ -1,7 +1,5 @@
 import { createHash } from "crypto";
 import { createLogger } from "../../utils/logger";
-import { type EmbeddingService } from "../ai/embeddings/types";
-import { type VectorStorage } from "../storage/vector/types";
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
 import { createToolsVectorStorageFromConfig } from "../storage/vector/vector-storage-factory";
 import { getConfiguration } from "../configuration";

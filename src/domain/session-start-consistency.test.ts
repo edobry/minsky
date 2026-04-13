@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
-import { MinskyError, ResourceNotFoundError } from "../errors";
+import { ResourceNotFoundError } from "../errors";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";

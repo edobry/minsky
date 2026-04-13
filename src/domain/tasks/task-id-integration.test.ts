@@ -11,13 +11,13 @@ import { FakeGitService } from "../git/fake-git-service";
 import { FakeTaskService } from "./fake-task-service";
 import { FakeSessionProvider } from "../session/fake-session-provider";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
-import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import { first, elementAt } from "../../utils/array-safety";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
 import { startSessionFromParams } from "../session";
-import { createConfiguredTaskService, type TaskServiceInterface } from "./taskService";
+import { type TaskServiceInterface } from "./taskService";
 
 // Set up automatic mock cleanup
 setupTestMocks();

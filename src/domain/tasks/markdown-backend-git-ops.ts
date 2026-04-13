@@ -4,7 +4,6 @@
  */
 
 import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
 import type { GitServiceInterface } from "../git";
 
 /**

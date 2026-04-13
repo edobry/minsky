@@ -20,7 +20,6 @@ import {
   rulesListCommandParams,
   rulesIndexEmbeddingsParams,
   rulesSearchCommandParams,
-  type RulesListParams,
   type RulesIndexEmbeddingsParams,
   type RulesSearchParams,
 } from "./rules-parameters";

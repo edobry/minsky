@@ -1,20 +1,9 @@
-import {
-  AICompletionService,
-  AICompletionResponse,
-  AIModel,
-  AIProviderConfig,
-  AICompletionError,
-  AIProviderError,
-  ValidationResult,
-  AIUsage,
-} from "./types";
+import { AICompletionService, AIUsage } from "./types";
 import { ChangesetDetails } from "../changeset/adapter-interface";
-import { ChangesetReview, ReviewComment } from "../changeset/types";
 import { log } from "../../utils/logger";
-import { DefaultAIConfigurationService } from "./config-service";
 // ConfigurationService removed - using any for configuration
-import { generateObject } from "ai"; // Using generateObject for structured output
-import { openai } from "@ai-sdk/openai"; // Example provider
+// Using generateObject for structured output
+// Example provider
 import { z } from "zod";
 
 // Zod schemas for AI review result validation

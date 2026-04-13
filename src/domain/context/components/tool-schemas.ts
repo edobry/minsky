@@ -1,5 +1,4 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
-import { CommandGeneratorService } from "../../rules/command-generator";
 import { CommandCategory, sharedCommandRegistry } from "../../../adapters/shared/command-registry";
 import { z } from "zod";
 import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";

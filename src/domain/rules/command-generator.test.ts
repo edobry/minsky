@@ -1,7 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import {
-  getCommandRepresentation,
-  getCommandSyntax,
   createCommandGeneratorService,
   type CommandGenerationConfig,
   type CommandParameter,

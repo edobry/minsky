@@ -18,7 +18,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
 import type { TaskListParams } from "../../schemas/tasks";
-import { createConfiguredTaskService } from "./taskService";
 import type { TaskServiceInterface } from "./taskService";
 
 describe("Multi-Backend Task Aggregation Bug Fix", () => {

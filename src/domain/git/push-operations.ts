@@ -1,5 +1,4 @@
 import { normalizeRepoName } from "../repo-utils";
-import { getErrorMessage } from "../../errors/index";
 import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
 import type { SessionRecord } from "../session/types";

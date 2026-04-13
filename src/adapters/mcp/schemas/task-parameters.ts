@@ -11,10 +11,6 @@ import { z } from "zod";
 import { TaskStatus } from "../../../domain/tasks/taskConstants";
 import {
   TaskIdSchema,
-  BackendSchema,
-  RepoSchema,
-  WorkspaceSchema,
-  SessionSchema,
   ForceSchema,
   FilterSchema,
   LimitSchema,

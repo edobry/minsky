@@ -24,7 +24,7 @@ import {
   type ContextInfo,
   type ErrorTemplate,
 } from "./message-templates";
-import { CLI_COMMANDS, TEST_PATHS } from "../utils/test-utils/test-constants";
+import { CLI_COMMANDS } from "../utils/test-utils/test-constants";
 import { first, elementAt } from "../utils/array-safety";
 
 // Set up automatic mock cleanup

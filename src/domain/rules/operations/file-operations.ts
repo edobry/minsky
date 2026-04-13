@@ -7,18 +7,10 @@
 import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import * as grayMatterNamespace from "gray-matter";
-import { HTTP_OK } from "../../../utils/constants";
 import { serializeYamlFrontmatter } from "../utils/yaml-frontmatter";
-import { getErrorMessage } from "../../../errors/index";
 import { BaseRuleOperation, type RuleOperationDependencies } from "./base-rule-operation";
 import { log } from "../../../utils/logger";
-import {
-  type Rule,
-  type RuleMeta,
-  type RuleFormat,
-  type RuleOptions,
-  type CreateRuleOptions,
-} from "../types";
+import { type Rule, type RuleMeta, type RuleFormat, type CreateRuleOptions } from "../types";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 

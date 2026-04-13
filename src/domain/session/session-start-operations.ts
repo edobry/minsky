@@ -1,5 +1,5 @@
 import { existsSync, rmSync } from "fs";
-import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
+import { getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -11,12 +11,12 @@ import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { installDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "../git";
-import { normalizeRepoName, resolveRepoPath } from "../repo-utils";
+import { normalizeRepoName } from "../repo-utils";
 import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "./";
-import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import { formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import { taskIdToBranchName } from "../tasks/task-id";
 import {
   SessionMultiBackendIntegration,

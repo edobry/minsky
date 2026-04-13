@@ -10,7 +10,6 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type SharedCommand,
-  type CommandParameterMap,
 } from "../../adapters/shared/command-registry";
 
 /**

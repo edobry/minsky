@@ -11,7 +11,7 @@ import { setupTestMocks } from "../utils/test-utils/mocking";
 import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
-import { commitChangesFromParams, pushFromParams } from "./git";
+import { pushFromParams } from "./git";
 
 // Set up automatic mock cleanup
 setupTestMocks();

@@ -25,7 +25,7 @@ import { aiConfigSchema, type AIConfig } from "./ai";
 
 import { loggerConfigSchema, type LoggerConfig } from "./logger";
 
-import { validationConfigSchema, type ValidationConfig } from "./validation";
+import { validationConfigSchema } from "./validation";
 import { tasksConfigSchema, type TasksConfig } from "./tasks";
 import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";

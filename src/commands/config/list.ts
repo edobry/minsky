@@ -2,9 +2,7 @@
  * Config List Command
  */
 
-import { z } from "zod";
 import { Command } from "commander";
-import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import { toJsonRecord } from "../../utils/type-utils";
 import { getConfigurationProvider } from "../../domain/configuration";

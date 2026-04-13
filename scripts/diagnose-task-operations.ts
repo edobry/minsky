@@ -8,7 +8,6 @@
 import { performance } from "perf_hooks";
 import { autoCommitTaskChanges } from "../src/utils/auto-commit";
 import { execGitWithTimeout } from "../src/utils/git-exec";
-import { log } from "../src/utils/logger";
 
 interface OperationTiming {
   operation: string;

@@ -1,9 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  StreamableHTTPServerTransport,
-  StreamableHTTPServerTransportOptions,
-} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,

@@ -9,13 +9,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import { ConflictDetectionService } from "./conflict-detection";
-import {
-  ConflictType,
-  ConflictSeverity,
-  FileConflictStatus,
-  type ConflictPrediction,
-  type BranchDivergenceAnalysis,
-} from "./conflict-detection-types";
+import { ConflictType, ConflictSeverity, FileConflictStatus } from "./conflict-detection-types";
 import { createTestDeps } from "../../utils/test-utils/dependencies";
 import { createPartialMock } from "../../utils/test-utils/mocking";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";

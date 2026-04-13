@@ -2,7 +2,6 @@
  * Config and SessionDB Command Customizations
  * @migrated Extracted from cli-command-factory.ts for focused responsibility
  */
-import { z } from "zod";
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
 import { log } from "../../../utils/logger";

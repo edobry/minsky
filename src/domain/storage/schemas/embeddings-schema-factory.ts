@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
 
 export interface EmbeddingsTableConfig {

@@ -3,7 +3,7 @@
  * Tests for Task #357: Integrate GitHub Issues Backend with Repository Backend Architecture
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   validateTaskBackendCompatibility,
   getCompatibleTaskBackends,

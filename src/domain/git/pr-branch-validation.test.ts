@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
-import { MinskyError } from "../../errors";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
 // Mock execGitWithTimeout since that's what preparePrImpl actually uses

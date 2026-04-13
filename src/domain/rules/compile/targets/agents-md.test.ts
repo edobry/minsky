@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { buildContent, DEFAULT_AGENTS_MD_SECTIONS } from "./agents-md";
+import { buildContent } from "./agents-md";
 import type { Rule } from "../../types";
 import {
   ALWAYS_APPLY_CONTENT,

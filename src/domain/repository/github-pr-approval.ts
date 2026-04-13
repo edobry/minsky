@@ -9,7 +9,7 @@ import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
-import { handleOctokitError, type ErrorContext } from "./github-error-handler";
+import { handleOctokitError } from "./github-error-handler";
 import {
   type GitHubContext,
   requireGitHubToken,
