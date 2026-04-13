@@ -398,18 +398,17 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
-   * Delete a session by ID
+   * Delete a session by ID.
+   * Returns true if a row was actually deleted, false if it didn't exist.
+   * Storage errors propagate — callers decide how to handle them.
    */
   async deleteEntity(id: string): Promise<boolean> {
-    try {
-      await this.ensureConnection();
-      await this.drizzle!.delete(postgresSessions).where(eq(postgresSessions.session, id));
-      return true;
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      log.warn(`Failed to delete session in PostgreSQL: ${typedError.message}`);
-      return false;
-    }
+    await this.ensureConnection();
+    const result = await this.drizzle!.delete(postgresSessions).where(
+      eq(postgresSessions.session, id)
+    );
+    const rowCount = (result as { rowCount?: number }).rowCount ?? 0;
+    return rowCount > 0;
   }
 
   /**
