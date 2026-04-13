@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-export type CredentialSource = "environment" | "file" | "prompt";
+export type CredentialSource = "env" | "file" | "keychain" | "manual";
 
 export interface CredentialConfig {
   source: CredentialSource;
@@ -20,12 +20,16 @@ export interface CredentialConfig {
   token_file?: string;
   api_key?: string;
   api_key_file?: string;
+  env_var?: string;
+  path?: string;
 }
 
 function isCredentialConfig(
   obj: Record<string, unknown>
 ): obj is Record<string, unknown> & CredentialConfig {
-  return typeof obj.source === "string" && ["environment", "file", "prompt"].includes(obj.source);
+  return (
+    typeof obj.source === "string" && ["env", "file", "keychain", "manual"].includes(obj.source)
+  );
 }
 
 export interface CredentialResolver {
@@ -81,14 +85,18 @@ export class DefaultCredentialResolver implements CredentialResolver {
     credentialConfig: CredentialConfig
   ): Promise<string | undefined> {
     switch (credentialConfig.source) {
-      case "environment":
-        // New configuration system will have already resolved environment variables
+      case "env":
+        // Resolve from environment variable (optionally named via env_var field)
         return credentialConfig.token || credentialConfig.api_key;
 
       case "file":
         return this.resolveFileCredential(credentialConfig);
 
-      case "prompt":
+      case "keychain":
+        // TODO: Implement system keychain integration
+        throw new Error("System keychain credential resolution not yet implemented");
+
+      case "manual":
         // TODO: Implement interactive prompting
         throw new Error("Interactive credential prompting not yet implemented");
 

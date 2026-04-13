@@ -88,8 +88,8 @@ export const githubValidation = {
   /**
    * Get the effective token source (for credential resolution)
    */
-  getTokenSource: (config: GitHubConfig): "environment" | "file" | "none" => {
-    if (config?.token) return "environment";
+  getTokenSource: (config: GitHubConfig): "env" | "file" | "none" => {
+    if (config?.token) return "env";
     if (config?.tokenFile) return "file";
     return "none";
   },

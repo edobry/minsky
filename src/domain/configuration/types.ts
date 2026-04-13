@@ -197,7 +197,7 @@ export interface ValidationWarning {
 
 // Service Interfaces
 
-export type CredentialSource = "environment" | "file" | "prompt";
+export type CredentialSource = "env" | "file" | "keychain" | "manual";
 
 // ConfigurationService interface removed - use direct config.get() instead
 // For validation, use the functions from config-schemas.ts
