@@ -9,21 +9,14 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { initializeProject } from "./init";
 import * as path from "path";
 import { parse as yamlParse } from "yaml";
+import { createMockFs } from "./interfaces/mock-fs";
+import type { MockFs } from "./interfaces/mock-fs";
 
 describe("Init System Backend Selection", () => {
-  let mockFileSystem: any;
-  let capturedFiles: Map<string, string>;
+  let mockFileSystem: MockFs;
 
   beforeEach(() => {
-    capturedFiles = new Map();
-
-    mockFileSystem = {
-      existsSync: () => false,
-      mkdirSync: () => {},
-      writeFileSync: (filePath: string, content: string) => {
-        capturedFiles.set(filePath, content);
-      },
-    };
+    mockFileSystem = createMockFs();
   });
 
   test("should create configuration file with user's chosen backend", async () => {
@@ -33,7 +26,8 @@ describe("Init System Backend Selection", () => {
     const backends = ["markdown", "json-file", "github-issues", "minsky"] as const;
 
     for (const backend of backends) {
-      capturedFiles.clear();
+      mockFileSystem.files.clear();
+      mockFileSystem.directories.clear();
 
       await initializeProject(
         {
@@ -49,9 +43,9 @@ describe("Init System Backend Selection", () => {
 
       // Verify config file was created at .minsky/config.yaml
       const configPath = path.join(testRepo, ".minsky", "config.yaml");
-      expect(capturedFiles.has(configPath)).toBe(true);
+      expect(mockFileSystem.files.has(configPath)).toBe(true);
 
-      const configContent = capturedFiles.get(configPath);
+      const configContent = mockFileSystem.files.get(configPath);
       expect(configContent).toBeDefined();
 
       const config = yamlParse(configContent!);
@@ -63,7 +57,8 @@ describe("Init System Backend Selection", () => {
     const testRepo = "/tmp/test-repo";
 
     // Test markdown backend
-    capturedFiles.clear();
+    mockFileSystem.files.clear();
+    mockFileSystem.directories.clear();
     await initializeProject(
       {
         repoPath: testRepo,
@@ -77,11 +72,12 @@ describe("Init System Backend Selection", () => {
     );
 
     const markdownPath = path.join(testRepo, "process", "tasks.md");
-    expect(capturedFiles.has(markdownPath)).toBe(true);
-    expect(capturedFiles.get(markdownPath)).toContain("# Minsky Tasks");
+    expect(mockFileSystem.files.has(markdownPath)).toBe(true);
+    expect(mockFileSystem.files.get(markdownPath)).toContain("# Minsky Tasks");
 
     // Test json-file backend
-    capturedFiles.clear();
+    mockFileSystem.files.clear();
+    mockFileSystem.directories.clear();
     await initializeProject(
       {
         repoPath: testRepo,
@@ -95,12 +91,13 @@ describe("Init System Backend Selection", () => {
     );
 
     const jsonPath = path.join(testRepo, "process", "tasks", "tasks.json");
-    expect(capturedFiles.has(jsonPath)).toBe(true);
-    const jsonContent = JSON.parse(capturedFiles.get(jsonPath)!);
+    expect(mockFileSystem.files.has(jsonPath)).toBe(true);
+    const jsonContent = JSON.parse(mockFileSystem.files.get(jsonPath)!);
     expect(jsonContent.tasks).toEqual([]);
 
     // Test github-issues backend (no files needed)
-    capturedFiles.clear();
+    mockFileSystem.files.clear();
+    mockFileSystem.directories.clear();
     await initializeProject(
       {
         repoPath: testRepo,
@@ -115,8 +112,8 @@ describe("Init System Backend Selection", () => {
 
     // Should not create task files, only config
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
-    expect(capturedFiles.has(configPath)).toBe(true);
-    const config = yamlParse(capturedFiles.get(configPath)!);
+    expect(mockFileSystem.files.has(configPath)).toBe(true);
+    const config = yamlParse(mockFileSystem.files.get(configPath)!);
     expect(config.tasks.backend).toBe("github-issues");
   });
 
@@ -137,7 +134,7 @@ describe("Init System Backend Selection", () => {
     );
 
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
-    const configContent = capturedFiles.get(configPath);
+    const configContent = mockFileSystem.files.get(configPath);
     const config = yamlParse(configContent!);
 
     // Verify user's choice is respected
@@ -148,7 +145,7 @@ describe("Init System Backend Selection", () => {
     const jsonPath = path.join(testRepo, "process", "tasks", "tasks.json");
     const markdownPath = path.join(testRepo, "process", "tasks.md");
 
-    expect(capturedFiles.has(jsonPath)).toBe(true); // Should create JSON file
-    expect(capturedFiles.has(markdownPath)).toBe(false); // Should NOT create markdown file
+    expect(mockFileSystem.files.has(jsonPath)).toBe(true); // Should create JSON file
+    expect(mockFileSystem.files.has(markdownPath)).toBe(false); // Should NOT create markdown file
   });
 });

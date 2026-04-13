@@ -17,6 +17,15 @@ export function createRealFs(): FsLike {
     stat: (path) => fsPromises.stat(path),
     access: (path) => fsPromises.access(path),
     unlink: (path) => fsPromises.unlink(path),
+    copyFile: (src, dest) => fsPromises.copyFile(src, dest),
+    exists: async (path) => {
+      try {
+        await fsPromises.access(path);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     rm: (path, options) => fsPromises.rm(path, options),
   };
 }

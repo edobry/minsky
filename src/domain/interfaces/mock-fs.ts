@@ -110,6 +110,16 @@ export function createMockFs(
       files.delete(path);
     },
 
+    async copyFile(src: string, dest: string): Promise<void> {
+      if (!files.has(src)) enoent("copyFile", src);
+      files.set(dest, files.get(src)!);
+      addParentDirectories(dest, directories);
+    },
+
+    async exists(path: string): Promise<boolean> {
+      return files.has(path) || directories.has(path);
+    },
+
     async rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void> {
       const existed = files.has(path) || directories.has(path);
       if (!existed && !options?.force) enoent("rm", path);
