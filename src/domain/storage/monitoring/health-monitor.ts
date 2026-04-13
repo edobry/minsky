@@ -215,54 +215,12 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     switch (config.backend as string) {
-      case "json":
-        await this.checkJsonBackendHealth(config, status);
-        break;
       case "sqlite":
         await this.checkSqliteBackendHealth(config, status);
         break;
       case "postgres":
         await this.checkPostgresBackendHealth(config, status);
         break;
-    }
-  }
-
-  /**
-   * JSON backend specific health checks
-   */
-  private static async checkJsonBackendHealth(
-    config: SessionDbConfig,
-    status: HealthStatus
-  ): Promise<void> {
-    const fs = require("fs");
-    const path = require("path");
-
-    try {
-      const dbPath = path.join(config.baseDir || "", "session-db.json");
-
-      if (fs.existsSync(dbPath)) {
-        const stats = fs.statSync(dbPath);
-        status.details!.fileSize = stats.size;
-        status.details!.lastModified = stats.mtime.toISOString();
-
-        // Warn about large files
-        if (stats.size > 10_000_000) {
-          // 10MB
-          status.warnings?.push("Large JSON file detected - consider migrating to SQLite");
-        }
-      }
-
-      // Check directory permissions
-      const baseDir = config.baseDir || path.dirname(dbPath);
-      try {
-        fs.accessSync(baseDir, fs.constants.R_OK | fs.constants.W_OK);
-        status.details!.directoryWritable = true;
-      } catch (error) {
-        status.errors?.push("Directory not writable");
-        status.details!.directoryWritable = false;
-      }
-    } catch (error) {
-      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -396,9 +354,7 @@ export class SessionDbHealthMonitor {
       const path = require("path");
 
       let checkPath: string;
-      if ((config.backend as string) === "json") {
-        checkPath = config.baseDir || "";
-      } else if (config.backend === "sqlite") {
+      if (config.backend === "sqlite") {
         checkPath = path.dirname(config.dbPath || "");
       } else {
         return metrics; // PostgreSQL doesn't have local disk usage
@@ -451,13 +407,6 @@ export class SessionDbHealthMonitor {
     }
 
     // Backend-specific recommendations
-    if (
-      backendHealth.backend === "json" &&
-      (backendHealth.details?.["fileSize"] as number) > 5_000_000
-    ) {
-      recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
-    }
-
     if (backendHealth.backend === "sqlite" && backendHealth.details?.journalMode !== "wal") {
       recommendations.push("Enable WAL mode for better SQLite performance");
     }

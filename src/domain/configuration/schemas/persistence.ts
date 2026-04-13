@@ -2,7 +2,7 @@
  * Persistence Configuration Schema
  *
  * Defines the configuration schema for the PersistenceProvider system.
- * Supports PostgreSQL, SQLite, and JSON file-based storage backends.
+ * Supports PostgreSQL and SQLite storage backends.
  */
 
 import { z } from "zod";
@@ -26,16 +26,9 @@ const sqliteConfigSchema = z.object({
 });
 
 /**
- * JSON file persistence configuration schema
- */
-const jsonConfigSchema = z.object({
-  filePath: z.string(),
-});
-
-/**
  * Persistence provider backend types
  */
-export const persistenceBackendSchema = z.enum(["postgres", "sqlite", "json"]);
+export const persistenceBackendSchema = z.enum(["postgres", "sqlite"]);
 
 /**
  * Main persistence configuration schema
@@ -44,7 +37,6 @@ export const persistenceConfigSchema = z.object({
   backend: persistenceBackendSchema,
   postgres: postgresConfigSchema.optional(),
   sqlite: sqliteConfigSchema.optional(),
-  json: jsonConfigSchema.optional(),
 });
 
 /**
@@ -53,7 +45,6 @@ export const persistenceConfigSchema = z.object({
 export type PersistenceBackend = z.infer<typeof persistenceBackendSchema>;
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
 export type SqliteConfig = z.infer<typeof sqliteConfigSchema>;
-export type JsonConfig = z.infer<typeof jsonConfigSchema>;
 export type PersistenceConfig = z.infer<typeof persistenceConfigSchema>;
 
 /**
@@ -75,11 +66,6 @@ export const persistenceValidation = {
       case "sqlite":
         if (!config.sqlite?.dbPath) {
           errors.push("SQLite backend requires dbPath");
-        }
-        break;
-      case "json":
-        if (!config.json?.filePath) {
-          errors.push("JSON backend requires filePath");
         }
         break;
     }

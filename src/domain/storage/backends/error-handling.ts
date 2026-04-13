@@ -124,11 +124,6 @@ export class StorageErrorClassifier {
     const errorMessage = error.message.toLowerCase();
     const backend = context.backend;
 
-    // JSON File Backend Errors
-    if (backend === "json") {
-      return this.classifyJsonError(error, errorMessage);
-    }
-
     // SQLite Backend Errors
     if (backend === "sqlite") {
       return this.classifySqliteError(error, errorMessage);
@@ -156,92 +151,6 @@ export class StorageErrorClassifier {
           autoExecutable: false,
         },
       ],
-    };
-  }
-
-  private static classifyJsonError(error: Error, errorMessage: string) {
-    // File not found
-    if (errorMessage.includes("enoent") || errorMessage.includes("no such file")) {
-      return {
-        message: "Session database file not found - database may need initialization",
-        type: StorageErrorType.RESOURCE,
-        severity: StorageErrorSeverity.HIGH,
-        recoveryActions: [
-          {
-            type: "REPAIR" as const,
-            description: "Initialize session database",
-            autoExecutable: true,
-            command: "minsky sessiondb init --backend sqlite",
-            estimatedTime: "< 1 minute",
-          },
-        ],
-      };
-    }
-
-    // Permission denied
-    if (errorMessage.includes("eacces") || errorMessage.includes("permission denied")) {
-      return {
-        message: "Insufficient permissions to access session database file",
-        type: StorageErrorType.PERMISSION,
-        severity: StorageErrorSeverity.HIGH,
-        recoveryActions: [
-          {
-            type: "MANUAL" as const,
-            description: "Fix file permissions",
-            autoExecutable: false,
-            command: "chmod 644 ~/.local/state/minsky/session-db.json",
-          },
-        ],
-      };
-    }
-
-    // JSON syntax error (corruption)
-    if (errorMessage.includes("syntaxerror") || errorMessage.includes("unexpected token")) {
-      return {
-        message: "Session database file is corrupted or contains invalid JSON",
-        type: StorageErrorType.CORRUPTION,
-        severity: StorageErrorSeverity.CRITICAL,
-        recoveryActions: [
-          {
-            type: "FALLBACK" as const,
-            description: "Restore from backup",
-            autoExecutable: true,
-            command: "minsky sessiondb restore --backup <latest>",
-            estimatedTime: "2-5 minutes",
-          },
-          {
-            type: "REPAIR" as const,
-            description: "Attempt JSON repair",
-            autoExecutable: true,
-            command: "minsky sessiondb repair --auto",
-            estimatedTime: "1-2 minutes",
-          },
-        ],
-      };
-    }
-
-    // Disk space
-    if (errorMessage.includes("enospc") || errorMessage.includes("no space left")) {
-      return {
-        message: "Insufficient disk space for session database operations",
-        type: StorageErrorType.RESOURCE,
-        severity: StorageErrorSeverity.HIGH,
-        recoveryActions: [
-          {
-            type: "MANUAL" as const,
-            description: "Free up disk space",
-            autoExecutable: false,
-            command: "minsky session clean --older-than 30d",
-          },
-        ],
-      };
-    }
-
-    return {
-      message: `JSON backend error: ${getErrorMessage(error)}`,
-      type: StorageErrorType.UNKNOWN,
-      severity: StorageErrorSeverity.MEDIUM,
-      recoveryActions: [],
     };
   }
 

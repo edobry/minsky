@@ -31,7 +31,6 @@ export const defaultConfiguration: PartialConfiguration = {
       dbPath: "~/.local/state/minsky/minsky.db",
     },
     postgres: undefined,
-    json: undefined,
   },
 
   // GitHub configuration (all optional)
