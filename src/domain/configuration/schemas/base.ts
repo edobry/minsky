@@ -163,8 +163,8 @@ export const schemaUtils = {
 /**
  * Credential configuration schema (used across multiple domains)
  */
-export const credentialSourceSchema = z.enum(["environment", "file", "prompt"], {
-  errorMap: () => ({ message: "Credential source must be one of: environment, file, prompt" }),
+export const credentialSourceSchema = z.enum(["env", "file", "keychain", "manual"], {
+  errorMap: () => ({ message: "Credential source must be one of: env, file, keychain, manual" }),
 });
 
 export const credentialConfigSchema = z
