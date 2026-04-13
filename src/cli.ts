@@ -24,7 +24,14 @@ import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
  */
 export const cli = new Command("minsky")
   .description("Minsky development workflow tool")
-  .version("1.0.0");
+  .version("1.0.0")
+  .option("--non-interactive", "Disable interactive prompts, error on missing required parameters")
+  .hook("preAction", (thisCommand) => {
+    const opts = thisCommand.opts();
+    if (opts.nonInteractive) {
+      process.env.MINSKY_NON_INTERACTIVE = "1";
+    }
+  });
 
 /**
  * Create the CLI command structure
