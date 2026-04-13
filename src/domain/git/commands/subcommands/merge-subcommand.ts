@@ -4,6 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { mergeFromParams } from "../merge-command";
+import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import { log } from "../../../../utils/logger";
 import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
@@ -62,15 +63,19 @@ export async function executeMergeCommand(
   const { sourceBranch, targetBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;
 
-  const result = await mergeFromParams({
-    sourceBranch,
-    targetBranch,
-    session,
-    repo,
-    preview,
-    autoResolve,
-    conflictStrategy,
-  });
+  const sessionProvider = await getSharedSessionProvider();
+  const result = await mergeFromParams(
+    {
+      sourceBranch,
+      targetBranch,
+      session,
+      repo,
+      preview,
+      autoResolve,
+      conflictStrategy,
+    },
+    { sessionProvider }
+  );
 
   if (context.debug) {
     log.debug("Merge command executed successfully", { result });

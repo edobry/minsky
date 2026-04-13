@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { resolveRepoPath as resolveRepoPathBase } from "../repo-utils";
-import { createSessionProvider } from "../session";
+import { getSharedSessionProvider } from "../session/session-provider-cache";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -24,7 +24,7 @@ import { first } from "../../utils/array-safety";
  * This is a composition boundary — domain functions above should receive deps injected.
  */
 async function resolveRepoPath(options: { repo?: string; session?: string }): Promise<string> {
-  const sessionProvider = await createSessionProvider();
+  const sessionProvider = await getSharedSessionProvider();
   return resolveRepoPathBase(options, { sessionProvider });
 }
 

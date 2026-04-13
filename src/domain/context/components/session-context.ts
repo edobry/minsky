@@ -6,7 +6,7 @@ import {
 } from "./types";
 // Reuse existing Minsky session utilities
 import { getCurrentSessionContext, isSessionWorkspace } from "../../workspace";
-import { createSessionProvider } from "../../session";
+import { getSharedSessionProvider } from "../../session/session-provider-cache";
 
 interface SessionContextInputs {
   workspacePath: string;
@@ -46,7 +46,7 @@ export const SessionContextComponent: ContextComponent = {
 
       if (isInSession) {
         // Get current session context
-        const sessionDB = await createSessionProvider();
+        const sessionDB = await getSharedSessionProvider();
         const sessionContext = await getCurrentSessionContext(workspacePath, {
           sessionDbOverride: sessionDB,
         });
@@ -57,7 +57,7 @@ export const SessionContextComponent: ContextComponent = {
 
           // Get full session record with additional metadata
           try {
-            const sessionProvider = await createSessionProvider();
+            const sessionProvider = await getSharedSessionProvider();
             const fullSessionRecord = await sessionProvider.getSession(sessionId);
 
             if (fullSessionRecord) {

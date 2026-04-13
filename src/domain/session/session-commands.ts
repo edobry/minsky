@@ -103,10 +103,10 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
   log.debug("Pure session approve command", { session: params.session });
 
   const { approveSessionPr } = await import("./session-approval-operations.js");
-  const { createSessionProvider } = await import("./session-db-adapter.js");
+  const { getSharedSessionProvider } = await import("./session-provider-cache.js");
 
   try {
-    const sessionDB = await createSessionProvider();
+    const sessionDB = await getSharedSessionProvider();
     const result = await approveSessionPr(
       {
         session: params.session,
@@ -165,9 +165,9 @@ export async function sessionCommit(params: {
   });
 
   // Enforce merged-PR-freeze invariant
-  const { createSessionProvider } = await import("./session-db-adapter.js");
+  const { getSharedSessionProvider } = await import("./session-provider-cache.js");
   const { assertSessionMutable } = await import("./session-mutability.js");
-  const sessionDBForFreeze = await createSessionProvider();
+  const sessionDBForFreeze = await getSharedSessionProvider();
   const sessionRecordForFreeze = await sessionDBForFreeze.getSession(params.session);
   if (sessionRecordForFreeze) {
     assertSessionMutable(sessionRecordForFreeze, "commit changes");

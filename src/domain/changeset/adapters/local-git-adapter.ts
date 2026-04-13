@@ -25,10 +25,8 @@ import type {
 
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
-import {
-  createSessionProvider as defaultCreateSessionProvider,
-  type SessionProviderInterface,
-} from "../../session/index";
+import { type SessionProviderInterface } from "../../session/index";
+import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { execSync as defaultExecSync } from "child_process";
@@ -39,7 +37,7 @@ import { first } from "../../../utils/array-safety";
  */
 export interface LocalGitAdapterDeps {
   execSync?: typeof defaultExecSync;
-  createSessionProvider?: typeof defaultCreateSessionProvider;
+  sessionProvider?: SessionProviderInterface;
 }
 
 /**
@@ -52,11 +50,11 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
   private repositoryBackend!: RepositoryBackend;
   private sessionProvider: SessionProviderInterface | null = null;
   private readonly execSync: typeof defaultExecSync;
-  private readonly createSessionProvider: typeof defaultCreateSessionProvider;
+  private readonly resolveSessionProvider: () => Promise<SessionProviderInterface>;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
-      this.sessionProvider = await this.createSessionProvider();
+      this.sessionProvider = await this.resolveSessionProvider();
     }
     return this.sessionProvider;
   }
@@ -67,7 +65,9 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
     deps?: LocalGitAdapterDeps
   ) {
     this.execSync = deps?.execSync ?? defaultExecSync;
-    this.createSessionProvider = deps?.createSessionProvider ?? defaultCreateSessionProvider;
+    this.resolveSessionProvider = deps?.sessionProvider
+      ? () => Promise.resolve(deps.sessionProvider!)
+      : () => getSharedSessionProvider();
   }
 
   async isAvailable(): Promise<boolean> {

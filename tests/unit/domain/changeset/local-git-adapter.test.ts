@@ -35,24 +35,22 @@ const mockExecSync = mock((command: string) => {
   return "";
 });
 
-// Mock createSessionProvider via DI
-const mockCreateSessionProvider = () =>
-  Promise.resolve({
-    getSession: mock((sessionId: string) => {
-      if (sessionId === "test-session") {
-        return Promise.resolve({
-          session: sessionId,
-          taskId: "mt#123",
-        });
-      }
-      return Promise.resolve(null);
-    }),
-  });
+// Mock sessionProvider via DI
+const mockSessionProvider = {
+  getSession: mock((sessionId: string) => {
+    if (sessionId === "test-session") {
+      return Promise.resolve({
+        session: sessionId,
+        taskId: "mt#123",
+      });
+    }
+    return Promise.resolve(null);
+  }),
+};
 
 const mockDeps: LocalGitAdapterDeps = {
   execSync: mockExecSync as unknown as LocalGitAdapterDeps["execSync"],
-  createSessionProvider:
-    mockCreateSessionProvider as unknown as LocalGitAdapterDeps["createSessionProvider"],
+  sessionProvider: mockSessionProvider as unknown as LocalGitAdapterDeps["sessionProvider"],
 };
 
 describe("LocalGitChangesetAdapter", () => {
