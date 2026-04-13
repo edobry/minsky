@@ -1,6 +1,5 @@
 import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
-import { log } from "./src/utils/logger";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {

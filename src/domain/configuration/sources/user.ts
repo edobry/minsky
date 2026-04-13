@@ -6,7 +6,7 @@
  */
 
 import { readFileSync, existsSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
 import { homedir } from "os";
 import { parse } from "yaml";
 import { log } from "../../../utils/logger";

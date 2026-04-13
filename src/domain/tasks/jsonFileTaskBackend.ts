@@ -13,17 +13,13 @@ import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
 import type { TaskData } from "../../types/tasks/taskData";
 
-import { createJsonFileStorage } from "../storage/json-file-storage";
-import type { DatabaseStorage } from "../storage/database-storage";
-import { validateTaskState, type TaskState } from "../../schemas/storage";
 import type { TaskSpec } from "./multi-backend-service";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { TASK_STATUS, TaskStatus } from "./taskConstants";
-import { getTaskSpecRelativePath, readTaskSpecFile } from "./taskIO";
+import { TASK_STATUS } from "./taskConstants";
+import { readTaskSpecFile } from "./taskIO";
 import { validateQualifiedTaskId } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
-import { get as getConfig, has as hasConfig } from "../configuration";
 import { firstMatch } from "../../utils/array-safety";
 
 // TaskState is now imported from schemas/storage

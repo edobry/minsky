@@ -4,12 +4,9 @@
  * Common mocks, test data, and setup functions for session command tests
  */
 
-import { join } from "path";
 import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
-import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
-import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
-import type { GitServiceInterface } from "../../../src/domain/git";
+import type { SessionProviderInterface } from "../../../src/domain/session";
 
 // Set up automatic mock cleanup
 setupTestMocks();

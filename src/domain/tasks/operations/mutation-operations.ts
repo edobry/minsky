@@ -20,7 +20,6 @@ import {
   type TaskCreateFromTitleAndDescriptionParams,
 } from "../../../schemas/tasks";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
-import { createFormattedValidationError } from "../../../utils/zod-error-formatter";
 import type { Task } from "../types";
 
 /**

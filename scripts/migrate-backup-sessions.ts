@@ -6,7 +6,6 @@
  */
 
 import { readFileSync, existsSync } from "fs";
-import { join } from "path";
 import { createStorageBackend } from "../src/domain/storage/storage-backend-factory";
 import { log } from "../src/utils/logger";
 import type { SessionRecord } from "../src/domain/session/session-db";

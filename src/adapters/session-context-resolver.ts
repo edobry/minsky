@@ -6,7 +6,7 @@
  */
 
 import { log } from "../utils/logger";
-import { MinskyError, ValidationError } from "../errors/index";
+import { ValidationError } from "../errors/index";
 
 /**
  * Session context resolution result

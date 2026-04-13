@@ -14,7 +14,6 @@ import {
   ModelCacheMetadata,
   ProviderCacheMetadata,
   ModelFetchConfig,
-  CacheRefreshResult,
   CacheConfig,
   ModelCacheError,
   ModelFetcher,

@@ -1,5 +1,3 @@
-import { join } from "node:path";
-import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import { PushOptions, PushResult } from "../types";

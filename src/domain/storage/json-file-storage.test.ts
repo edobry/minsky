@@ -9,9 +9,8 @@ const TEST_VALUE = 123;
  * Tests the most critical functionality with correct API
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "./json-file-storage";
 import type { DatabaseStorage } from "./database-storage";
 import { expectToHaveLength } from "../../utils/test-utils/assertions";

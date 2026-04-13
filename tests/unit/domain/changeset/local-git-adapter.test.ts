@@ -9,7 +9,7 @@ import {
   LocalGitChangesetAdapter,
   type LocalGitAdapterDeps,
 } from "../../../../src/domain/changeset/adapters/local-git-adapter";
-import type { Changeset, ChangesetListOptions } from "../../../../src/domain/changeset/types";
+import type { ChangesetListOptions } from "../../../../src/domain/changeset/types";
 import { first, elementAt } from "../../../../src/utils/array-safety";
 
 // Mock execSync via DI

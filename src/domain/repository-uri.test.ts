@@ -16,7 +16,6 @@ import {
   getRepositoryName,
   expandGitHubShorthand,
   RepositoryURIType,
-  detectRepositoryURI,
 } from "./repository-uri";
 
 // Set up automatic mock cleanup

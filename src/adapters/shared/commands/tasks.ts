@@ -10,7 +10,6 @@
 import {
   ModularTasksCommandManager,
   modularTasksManager,
-  createModularTasksManager,
   registerTasksCommands as modularRegisterTasksCommands,
 } from "./tasks-modular";
 

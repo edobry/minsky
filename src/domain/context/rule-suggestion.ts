@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import type { AICompletionService, AIObjectGenerationRequest } from "../ai/types";
+import type { AICompletionService } from "../ai/types";
 import type { RulesService } from "../rules/rules-service-modular";
 import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfig } from "./types";
 import { RuleSuggestionError } from "./types";

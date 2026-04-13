@@ -1,5 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
-import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
+import { describe, test, expect, beforeAll, beforeEach } from "bun:test";
 import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
 import { first } from "../../src/utils/array-safety";
 

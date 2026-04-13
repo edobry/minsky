@@ -7,7 +7,6 @@
 
 import { analyzeConflictRegions } from "../git/conflict-analysis-operations";
 import { getCurrentSessionContext } from "../workspace";
-import type { SessionProviderInterface } from "./types";
 import { createSessionProvider } from "./session-db-adapter";
 import { getSessionDirFromParams } from "../session";
 import { getCurrentWorkingDirectory } from "../../utils/process";

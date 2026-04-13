@@ -8,7 +8,6 @@ import {
   repoPathSchema,
   taskIdSchema,
   flagSchema,
-  sessionSchema,
   _commonRepoSchema as commonRepoSchema,
 } from "./common";
 

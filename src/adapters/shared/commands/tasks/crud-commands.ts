@@ -8,7 +8,6 @@ import { type CommandExecutionContext } from "../../command-registry";
 import {
   listTasksFromParams,
   getTaskFromParams,
-  createTaskFromParams,
   createTaskFromTitleAndSpec,
   deleteTaskFromParams,
 } from "../../../../domain/tasks";

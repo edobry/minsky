@@ -4,7 +4,6 @@
  * Session operations that accept session parameters.
  */
 
-import { z } from "zod";
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
 

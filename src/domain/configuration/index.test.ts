@@ -6,8 +6,8 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
-import { CustomConfigFactory, createTestProvider, CustomConfigurationProvider } from "./index";
-import { GIT_TEST_PATTERNS, CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { CustomConfigFactory, createTestProvider } from "./index";
+import { CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import { log } from "../../utils/logger";
 
 // Mock the configuration loader to prevent infinite loops

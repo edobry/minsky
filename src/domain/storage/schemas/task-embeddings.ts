@@ -1,5 +1,4 @@
-import { pgTable, text, integer, timestamp, index, pgEnum } from "drizzle-orm/pg-core";
-import { vector } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { TaskStatus } from "../../tasks/taskConstants";
 import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";

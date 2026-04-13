@@ -13,7 +13,6 @@ export * from "./approval-types";
 import type { RepositoryStatus } from "./legacy-types";
 import { RepositoryBackendType } from "./legacy-types";
 
-import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
 import { execAsync } from "../../utils/exec";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";

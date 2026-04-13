@@ -1,21 +1,10 @@
-import { describe, it, expect, mock } from "bun:test";
-import type { Task } from "./types";
-import type {
-  TaskBackend,
-  TaskSpec,
-  TaskFilters,
-  TaskExportData,
-  MigrationResult,
-  CollisionReport,
-  TaskCollision,
-  TaskService,
-} from "./multi-backend-service";
+import { describe, it, expect } from "bun:test";
+
 import {
   createMockBackend,
   createTaskServiceWithMocks,
   mockTaskSpecs,
 } from "./mock-backend-factory";
-import { createTaskService } from "./multi-backend-service";
 
 describe("Multi-Backend Task System", () => {
   describe("TaskBackend Interface", () => {

@@ -2,7 +2,6 @@ import type { Task } from "../tasks";
 import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
-import type { PersistenceProvider } from "../persistence/types";
 import { createHash } from "crypto";
 import { createTaskSimilarityCore } from "../similarity/create-task-similarity-core";
 import { first } from "../../utils/array-safety";

@@ -5,17 +5,13 @@
  * while enabling gradual migration to the command registry.
  */
 
-import { z } from "zod";
 import {
   SharedCommand,
   SharedCommandRegistry,
   CommandDefinition,
   CommandParameterMap,
-  CommandCategory,
-  CommandExecutionContext,
   createSharedCommandRegistry,
 } from "./command-registry";
-import { MinskyError } from "../../errors/index";
 
 // Type aliases for migration compatibility (new registry uses same types)
 type NewSharedCommandRegistry = SharedCommandRegistry;

@@ -15,7 +15,6 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   defineCommand,
-  type CommandExecutionContext,
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";

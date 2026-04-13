@@ -3,7 +3,6 @@ import { join } from "path";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import {
   ProjectConfigReader,
-  type SimplifiedWorkflowConfig,
   type ProjectConfigReaderFs,
 } from "../../../src/domain/project/config-reader";
 

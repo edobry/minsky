@@ -1,22 +1,13 @@
 import { readFile } from "fs/promises";
-import {
-  MinskyError,
-  ResourceNotFoundError,
-  ValidationError,
-  getErrorMessage,
-} from "../../errors/index";
+import { MinskyError, ValidationError, getErrorMessage } from "../../errors/index";
 import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { TASK_STATUS, TaskServiceInterface } from "../tasks";
+import { TASK_STATUS } from "../tasks";
 import { createConfiguredTaskService } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
-import {
-  checkPrBranchExistsOptimized,
-  updatePrStateOnCreation,
-  extractPrDescription,
-} from "./session-update-operations";
+import { extractPrDescription } from "./session-update-operations";
 import {
   createRepositoryBackendFromSessionUrl,
   getRepositoryBackendFromConfig,

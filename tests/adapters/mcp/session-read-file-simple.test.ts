@@ -5,7 +5,6 @@
 import { describe, test, expect } from "bun:test";
 
 // Import the utility function directly for testing
-import { join } from "path";
 
 // Create a simple test for the line range processing logic
 function processFileContentWithLineRange(

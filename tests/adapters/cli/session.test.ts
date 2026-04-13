@@ -10,8 +10,7 @@ import { join } from "path";
 import { getSessionDirFromParams } from "../../../src/domain/session/commands/dir-command";
 import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
-import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
-import { initializeConfiguration } from "../../../src/domain/configuration";
+import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,

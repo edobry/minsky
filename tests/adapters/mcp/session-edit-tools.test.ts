@@ -1,14 +1,9 @@
 /**
  * Tests for session-aware edit tools
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { CommandMapper } from "../../../src/mcp/command-mapper";
-import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
-import {
-  DIFF_TEST_CONTENT,
-  UI_TEST_PATTERNS,
-  PATH_TEST_PATTERNS,
-} from "../../../src/utils/test-utils/test-constants";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { DIFF_TEST_CONTENT, UI_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();

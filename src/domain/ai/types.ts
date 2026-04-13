@@ -5,7 +5,6 @@
  * Built on top of Vercel AI SDK for provider abstraction.
  */
 
-import type { LanguageModel } from "ai";
 import type { ZodTypeAny } from "zod";
 
 // Provider configuration

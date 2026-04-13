@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import type { Rule } from "./types";
-import { RuleType } from "./rule-classifier";
 
 // TODO: This enhanced suggest function should be implemented
 import { suggestRules, type RuleSuggestOptions } from "./rule-suggestion-enhanced";

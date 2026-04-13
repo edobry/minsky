@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, writeFileSync } from "fs";
-import { dirname, relative, join } from "path";
+import { dirname, relative } from "path";
 
 // List of files that need fixing (from the grep output)
 const filesToFix = [

@@ -9,10 +9,9 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { sessionGet, updateSessionFromParams, sessionDelete } from "../session/commands";
+import { sessionGet, sessionDelete } from "../session/commands";
 import { type SessionProviderInterface } from "../session";
-import { type SessionRecord } from "../session/types";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index";
+import { ResourceNotFoundError } from "../../errors/index";
 import { FakeSessionProvider } from "./fake-session-provider";
 
 describe("Session Command Domain Logic", () => {

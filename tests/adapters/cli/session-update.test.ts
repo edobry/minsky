@@ -11,10 +11,9 @@ import { FakeGitService } from "../../../src/domain/git/fake-git-service";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
-import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
-import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
+import type { SessionRecord } from "../../../src/domain/session";
 import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 
 describe("session update command", () => {

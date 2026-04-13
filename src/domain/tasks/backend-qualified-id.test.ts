@@ -1,8 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { TEST_DATA_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
-  type BackendQualifiedId,
-  type TaskBackendMeta,
   parseTaskId,
   isQualifiedId,
   formatTaskId,

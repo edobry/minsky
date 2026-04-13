@@ -11,8 +11,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { first } from "../../../utils/array-safety";
-import { readdirSync, statSync } from "fs";
-import { join } from "path";
+import { readdirSync } from "fs";
 import { getMinskyStateDir } from "../../../utils/paths";
 import type {
   DatabaseStorage,

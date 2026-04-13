@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll } from "bun:test";
 import { ToolSimilarityService } from "./tool-similarity-service";
-import { createToolSimilarityCore } from "./create-tool-similarity-core";
 
 // Ensure embeddings path does not short-circuit core behavior in test
 import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embeddings-backend";

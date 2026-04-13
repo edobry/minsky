@@ -1,11 +1,8 @@
 import { promises as fs } from "fs";
 import { join } from "path";
 import { execAsync } from "../utils/exec";
-import { type SessionProviderInterface, type SessionRecord } from "./session";
+import { type SessionProviderInterface } from "./session";
 import { log } from "../utils/logger";
-import { createHash } from "crypto";
-import { sep } from "path";
-import { homedir } from "os";
 import { getErrorMessage, getErrorStack } from "../errors/index";
 import { getSessionsDir } from "../utils/paths";
 

@@ -8,14 +8,7 @@
 
 import { z } from "zod";
 import { getErrorMessage } from "../../../errors/index";
-import {
-  sharedCommandRegistry,
-  CommandCategory,
-  defineCommand,
-  type CommandExecutionContext,
-  type CommandParameterMap,
-} from "../command-registry";
-import { has, get, getConfiguration } from "../../../domain/configuration/index";
+import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { createConfigWriter } from "../../../domain/configuration/config-writer";
 import { DefaultCredentialResolver } from "../../../domain/configuration/credential-resolver";
 import { log } from "../../../utils/logger";

@@ -1,9 +1,6 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { first } from "../../../src/utils/array-safety";
-import {
-  TaskRoutingService,
-  type AvailableTask,
-} from "../../../src/domain/tasks/task-routing-service";
+import { TaskRoutingService } from "../../../src/domain/tasks/task-routing-service";
 import type { TaskGraphService } from "../../../src/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "../../../src/domain/tasks/taskService";
 

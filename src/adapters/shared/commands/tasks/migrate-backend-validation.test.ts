@@ -19,7 +19,6 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { TasksMigrateBackendCommand, type MigrateBackendParams } from "./migrate-backend-command";
 import type { CommandExecutionContext } from "../../command-registry";
-import type { TaskServiceInterface } from "../../../../domain/tasks";
 import { TaskBackend } from "../../../../domain/configuration/backend-detection";
 
 // Type helper for accessing private methods on TasksMigrateBackendCommand

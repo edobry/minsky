@@ -16,7 +16,6 @@ import {
   FileConflictStatus,
   ConflictType,
   ConflictSeverity,
-  ResolutionStrategy,
 } from "./conflict-detection-types";
 
 /**

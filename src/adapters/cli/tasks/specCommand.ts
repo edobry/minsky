@@ -5,7 +5,6 @@ import { Command } from "commander";
 import { log } from "../../../utils/logger";
 import { getTaskSpecContentFromParams } from "../../../domain/tasks";
 import type { TaskSpecParameters } from "../../../domain/schemas";
-import { ValidationError } from "../../../errors/index";
 import {
   addRepoOptions,
   addOutputOptions,

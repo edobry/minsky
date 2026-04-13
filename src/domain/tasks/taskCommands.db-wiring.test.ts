@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, mock } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
 
 describe("DB wiring for minsky backend", () => {

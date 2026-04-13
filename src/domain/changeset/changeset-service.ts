@@ -18,7 +18,6 @@ import type {
 import type {
   ChangesetAdapter,
   ChangesetAdapterFactory,
-  ChangesetAdapterConfig,
   ChangesetDetails,
 } from "./adapter-interface";
 

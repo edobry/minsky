@@ -5,7 +5,6 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
 import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
 import type { SessionRecord } from "./types";
 import type { SyncFsLike } from "../interfaces/fs-like";

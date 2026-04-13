@@ -1,7 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   normalizeRepositoryUri,
-  validateRepositoryUri,
   convertRepositoryUri,
   extractRepositoryInfo,
   UriFormat,

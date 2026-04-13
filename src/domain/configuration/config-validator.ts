@@ -6,7 +6,7 @@
  */
 
 import { get } from "./index";
-import type { AIConfig, AIProviderConfig } from "./schemas/ai";
+import type { AIConfig } from "./schemas/ai";
 import type { GitHubConfig } from "./schemas/github";
 import type { BackendConfig } from "./schemas/backend";
 import { TaskBackend } from "./backend-detection";

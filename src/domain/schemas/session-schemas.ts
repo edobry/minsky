@@ -10,7 +10,6 @@ import {
   TaskIdSchema,
   BackendIdSchema,
   RepoIdSchema,
-  WorkspacePathSchema,
   BaseBackendParametersSchema,
   BaseExecutionContextSchema,
   BaseListingParametersSchema,

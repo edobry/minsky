@@ -8,12 +8,7 @@ import {
 } from "./types";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
-import {
-  RateLimitError,
-  AuthenticationError,
-  ServerError,
-  NetworkError,
-} from "./enhanced-error-types";
+import { RateLimitError, ServerError, NetworkError } from "./enhanced-error-types";
 import { log } from "../../utils/logger";
 
 export class EnhancedAICompletionService implements AICompletionService {

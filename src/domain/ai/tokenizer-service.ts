@@ -5,7 +5,7 @@
  * for AI models across different providers.
  */
 
-import type { AIModel, TokenizerInfo } from "./types";
+import type { TokenizerInfo } from "./types";
 
 /** Common shape of tokenizer instances returned by various libraries */
 interface TokenizerInstance {

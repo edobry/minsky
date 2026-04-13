@@ -9,9 +9,8 @@ import { ValidationError, ResourceNotFoundError } from "../../../../errors/index
 import { getErrorMessage } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
+import { getTaskFromParams } from "../../../../domain/tasks";
 import type { Task } from "../../../../domain/tasks/types";
-import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { readTextFile } from "../../../../utils/fs";
 import { spawn } from "child_process";

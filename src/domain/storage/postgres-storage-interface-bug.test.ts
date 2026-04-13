@@ -6,7 +6,7 @@
  * - SessionDbAdapter expected storage.get() method
  * - This caused all session lookups by name to fail
  */
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 
 describe("PostgresStorage Interface Completeness", () => {
   test("PostgresStorage must implement both getEntity() and get() methods", async () => {

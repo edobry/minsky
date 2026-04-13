@@ -288,8 +288,17 @@ export default [
       // New `as any` or `: any` in production code will show as warnings in lint output
       // and will be caught by CI once we add a "max warnings" threshold.
       "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": "off", // Disabled - too noisy
-      "no-unused-vars": "off", // Disabled - duplicate of above + too noisy
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          vars: "all",
+          args: "none",
+          varsIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+          caughtErrors: "none",
+        },
+      ],
+      "no-unused-vars": "off", // Disabled - @typescript-eslint/no-unused-vars handles this
       "no-magic-numbers": "off", // Disabled - style preference
       "no-console": "off", // Disabled - useful for debugging
 

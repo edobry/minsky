@@ -5,7 +5,7 @@
  * beyond what's provided by the Zod schemas.
  */
 
-import type { Configuration, PartialConfiguration, ConfigurationValidationResult } from "./schemas";
+import type { Configuration, PartialConfiguration } from "./schemas";
 import { configurationSchema } from "./schemas";
 import type { ConfigurationLoadResult } from "./loader";
 

@@ -7,7 +7,6 @@
 
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
-import { PersistenceService } from "../../persistence/service";
 import { SessionDbConfig } from "../../configuration/types";
 
 import { getConfiguration } from "../../configuration/index";

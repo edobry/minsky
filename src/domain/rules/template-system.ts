@@ -10,7 +10,6 @@ import {
   type InterfaceMode,
   createCommandGeneratorService as defaultCreateCommandGeneratorService,
 } from "./command-generator";
-import { CommandCategory } from "../../adapters/shared/command-registry";
 import type { RuleFormat } from "./types";
 
 /**

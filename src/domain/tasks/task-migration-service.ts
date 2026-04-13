@@ -7,9 +7,9 @@
 
 import { promises as fs } from "fs";
 import { readTextFile } from "../../utils/fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { log } from "../../utils/logger";
-import { validateQualifiedTaskId, getTaskIdNumber } from "./task-id-utils";
+import { validateQualifiedTaskId } from "./task-id-utils";
 import { getTasksFilePath, getTaskSpecsDirectoryPath, listFiles } from "./taskIO";
 
 export interface MigrationOptions {

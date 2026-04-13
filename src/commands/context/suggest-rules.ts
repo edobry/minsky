@@ -10,7 +10,6 @@ import { ModularRulesService } from "../../domain/rules/rules-service-modular";
 import { getConfiguration } from "../../domain/configuration";
 import type { RuleSuggestionRequest, RuleSuggestionResponse } from "../../domain/context/types";
 import { log } from "../../utils/logger";
-import { exit } from "../../utils/process";
 import fs from "fs/promises";
 import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
 import { first } from "../../utils/array-safety";

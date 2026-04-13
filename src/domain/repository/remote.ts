@@ -3,11 +3,8 @@ import { mkdir } from "fs/promises";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { execAsync } from "../../utils/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
-import { normalizeRepoName } from "../repo-utils";
-import { MinskyError, getErrorMessage } from "../../errors/index";
-import { log } from "../../utils/logger";
-import type { RepositoryStatus } from "./legacy-types";
+import { execGitWithTimeout } from "../../utils/git-exec";
+import { MinskyError } from "../../errors/index";
 import {
   createPreparedMergeCommitPR,
   mergePreparedMergeCommitPR,

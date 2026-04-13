@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { pushImpl, PushDependencies } from "./push-operations";
+import { pushImpl } from "./push-operations";
 
 describe("pushImpl", () => {
   test("should be defined", () => {

@@ -1,7 +1,4 @@
-import {
-  createToolSimilarityCore,
-  type ToolSimilarityCoreOptions,
-} from "./create-tool-similarity-core";
+import { createToolSimilarityCore } from "./create-tool-similarity-core";
 import {
   sharedCommandRegistry,
   type SharedCommand,

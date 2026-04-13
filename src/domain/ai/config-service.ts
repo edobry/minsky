@@ -5,14 +5,7 @@
  * Handles provider settings, credentials, and validation.
  */
 
-import {
-  AIConfigurationService,
-  AIProviderConfig,
-  AIModel,
-  ValidationResult,
-  ValidationError,
-  ValidationWarning,
-} from "./types";
+import { AIConfigurationService, AIProviderConfig } from "./types";
 import { enumSchemas } from "../configuration/schemas/base";
 import { z } from "zod";
 import { log } from "../../utils/logger";

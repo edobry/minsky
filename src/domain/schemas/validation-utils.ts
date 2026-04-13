@@ -4,7 +4,7 @@
  * Validation utilities that work consistently across CLI, MCP, and API interfaces.
  * Provides standardized validation patterns and error handling.
  */
-import { z, ZodError, ZodSchema } from "zod";
+import { ZodError, ZodSchema } from "zod";
 import { createErrorResponse, BaseErrorResponse } from "./common-schemas";
 
 // ========================

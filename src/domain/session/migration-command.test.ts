@@ -1,8 +1,8 @@
 import { describe, it, expect, mock } from "bun:test";
 import type { SessionProviderInterface, SessionRecord } from "./types";
-import { SessionMigrationService, type SessionMigrationOptions } from "./migration-command";
+import { SessionMigrationService } from "./migration-command";
 import { isUuidSessionId } from "../tasks/task-id";
-import { first, elementAt } from "../../utils/array-safety";
+import { first } from "../../utils/array-safety";
 
 // Mock session data for testing
 const createMockSessionData = () => {

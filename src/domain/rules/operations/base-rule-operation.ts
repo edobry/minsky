@@ -6,7 +6,6 @@
  */
 import { ValidationError } from "../../../errors/index";
 import { promises as nodeFsPromises } from "fs";
-import { existsSync as nodeExistsSync } from "fs";
 import { log } from "../../../utils/logger";
 import { join } from "path";
 import { type RuleFormat, type RuleMeta } from "../types";

@@ -1,5 +1,4 @@
 import { pgTable, text, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 /**
  * Task relationships (MVP: single edge type = depends)

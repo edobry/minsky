@@ -4,12 +4,10 @@
  * Tests for workspace detection, inspect, list, and PR commands
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { firstMatch } from "../../../src/utils/array-safety";
-import { join } from "path";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import type { SessionTestData } from "./session-test-utilities";
-import type { SessionRecord } from "../../../src/domain/session";
 
 describe("session workspace detection", () => {
   let testData: SessionTestData;

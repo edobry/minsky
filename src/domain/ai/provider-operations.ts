@@ -10,7 +10,7 @@ import type { DefaultAICompletionService } from "./completion-service";
 import type { DefaultAIConfigurationService } from "./config-service";
 import type { DefaultModelCacheService } from "./model-cache";
 import type { ModelFetchConfig } from "./model-cache/types";
-import { getErrorMessage, handleRefreshError } from "./error-utils";
+import { handleRefreshError } from "./error-utils";
 import { log } from "../../utils/logger";
 
 export interface ProviderValidationResult {

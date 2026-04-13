@@ -15,7 +15,6 @@ import {
   PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
-  CapabilityNotSupportedError,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";

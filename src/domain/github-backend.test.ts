@@ -13,8 +13,7 @@ const TEST_VALUE = 123;
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { GitHubBackend } from "./repository/github";
-import { join } from "path";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 // Set up automatic mock cleanup
 setupTestMocks();
 

@@ -1,28 +1,17 @@
-import { existsSync, rmSync } from "fs";
-import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
-import { join } from "path";
-import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-  createCommandFailureMessage,
-  createErrorContext,
 } from "../../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TASK_STATUS, createConfiguredTaskService } from "../tasks";
-import type { TaskServiceInterface } from "../tasks/taskService";
 import type { Task } from "../tasks/types";
 import { execAsync } from "../../utils/exec";
-import {
-  type WorkspaceUtilsInterface,
-  getCurrentSession,
-  getCurrentSessionContext,
-} from "../workspace";
+import { type WorkspaceUtilsInterface, getCurrentSession } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
 import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";

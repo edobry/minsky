@@ -10,7 +10,6 @@ import type { SessionStartParams } from "../schemas/session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createMock } from "../utils/test-utils/mocking";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";

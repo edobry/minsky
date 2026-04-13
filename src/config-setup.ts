@@ -6,7 +6,6 @@
  */
 
 import { initializeConfiguration, CustomConfigFactory } from "./domain/configuration";
-import { exit } from "./utils/process";
 import { log } from "./utils/logger";
 
 /**

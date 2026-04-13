@@ -4,9 +4,8 @@
  */
 
 // ❌ SHOULD BE DETECTED: Forbidden filesystem imports
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
-import { mkdir, writeFile, readFile, unlink, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { mkdirSync, rmSync, writeFileSync, existsSync } from "fs";
+import { mkdir, writeFile } from "fs/promises";
 
 // ❌ SHOULD BE DETECTED: Global counters
 let testSequenceNumber = 0;

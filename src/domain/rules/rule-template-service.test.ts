@@ -1,13 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { log } from "../../utils/logger";
-import path from "path";
 import { first } from "../../utils/array-safety";
 import {
   RuleTemplateService,
   createRuleTemplateService,
   generateRulesWithConfig,
   type RuleTemplate,
-  type GenerateRulesOptions,
 } from "./rule-template-service";
 import {
   createSharedCommandRegistry,

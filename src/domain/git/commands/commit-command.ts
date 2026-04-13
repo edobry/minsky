@@ -1,5 +1,3 @@
-import { join } from "node:path";
-import { normalizeRepoName } from "../../repo-utils";
 import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";

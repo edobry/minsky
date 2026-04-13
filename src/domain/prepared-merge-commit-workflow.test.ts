@@ -14,7 +14,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitService } from "./git";
 import { SESSION_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 // ❌ DEPRECATED: sessionPrFromParams - tests for legacy implementation
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
 // Set up automatic mock cleanup

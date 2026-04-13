@@ -1,8 +1,6 @@
 import { resolve, relative, join, normalize } from "path";
 import { access } from "fs/promises";
-import { log } from "../../utils/logger";
 import { InvalidPathError } from "../workspace/workspace-backend";
-import { getErrorMessage } from "../../errors/index";
 
 /**
  * Error thrown when a session is not found or invalid

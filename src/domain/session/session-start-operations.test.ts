@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 const vi = { fn: mock };
 import { startSessionImpl, type StartSessionDependencies } from "./start-session-operations";
 import type { SessionStartParameters } from "../../domain/schemas";

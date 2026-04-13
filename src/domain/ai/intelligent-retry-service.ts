@@ -4,12 +4,7 @@
  */
 
 import { log } from "../../utils/logger";
-import {
-  RateLimitError,
-  AuthenticationError,
-  ServerError,
-  NetworkError,
-} from "./enhanced-error-types";
+import { RateLimitError } from "./enhanced-error-types";
 
 interface CircuitBreakerState {
   failureCount: number;

@@ -10,12 +10,10 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import type { TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
-import type { Task, CreateTaskOptions } from "../tasks";
+import type { Task } from "../tasks";
 import {
-  extractTaskIdFromIssue,
   getLabelsForTaskStatus,
   buildSpecContentFromIssue,
-  generateTaskSpecification,
   parseGitHubTaskSpec,
 } from "./github-issues-mapping";
 import { getTaskIdNumber } from "./task-id-utils";

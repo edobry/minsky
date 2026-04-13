@@ -7,12 +7,7 @@
  */
 
 import { z } from "zod";
-import {
-  sharedCommandRegistry,
-  CommandCategory,
-  defineCommand,
-  type CommandExecutionContext,
-} from "../command-registry";
+import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "../../../utils/logger";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */

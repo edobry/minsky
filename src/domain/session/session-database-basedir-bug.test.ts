@@ -14,11 +14,9 @@
  * 4. Directory doesn't exist, git command fails with posix_spawn error
  */
 
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { join } from "path";
-import { SessionDbAdapter } from "./session-db-adapter";
 import { initializeSessionDbState, getSessionWorkdirFn } from "./session-db";
-import { readSessionDbFile } from "./session-db-io";
 import { approveSessionImpl } from "./session-approve-operations";
 import type { SessionRecord } from "./types";
 import type { SessionDbState } from "./session-db";

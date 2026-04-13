@@ -10,11 +10,7 @@ import type {
   ChangesetAdapter,
   ChangesetAdapterFactory,
 } from "../../../../src/domain/changeset/adapter-interface";
-import type {
-  Changeset,
-  ChangesetPlatform,
-  CreateChangesetOptions,
-} from "../../../../src/domain/changeset/types";
+import type { Changeset, CreateChangesetOptions } from "../../../../src/domain/changeset/types";
 
 describe("ChangesetService", () => {
   let mockAdapter: ChangesetAdapter;

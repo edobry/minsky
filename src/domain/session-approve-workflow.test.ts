@@ -20,11 +20,11 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
-import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
+import { expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 
 // Remove global module mocks - use dependency injection instead

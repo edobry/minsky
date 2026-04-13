@@ -16,7 +16,6 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createSessionProvider } from "../session";
 import type { SessionRecord } from "../session/types";
 import { SESSION_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 

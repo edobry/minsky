@@ -6,10 +6,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import {
   resolveSessionContext,
   resolveSessionId,
-  resolveSessionContextWithFeedback,
   validateSessionContext,
-  type SessionContextOptions,
-  type ResolvedSessionContext,
 } from "./session-context-resolver";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { FakeSessionProvider } from "./fake-session-provider";

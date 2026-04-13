@@ -5,15 +5,13 @@
  * real business logic: parameter validation, ID normalization, workspace resolution, etc.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, mock, beforeAll, afterAll } from "bun:test";
 import { first, elementAt } from "../../utils/array-safety";
 import {
   getTaskStatusFromParams,
   getTaskFromParams,
   listTasksFromParams,
   setTaskStatusFromParams,
-  createTaskFromParams,
-  deleteTaskFromParams,
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskServiceInterface } from "./taskService";

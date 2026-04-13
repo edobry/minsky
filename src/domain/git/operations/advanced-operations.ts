@@ -10,7 +10,6 @@ import {
   type BaseGitOperationParams,
 } from "./base-git-operation";
 import { type GitServiceInterface, type EnhancedMergeResult } from "../types";
-import { getErrorMessage } from "../../../errors/index";
 
 /**
  * Parameters for merge operation

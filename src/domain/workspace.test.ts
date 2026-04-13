@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { resolveWorkspacePath } from "./workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
-import { join } from "path";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
 describe("resolveWorkspacePath", () => {

@@ -3,14 +3,12 @@ import { mkdir } from "fs/promises";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout, gitCloneWithTimeout } from "../../utils/git-exec";
-import { MinskyError } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
   CloneResult,
   BranchResult,
-  Result,
   ValidationResult,
   RepoStatus,
   PRInfo,

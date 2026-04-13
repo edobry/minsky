@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll } from "bun:test";
 import { RuleSimilarityService } from "../rules/rule-similarity-service";
-import { createRuleSimilarityCore } from "./create-rule-similarity-core";
 
 // Ensure embeddings path does not short-circuit core behavior in test
 import { EmbeddingsSimilarityBackend } from "./backends/embeddings-backend";
