@@ -299,6 +299,19 @@ export function registerDebugCommandsWithMcp(
 }
 
 /**
+ * Register tools commands with MCP (includes validate.lint, validate.typecheck, and other TOOLS-category commands)
+ */
+export function registerToolsCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.TOOLS],
+    ...config,
+  });
+}
+
+/**
  * Register persistence commands with MCP
  */
 export function registerPersistenceCommandsWithMcp(

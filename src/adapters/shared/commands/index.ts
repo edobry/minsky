@@ -16,6 +16,7 @@ import { registerPersistenceCommands } from "./persistence";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
+import { registerValidateCommands } from "./validate";
 
 /**
  * Register all shared commands in the shared command registry
@@ -54,6 +55,9 @@ export async function registerAllSharedCommands(): Promise<void> {
   // Register changeset commands
   registerChangesetCommands();
 
+  // Register validate commands (lint and typecheck)
+  registerValidateCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -71,4 +75,5 @@ export {
   registerAiCommands,
   registerToolsCommands,
   registerChangesetCommands,
+  registerValidateCommands,
 };
