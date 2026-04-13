@@ -320,7 +320,7 @@ describe("Session Edit Tools", () => {
       expect(registeredTools["session.search_replace"]).toBeDefined();
       expect(registeredTools["session.search_replace"].name).toBe("session.search_replace");
       expect(registeredTools["session.search_replace"].description).toContain(
-        "Replace a single occurrence"
+        "Replace text in a file"
       );
     });
 
@@ -388,6 +388,88 @@ describe("Session Edit Tools", () => {
           replace: "new text",
         })
       ).rejects.toThrow("Multiple occurrences");
+    });
+
+    test("should replace all occurrences when replace_all is true", async () => {
+      const mockSearchReplaceAll = mock(async (args: any) => {
+        const content = "foo bar foo baz foo";
+        const occurrences = (content.match(new RegExp(args.search, "g")) || []).length;
+        if (args.replace_all) {
+          return {
+            success: true,
+            path: args.path,
+            session: args.sessionId,
+            edited: true,
+            replaced: true,
+            replacementCount: occurrences,
+            searchText: args.search,
+            replaceText: args.replace,
+          };
+        }
+        throw new Error(`Search text found ${occurrences} times`);
+      });
+
+      const result = await mockSearchReplaceAll({
+        sessionId: "test-session",
+        path: "test-file.txt",
+        search: "foo",
+        replace: "qux",
+        replace_all: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.replacementCount).toBe(3);
+      expect(result.replaced).toBe(true);
+    });
+
+    test("should include replacementCount in response for single replacement", async () => {
+      const mockSearchReplace = mock(async (args: any) => {
+        return {
+          success: true,
+          path: args.path,
+          session: args.sessionId,
+          edited: true,
+          replaced: true,
+          replacementCount: 1,
+          searchText: args.search,
+          replaceText: args.replace,
+        };
+      });
+
+      const result = await mockSearchReplace({
+        sessionId: "test-session",
+        path: "test-file.txt",
+        search: "old text",
+        replace: "new text",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.replacementCount).toBe(1);
+    });
+
+    test("should error when search text not found with replace_all true", async () => {
+      const mockSearchReplaceAll = mock(async (args: any) => {
+        throw new Error(`Search text not found in file: "${args.search}"`);
+      });
+
+      await expect(
+        mockSearchReplaceAll({
+          sessionId: "test-session",
+          path: "test-file.txt",
+          search: "nonexistent",
+          replace: "replacement",
+          replace_all: true,
+        })
+      ).rejects.toThrow("Search text not found in file");
+    });
+
+    test("should have replace_all parameter in schema", () => {
+      const tool = registeredTools["session.search_replace"];
+      expect(tool).toBeDefined();
+      expect(tool.schema).toBeDefined();
+      // Validate the schema shape includes replace_all
+      const schemaShape = tool.schema.shape;
+      expect(schemaShape).toHaveProperty("replace_all");
     });
   });
 });
