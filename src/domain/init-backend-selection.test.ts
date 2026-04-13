@@ -2,7 +2,7 @@
  * Tests for Init System Backend Selection
  *
  * Verifies that the init system properly respects user backend choices
- * instead of hardcoding markdown as the default.
+ * and correctly handles the currently supported backends.
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
@@ -22,8 +22,8 @@ describe("Init System Backend Selection", () => {
   test("should create configuration file with user's chosen backend", async () => {
     const testRepo = "/tmp/test-repo";
 
-    // Test with each backend option
-    const backends = ["markdown", "json-file", "github-issues", "minsky"] as const;
+    // Test with each supported backend option
+    const backends = ["github-issues", "minsky"] as const;
 
     for (const backend of backends) {
       mockFileSystem.files.clear();
@@ -56,13 +56,13 @@ describe("Init System Backend Selection", () => {
   test("should create appropriate files for each backend type", async () => {
     const testRepo = "/tmp/test-repo";
 
-    // Test markdown backend
+    // Test minsky backend (no local task files needed - uses database)
     mockFileSystem.files.clear();
     mockFileSystem.directories.clear();
     await initializeProject(
       {
         repoPath: testRepo,
-        backend: "markdown",
+        backend: "minsky",
         ruleFormat: "cursor",
         mcp: { enabled: false },
         mcpOnly: false,
@@ -71,31 +71,12 @@ describe("Init System Backend Selection", () => {
       mockFileSystem
     );
 
-    const markdownPath = path.join(testRepo, "process", "tasks.md");
-    expect(mockFileSystem.files.has(markdownPath)).toBe(true);
-    expect(mockFileSystem.files.get(markdownPath)).toContain("# Minsky Tasks");
+    const configPath = path.join(testRepo, ".minsky", "config.yaml");
+    expect(mockFileSystem.files.has(configPath)).toBe(true);
+    const minskyConfig = yamlParse(mockFileSystem.files.get(configPath)!);
+    expect(minskyConfig.tasks.backend).toBe("minsky");
 
-    // Test json-file backend
-    mockFileSystem.files.clear();
-    mockFileSystem.directories.clear();
-    await initializeProject(
-      {
-        repoPath: testRepo,
-        backend: "json-file",
-        ruleFormat: "cursor",
-        mcp: { enabled: false },
-        mcpOnly: false,
-        overwrite: false,
-      },
-      mockFileSystem
-    );
-
-    const jsonPath = path.join(testRepo, "process", "tasks", "tasks.json");
-    expect(mockFileSystem.files.has(jsonPath)).toBe(true);
-    const jsonContent = JSON.parse(mockFileSystem.files.get(jsonPath)!);
-    expect(jsonContent.tasks).toEqual([]);
-
-    // Test github-issues backend (no files needed)
+    // Test github-issues backend (no files needed - uses GitHub API)
     mockFileSystem.files.clear();
     mockFileSystem.directories.clear();
     await initializeProject(
@@ -111,41 +92,32 @@ describe("Init System Backend Selection", () => {
     );
 
     // Should not create task files, only config
-    const configPath = path.join(testRepo, ".minsky", "config.yaml");
-    expect(mockFileSystem.files.has(configPath)).toBe(true);
-    const config = yamlParse(mockFileSystem.files.get(configPath)!);
-    expect(config.tasks.backend).toBe("github-issues");
+    const ghConfigPath = path.join(testRepo, ".minsky", "config.yaml");
+    expect(mockFileSystem.files.has(ghConfigPath)).toBe(true);
+    const ghConfig = yamlParse(mockFileSystem.files.get(ghConfigPath)!);
+    expect(ghConfig.tasks.backend).toBe("github-issues");
   });
 
-  test("should demonstrate the fix: no longer hardcoding markdown", async () => {
+  test("should reject unsupported legacy backends with a clear error", async () => {
     const testRepo = "/tmp/test-repo";
 
-    // When user chooses json-file, they should get json-file, not markdown
-    await initializeProject(
-      {
-        repoPath: testRepo,
-        backend: "json-file",
-        ruleFormat: "cursor",
-        mcp: { enabled: false },
-        mcpOnly: false,
-        overwrite: false,
-      },
-      mockFileSystem
-    );
+    // markdown and json-file backends are no longer supported
+    const legacyBackends = ["markdown", "json-file"];
 
-    const configPath = path.join(testRepo, ".minsky", "config.yaml");
-    const configContent = mockFileSystem.files.get(configPath);
-    const config = yamlParse(configContent!);
-
-    // Verify user's choice is respected
-    expect(config.tasks.backend).toBe("json-file");
-    expect(config.tasks.backend).not.toBe("markdown");
-
-    // Verify appropriate files are created
-    const jsonPath = path.join(testRepo, "process", "tasks", "tasks.json");
-    const markdownPath = path.join(testRepo, "process", "tasks.md");
-
-    expect(mockFileSystem.files.has(jsonPath)).toBe(true); // Should create JSON file
-    expect(mockFileSystem.files.has(markdownPath)).toBe(false); // Should NOT create markdown file
+    for (const backend of legacyBackends) {
+      await expect(
+        initializeProject(
+          {
+            repoPath: testRepo,
+            backend: backend as unknown as "minsky", // cast to satisfy TS; intentionally invalid
+            ruleFormat: "cursor",
+            mcp: { enabled: false },
+            mcpOnly: false,
+            overwrite: false,
+          },
+          mockFileSystem
+        )
+      ).rejects.toThrow(`Backend "${backend}" is not supported.`);
+    }
   });
 });

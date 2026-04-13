@@ -6,10 +6,10 @@ import { first } from "../../utils/array-safety";
 /**
  * Regression test for CLOSED task filtering bug
  *
- * BUG: JsonFileTaskBackend and GitHubIssuesTaskBackend were not filtering out
- * CLOSED and DONE tasks by default, causing them to appear in `minsky tasks list`
+ * BUG: Task backends were not filtering out CLOSED and DONE tasks by default,
+ * causing them to appear in `minsky tasks list`.
  *
- * This test ensures all backends consistently filter CLOSED tasks unless --all is used
+ * This test ensures all backends consistently filter CLOSED tasks unless --all is used.
  */
 describe("Backend CLOSED task filtering regression test", () => {
   let mockTasks: Task[];
@@ -53,7 +53,6 @@ describe("Backend CLOSED task filtering regression test", () => {
 
   /**
    * Test the filtering logic that should be implemented in all backends
-   * This simulates the behavior that JsonFileTaskBackend and GitHubIssuesTaskBackend should have
    */
   function simulateBackendFiltering(tasks: Task[], options?: TaskListOptions): Task[] {
     let filtered = tasks;
@@ -70,8 +69,8 @@ describe("Backend CLOSED task filtering regression test", () => {
   }
 
   it("should filter out DONE and CLOSED tasks by default (reproduces the bug)", () => {
-    // BUG REPRODUCTION: Before the fix, JsonFile and GitHub backends would return all tasks
-    // This test documents the expected behavior that was missing
+    // BUG REPRODUCTION: Before the fix, task backends would return all tasks including DONE/CLOSED.
+    // This test documents the expected behavior that was missing.
 
     const filteredTasks = simulateBackendFiltering(mockTasks); // No options = should filter by default
 
@@ -116,7 +115,6 @@ describe("Backend CLOSED task filtering regression test", () => {
   describe("Before the fix behavior simulation", () => {
     /**
      * Simulate the buggy behavior that existed before our fix
-     * This would have been the behavior in JsonFileTaskBackend and GitHubIssuesTaskBackend
      */
     function simulateBuggyBackendFiltering(tasks: Task[], options?: TaskListOptions): Task[] {
       let filtered = tasks;

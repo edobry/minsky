@@ -14,7 +14,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown",
+      // no specific backend: uses multi-backend mode
     });
 
     // Both methods should exist
@@ -33,7 +33,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown",
+      // no specific backend: uses multi-backend mode
     });
 
     // getTaskStatus should exist
@@ -49,13 +49,13 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown",
+      // no specific backend: uses multi-backend mode
     });
 
-    // Should reject invalid status
+    // Should reject when no backends are registered (graceful error)
     await expect(
       (taskService as TaskServiceInterface).setTaskStatus("test", "INVALID_STATUS")
-    ).rejects.toThrow(/Failed to read tasks data|Task with id .* not found/);
+    ).rejects.toThrow(/No backend available|Failed to read tasks data|Task with id .* not found/);
 
     // Should accept valid status (even though it may fail on missing file, that's expected)
     const validCall = (taskService as TaskServiceInterface).setTaskStatus("test", TASK_STATUS.TODO);
@@ -71,7 +71,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown",
+      // no specific backend: uses multi-backend mode
     });
 
     // Interface methods that CLI and other code expects to exist

@@ -36,7 +36,7 @@ describe("Task ID Generation Bug Reproduction", () => {
     expect(nextId).toBe(TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
   });
 
-  it("should demonstrate the BUG in JsonFileTaskBackend ID generation", () => {
+  it("should demonstrate the naive length+1 approach produces wrong IDs", () => {
     // Setup: Same mock task data
     const existingTasks: TaskData[] = [
       {
@@ -48,7 +48,7 @@ describe("Task ID Generation Bug Reproduction", () => {
       },
     ];
 
-    // BUG REPRODUCTION: JsonFileTaskBackend does this WRONG approach:
+    // WRONG approach (naive implementation using length):
     // const nextIdNumber = tasks.length + 1;
     // taskId = String(nextIdNumber);
 
@@ -57,8 +57,8 @@ describe("Task ID Generation Bug Reproduction", () => {
     log.debug(`Buggy approach (tasks.length + 1): ${buggyNextId}`);
     log.debug(`Should be: ${TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT}`);
 
-    // This test documents the BUG - should FAIL until JsonFileTaskBackend is fixed
-    expect(buggyNextId).toBe(TEST_CONSTANTS.TASK_IDS.BUGGY_SEQUENCE); // Shows the bug
+    // The naive approach produces sequence-based IDs, not max-based IDs
+    expect(buggyNextId).toBe(TEST_CONSTANTS.TASK_IDS.BUGGY_SEQUENCE); // Shows the wrong behavior
     expect(buggyNextId).not.toBe(TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT); // Shows it's wrong
   });
 

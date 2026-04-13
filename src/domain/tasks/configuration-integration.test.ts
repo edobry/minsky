@@ -38,15 +38,14 @@ describe("Configuration Integration", () => {
     expect(Array.isArray(tasks)).toBe(true);
   });
 
-  test("createConfiguredTaskService should handle explicit backend override", async () => {
-    const taskService = await createConfiguredTaskService({
-      // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
-      workspacePath: process.cwd(),
-      backend: "markdown",
-    });
-
-    expect(taskService).toBeDefined();
-    const tasks = await taskService.listTasks();
-    expect(Array.isArray(tasks)).toBe(true);
+  test("createConfiguredTaskService should reject unknown backend with clear error", async () => {
+    // Verify that an unknown backend produces a clear error message
+    await expect(
+      createConfiguredTaskService({
+        // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
+        workspacePath: process.cwd(),
+        backend: "unknown-backend",
+      })
+    ).rejects.toThrow(/Unknown backend/);
   });
 });

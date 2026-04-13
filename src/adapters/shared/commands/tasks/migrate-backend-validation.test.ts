@@ -69,7 +69,7 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         await command.execute(
           {
-            from: TaskBackend.MARKDOWN,
+            from: TaskBackend.GITHUB,
             to: TaskBackend.MINSKY,
             execute: true,
           } as unknown as MigrateBackendParams,
@@ -96,8 +96,8 @@ describe("Migration Backend Validation Bug Fix", () => {
           skipped: 0,
           errors: 0,
           details: [
-            { id: "md#100", status: "migrated" },
-            { id: "md#101", status: "migrated" },
+            { id: "gh#100", status: "migrated" },
+            { id: "gh#101", status: "migrated" },
           ],
         })
       );
@@ -109,13 +109,13 @@ describe("Migration Backend Validation Bug Fix", () => {
           passed: [],
           failed: [
             {
-              taskId: "md#100",
+              taskId: "gh#100",
               targetTaskId: "mt#100",
               reason: "TASK_NOT_FOUND_IN_TARGET",
               details: "Task mt#100 was reported as migrated but does not exist in minsky backend",
             },
             {
-              taskId: "md#101",
+              taskId: "gh#101",
               targetTaskId: "mt#101",
               reason: "TASK_NOT_FOUND_IN_TARGET",
               details: "Task mt#101 was reported as migrated but does not exist in minsky backend",
@@ -131,7 +131,7 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: TaskBackend.MARKDOWN,
+              from: TaskBackend.GITHUB,
               to: TaskBackend.MINSKY,
               execute: true,
             } as unknown as MigrateBackendParams,
@@ -164,8 +164,8 @@ describe("Migration Backend Validation Bug Fix", () => {
           skipped: 0,
           errors: 0,
           details: [
-            { id: "md#200", status: "migrated" },
-            { id: "md#201", status: "migrated" },
+            { id: "gh#200", status: "migrated" },
+            { id: "gh#201", status: "migrated" },
           ],
         })
       );
@@ -174,10 +174,10 @@ describe("Migration Backend Validation Bug Fix", () => {
       const originalValidate = (command as unknown as CommandWithPrivates).validateMigration;
       (command as unknown as CommandWithPrivates).validateMigration = mock(() =>
         Promise.resolve({
-          passed: [{ taskId: "md#200", targetTaskId: "mt#200", status: "VALIDATED" }],
+          passed: [{ taskId: "gh#200", targetTaskId: "mt#200", status: "VALIDATED" }],
           failed: [
             {
-              taskId: "md#201",
+              taskId: "gh#201",
               targetTaskId: "mt#201",
               reason: "TITLE_MISMATCH",
               details: 'Title mismatch: source="Original Title" vs target="Different Title"',
@@ -193,7 +193,7 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: TaskBackend.MARKDOWN,
+              from: TaskBackend.GITHUB,
               to: TaskBackend.MINSKY,
               execute: true,
             } as unknown as MigrateBackendParams,
@@ -226,8 +226,8 @@ describe("Migration Backend Validation Bug Fix", () => {
           skipped: 0,
           errors: 0,
           details: [
-            { id: "md#300", status: "migrated" },
-            { id: "md#301", status: "migrated" },
+            { id: "gh#300", status: "migrated" },
+            { id: "gh#301", status: "migrated" },
           ],
         })
       );
@@ -237,8 +237,8 @@ describe("Migration Backend Validation Bug Fix", () => {
       (command as unknown as CommandWithPrivates).validateMigration = mock(() =>
         Promise.resolve({
           passed: [
-            { taskId: "md#300", targetTaskId: "mt#300", status: "VALIDATED" },
-            { taskId: "md#301", targetTaskId: "mt#301", status: "VALIDATED" },
+            { taskId: "gh#300", targetTaskId: "mt#300", status: "VALIDATED" },
+            { taskId: "gh#301", targetTaskId: "mt#301", status: "VALIDATED" },
           ],
           failed: [],
         })
@@ -247,7 +247,7 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         const result = await command.execute(
           {
-            from: TaskBackend.MARKDOWN,
+            from: TaskBackend.GITHUB,
             to: TaskBackend.MINSKY,
             execute: true,
             json: true, // Use JSON format to get flat result structure
@@ -292,7 +292,7 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         const result = await command.execute(
           {
-            from: TaskBackend.MARKDOWN,
+            from: TaskBackend.GITHUB,
             to: TaskBackend.MINSKY,
             execute: false, // dry run
           } as unknown as MigrateBackendParams,

@@ -20,8 +20,6 @@ export const defaultConfiguration: PartialConfiguration = {
 
   backendConfig: {
     "github-issues": undefined,
-    markdown: {},
-    "json-file": {},
   },
 
   // Modern persistence configuration

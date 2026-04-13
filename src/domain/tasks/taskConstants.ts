@@ -1,5 +1,3 @@
-const TEST_VALUE = 123;
-
 import { isQualifiedTaskId } from "./task-id";
 
 /**
@@ -100,7 +98,7 @@ function generateCheckboxPattern(): string {
  */
 export const TASK_REGEX_PATTERNS = {
   /**
-   * Pattern for matching task lines: - [x] Title [#TEST_VALUE](path)
+   * Pattern for matching task lines: - [x] Title [mt#123](path)
    * Dynamically includes all valid checkbox characters
    * Supports both numeric and alphanumeric task IDs
    */
@@ -129,7 +127,7 @@ export const TASK_REGEX_PATTERNS = {
  * This ensures backend lists in help text and errors are always up-to-date
  */
 export function getAvailableBackends(): string[] {
-  return ["markdown", "json-file", "github", "minsky"];
+  return ["github", "minsky"];
 }
 
 /**

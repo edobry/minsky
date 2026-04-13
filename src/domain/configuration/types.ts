@@ -64,8 +64,6 @@ export interface RepositoryConfig {
       owner: string;
       repo: string;
     };
-    markdown?: Record<string, unknown>;
-    "json-file"?: Record<string, unknown>;
   };
   repository?: {
     backend?: "github" | "gitlab" | "local";
@@ -124,8 +122,6 @@ export interface BackendConfig {
     owner: string;
     repo: string;
   };
-  markdown?: Record<string, unknown>;
-  "json-file"?: Record<string, unknown>;
 }
 
 export interface SessionDbConfig {

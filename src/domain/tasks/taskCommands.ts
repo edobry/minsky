@@ -59,11 +59,11 @@ import {
 function normalizeTaskIdInput(input: unknown): string {
   const raw = Array.isArray(input) ? String(input[0] ?? "").trim() : String(input ?? "").trim();
   if (!raw) return raw;
-  // Already qualified like md#123 or gh#456
+  // Already qualified like mt#123 or gh#456
   if (/^[a-z-]+#\d+$/.test(raw)) return raw;
-  // Accept forms like "#123" or "123" and normalize to md#123
+  // Accept forms like "#123" or "123" and normalize to mt#123 (minsky is the default backend)
   const numeric = raw.startsWith("#") ? raw.slice(1) : raw;
-  return `md#${numeric}`;
+  return `mt#${numeric}`;
 }
 
 /**

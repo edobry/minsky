@@ -86,7 +86,7 @@ describe("interface-agnostic task functions", () => {
         getTaskSpecContent: () =>
           Promise.resolve({ task: mockTask, specPath: "/mock/spec.md", content: "" }),
         // Add missing methods that the new multi-backend system expects
-        listBackends: () => [{ name: "markdown", prefix: "md" }],
+        listBackends: () => [{ name: "minsky", prefix: "mt" }],
         getWorkspacePath: () => "/mock/workspace/path",
       },
     });
@@ -101,7 +101,7 @@ describe("interface-agnostic task functions", () => {
     test("should list tasks with valid parameters", async () => {
       const params = {
         filter: TASK_STATUS.TODO,
-        backend: "markdown",
+        backend: "minsky",
         all: false,
       };
 
@@ -141,7 +141,7 @@ describe("interface-agnostic task functions", () => {
     test("should get a task with valid parameters", async () => {
       const params = {
         taskId: `#${TEST_VALUE}`,
-        backend: "markdown",
+        backend: "minsky",
       };
 
       const result = await getTaskFromParams(params);
@@ -152,7 +152,7 @@ describe("interface-agnostic task functions", () => {
     test("should throw error when task is not found", async () => {
       const params = {
         taskId: "999",
-        backend: "markdown",
+        backend: "minsky",
       };
 
       try {
@@ -167,7 +167,7 @@ describe("interface-agnostic task functions", () => {
     test("should normalize task IDs to qualified format (e.g., 'TEST_VALUE' -> 'md#TEST_VALUE')", async () => {
       const params = {
         taskId: `${TEST_VALUE}`, // non-canonical, gets normalized to qualified format
-        backend: "markdown",
+        backend: "minsky",
       };
 
       const result = await getTaskFromParams(params);
@@ -189,7 +189,7 @@ describe("interface-agnostic task functions", () => {
 
       const params = {
         taskId: "23", // without leading zeros
-        backend: "markdown",
+        backend: "minsky",
       };
 
       const result = await getTaskFromParams(params);
@@ -204,7 +204,7 @@ describe("interface-agnostic task functions", () => {
 
       const params = {
         taskId: `#${TEST_VALUE}`,
-        backend: "markdown",
+        backend: "minsky",
       };
 
       const result = await getTaskStatusFromParams(params);
@@ -215,7 +215,7 @@ describe("interface-agnostic task functions", () => {
     test("should throw ResourceNotFoundError when task status is not found", async () => {
       const params = {
         taskId: "999",
-        backend: "markdown",
+        backend: "minsky",
       };
 
       try {
@@ -234,7 +234,7 @@ describe("interface-agnostic task functions", () => {
       const params = {
         taskId: `#${TEST_VALUE}`,
         status: TASK_STATUS.IN_PROGRESS,
-        backend: "markdown",
+        backend: "minsky",
       };
 
       await setTaskStatusFromParams(params);
@@ -246,7 +246,7 @@ describe("interface-agnostic task functions", () => {
       const params = {
         taskId: `#${TEST_VALUE}`,
         status: "INVALID-STATUS" as any,
-        backend: "markdown",
+        backend: "minsky",
       };
 
       try {

@@ -1,7 +1,7 @@
 /**
  * Task Backend Migration Command
  *
- * Migrates tasks between different backends (markdown, db, github, etc.)
+ * Migrates tasks between different backends (minsky, github, etc.)
  * Reuses patterns from session migrate-backend command for consistency.
  */
 
@@ -17,12 +17,7 @@ import {
 import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
 
 // Supported backends for migration (subset of TaskBackend)
-const MIGRATION_BACKENDS = [
-  TaskBackend.MARKDOWN,
-  TaskBackend.MINSKY,
-  TaskBackend.GITHUB,
-  TaskBackend.JSON_FILE,
-] as const;
+const MIGRATION_BACKENDS = [TaskBackend.MINSKY, TaskBackend.GITHUB] as const;
 
 // Migration result types
 interface MigrationDetail {
@@ -228,20 +223,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   }
 
   private async detectCurrentBackend(workspacePath: string): Promise<string> {
-    // Use the backend detection service instead of hardcoded logic
+    // Use the backend detection service
     const detectedBackend = await _backendDetectionService.detectBackend(workspacePath);
-
-    // Convert TaskBackend enum to string format expected by migration command
-    switch (detectedBackend as string) {
-      case "MARKDOWN":
-        return "markdown";
-      case "JSON_FILE":
-        return "json-file";
-      case "GITHUB_ISSUES":
-        return "github";
-      default:
-        throw new Error(`Unable to detect current backend in workspace: ${workspacePath}`);
-    }
+    return detectedBackend as string;
   }
 
   private async migrateTasksBetweenBackends(options: {
@@ -434,10 +418,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
 
   private getBackendPrefix(backend: string): string {
     const prefixMap: Record<string, string> = {
-      markdown: "md",
       minsky: "mt",
       github: "gh",
-      "json-file": "json",
     };
     return prefixMap[backend] || backend;
   }

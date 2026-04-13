@@ -211,10 +211,9 @@ describe("Task 223 Enhanced Error Messages", () => {
 
   describe("createBackendDetectionErrorMessage", () => {
     test("should show available backends and their requirements", () => {
-      const availableBackends = ["markdown", "json-file", "github-issues"];
+      const availableBackends = ["minsky", "github-issues"];
       const requirements = {
         "github-issues": ["GitHub token", "Repository access"],
-        "json-file": ["Write permissions"],
       };
 
       const result = createBackendDetectionErrorMessage(
@@ -227,27 +226,25 @@ describe("Task 223 Enhanced Error Messages", () => {
 
       expect(result)!.toContain("Backend Detection Failed");
       expect(result)!.toContain("Failed to configure or detect backend 'auto-detect'");
-      expect(result)!.toContain("• markdown");
-      expect(result)!.toContain("• json-file (requires: Write permissions)");
+      expect(result)!.toContain("• minsky");
       expect(result)!.toContain("• github-issues (requires: GitHub token, Repository access)");
       expect(result)!.toContain("minsky config show");
-      expect(result)!.toContain("minsky config set backend markdown");
-      expect(result)!.toContain("minsky init --backend markdown");
+      expect(result)!.toContain("minsky config set backend minsky");
+      expect(result)!.toContain("minsky init --backend minsky");
     });
 
     test("should provide default backend list when no backends provided", () => {
       const result = createBackendDetectionErrorMessage(undefined, [], {}, "/workspace", []);
 
       expect(result)!.toContain("Failed to automatically detect appropriate task backend");
-      expect(result)!.toContain("• markdown");
-      expect(result)!.toContain("• json-file");
+      expect(result)!.toContain("• minsky (requires database config)");
       expect(result)!.toContain("• github-issues (requires GitHub config)");
     });
 
     test("should include workspace path in context", () => {
       const result = createBackendDetectionErrorMessage(
         "custom-backend",
-        ["markdown"],
+        ["minsky"],
         {},
         "/Users/test/project",
         [{ label: "Config file", value: ".minsky/config.json" }]
@@ -281,7 +278,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       );
       const backendError = createBackendDetectionErrorMessage(
         "test",
-        ["markdown"],
+        ["minsky"],
         {},
         "/workspace",
         []
