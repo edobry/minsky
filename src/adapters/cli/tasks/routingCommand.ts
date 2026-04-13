@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { PersistenceService } from "../../../domain/persistence/service";
 import {
   createTasksAvailableCommand,
   createTasksRouteCommand,
@@ -10,8 +11,10 @@ export function createRoutingCommand(): Command {
   const routingCommand = new Command("routing");
   routingCommand.description("Task routing and availability commands");
 
+  const getPersistenceProvider = () => PersistenceService.getProvider();
+
   // Add "available" subcommand
-  const availableCommand = createTasksAvailableCommand();
+  const availableCommand = createTasksAvailableCommand(getPersistenceProvider);
   const availableCmd = new Command("available");
   availableCmd.description(availableCommand.description);
 
@@ -67,7 +70,7 @@ export function createRoutingCommand(): Command {
   routingCommand.addCommand(availableCmd);
 
   // Add "route" subcommand
-  const routeCommand = createTasksRouteCommand();
+  const routeCommand = createTasksRouteCommand(getPersistenceProvider);
   const routeCmd = new Command("route");
   routeCmd.description(routeCommand.description);
 

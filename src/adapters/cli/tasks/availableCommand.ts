@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { PersistenceService } from "../../../domain/persistence/service";
 import { createTasksAvailableCommand } from "../../shared/commands/tasks/routing-commands";
 import { log } from "../../../utils/logger";
 import { handleCliError } from "../utils/error-handler";
@@ -7,7 +8,7 @@ import { handleCliError } from "../utils/error-handler";
  * Create the tasks available command
  */
 export function createAvailableCommand(): Command {
-  const availableCommand = createTasksAvailableCommand();
+  const availableCommand = createTasksAvailableCommand(() => PersistenceService.getProvider());
   const command = new Command("available");
 
   command

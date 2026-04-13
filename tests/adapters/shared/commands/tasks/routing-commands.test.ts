@@ -3,15 +3,18 @@ import {
   createTasksAvailableCommand,
   createTasksRouteCommand,
 } from "../../../../../src/adapters/shared/commands/tasks/routing-commands";
+import type { PersistenceProvider } from "../../../../../src/domain/persistence/types";
 
 // Note: Integration tests for routing commands require complex database mocking
 // Core functionality is tested in task-routing-service.test.ts
 // CLI integration is verified through direct CLI implementations
 
+const stubGetProvider = () => ({}) as PersistenceProvider;
+
 describe("Routing Commands", () => {
   describe("createTasksAvailableCommand", () => {
     test("creates command with correct structure", () => {
-      const command = createTasksAvailableCommand();
+      const command = createTasksAvailableCommand(stubGetProvider);
 
       expect(command.id).toBe("tasks.available");
       expect(command.name).toBe("available");
@@ -21,7 +24,7 @@ describe("Routing Commands", () => {
     });
 
     test("has correct parameter definitions", () => {
-      const command = createTasksAvailableCommand();
+      const command = createTasksAvailableCommand(stubGetProvider);
       const params = command.parameters;
 
       expect(params.status).toBeDefined();
@@ -41,7 +44,7 @@ describe("Routing Commands", () => {
 
   describe("createTasksRouteCommand", () => {
     test("creates command with correct structure", () => {
-      const command = createTasksRouteCommand();
+      const command = createTasksRouteCommand(stubGetProvider);
 
       expect(command.id).toBe("tasks.route");
       expect(command.name).toBe("route");
@@ -51,7 +54,7 @@ describe("Routing Commands", () => {
     });
 
     test("has correct parameter definitions", () => {
-      const command = createTasksRouteCommand();
+      const command = createTasksRouteCommand(stubGetProvider);
       const params = command.parameters;
 
       expect(params.target).toBeDefined();
