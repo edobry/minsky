@@ -15,7 +15,7 @@ import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
-import { createPartialMock } from "../../../src/utils/test-utils/mocking";
+import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
 
 describe("session update command", () => {
   let testData: SessionTestData;
@@ -59,11 +59,8 @@ describe("session update command", () => {
     };
 
     // Mock the session database to return our test session
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: (() => sessionRecord) as any,
-      updateSession: createMock() as any,
-      getSessionWorkdir: createMock(() => sessionPath) as any,
-    });
+    const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
     const result = await updateSessionFromParams(
       {
@@ -102,11 +99,8 @@ describe("session update command", () => {
       created: new Date().toISOString(),
     };
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: (() => sessionRecord) as any,
-      updateSession: createMock() as any,
-      getSessionWorkdir: createMock(() => sessionPath) as any,
-    });
+    const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
     const result = await updateSessionFromParams(
       {
@@ -150,11 +144,8 @@ describe("session update command", () => {
     // Use directory isolation to mock process.cwd
     const dirIsolation = withDirectoryIsolation();
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: (() => sessionRecord) as any,
-      updateSession: createMock() as any,
-      getSessionWorkdir: createMock(() => sessionPath) as any,
-    });
+    const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
     const result = await updateSessionFromParams(
       {
@@ -193,11 +184,8 @@ describe("session update command", () => {
       created: new Date().toISOString(),
     };
 
-    const mockSessionDB = createPartialMock<SessionProviderInterface>({
-      getSession: (() => sessionRecord) as any,
-      updateSession: createMock() as any,
-      getSessionWorkdir: createMock(() => sessionPath) as any,
-    });
+    const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
     const result = await updateSessionFromParams(
       {

@@ -9,12 +9,11 @@
 
 import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
-import { createPartialMock } from "../utils/test-utils/mocking";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
-import type { GitServiceInterface } from "./git";
-import type { WorkspaceUtilsInterface } from "./workspace";
+import { FakeGitService } from "./git/fake-git-service";
+import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -40,28 +39,22 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.addSession = addSessionSpy;
 
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      clone: cloneSpy,
-      branchWithoutSession: branchSpy,
-      branch: mock(() =>
-        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
-      ),
-      execInRepository: mock(() => Promise.resolve("")),
-      getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),
-    });
+    const fakeGitService1 = new FakeGitService();
+    fakeGitService1.clone = cloneSpy;
+    fakeGitService1.branchWithoutSession = branchSpy;
+    fakeGitService1.branch = mock(() =>
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
+    );
+    fakeGitService1.execInRepository = mock(() => Promise.resolve(""));
+    fakeGitService1.getSessionWorkdir = mock(() => TEST_PATHS.SESSION_MD_160);
+    const mockGitService = fakeGitService1;
 
     const mockTaskService = new FakeTaskService({
       initialTasks: [{ id: "md#160", title: "Test Task", status: "TODO" }],
     });
 
     // Create workspace utils mock with all required methods
-    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-      isWorkspace: () => Promise.resolve(true),
-      isSessionWorkspace: () => false,
-      getCurrentSession: () => Promise.resolve(undefined),
-      getSessionFromWorkspace: () => Promise.resolve(undefined),
-      resolveWorkspacePath: () => Promise.resolve("/mock/workspace"),
-    });
+    const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
@@ -109,28 +102,22 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.addSession = addSessionSpy;
 
-    const mockGitService = createPartialMock<GitServiceInterface>({
-      clone: cloneSpy,
-      branchWithoutSession: branchSpy,
-      branch: mock(() =>
-        Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
-      ),
-      execInRepository: mock(() => Promise.resolve("")),
-      getSessionWorkdir: mock(() => TEST_PATHS.SESSION_MD_160),
-    });
+    const fakeGitService2 = new FakeGitService();
+    fakeGitService2.clone = cloneSpy;
+    fakeGitService2.branchWithoutSession = branchSpy;
+    fakeGitService2.branch = mock(() =>
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" })
+    );
+    fakeGitService2.execInRepository = mock(() => Promise.resolve(""));
+    fakeGitService2.getSessionWorkdir = mock(() => TEST_PATHS.SESSION_MD_160);
+    const mockGitService = fakeGitService2;
 
     const mockTaskService = new FakeTaskService({
       initialTasks: [{ id: "md#160", title: "Test Task", status: "TODO" }],
     });
 
     // Create workspace utils mock with all required methods
-    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-      isWorkspace: () => Promise.resolve(true),
-      isSessionWorkspace: () => false,
-      getCurrentSession: () => Promise.resolve(undefined),
-      getSessionFromWorkspace: () => Promise.resolve(undefined),
-      resolveWorkspacePath: () => Promise.resolve("/mock/workspace"),
-    });
+    const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 

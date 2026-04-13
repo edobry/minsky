@@ -20,10 +20,10 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
-import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeTaskService } from "./tasks/fake-task-service";
-import type { WorkspaceUtilsInterface } from "./workspace";
+import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 
@@ -107,13 +107,7 @@ describe("Session Approve Workflow", () => {
       return svc;
     })();
 
-    mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-      isWorkspace: () => Promise.resolve(true),
-      isSessionWorkspace: () => false,
-      getCurrentSession: () => Promise.resolve(undefined),
-      getSessionFromWorkspace: () => Promise.resolve(undefined),
-      resolveWorkspacePath: () => Promise.resolve("/mock/workspace"),
-    });
+    mockWorkspaceUtils = new FakeWorkspaceUtils();
   });
 
   test("successfully approves and merges a PR branch with task ID", async () => {

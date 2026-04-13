@@ -10,11 +10,13 @@ import type { SessionStartParams } from "../schemas/session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMock } from "../utils/test-utils/mocking";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";
 import { FakeSessionProvider } from "./session/fake-session-provider";
+import { FakeGitService } from "./git/fake-git-service";
+import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -46,22 +48,22 @@ describe("Session Auto-Task Creation", () => {
     // Mock session database using centralized factory
     mockSessionDB = new FakeSessionProvider();
 
-    // Mock git service using createPartialMock for full control
-    mockGitService = createPartialMock<GitServiceInterface>({
-      clone: () =>
-        Promise.resolve({
-          session: "test-session",
-          repoUrl: "test-repo",
-          repoName: "test-repo",
-          branch: "test-session",
-          workdir: "/test/workdir",
-        }),
-      branchWithoutSession: () =>
-        Promise.resolve({
-          branch: "test-session",
-          workdir: "/test/workdir",
-        }),
-    });
+    // Mock git service using FakeGitService for full control
+    const fakeGitService = new FakeGitService();
+    fakeGitService.clone = () =>
+      Promise.resolve({
+        session: "test-session",
+        repoUrl: "test-repo",
+        repoName: "test-repo",
+        branch: "test-session",
+        workdir: "/test/workdir",
+      });
+    fakeGitService.branchWithoutSession = () =>
+      Promise.resolve({
+        branch: "test-session",
+        workdir: "/test/workdir",
+      });
+    mockGitService = fakeGitService;
 
     // Mock task service using FakeTaskService with proper task creation mock
     const fakeTaskService = new FakeTaskService({
@@ -78,10 +80,8 @@ describe("Session Auto-Task Creation", () => {
     fakeTaskService.deleteTask = () => Promise.resolve(true);
     mockTaskService = fakeTaskService;
 
-    // Mock workspace utils using createPartialMock since we don't have a centralized factory for this
-    mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-      isSessionWorkspace: () => false,
-    });
+    // Mock workspace utils using FakeWorkspaceUtils
+    mockWorkspaceUtils = new FakeWorkspaceUtils();
 
     // Mock resolve repo path
     mockResolveRepoPath = () => Promise.resolve("test-repo");

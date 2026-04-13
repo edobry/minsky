@@ -10,11 +10,7 @@ import { join } from "path";
 import { getSessionDirFromParams } from "../../../src/domain/session/commands/dir-command";
 import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
-import {
-  createMock,
-  setupTestMocks,
-  createPartialMock,
-} from "../../../src/utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { initializeConfiguration } from "../../../src/domain/configuration";
 import {
   SESSION_TEST_PATTERNS,
@@ -56,34 +52,34 @@ describe("Session CLI Commands", () => {
     };
     mockGitService = fakeGit;
 
-    mockSessionProvider = createPartialMock<SessionProviderInterface>({
-      getSession: (sessionId: string) =>
-        Promise.resolve({
-          session: sessionId,
+    const fakeSessionProvider = new FakeSessionProvider();
+    fakeSessionProvider.getSession = (sessionId: string) =>
+      Promise.resolve({
+        session: sessionId,
+        repoName: "test/repo",
+        taskId: sessionId === "test-session" ? "123" : undefined,
+        repoUrl: "https://github.com/test/repo.git",
+        workspacePath: testData.tempDir,
+        sessionPath: join(testData.tempDir, "sessions", sessionId),
+        branch: "main",
+        createdAt: new Date().toISOString(),
+      });
+    fakeSessionProvider.getSessionWorkdir = (sessionId: string) =>
+      Promise.resolve(join(testData.tempDir, "sessions", sessionId));
+    fakeSessionProvider.listSessions = () =>
+      Promise.resolve([
+        {
+          session: "test-session",
           repoName: "test/repo",
-          taskId: sessionId === "test-session" ? "123" : undefined,
+          taskId: "123",
           repoUrl: "https://github.com/test/repo.git",
           workspacePath: testData.tempDir,
-          sessionPath: join(testData.tempDir, "sessions", sessionId),
+          sessionPath: join(testData.tempDir, "sessions", "test-session"),
           branch: "main",
           createdAt: new Date().toISOString(),
-        }),
-      getSessionWorkdir: (sessionId: string) =>
-        Promise.resolve(join(testData.tempDir, "sessions", sessionId)),
-      listSessions: () =>
-        Promise.resolve([
-          {
-            session: "test-session",
-            repoName: "test/repo",
-            taskId: "123",
-            repoUrl: "https://github.com/test/repo.git",
-            workspacePath: testData.tempDir,
-            sessionPath: join(testData.tempDir, "sessions", "test-session"),
-            branch: "main",
-            createdAt: new Date().toISOString(),
-          },
-        ]),
-    });
+        },
+      ]);
+    mockSessionProvider = fakeSessionProvider;
   });
 
   afterEach(() => {
@@ -113,52 +109,22 @@ describe("Session CLI Commands", () => {
       // Create the session directory using mock filesystem
       mockFs.ensureDirectoryExists(sessionPath);
 
-      const mockSessionProviderWithTask = createPartialMock<SessionProviderInterface>({
-        getSession: (sessionId: string) => {
-          if (sessionId === "task-123") {
-            return Promise.resolve({
-              session: "task-123",
-              repoName: "test/repo",
-              taskId: "md#123",
-              repoUrl: "https://github.com/test/repo.git",
-              workspacePath: testData.tempDir,
-              sessionPath,
-              branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
-              createdAt: new Date().toISOString(),
-            });
-          }
-          return Promise.resolve(null);
-        },
-        getSessionByTaskId: (taskId: string) => {
-          if (taskId === "md#123") {
-            return Promise.resolve({
-              session: "task-123",
-              repoName: "test/repo",
-              taskId: "md#123",
-              repoUrl: "https://github.com/test/repo.git",
-              workspacePath: testData.tempDir,
-              sessionPath,
-              branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
-              createdAt: new Date().toISOString(),
-            });
-          }
-          return Promise.resolve(null);
-        },
-        getSessionWorkdir: (_sessionId: string) => Promise.resolve(sessionPath),
-        listSessions: () =>
-          Promise.resolve([
-            {
-              session: "task-123",
-              repoName: "test/repo",
-              taskId: "md#123",
-              repoUrl: "https://github.com/test/repo.git",
-              workspacePath: testData.tempDir,
-              sessionPath,
-              branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
-              createdAt: new Date().toISOString(),
-            },
-          ]),
+      const mockSessionProviderWithTask = new FakeSessionProvider({
+        initialSessions: [
+          {
+            session: "task-123",
+            repoName: "test/repo",
+            taskId: "md#123",
+            repoUrl: "https://github.com/test/repo.git",
+            workspacePath: testData.tempDir,
+            sessionPath,
+            branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
+      mockSessionProviderWithTask.getSessionWorkdir = (_sessionId: string) =>
+        Promise.resolve(sessionPath);
 
       const result = await getSessionDirFromParams(
         { task: "md#123" },
@@ -176,24 +142,22 @@ describe("Session CLI Commands", () => {
       // Use directory isolation to mock process.cwd
       const dirIsolation = withDirectoryIsolation();
 
-      const mockSessionProviderCurrent = createPartialMock<SessionProviderInterface>({
-        getSession: (sessionId: string) => {
-          if (sessionId === "current-session") {
-            return Promise.resolve({
-              session: "current-session",
-              repoName: "test/repo",
-              taskId: "456",
-              repoUrl: "https://github.com/test/repo.git",
-              workspacePath: testData.tempDir,
-              sessionPath,
-              branch: "current-branch",
-              createdAt: new Date().toISOString(),
-            });
-          }
-          return Promise.resolve(null);
-        },
-        getSessionWorkdir: (_sessionId: string) => Promise.resolve(sessionPath),
+      const mockSessionProviderCurrent = new FakeSessionProvider({
+        initialSessions: [
+          {
+            session: "current-session",
+            repoName: "test/repo",
+            taskId: "456",
+            repoUrl: "https://github.com/test/repo.git",
+            workspacePath: testData.tempDir,
+            sessionPath,
+            branch: "current-branch",
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
+      mockSessionProviderCurrent.getSessionWorkdir = (_sessionId: string) =>
+        Promise.resolve(sessionPath);
 
       // For now, provide session ID explicitly to avoid complex auto-detection mocking
       const result = await getSessionDirFromParams(
@@ -226,11 +190,8 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionDB = createPartialMock<SessionProviderInterface>({
-        getSession: () => Promise.resolve(sessionRecord),
-        updateSession: mock(),
-        getSessionWorkdir: () => Promise.resolve(sessionPath),
-      });
+      const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+      mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
       const result = await updateSessionFromParams(
         {
@@ -276,11 +237,8 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionDB = createPartialMock<SessionProviderInterface>({
-        getSession: () => Promise.resolve(sessionRecord),
-        updateSession: mock(),
-        getSessionWorkdir: () => Promise.resolve(sessionPath),
-      });
+      const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+      mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
       const mockGitServiceWithCommands = new FakeGitService();
       mockGitServiceWithCommands.hasUncommittedChanges = async () => false;
