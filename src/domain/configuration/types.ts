@@ -64,8 +64,6 @@ export interface RepositoryConfig {
       owner: string;
       repo: string;
     };
-    markdown?: Record<string, unknown>;
-    "json-file"?: Record<string, unknown>;
   };
   repository?: {
     backend?: "github" | "gitlab" | "local";
@@ -124,8 +122,6 @@ export interface BackendConfig {
     owner: string;
     repo: string;
   };
-  markdown?: Record<string, unknown>;
-  "json-file"?: Record<string, unknown>;
 }
 
 export interface SessionDbConfig {
@@ -136,7 +132,7 @@ export interface SessionDbConfig {
 }
 
 export interface PersistenceConfig {
-  backend: "postgres" | "sqlite" | "json";
+  backend: "postgres" | "sqlite";
   postgres?: {
     connectionString: string;
     maxConnections?: number;
@@ -146,9 +142,6 @@ export interface PersistenceConfig {
   };
   sqlite?: {
     dbPath: string;
-  };
-  json?: {
-    filePath: string;
   };
 }
 

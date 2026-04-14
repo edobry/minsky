@@ -24,7 +24,7 @@ export type DatabaseConstructor = new (path: string) => {
   };
 };
 
-type StorageBackendType = "sqlite" | "postgres" | "json";
+type StorageBackendType = "sqlite" | "postgres";
 
 export interface DatabaseIntegrityResult {
   isValid: boolean;
@@ -173,7 +173,7 @@ export class DatabaseIntegrityChecker {
         );
 
         // Check if we can migrate from the actual format
-        if (actualFormat === "json" || actualFormat === "sqlite") {
+        if (actualFormat === "sqlite") {
           result.suggestedActions.push({
             type: "migrate",
             description: `Migrate from ${actualFormat} to ${expectedFormat}`,
@@ -304,22 +304,6 @@ export class DatabaseIntegrityChecker {
           }
         } finally {
           db.close();
-        }
-      } else if (format === "json") {
-        const content = fs.readFileSync(filePath, "utf8" as BufferEncoding) as string;
-        const data = JSON.parse(content);
-
-        // Validate JSON structure
-        if (typeof data !== "object" || data === null) {
-          result.isValid = false;
-          result.issues.push("Invalid JSON structure");
-        } else {
-          // Check for sessions array
-          if (!Array.isArray(data.sessions)) {
-            result.warnings.push("No sessions array found in JSON data");
-          } else if (data.sessions.length === 0) {
-            result.warnings.push("JSON database is empty - no sessions found");
-          }
         }
       }
     } catch (error) {

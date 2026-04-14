@@ -45,10 +45,6 @@ interface ResolvedConfigShape {
  */
 export function getBackendDisplayName(backend: string): string {
   switch (backend) {
-    case TaskBackend.MARKDOWN:
-      return "Markdown files (process/tasks.md)";
-    case TaskBackend.JSON_FILE:
-      return "JSON files";
     case TaskBackend.GITHUB_ISSUES:
       return "GitHub Issues";
     case TaskBackend.MINSKY:
@@ -83,10 +79,6 @@ export function getSessionBackendDisplayName(backend: string): string {
  */
 export function formatDetectionCondition(condition: string): string {
   switch (condition) {
-    case "tasks_md_exists":
-      return "If process/tasks.md exists";
-    case "json_file_exists":
-      return "If JSON task files exist";
     case "always":
       return "As default fallback";
     default:

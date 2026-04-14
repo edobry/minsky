@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { PersistenceService } from "../../../../domain/persistence/service";
-import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
@@ -103,8 +105,8 @@ interface TasksDepsGraphParams {
   open: boolean;
 }
 
-async function createServices() {
-  const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+async function createServices(getPersistenceProvider: () => PersistenceProvider) {
+  const persistence = getPersistenceProvider() as SqlCapablePersistenceProvider;
   const db = await persistence.getDatabaseConnection();
   if (!db) throw new Error("Database connection not available");
   const graphService = new TaskGraphService(db);
@@ -115,14 +117,14 @@ async function createServices() {
 /**
  * ASCII Tree visualization for task dependencies
  */
-export function createTasksDepsTreeCommand() {
+export function createTasksDepsTreeCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.tree",
     name: "tree",
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
     execute: async (params: TasksDepsTreeParams) => {
-      const { graphService, taskService } = await createServices();
+      const { graphService, taskService } = await createServices(getPersistenceProvider);
       const output = await generateDependencyTree(
         params.task,
         graphService,
@@ -137,14 +139,14 @@ export function createTasksDepsTreeCommand() {
 /**
  * ASCII Graph visualization for all task dependencies
  */
-export function createTasksDepsGraphCommand() {
+export function createTasksDepsGraphCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.graph",
     name: "graph",
     description: "Show ASCII graph of all task dependencies",
     parameters: tasksDepsGraphParams,
     execute: async (params: TasksDepsGraphParams) => {
-      const { graphService, taskService } = await createServices();
+      const { graphService, taskService } = await createServices(getPersistenceProvider);
 
       if (params.format === "dot") {
         const output = await generateGraphvizDot(

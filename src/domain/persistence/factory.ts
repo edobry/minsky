@@ -9,7 +9,6 @@ import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
 import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
-import { JsonPersistenceProvider } from "./providers/json-provider";
 import { log } from "../../utils/logger";
 
 /**
@@ -39,13 +38,6 @@ export class PersistenceProviderFactory {
           throw new Error("SQLite configuration required for sqlite backend");
         }
         provider = new SqlitePersistenceProvider(config);
-        break;
-
-      case "json":
-        if (!config.json) {
-          throw new Error("JSON configuration required for json backend");
-        }
-        provider = new JsonPersistenceProvider(config);
         break;
 
       default:

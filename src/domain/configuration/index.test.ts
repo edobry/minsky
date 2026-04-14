@@ -16,7 +16,7 @@ const mockLoadConfiguration = mock(() =>
     config: {
       // backend: deprecated property, no longer has default value
       tasks: {
-        backend: "markdown", // Modern tasks backend configuration
+        backend: "minsky", // Modern tasks backend configuration
         strictIds: false,
       },
       sessiondb: {
@@ -225,11 +225,11 @@ describe("Custom Configuration System", () => {
 
     test("should handle configuration overrides consistently", async () => {
       const provider = await testFactory.createProvider({
-        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
+        overrides: { tasks: { backend: "github-issues" } }, // Use modern property structure
       });
 
       const config = provider.getConfig();
-      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
+      expect(config.tasks.backend).toBe("github-issues"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 
@@ -252,11 +252,11 @@ describe("Custom Configuration System", () => {
       // Create isolated factory instance with overrides for this test
       const factory = new TestConfigFactory();
       const isolatedProvider = await factory.createProvider({
-        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
+        overrides: { tasks: { backend: "github-issues" } }, // Use modern property structure
       });
 
       const config = isolatedProvider.getConfig();
-      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
+      expect(config.tasks.backend).toBe("github-issues"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 

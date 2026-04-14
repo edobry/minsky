@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Task } from "../types";
 import { resolveRepoPath } from "../../repo-utils";
 import { resolveMainWorkspacePath } from "../../workspace";
-import { createSessionProvider } from "../../session";
+import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import {
@@ -34,7 +34,7 @@ export interface TaskOperationDependencies {
  * Note: This is a composition boundary — sessionProvider is created here.
  */
 export async function createDefaultTaskOperationDependencies(): Promise<TaskOperationDependencies> {
-  const sessionDB = await createSessionProvider();
+  const sessionDB = await getSharedSessionProvider();
   return {
     resolveRepoPath: (options) => resolveRepoPath(options, { sessionProvider: sessionDB }),
     resolveMainWorkspacePath: () => resolveMainWorkspacePath(sessionDB),

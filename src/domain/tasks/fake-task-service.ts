@@ -18,7 +18,7 @@
  *   - createTaskFromTitleAndSpec → stores task and returns it
  *   - deleteTask → false (task not in store)
  *   - getWorkspacePath → "/fake/workspace"
- *   - getBackendForTask → "markdown"
+ *   - getBackendForTask → "minsky"
  *
  * @see src/domain/persistence/fake-persistence-provider.ts
  */
@@ -105,6 +105,6 @@ export class FakeTaskService implements TaskServiceInterface {
   }
 
   async getBackendForTask(_taskId: string): Promise<string> {
-    return "markdown";
+    return "minsky";
   }
 }

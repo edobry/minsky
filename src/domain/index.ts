@@ -42,5 +42,4 @@ export {
 export {
   createSessionProvider as createFunctionalSessionProvider,
   type SessionDbState,
-  type SessionDbFileOptions,
 } from "./session/index";

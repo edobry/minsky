@@ -30,10 +30,8 @@ import type {
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
 import { extractGitHubInfoFromUrl } from "../../session/repository-backend-detection";
-import {
-  createSessionProvider as defaultCreateSessionProvider,
-  type SessionProviderInterface,
-} from "../../session/index";
+import { type SessionProviderInterface } from "../../session/index";
+import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { Octokit } from "@octokit/rest";
@@ -56,11 +54,11 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private owner?: string;
   private repo?: string;
   private sessionProvider: SessionProviderInterface | null = null;
-  private readonly createSessionProvider: typeof defaultCreateSessionProvider;
+  private readonly resolveSessionProvider: () => Promise<SessionProviderInterface>;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
-      this.sessionProvider = await this.createSessionProvider();
+      this.sessionProvider = await this.resolveSessionProvider();
     }
     return this.sessionProvider;
   }
@@ -68,14 +66,16 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { createSessionProvider?: typeof defaultCreateSessionProvider }
+    deps?: { sessionProvider?: SessionProviderInterface }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
     this.owner = githubInfo?.owner;
     this.repo = githubInfo?.repo;
 
-    this.createSessionProvider = deps?.createSessionProvider ?? defaultCreateSessionProvider;
+    this.resolveSessionProvider = deps?.sessionProvider
+      ? () => Promise.resolve(deps.sessionProvider!)
+      : () => getSharedSessionProvider();
 
     // Initialize Octokit
     this.octokit = new Octokit({

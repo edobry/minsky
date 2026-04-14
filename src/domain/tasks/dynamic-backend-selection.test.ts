@@ -42,10 +42,10 @@ describe("Dynamic Backend Selection", () => {
       }
     );
 
-    // Scenario 1: User explicitly requests markdown backend
+    // Scenario 1: User explicitly requests minsky backend
     await mockCreateTaskService({
       workspacePath: "/tmp",
-      backend: "markdown", // Explicit user choice
+      backend: "minsky", // Explicit user choice
     });
 
     // Scenario 2: User lets system choose backend automatically
@@ -57,13 +57,13 @@ describe("Dynamic Backend Selection", () => {
     // Scenario 3: User explicitly requests different backend
     await mockCreateTaskService({
       workspacePath: "/tmp",
-      backend: "json-file", // Explicit user choice
+      backend: "github-issues", // Explicit user choice
     });
 
     // Verify backend selection behavior
-    expect(capturedBackends[0]).toBe("markdown"); // Explicit choice honored
+    expect(capturedBackends[0]).toBe("minsky"); // Explicit choice honored
     expect(capturedBackends[1]).toBe(undefined as any); // Automatic selection enabled
-    expect(capturedBackends[2]).toBe("json-file"); // Explicit choice honored
+    expect(capturedBackends[2]).toBe("github-issues"); // Explicit choice honored
   });
 });
 

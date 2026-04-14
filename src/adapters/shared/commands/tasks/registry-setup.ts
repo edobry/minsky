@@ -4,6 +4,7 @@
  * Lazy initialization to avoid circular dependencies.
  */
 import { TaskCommandRegistry } from "./base-task-command";
+import { PersistenceService } from "../../../../domain/persistence/service";
 
 let registry: TaskCommandRegistry | null = null;
 
@@ -24,6 +25,7 @@ export function setupTaskCommandRegistry() {
 
 // Factory function that creates commands when called
 export function createAllTaskCommands() {
+  const getPersistenceProvider = () => PersistenceService.getProvider();
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
@@ -64,13 +66,13 @@ export function createAllTaskCommands() {
     createMigrateTasksCommand(),
     createTasksMigrateBackendCommand(),
     // Dependency management commands
-    createTasksDepsAddCommand(),
-    createTasksDepsRmCommand(),
-    createTasksDepsListCommand(),
-    createTasksDepsTreeCommand(),
-    createTasksDepsGraphCommand(),
+    createTasksDepsAddCommand(getPersistenceProvider),
+    createTasksDepsRmCommand(getPersistenceProvider),
+    createTasksDepsListCommand(getPersistenceProvider),
+    createTasksDepsTreeCommand(getPersistenceProvider),
+    createTasksDepsGraphCommand(getPersistenceProvider),
     // Routing commands
-    createTasksAvailableCommand(),
-    createTasksRouteCommand(),
+    createTasksAvailableCommand(getPersistenceProvider),
+    createTasksRouteCommand(getPersistenceProvider),
   ];
 }

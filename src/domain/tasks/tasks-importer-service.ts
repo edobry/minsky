@@ -37,10 +37,10 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
   const sourceTaskId = elementAt(parts, 1, "task ID source");
 
   const backendMap: Record<string, string> = {
-    md: "markdown",
     gi: "github-issues",
+    gh: "github-issues",
     db: "db",
-    jf: "json-file",
+    mt: "minsky",
   };
 
   const backend = backendMap[prefix];

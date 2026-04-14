@@ -1,12 +1,11 @@
 # SessionDB Migration Guide
 
-This guide covers migrating session data between different storage backends in Minsky (JSON file, SQLite, PostgreSQL).
+This guide covers migrating session data between different storage backends in Minsky (SQLite, PostgreSQL).
 
 ## Overview
 
-Minsky supports three session database backends:
+Minsky supports two session database backends:
 
-- **JSON File**: Simple file-based storage (default)
 - **SQLite**: Local database with ACID transactions
 - **PostgreSQL**: Server-based database for team environments
 
@@ -472,14 +471,14 @@ A: Yes, repository-specific configuration overrides global settings.
 **Q: What happens to my data during migration?**
 A: Data is copied to the new backend. Original data remains until you manually remove it.
 
-**Q: Can I migrate back to JSON from SQLite/PostgreSQL?**
-A: Yes, migrations work in all directions: JSON ↔ SQLite ↔ PostgreSQL.
+**Q: Can I migrate between SQLite and PostgreSQL?**
+A: Yes, migrations work in both directions: SQLite ↔ PostgreSQL.
 
 **Q: How do I share sessions across team members?**
 A: Use PostgreSQL backend with shared database access.
 
 **Q: Is there a performance difference between backends?**
-A: SQLite and PostgreSQL are faster for large datasets. JSON is simpler but slower.
+A: PostgreSQL is better for team environments with concurrent access. SQLite is excellent for local development.
 
 **Q: Can I run migrations without downtime?**
 A: Yes, migrations don't affect running sessions. Update configuration after migration completes.

@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { PersistenceService } from "../../../../domain/persistence/service";
-import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
@@ -44,15 +46,14 @@ const tasksDepsListParams = {
   },
 } satisfies CommandParameterMap;
 
-export function createTasksDepsAddCommand() {
+export function createTasksDepsAddCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.add",
     name: "add",
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: tasksDepsAddParams,
     execute: async (params: InferParams<typeof tasksDepsAddParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const persistence = getPersistenceProvider() as SqlCapablePersistenceProvider;
       const db = await persistence.getDatabaseConnection();
       if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);
@@ -67,15 +68,14 @@ export function createTasksDepsAddCommand() {
   };
 }
 
-export function createTasksDepsRmCommand() {
+export function createTasksDepsRmCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.rm",
     name: "rm",
     description: "Remove a dependency edge",
     parameters: tasksDepsRmParams,
     execute: async (params: InferParams<typeof tasksDepsRmParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const persistence = getPersistenceProvider() as SqlCapablePersistenceProvider;
       const db = await persistence.getDatabaseConnection();
       if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);
@@ -90,15 +90,14 @@ export function createTasksDepsRmCommand() {
   };
 }
 
-export function createTasksDepsListCommand() {
+export function createTasksDepsListCommand(getPersistenceProvider: () => PersistenceProvider) {
   return {
     id: "tasks.deps.list",
     name: "list",
     description: "List dependencies for a task",
     parameters: tasksDepsListParams,
     execute: async (params: InferParams<typeof tasksDepsListParams>) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider() as SqlCapablePersistenceProvider;
+      const persistence = getPersistenceProvider() as SqlCapablePersistenceProvider;
       const db = await persistence.getDatabaseConnection();
       if (!db) throw new Error("Database connection not available");
       const service = new TaskGraphService(db);

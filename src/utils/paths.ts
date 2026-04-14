@@ -72,14 +72,6 @@ export function getDefaultSqliteDbPath(): string {
 }
 
 /**
- * Get default JSON database path
- * @returns Default JSON database file path
- */
-export function getDefaultJsonDbPath(): string {
-  return join(getMinskyStateDir(), "session-db.json");
-}
-
-/**
  * Get global user config file path
  * @returns Global user config file path
  */
