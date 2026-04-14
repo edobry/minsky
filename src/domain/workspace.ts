@@ -5,6 +5,7 @@ import { type SessionProviderInterface } from "./session";
 import { log } from "../utils/logger";
 import { getErrorMessage, getErrorStack } from "../errors/index";
 import { getSessionsDir } from "../utils/paths";
+import { getCurrentWorkingDirectory } from "../utils/process";
 
 /**
  * Options for resolving workspace paths
@@ -38,7 +39,7 @@ export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
     return repoUrl.replace("file://", "");
   }
   // For other URLs, assume they refer to the current directory
-  return process.cwd();
+  return getCurrentWorkingDirectory();
 }
 
 /**
@@ -135,7 +136,7 @@ export async function resolveMainWorkspacePath(
   sessionDB: SessionProviderInterface,
   deps: TestDependencies = {}
 ): Promise<string> {
-  const currentDir = process.cwd();
+  const currentDir = getCurrentWorkingDirectory();
   const { execAsync: execAsyncDep = execAsync } = deps;
 
   try {
@@ -189,7 +190,7 @@ export async function resolveWorkspacePath(
 
   // For task operations, always use the main workspace.
   if (options?.forTaskOperations && deps.getSessionFromRepo) {
-    const sessionInfo = await deps.getSessionFromRepo(process.cwd());
+    const sessionInfo = await deps.getSessionFromRepo(getCurrentWorkingDirectory());
     if (sessionInfo && sessionInfo.upstreamRepository) {
       return resolveMainWorkspaceFromRepoUrl(sessionInfo.upstreamRepository);
     }
@@ -220,7 +221,7 @@ export async function resolveWorkspacePath(
   }
 
   // 4. Use current directory as workspace
-  return process.cwd();
+  return getCurrentWorkingDirectory();
 }
 
 /**
@@ -228,7 +229,7 @@ export async function resolveWorkspacePath(
  * Uses getSessionFromWorkspace to extract the session context from the current working directory.
  */
 export async function getCurrentSession(
-  cwd: string = process.cwd(),
+  cwd: string = getCurrentWorkingDirectory(),
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride: SessionProviderInterface
 ): Promise<string | undefined> {
@@ -242,7 +243,7 @@ export async function getCurrentSession(
  * and then queries the SessionDB for the taskId.
  */
 export async function getCurrentSessionContext(
-  cwd: string = process.cwd(),
+  cwd: string = getCurrentWorkingDirectory(),
   // Added getCurrentSessionFn dependency for better testability
   dependencies: {
     execAsyncFn?: typeof execAsync;
