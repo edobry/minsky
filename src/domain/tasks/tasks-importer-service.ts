@@ -2,6 +2,7 @@ import { readTextFile } from "../../utils/fs";
 import { getTasksFilePath, getTaskSpecFilePath } from "./taskIO";
 import { parseTasksFromMarkdown } from "./taskFunctions";
 import { elementAt } from "../../utils/array-safety";
+import type { PersistenceProvider } from "../persistence/types";
 
 export interface ImportOptions {
   dryRun?: boolean;
@@ -52,7 +53,10 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
 }
 
 export class TasksImporterService {
-  constructor(private readonly workspacePath: string) {}
+  constructor(
+    private readonly workspacePath: string,
+    private readonly persistenceProvider?: PersistenceProvider
+  ) {}
 
   async importMarkdownToDb(options: ImportOptions = {}): Promise<ImportResult> {
     const { dryRun = true, limit, filterStatus } = options;
@@ -73,11 +77,14 @@ export class TasksImporterService {
       taskList = taskList.slice(0, limit);
     }
 
-    // Get connection from PersistenceService
-    const { PersistenceService } = await import("../persistence/service");
-
-    // PersistenceService should already be initialized at application startup
-    const provider = PersistenceService.getProvider();
+    // Use injected provider or fall back to PersistenceService singleton
+    let provider: PersistenceProvider;
+    if (this.persistenceProvider) {
+      provider = this.persistenceProvider;
+    } else {
+      const { PersistenceService } = await import("../persistence/service");
+      provider = PersistenceService.getProvider();
+    }
 
     if (!provider.capabilities.sql) {
       throw new Error("Current persistence provider does not support SQL operations");

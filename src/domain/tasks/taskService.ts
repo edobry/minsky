@@ -47,6 +47,7 @@ export interface TaskServiceOptions {
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
+  persistenceProvider?: import("../persistence/types").PersistenceProvider;
 }): Promise<TaskServiceInterface> {
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
@@ -77,12 +78,16 @@ export async function createConfiguredTaskService(options: {
 
       case TaskBackend.MINSKY: {
         try {
-          const { PersistenceService } = await import("../persistence/service");
-
-          // PersistenceService should already be initialized at application startup
-          // Cast to SqlCapablePersistenceProvider to get a typed database connection
-          const persistence =
-            PersistenceService.getProvider() as import("../persistence/types").SqlCapablePersistenceProvider;
+          // Use injected provider or fall back to PersistenceService singleton
+          let persistence: import("../persistence/types").SqlCapablePersistenceProvider;
+          if (options.persistenceProvider) {
+            persistence =
+              options.persistenceProvider as import("../persistence/types").SqlCapablePersistenceProvider;
+          } else {
+            const { PersistenceService } = await import("../persistence/service");
+            persistence =
+              PersistenceService.getProvider() as import("../persistence/types").SqlCapablePersistenceProvider;
+          }
           const db = await persistence.getDatabaseConnection?.();
           if (!db) {
             throw new Error(
@@ -115,20 +120,25 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
-      // Get PersistenceService (should already be initialized at application startup)
-      const { PersistenceService } = await import("../persistence/service");
+      // Use injected provider or fall back to PersistenceService singleton
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getDatabaseConnection return type varies across provider implementations (PostgreSQL vs SQLite)
       let persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null = null;
-      try {
-        persistenceProvider = PersistenceService.getProvider();
-        log.debug("PersistenceService available for multi-backend mode");
-      } catch (error) {
-        log.warn(
-          "PersistenceService not available - persistence-dependent backends will be unavailable",
-          {
-            error: getErrorMessage(error),
-          }
-        );
+      if (options.persistenceProvider) {
+        persistenceProvider = options.persistenceProvider;
+        log.debug("Using injected persistence provider for multi-backend mode");
+      } else {
+        try {
+          const { PersistenceService } = await import("../persistence/service");
+          persistenceProvider = PersistenceService.getProvider();
+          log.debug("PersistenceService available for multi-backend mode");
+        } catch (error) {
+          log.warn(
+            "PersistenceService not available - persistence-dependent backends will be unavailable",
+            {
+              error: getErrorMessage(error),
+            }
+          );
+        }
       }
 
       // Add GitHub backend (gh# prefix) - requires GitHub configuration
