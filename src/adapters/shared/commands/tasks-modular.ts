@@ -7,7 +7,8 @@
 import { sharedCommandRegistry, defineCommand } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
-import { PersistenceService } from "../../../domain/persistence/service";
+// PersistenceService is lazy-imported inside the closure to avoid loading
+// the persistence module (~95ms) during command registration.
 import {
   createTasksListCommand,
   createTasksGetCommand,
@@ -48,7 +49,18 @@ export class ModularTasksCommandManager {
 
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
-      const getPersistenceProvider = () => PersistenceService.getProvider();
+      // Lazy: PersistenceService is imported on first call, not at registration.
+      // By command execution time, the preAction hook in cli.ts has already
+      // initialized PersistenceService, so getProvider() is safe to call sync.
+      let cachedPersistence: {
+        getProvider: () => import("../../../domain/persistence/types").PersistenceProvider;
+      } | null = null;
+      const getPersistenceProvider = () => {
+        if (!cachedPersistence) {
+          cachedPersistence = require("../../../domain/persistence/service").PersistenceService;
+        }
+        return cachedPersistence!.getProvider();
+      };
       const listCommand = createTasksListCommand();
       const getCommand = createTasksGetCommand();
       const createCommand = createTasksCreateCommand(getPersistenceProvider);
