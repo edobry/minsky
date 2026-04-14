@@ -40,6 +40,10 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .string()
     .optional()
     .describe("Specify task backend (available: github-issues, minsky)"),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe("Filter tasks by tags (e.g., ['di-cleanup', 'test-quality'])"),
 });
 
 /**
@@ -123,6 +127,10 @@ export const taskCreateParamsSchema = z
       .union([z.string(), z.array(z.string())])
       .optional()
       .describe("Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])"),
+    tags: z
+      .array(z.string())
+      .optional()
+      .describe("Tags/labels for thematic batching (e.g., ['di-cleanup', 'test-quality'])"),
   })
   .merge(commonCommandOptionsSchema)
   .refine(

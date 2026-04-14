@@ -57,6 +57,7 @@ export interface Task {
   description?: string;
   metadata?: Record<string, unknown>;
   spec?: string;
+  tags?: string[];
 }
 
 /**
@@ -99,6 +100,7 @@ export interface TaskListOptions {
   backend?: string;
   all?: boolean;
   limit?: number;
+  tags?: string[];
 }
 
 /**
@@ -110,6 +112,7 @@ export interface CreateTaskOptions {
   description?: string; // Alternative to spec for description-based creation
   id?: string; // Specific ID to use instead of generating one
   status?: string; // Specific status to use instead of defaulting to TODO
+  tags?: string[]; // Tags/labels for thematic batching
 }
 
 /**

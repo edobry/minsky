@@ -22,6 +22,7 @@ export const tasksTable = pgTable(
     backend: taskBackendEnum("backend"),
     status: taskStatusEnum("status"),
     title: text("title"),
+    tags: text("tags").default("[]"), // JSON-serialized string[]
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

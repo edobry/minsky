@@ -1,4 +1,4 @@
-import { eq, not, and, type SQL } from "drizzle-orm";
+import { eq, not, and, like, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 // Remove configuration import - dependencies should be injected
@@ -48,6 +48,13 @@ export class MinskyTaskBackend implements TaskBackend {
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
     conditions.push(eq(tasksTable.backend, "minsky"));
 
+    // Filter by tags if specified
+    if (options?.tags && options.tags.length > 0) {
+      for (const tag of options.tags) {
+        conditions.push(like(tasksTable.tags, `%"${tag}"%`));
+      }
+    }
+
     const query = this.db.select().from(tasksTable);
     const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
     return rows.map((row) => this.mapDbRowToTask(row));
@@ -83,11 +90,13 @@ export class MinskyTaskBackend implements TaskBackend {
     options?: CreateTaskOptions
   ): Promise<Task> {
     const id = options?.id || (await this.generateTaskId(title));
+    const tags = options?.tags || [];
     const task: Task = {
       id,
       title,
       status: "TODO",
       backend: this.name,
+      tags,
     };
 
     // Save task metadata to tasks table (handle conflicts)
@@ -99,6 +108,7 @@ export class MinskyTaskBackend implements TaskBackend {
         backend: "minsky" as const,
         status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
         title,
+        tags: JSON.stringify(tags),
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -108,6 +118,7 @@ export class MinskyTaskBackend implements TaskBackend {
           backend: "minsky" as const,
           status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
           title: title,
+          tags: JSON.stringify(tags),
           updatedAt: new Date(),
         },
       });
@@ -185,6 +196,16 @@ export class MinskyTaskBackend implements TaskBackend {
     };
   }
 
+  async updateTags(id: string, tags: string[]): Promise<void> {
+    await this.db
+      .update(tasksTable)
+      .set({
+        tags: JSON.stringify(tags),
+        updatedAt: new Date(),
+      })
+      .where(eq(tasksTable.id, id));
+  }
+
   async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
     // Update task metadata
     await this.db
@@ -237,12 +258,26 @@ export class MinskyTaskBackend implements TaskBackend {
 
   // ---- Private Helper Methods ----
 
-  private mapDbRowToTask(row: { id: string; title: string | null; status: string | null }): Task {
+  private mapDbRowToTask(row: {
+    id: string;
+    title: string | null;
+    status: string | null;
+    tags?: string | null;
+  }): Task {
+    let tags: string[] = [];
+    if (row.tags) {
+      try {
+        tags = JSON.parse(row.tags);
+      } catch {
+        tags = [];
+      }
+    }
     return {
       id: row.id,
       title: row.title ?? "",
       status: row.status ?? "TODO",
       backend: this.name,
+      tags,
     };
   }
 

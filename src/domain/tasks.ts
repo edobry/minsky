@@ -62,6 +62,7 @@ export async function listTasksFromParams(params: Record<string, unknown>) {
     status: validParams.status,
     all: validParams.all,
     backend: validParams.backend,
+    tags: validParams.tags,
   });
   // Apply limit client-side if provided
   if (typeof validParams.limit === "number" && validParams.limit > 0) {
@@ -190,7 +191,10 @@ export async function createTaskFromTitleAndSpec(params: Record<string, unknown>
   // Use spec field, fallback to description for compatibility
   const spec = validParams.spec || validParams.description || "";
   const title = validParams.title || "";
-  return await taskService.createTaskFromTitleAndSpec(title, spec, validParams);
+  return await taskService.createTaskFromTitleAndSpec(title, spec, {
+    ...validParams,
+    tags: validParams.tags,
+  });
 }
 
 export async function deleteTaskFromParams(params: Record<string, unknown>) {
