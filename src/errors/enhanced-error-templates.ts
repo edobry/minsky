@@ -368,7 +368,7 @@ export function createBackendDetectionErrorMessage(
             return `• ${backend}${reqText}`;
           })
           .join("\n")
-      : "• markdown\n• json-file\n• github-issues (requires GitHub config)\n• minsky (requires database config)";
+      : "• minsky (requires database config)\n• github-issues (requires GitHub config)";
 
   const suggestions: CommandSuggestion[] = [
     {
@@ -383,17 +383,17 @@ export function createBackendDetectionErrorMessage(
     },
     {
       description: "Set backend explicitly",
-      command: "minsky config set backend markdown",
+      command: "minsky config set backend minsky",
       emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Check workspace for task files",
-      command: "find . -name 'tasks.md' -o -name 'tasks.json' -o -path '*/.minsky/*'",
+      command: "find . -path '*/.minsky/*'",
       emoji: ErrorEmojis.FILE,
     },
     {
       description: "Initialize workspace with backend",
-      command: "minsky init --backend markdown",
+      command: "minsky init --backend minsky",
       emoji: ErrorEmojis.CREATE,
     },
   ];

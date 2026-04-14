@@ -96,24 +96,20 @@ export function registerInitCommands() {
             // Check if we're in an interactive environment
             if (!isInteractive()) {
               throw new ValidationError(
-                `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MARKDOWN}, ${TaskBackend.JSON_FILE}, or ${TaskBackend.GITHUB_ISSUES}`
+                `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MINSKY} or ${TaskBackend.GITHUB_ISSUES}`
               );
             }
 
             const selectedBackend = await select({
               message: "Select a task backend:",
               options: [
-                { value: TaskBackend.JSON_FILE, label: "JSON File (recommended for new projects)" },
-                {
-                  value: TaskBackend.MARKDOWN,
-                  label: "Markdown (for existing tasks.md workflows)",
-                },
+                { value: TaskBackend.MINSKY, label: "Minsky database (recommended)" },
                 {
                   value: TaskBackend.GITHUB_ISSUES,
                   label: "GitHub Issues (for GitHub integration)",
                 },
               ],
-              initialValue: TaskBackend.JSON_FILE,
+              initialValue: TaskBackend.MINSKY,
             });
 
             if (isCancel(selectedBackend)) {

@@ -34,7 +34,6 @@ const filesToFix = [
   "src/domain/tasks/taskCommands.ts",
   "src/domain/tasks/githubIssuesTaskBackend.ts",
   "src/domain/tasks/githubBackendConfig.ts",
-  "src/domain/tasks/jsonFileTaskBackend.ts",
   "src/domain/repository.ts",
   "src/domain/workspace.ts",
   "src/domain/workspace/local-workspace-backend.ts",

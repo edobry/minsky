@@ -12,27 +12,15 @@ import {
 import { RepositoryBackendType } from "../repository/index";
 
 describe("Task Backend Compatibility Validation", () => {
-  test("should allow markdown backend with any repository backend", () => {
+  test("should allow minsky backend with any repository backend", () => {
     expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "markdown")
+      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "minsky")
     ).not.toThrow();
     expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.REMOTE, "markdown")
+      validateTaskBackendCompatibility(RepositoryBackendType.REMOTE, "minsky")
     ).not.toThrow();
     expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.GITHUB, "markdown")
-    ).not.toThrow();
-  });
-
-  test("should allow json-file backend with any repository backend", () => {
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "json-file")
-    ).not.toThrow();
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.REMOTE, "json-file")
-    ).not.toThrow();
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.GITHUB, "json-file")
+      validateTaskBackendCompatibility(RepositoryBackendType.GITHUB, "minsky")
     ).not.toThrow();
   });
 
@@ -61,41 +49,29 @@ describe("Task Backend Compatibility Validation", () => {
       expect(message).toContain("Current repository backend: local");
       expect(message).toContain("To use GitHub Issues:");
       expect(message).toContain("1. Use in a GitHub repository");
-      expect(message).toContain("2. Or switch to a compatible task backend");
+      expect(message).toContain("2. Or switch to the minsky backend");
     }
   });
 });
 
 describe("Compatible Task Backends Detection", () => {
   test("should return correct compatible backends for each repository type", () => {
-    // Local and remote repositories support markdown and json-file
-    expect(getCompatibleTaskBackends(RepositoryBackendType.LOCAL)).toEqual([
-      "markdown",
-      "json-file",
-    ]);
-    expect(getCompatibleTaskBackends(RepositoryBackendType.REMOTE)).toEqual([
-      "markdown",
-      "json-file",
-    ]);
+    // Local and remote repositories support minsky
+    expect(getCompatibleTaskBackends(RepositoryBackendType.LOCAL)).toEqual(["minsky"]);
+    expect(getCompatibleTaskBackends(RepositoryBackendType.REMOTE)).toEqual(["minsky"]);
 
-    // GitHub repositories support all backends including github-issues
+    // GitHub repositories support minsky and github-issues
     expect(getCompatibleTaskBackends(RepositoryBackendType.GITHUB)).toEqual([
-      "markdown",
-      "json-file",
+      "minsky",
       "github-issues",
     ]);
   });
 
   test("should correctly identify backend compatibility", () => {
-    // Markdown backend compatible with all
-    expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "markdown")).toBe(true);
-    expect(isTaskBackendCompatible(RepositoryBackendType.REMOTE, "markdown")).toBe(true);
-    expect(isTaskBackendCompatible(RepositoryBackendType.GITHUB, "markdown")).toBe(true);
-
-    // JSON file backend compatible with all
-    expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "json-file")).toBe(true);
-    expect(isTaskBackendCompatible(RepositoryBackendType.REMOTE, "json-file")).toBe(true);
-    expect(isTaskBackendCompatible(RepositoryBackendType.GITHUB, "json-file")).toBe(true);
+    // Minsky backend compatible with all
+    expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "minsky")).toBe(true);
+    expect(isTaskBackendCompatible(RepositoryBackendType.REMOTE, "minsky")).toBe(true);
+    expect(isTaskBackendCompatible(RepositoryBackendType.GITHUB, "minsky")).toBe(true);
 
     // GitHub issues backend only compatible with GitHub
     expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "github-issues")).toBe(false);

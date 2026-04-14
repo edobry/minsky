@@ -225,8 +225,7 @@ export class ModularTasksCommandManager {
           id: "tasks.migrate-backend",
           category: CommandCategory.TASKS,
           name: "migrate-backend",
-          description:
-            "Migrate tasks between different backends (markdown, minsky, github, json-file)",
+          description: "Migrate tasks between different backends (minsky, github)",
           parameters: migrateBackendCommand.parameters,
           execute: async (params, context) => {
             return await migrateBackendCommand.execute(params, context);

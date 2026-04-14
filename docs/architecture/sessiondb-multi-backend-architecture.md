@@ -1,6 +1,6 @@
 # SessionDB Multi-Backend Architecture
 
-This document describes the architecture and design of Minsky's multi-backend SessionDB system, which supports JSON file, SQLite, and PostgreSQL storage backends.
+This document describes the architecture and design of Minsky's multi-backend SessionDB system, which supports SQLite and PostgreSQL storage backends.
 
 ## Overview
 
@@ -107,13 +107,6 @@ The `prState` field provides intelligent caching for PR workflow operations:
 
 ### 4. Backend Implementations
 
-#### JSON File Backend (`JsonFileStorage`)
-
-- **Use Case**: Single-user development, simple deployments
-- **Features**: File-based storage, atomic writes, backup friendly
-- **Performance**: Good for small to medium session counts
-- **Configuration**: File path only
-
 #### SQLite Backend (`SqliteStorage`)
 
 - **Use Case**: Local development, better performance
@@ -185,8 +178,8 @@ The system resolves configuration from multiple sources (highest precedence firs
    ```
 
 4. **Built-in Defaults**
-   - Backend: `json`
-   - Path: `~/.local/state/minsky/session-db.json`
+   - Backend: `sqlite`
+   - Path: `~/.local/state/minsky/sessions.db`
 
 ### Configuration Merging
 
@@ -275,7 +268,6 @@ minsky sessiondb migrate to postgres --dry-run
 
 | Backend    | Concurrent Reads | Concurrent Writes | Network Latency | Disk I/O |
 | ---------- | ---------------- | ----------------- | --------------- | -------- |
-| JSON       | Limited          | Serialized        | None            | High     |
 | SQLite     | Excellent        | Good              | None            | Medium   |
 | PostgreSQL | Excellent        | Excellent         | Variable        | Low      |
 

@@ -24,7 +24,7 @@ export interface PersistenceCapabilities {
  * Configuration for different persistence backends
  */
 export interface PersistenceConfig {
-  backend: "postgres" | "sqlite" | "json";
+  backend: "postgres" | "sqlite";
   postgres?: {
     connectionString: string;
     maxConnections?: number;
@@ -34,9 +34,6 @@ export interface PersistenceConfig {
   };
   sqlite?: {
     dbPath: string;
-  };
-  json?: {
-    filePath: string;
   };
 }
 

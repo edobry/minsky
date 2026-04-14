@@ -17,7 +17,7 @@ describe("config set command", () => {
         success: true,
         filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: undefined,
-        newValue: "markdown",
+        newValue: "minsky",
       })
     );
 
@@ -35,14 +35,14 @@ describe("config set command", () => {
     };
 
     // Test the function directly with DI
-    await executeConfigSet("backend", "markdown", {}, deps);
+    await executeConfigSet("backend", "minsky", {}, deps);
 
     expect(mockCreateConfigWriter).toHaveBeenCalledWith({
       createBackup: true,
       format: "yaml",
       validate: true,
     });
-    expect(mockSetConfigValue).toHaveBeenCalledWith("backend", "markdown");
+    expect(mockSetConfigValue).toHaveBeenCalledWith("backend", "minsky");
     expect(mockConsoleLog).toHaveBeenCalledWith("✅ Configuration updated successfully");
   });
 

@@ -15,7 +15,7 @@ describe("config unset command", () => {
       Promise.resolve({
         success: true,
         filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
-        previousValue: "markdown",
+        previousValue: "minsky",
         newValue: undefined,
       })
     );

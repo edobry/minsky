@@ -147,7 +147,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       };
       cfg.tasks = cfg.tasks || {};
       if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
-        cfg.tasks.backend = "markdown";
+        cfg.tasks.backend = "minsky";
       }
       this.configResult = { ...this.configResult, config: cfg as Configuration };
     } catch (error) {

@@ -118,28 +118,6 @@ export async function initializeProject(
 
     // Initialize the tasks backend based on user selection
     switch (backend) {
-      case "markdown": {
-        const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-        await createFileIfNotExists(
-          tasksFilePath,
-          `# Minsky Tasks\n\n## Task List\n\n| ID | Title | Status |\n|----|-------|--------|\n`,
-          overwrite,
-          fileSystem
-        );
-        break;
-      }
-
-      case "json-file": {
-        const jsonFilePath = path.join(repoPath, "process", "tasks", "tasks.json");
-        await createFileIfNotExists(
-          jsonFilePath,
-          JSON.stringify({ tasks: [] }, null, 2),
-          overwrite,
-          fileSystem
-        );
-        break;
-      }
-
       case "github-issues":
         // GitHub Issues backend uses external GitHub repository - no local files needed
         // Configuration will be set up in the config file below

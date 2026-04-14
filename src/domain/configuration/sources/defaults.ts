@@ -20,8 +20,6 @@ export const defaultConfiguration: PartialConfiguration = {
 
   backendConfig: {
     "github-issues": undefined,
-    markdown: {},
-    "json-file": {},
   },
 
   // Modern persistence configuration
@@ -31,7 +29,6 @@ export const defaultConfiguration: PartialConfiguration = {
       dbPath: "~/.local/state/minsky/minsky.db",
     },
     postgres: undefined,
-    json: undefined,
   },
 
   // GitHub configuration (all optional)

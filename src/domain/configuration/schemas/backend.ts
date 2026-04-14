@@ -31,23 +31,11 @@ export const githubIssuesBackendConfigSchema = z
   .strict();
 
 /**
- * Markdown backend-specific configuration (currently no specific config needed)
- */
-export const markdownBackendConfigSchema = z.object({}).strict();
-
-/**
- * JSON File backend-specific configuration (currently no specific config needed)
- */
-export const jsonFileBackendConfigSchema = z.object({}).strict();
-
-/**
  * Combined backend-specific configurations
  */
 export const backendConfigSchema = z
   .object({
     "github-issues": githubIssuesBackendConfigSchema.optional(),
-    markdown: markdownBackendConfigSchema.optional(),
-    "json-file": jsonFileBackendConfigSchema.optional(),
   })
   .strict()
   .default({});
@@ -90,8 +78,6 @@ export const repositoryConfigSchema = z
 // Type exports
 export type Backend = z.infer<typeof backendSchema>;
 export type GitHubIssuesBackendConfig = z.infer<typeof githubIssuesBackendConfigSchema>;
-export type MarkdownBackendConfig = z.infer<typeof markdownBackendConfigSchema>;
-export type JsonFileBackendConfig = z.infer<typeof jsonFileBackendConfigSchema>;
 export type BackendConfig = z.infer<typeof backendConfigSchema>;
 export type BackendFullConfig = z.infer<typeof backendFullConfigSchema>;
 export type RepositoryGitHubConfig = z.infer<typeof repositoryGitHubConfigSchema>;

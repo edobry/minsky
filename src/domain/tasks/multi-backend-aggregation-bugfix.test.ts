@@ -2,17 +2,17 @@
  * Test for Multi-Backend Task Aggregation Bug Fix
  *
  * Bug Description: Multi-backend mode only shows tasks from one backend (mt#)
- * instead of aggregating tasks from all registered backends (mt# + md#).
+ * instead of aggregating tasks from all registered backends (mt# + gh#).
  *
  * Expected Behavior:
  * - Multi-backend mode should combine tasks from all registered backends
- * - Should show both md# and mt# tasks when no --backend specified
+ * - Should show both gh# and mt# tasks when no --backend specified
  * - Total count should be sum of all backend task counts
  *
  * Current Broken Behavior:
  * - Multi-backend mode only shows mt# tasks
- * - md# tasks are missing from aggregated results
- * - --backend markdown works, --backend minsky works, but multi-backend doesn't combine
+ * - gh# tasks are missing from aggregated results
+ * - --backend github-issues works, --backend minsky works, but multi-backend doesn't combine
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
@@ -22,7 +22,7 @@ import type { TaskServiceInterface } from "./taskService";
 
 describe("Multi-Backend Task Aggregation Bug Fix", () => {
   let tempWorkspacePath: string;
-  let mockMarkdownTasks: any[];
+  let mockGithubTasks: any[];
   let mockMinskyTasks: any[];
 
   beforeEach(() => {
@@ -30,15 +30,25 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
     tempWorkspacePath = "/mock/test-workspace";
 
     // Mock tasks from different backends
-    mockMarkdownTasks = [
-      { id: "md#033", title: "Enhance Minsky Init Command", status: "TODO", backend: "markdown" },
+    mockGithubTasks = [
       {
-        id: "md#041",
+        id: "gh#033",
+        title: "Enhance Minsky Init Command",
+        status: "TODO",
+        backend: "github-issues",
+      },
+      {
+        id: "gh#041",
         title: "Write Test Suite for Cursor Rules",
         status: "TODO",
-        backend: "markdown",
+        backend: "github-issues",
       },
-      { id: "md#045", title: "Setup Documentation Tooling", status: "TODO", backend: "markdown" },
+      {
+        id: "gh#045",
+        title: "Setup Documentation Tooling",
+        status: "TODO",
+        backend: "github-issues",
+      },
     ];
 
     mockMinskyTasks = [
@@ -74,7 +84,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
           return {
             async listTasks(_options?: any) {
               // BUG: Only returning minsky tasks instead of aggregating both backends
-              return mockMinskyTasks; // Missing mockMarkdownTasks!
+              return mockMinskyTasks; // Missing mockGithubTasks (github-issues tasks)!
             },
           } as TaskServiceInterface;
         }
@@ -88,16 +98,16 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       // This demonstrates the bug: we only get 3 tasks instead of 6.
       // Keep test green while documenting the current behavior under reproduction.
-      expect(result).toHaveLength(3); // BUG: Should be 6 (3 md# + 3 mt#)
+      expect(result).toHaveLength(3); // BUG: Should be 6 (3 gh# + 3 mt#)
       expect(result.every((task) => task.id.startsWith("mt#"))).toBe(true); // BUG: Only mt# tasks
-      expect(result.some((task) => task.id.startsWith("md#"))).toBe(false); // BUG: No md# tasks
+      expect(result.some((task) => task.id.startsWith("gh#"))).toBe(false); // BUG: No gh# tasks
     });
 
     it("should show that individual backends work correctly", async () => {
       // This demonstrates that individual backends work fine
 
       const markdownParams: TaskListParams = {
-        backend: "markdown",
+        backend: "github-issues",
         all: false,
       };
 
@@ -107,10 +117,10 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
       };
 
       const mockCreateTaskService = async (options: any): Promise<TaskServiceInterface> => {
-        if (options.backend === "markdown") {
+        if (options.backend === "github-issues") {
           return {
             async listTasks() {
-              return mockMarkdownTasks;
+              return mockGithubTasks;
             },
           } as TaskServiceInterface;
         }
@@ -136,7 +146,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       // Individual backends work correctly
       expect(markdownResult).toHaveLength(3);
-      expect(markdownResult.every((task) => task.id.startsWith("md#"))).toBe(true);
+      expect(markdownResult.every((task) => task.id.startsWith("gh#"))).toBe(true);
 
       expect(minskyResult).toHaveLength(3);
       expect(minskyResult.every((task) => task.id.startsWith("mt#"))).toBe(true);
@@ -158,7 +168,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
           return {
             async listTasks(_options?: any) {
               // FIXED: Should return tasks from ALL backends
-              return [...mockMarkdownTasks, ...mockMinskyTasks];
+              return [...mockGithubTasks, ...mockMinskyTasks];
             },
           } as TaskServiceInterface;
         }
@@ -171,16 +181,16 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
       });
 
       // After fix: should get all tasks from both backends
-      expect(result).toHaveLength(6); // 3 md# + 3 mt#
+      expect(result).toHaveLength(6); // 3 gh# + 3 mt#
 
-      const mdTasks = result.filter((task) => task.id.startsWith("md#"));
+      const ghTasks = result.filter((task) => task.id.startsWith("gh#"));
       const mtTasks = result.filter((task) => task.id.startsWith("mt#"));
 
-      expect(mdTasks).toHaveLength(3);
+      expect(ghTasks).toHaveLength(3);
       expect(mtTasks).toHaveLength(3);
 
       // Verify specific tasks are present
-      expect(result.some((task) => task.id === "md#033")).toBe(true);
+      expect(result.some((task) => task.id === "gh#033")).toBe(true);
       expect(result.some((task) => task.id === "mt#033")).toBe(true);
     });
 
@@ -197,7 +207,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
           return {
             async listTasks(listOptions?: any) {
               // Simulate filtering by status
-              const allTasks = [...mockMarkdownTasks, ...mockMinskyTasks];
+              const allTasks = [...mockGithubTasks, ...mockMinskyTasks];
               if (listOptions?.status) {
                 return allTasks.filter((task) => task.status === listOptions.status);
               }

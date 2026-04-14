@@ -5,8 +5,6 @@ import type {
   DeleteTaskOptions,
   TaskBackend as TaskBackendInterface,
 } from "./types";
-import { createMarkdownTaskBackend } from "./markdownTaskBackend";
-import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
@@ -56,26 +54,6 @@ export async function createConfiguredTaskService(options: {
   // If specific backend requested, only register that backend
   if (options.backend) {
     switch (options.backend) {
-      case TaskBackend.MARKDOWN: {
-        const markdownBackend = createMarkdownTaskBackend({
-          name: TaskBackend.MARKDOWN,
-          workspacePath: options.workspacePath,
-        });
-        markdownBackend.prefix = "md";
-        service.registerBackend(markdownBackend);
-        break;
-      }
-
-      case TaskBackend.JSON_FILE: {
-        const jsonBackend = createJsonFileTaskBackend({
-          name: TaskBackend.JSON_FILE,
-          workspacePath: options.workspacePath,
-        });
-        jsonBackend.prefix = "json";
-        service.registerBackend(jsonBackend);
-        break;
-      }
-
       case TaskBackend.GITHUB: {
         const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
         if (!config || !config.githubToken || !config.owner || !config.repo) {
@@ -152,21 +130,6 @@ export async function createConfiguredTaskService(options: {
           }
         );
       }
-
-      const markdownBackend = createMarkdownTaskBackend({
-        name: TaskBackend.MARKDOWN,
-        workspacePath: options.workspacePath,
-      });
-      // Add prefix property for multi-backend routing
-      markdownBackend.prefix = "md";
-      service.registerBackend(markdownBackend);
-
-      const jsonBackend = createJsonFileTaskBackend({
-        name: TaskBackend.JSON_FILE,
-        workspacePath: options.workspacePath,
-      });
-      jsonBackend.prefix = "json";
-      service.registerBackend(jsonBackend);
 
       // Add GitHub backend (gh# prefix) - requires GitHub configuration
       try {

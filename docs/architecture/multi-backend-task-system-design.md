@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the architecture design for supporting multiple concurrent task backends in Minsky, addressing the critical requirement identified in Task #138 for managing tasks across different backend systems (markdown files, GitHub Issues, JSON files) without ID conflicts.
+This document outlines the architecture design for supporting multiple concurrent task backends in Minsky, addressing the critical requirement identified in Task #138 for managing tasks across different backend systems (Minsky database, GitHub Issues) without ID conflicts.
 
 ## Current Architecture Analysis
 

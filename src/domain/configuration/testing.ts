@@ -19,7 +19,7 @@ export class TestConfigurationBuilder {
    * Set backend configuration
    * @deprecated Use tasksBackend() instead to set tasks.backend
    */
-  backend(type: "markdown" | "github-issues" | "json-file"): this {
+  backend(type: "github-issues" | "minsky"): this {
     // Set tasks.backend instead of deprecated root backend
     if (!this.config.tasks) {
       this.config.tasks = {};
@@ -31,7 +31,7 @@ export class TestConfigurationBuilder {
   /**
    * Set tasks backend configuration (modern approach)
    */
-  tasksBackend(type: "markdown" | "github-issues" | "json-file" | "minsky"): this {
+  tasksBackend(type: "github-issues" | "minsky"): this {
     if (!this.config.tasks) {
       this.config.tasks = {};
     }
@@ -218,7 +218,7 @@ export const testConfigurations = {
    * Minimal valid configuration
    */
   minimal(): PartialConfiguration {
-    return new TestConfigurationBuilder().backend("markdown").sessionDb("sqlite").build();
+    return new TestConfigurationBuilder().backend("minsky").sessionDb("sqlite").build();
   },
 
   /**
@@ -226,7 +226,7 @@ export const testConfigurations = {
    */
   development(): PartialConfiguration {
     return new TestConfigurationBuilder()
-      .backend("markdown")
+      .backend("minsky")
       .sessionDb("sqlite", { path: ":memory:" })
       .logger({ level: "debug", mode: "HUMAN" })
       .build();
@@ -251,7 +251,7 @@ export const testConfigurations = {
    */
   testing(): PartialConfiguration {
     return new TestConfigurationBuilder()
-      .backend("json-file")
+      .backend("minsky")
       .sessionDb("sqlite", { sqlite: { path: "/tmp/test.db" } })
       .logger({ level: "warn", mode: "auto" })
       .build();
@@ -262,7 +262,7 @@ export const testConfigurations = {
    */
   withAI(): PartialConfiguration {
     return new TestConfigurationBuilder()
-      .backend("markdown")
+      .backend("minsky")
       .sessionDb("sqlite")
       .ai({
         defaultProvider: "openai",
@@ -355,7 +355,7 @@ export const testEnvironmentVariables = {
       NODE_ENV: "test",
       MINSKY_LOG_LEVEL: "silent",
       MINSKY_LOG_MODE: "test",
-      MINSKY_BACKEND: "json-file",
+      MINSKY_BACKEND: "minsky",
       MINSKY_SESSIONDB_BACKEND: "sqlite",
     });
   },

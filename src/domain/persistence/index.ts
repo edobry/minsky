@@ -19,7 +19,6 @@ export type { VectorStorage } from "../storage/vector/types";
 // Export providers
 export { PostgresPersistenceProvider } from "./providers/postgres-provider";
 export { SqlitePersistenceProvider } from "./providers/sqlite-provider";
-export { JsonPersistenceProvider } from "./providers/json-provider";
 
 // Export factory
 export { PersistenceProviderFactory } from "./factory";
