@@ -63,7 +63,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
-   * Initialize connections using PersistenceService
+   * Initialize connections using injected PersistenceProvider or PersistenceService fallback
    */
   private async ensureConnection(): Promise<void> {
     if (this.drizzle && this.sql) {
