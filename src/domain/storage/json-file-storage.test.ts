@@ -1,7 +1,7 @@
 const DEFAULT_DISPLAY_LENGTH = 100;
-const SIZE_6 = 6;
+const _SIZE_6 = 6;
 const TEST_ANSWER = 42;
-const TEST_ARRAY_SIZE = 3;
+const _TEST_ARRAY_SIZE = 3;
 const TEST_VALUE = 123;
 
 /**
@@ -83,7 +83,7 @@ describe("JsonFileStorage Core Tests", () => {
     log.debug(`Setting up test with mock storage path: ${testDirPath}`);
 
     // Initialize test state
-    const initialState: TestState = {
+    const _initialState: TestState = {
       entities: [],
       count: 0,
       lastUpdated: new Date().toISOString(),

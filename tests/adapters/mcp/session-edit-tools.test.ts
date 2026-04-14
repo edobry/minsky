@@ -123,7 +123,7 @@ describe("Session Edit Tools", () => {
         // Mock the tool handler directly for dry-run testing
         const mockDryRunEditFile = mock(async (args: any) => {
           if (args.dryRun) {
-            const originalContent = DIFF_TEST_CONTENT.THREE_LINES;
+            const _originalContent = DIFF_TEST_CONTENT.THREE_LINES;
             const proposedContent = DIFF_TEST_CONTENT.MODIFIED_THREE_LINES;
             return {
               success: true,
@@ -252,7 +252,7 @@ describe("Session Edit Tools", () => {
       test("should handle edit patterns correctly in dry-run mode", async () => {
         const mockDryRunEditPattern = mock(async (args: any) => {
           if (args.dryRun && args.content.includes("// ... existing code ...")) {
-            const originalContent = "function test() {\n  console.log('old');\n  return true;\n}";
+            const _originalContent = "function test() {\n  console.log('old');\n  return true;\n}";
             const proposedContent = "function test() {\n  console.log('new');\n  return true;\n}";
             return {
               success: true,

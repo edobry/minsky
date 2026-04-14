@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Test suite for SessionAdapter class
@@ -13,8 +13,8 @@ import type { DomainDependencies } from "../../utils/test-utils/dependencies";
 
 describe("SessionAdapter with Dependency Injection", () => {
   let deps: DomainDependencies;
-  let adapter: SessionAdapter;
-  const dbPath = "/test/session-db.json";
+  let _adapter: SessionAdapter;
+  const _dbPath = "/test/session-db.json";
 
   // In-memory session storage for testing
   let mockSessionStorage: any[] = [];

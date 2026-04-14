@@ -88,7 +88,15 @@ const persistenceMigrateRegistration = defineCommand({
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: persistenceMigrateCommandParams,
   async execute(params, context) {
-    const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
+    const {
+      to,
+      from,
+      sqlitePath,
+      backup = true,
+      execute,
+      setDefault,
+      dryRun: _dryRun = false,
+    } = params;
 
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
@@ -148,11 +156,6 @@ const persistenceMigrateRegistration = defineCommand({
       // Import configuration system for config-driven behavior
       const { getConfiguration } = await import("../../../domain/configuration/index");
       const config = getConfiguration();
-
-      // Check for drift in current configuration
-      const configuredBackend = getEffectivePersistenceConfig(config).backend;
-      // JSON backend has been removed; retain guardrails without impossible comparisons
-      // (no action needed here)
 
       log.cli(`🚀 Persistence Migration - Target: ${to}`);
       log.cli("");
@@ -311,7 +314,7 @@ const persistenceMigrateRegistration = defineCommand({
       // Create target storage with config-driven approach
       const targetConfig: Record<string, unknown> = { backend: to };
       let targetSqlitePath: string | undefined;
-      let targetPostgresConn: string | undefined;
+      let _targetPostgresConn: string | undefined;
 
       if (to === "sqlite") {
         targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
@@ -332,7 +335,7 @@ const persistenceMigrateRegistration = defineCommand({
         log.cli(
           `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
-        targetPostgresConn = connectionString;
+        _targetPostgresConn = connectionString;
         targetConfig.postgres = { connectionString: connectionString };
       }
 

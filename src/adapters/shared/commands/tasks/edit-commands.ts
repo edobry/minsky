@@ -320,7 +320,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Opening editor: ${editor} ${tempFile}`);
 
       // Spawn editor in interactive mode
-      const execFile = promisify(spawn);
+      const _execFile = promisify(spawn);
       const child = spawn(editor, [tempFile], {
         stdio: "inherit",
         detached: false,

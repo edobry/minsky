@@ -6,7 +6,7 @@ interface User {
   email: string;
 }
 
-interface UserServiceConfig {
+interface _UserServiceConfig {
   apiUrl: string;
   timeout: number;
 }

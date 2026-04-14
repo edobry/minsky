@@ -74,7 +74,6 @@ export async function createRepositoryBackend(
             session = repoSession.session;
           }
 
-          const repoName = normalizeRepoName(config.url || "");
           const workdir = gitService.getSessionWorkdir(session);
 
           const gitStatus = await gitService.getStatus(workdir);
@@ -117,7 +116,6 @@ export async function createRepositoryBackend(
             session = repoSession.session;
           }
 
-          const repoName = normalizeRepoName(config.url || "");
           return gitService.getSessionWorkdir(session);
         },
 
@@ -175,7 +173,6 @@ export async function createRepositoryBackend(
         },
 
         branch: async (session: string, name: string): Promise<BranchResult> => {
-          const repoName = normalizeRepoName(config.url || "");
           const workdir = gitService.getSessionWorkdir(session);
 
           // Execute branch creation via Git command

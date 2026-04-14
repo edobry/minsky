@@ -64,7 +64,7 @@ function maskCredentials(
   // Mask AI provider API keys
   const maskedAi = masked.ai as Record<string, unknown> | undefined;
   if (maskedAi?.providers) {
-    for (const [provider, providerConfig] of Object.entries(
+    for (const [_provider, providerConfig] of Object.entries(
       maskedAi.providers as Record<string, unknown>
     )) {
       if (providerConfig && typeof providerConfig === "object") {

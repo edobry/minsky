@@ -189,7 +189,7 @@ export async function mergeSessionPr(
   const backendType = sessionRecord.backendType || detectRepositoryBackendTypeFromUrl(repoUrl);
 
   // For merge operations, we still need a working directory (session workspace)
-  const workingDirectory = await sessionDB.getSessionWorkdir(sessionIdToUse);
+  const _workingDirectory = await sessionDB.getSessionWorkdir(sessionIdToUse);
 
   const config: RepositoryBackendConfig = {
     type: backendType,
@@ -215,7 +215,7 @@ export async function mergeSessionPr(
   // Removed implementation detail - backend type is apparent from context
 
   // Re-check PR existence for merge operation
-  const hasLocalPr = sessionRecord.prBranch;
+  const _hasLocalPr = sessionRecord.prBranch;
   const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
 
   // For GitHub backend, check approval status via API before proceeding

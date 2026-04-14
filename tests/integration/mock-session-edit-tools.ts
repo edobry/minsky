@@ -59,7 +59,7 @@ async function loggingApplyEditPattern(
   }
 
   console.log("\n🚀 RECREATING MORPH API CALL...");
-  const startTime = Date.now();
+  const _startTime = Date.now();
 
   try {
     // Recreate the logic from the actual applyEditPattern function with logging
@@ -88,12 +88,12 @@ async function loggingApplyEditPattern(
 
     let provider: string;
     let model: string | undefined;
-    let isFastApply = false;
+    let _isFastApply = false;
 
     if (fastApplyProviders.length > 0) {
       provider = first(fastApplyProviders); // Use the first available fast-apply provider
       model = aiConfig.providers[provider]?.model;
-      isFastApply = true;
+      _isFastApply = true;
       console.log(`   Using fast-apply provider: ${provider} with model: ${model}`);
     } else {
       // Fallback to any enabled provider
@@ -320,7 +320,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
     },
     handler: async (args: any) => {
       try {
-        const resolvedPath = await mockPathResolver.resolvePath(args.sessionId, args.path);
+        const _resolvedPath = await mockPathResolver.resolvePath(args.sessionId, args.path);
 
         // Check if file exists
         let originalContent = "";
@@ -345,7 +345,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         }
 
         let finalContent: string;
-        const startTime = Date.now();
+        const _startTime = Date.now();
 
         if (fileExists && args.content.includes(CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT)) {
           // Use enhanced logging version of applyEditPattern
@@ -413,7 +413,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
     },
     handler: async (args: any) => {
       try {
-        const resolvedPath = await mockPathResolver.resolvePath(args.sessionId, args.path);
+        const _resolvedPath2 = await mockPathResolver.resolvePath(args.sessionId, args.path);
 
         const originalContent = getMockFile(args.sessionId, args.path);
         if (!originalContent) {

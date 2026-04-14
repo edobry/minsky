@@ -6,7 +6,7 @@ import {
 } from "./command-generator";
 
 // Helper function to create mock command representation for testing
-function createMockCommandRepresentation(id: string, parameters: CommandParameter[] = []): any {
+function _createMockCommandRepresentation(id: string, parameters: CommandParameter[] = []): any {
   return {
     id,
     category: "TASKS",

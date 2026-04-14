@@ -193,7 +193,7 @@ function generateAutoFix(fixer, node, gitCommand, originalCommand) {
   }
 }
 
-function getTemplateLiteralValue(node) {
+function _getTemplateLiteralValue(node) {
   if (node.quasis.length === 1 && node.expressions.length === 0) {
     return node.quasis[0].value.cooked;
   }

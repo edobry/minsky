@@ -22,7 +22,7 @@ import { createSuccessResponse, createErrorResponse } from "../../domain/schemas
 /**
  * Utility function to process file content with line range support
  */
-function processFileContentWithLineRange(
+function _processFileContentWithLineRange(
   content: string,
   options: {
     startLine?: number;
@@ -250,7 +250,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const errorContext: ErrorContext = {
+        const _errorContext: ErrorContext = {
           operation: "move_file",
           path: `${typedArgs.sourcePath} -> ${typedArgs.targetPath}`,
           session: typedArgs.sessionId,
@@ -351,7 +351,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const errorContext: ErrorContext = {
+        const _errorContext: ErrorContext = {
           operation: "rename_file",
           path: `${typedArgs.path} -> ${typedArgs.newName}`,
           session: typedArgs.sessionId,

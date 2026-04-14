@@ -100,7 +100,7 @@ class MockPersistenceProvider extends PersistenceProvider {
 
   getStorage(): SessionStorage {
     const data = new Map<string, SessionRecord>();
-    let state = { entities: [] } as unknown as SessionDbState;
+    let state: SessionDbState = { sessions: [], baseDir: "" };
     const storage: DatabaseStorage<SessionRecord, SessionDbState> = {
       readState: async () => ({ success: true, data: state }),
       writeState: async (newState: SessionDbState) => {

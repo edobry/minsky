@@ -1,4 +1,3 @@
-import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionProviderInterface } from "../session";
@@ -122,7 +121,6 @@ export async function preparePrImpl(
           `  minsky session start --task ID   (create a new session)\n`
       );
     }
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
     // Get current branch from repo instead of assuming session ID is branch name
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");

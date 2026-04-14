@@ -48,7 +48,7 @@ export async function createPreparedMergeCommitPR(
   options: PreparedMergeCommitOptions,
   deps: PreparedMergeCommitDependencies = {}
 ): Promise<PRInfo> {
-  const { title, body, sourceBranch, baseBranch, workdir, session } = options;
+  const { title, body, sourceBranch, baseBranch, workdir, session: _session } = options;
   const gitExec = deps.execGitWithTimeout || execGitWithTimeout;
 
   // Generate PR branch name - use sourceBranch (actual git branch) for PR naming
@@ -322,7 +322,7 @@ export async function mergePreparedMergeCommitPR(
  * Convert a PR title to a branch name
  * e.g. "feat: add new feature" -> "feat-add-new-feature"
  */
-function titleToBranchName(title: string): string {
+function _titleToBranchName(title: string): string {
   return title
     .toLowerCase()
     .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes

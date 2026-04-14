@@ -9,7 +9,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { DatabaseIntegrityChecker, type DatabaseConstructor } from "./database-integrity-checker";
 import type { SyncFsLike } from "../interfaces/fs-like";
-type StorageBackendType = "sqlite" | "postgres" | "json";
+type _StorageBackendType = "sqlite" | "postgres" | "json";
 
 // Mock bun:sqlite Database via injectable constructor
 const createMockDatabase = () => {
@@ -42,7 +42,7 @@ const MockDatabaseConstructor = mock((_path: string) =>
 ) as unknown as DatabaseConstructor;
 
 // Test data
-const VALID_JSON_DATA = {
+const _VALID_JSON_DATA = {
   sessions: [
     {
       session: "test-session-1",
@@ -57,7 +57,7 @@ const VALID_JSON_DATA = {
   baseDir: "/test/base",
 };
 
-const INVALID_JSON_DATA = '{"invalid": json, missing quote}';
+const _INVALID_JSON_DATA = '{"invalid": json, missing quote}';
 const SQLITE_MAGIC_HEADER = "SQLite format 3\x00";
 
 // Mock filesystem operations
@@ -125,8 +125,8 @@ const createMockFs = (): SyncFsLike =>
 
 describe("DatabaseIntegrityChecker", () => {
   let mockFs: SyncFsLike;
-  let mockDbPath: string;
-  let mockBackupDir: string;
+  let _mockDbPath: string;
+  let _mockBackupDir: string;
 
   beforeEach(() => {
     // Reset mock filesystem state
@@ -136,8 +136,8 @@ describe("DatabaseIntegrityChecker", () => {
     mockFs = createMockFs();
 
     // Use mock paths
-    mockDbPath = "/mock/test-db.json";
-    mockBackupDir = "/mock/backups";
+    _mockDbPath = "/mock/test-db.json";
+    _mockBackupDir = "/mock/backups";
   });
 
   afterEach(() => {

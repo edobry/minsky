@@ -40,10 +40,10 @@ describe("Interface-Agnostic Task Command Functions", () => {
   });
 
   const testWorkspacePath = "/tmp/test-minsky-workspace";
-  const testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
+  const _testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
 
   // Helper function to create a complete mock TaskService
-  const createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) =>
+  const _createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) =>
     ({
       getTask: mockGetTask,
       backends: [],
@@ -56,14 +56,6 @@ describe("Interface-Agnostic Task Command Functions", () => {
       getWorkspacePath: () => testWorkspacePath,
       createTaskFromTitleAndSpec: async () => ({}),
     }) as unknown as TaskServiceInterface;
-
-  // Create mock tasks data for dependency injection
-  const mockTasks = [
-    { id: "155", title: TEST_ENTITIES.BLOCKED_TASK_TITLE, status: TASK_STATUS.BLOCKED },
-    { id: "156", title: "Some other task", status: TASK_STATUS.TODO },
-    { id: "157", title: "In progress task", status: TASK_STATUS.IN_PROGRESS },
-    { id: "158", title: "Done task", status: TASK_STATUS.DONE },
-  ];
 
   // No filesystem operations needed with dependency injection
 

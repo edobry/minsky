@@ -126,7 +126,7 @@ export class UserManagementService {
    * Creates a new user with comprehensive validation and setup
    */
   async createUser(userData: CreateUserData): Promise<User> {
-    const startTime = Date.now();
+    const _startTime = Date.now();
     this.logger.info("Creating new user", { email: userData.email });
 
     try {
@@ -234,7 +234,7 @@ export class UserManagementService {
    * Updates an existing user
    */
   async updateUser(id: string, updateData: UpdateUserData): Promise<User> {
-    const startTime = Date.now();
+    const _startTime = Date.now();
     this.logger.info("Updating user", { userId: id, updateData });
 
     try {

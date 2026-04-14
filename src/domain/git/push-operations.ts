@@ -1,4 +1,3 @@
-import { normalizeRepoName } from "../repo-utils";
 import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
 import type { SessionRecord } from "../session/types";
@@ -48,7 +47,6 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
     if (record.branch) {
       // Prefer branch from session record to avoid extra git call

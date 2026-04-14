@@ -71,7 +71,7 @@ export function mockReadFileSync(path: string, _options?: { encoding?: BufferEnc
 
 // Use function type assertions to avoid TypeScript errors with type compatibility
 // Create a union type of the real and mock operations
-type FS = {
+type _FS = {
   mkdirSync: typeof mkdirSync | typeof mockMkdirSync;
   existsSync: typeof existsSync | typeof mockExistsSync;
   rmSync: typeof rmSync | typeof mockRmSync;

@@ -58,7 +58,9 @@ export default {
 
   create(context) {
     const options = context.options[0] || {};
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const allowedModules = options.allowedModules || ["mock"];
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const strictMode = options.strictMode !== false; // Default to true
     const allowTimestamps = options.allowTimestamps === true; // Default to false
     const allowGlobalCounters = options.allowGlobalCounters === true; // Default to false
@@ -85,6 +87,7 @@ export default {
     // Track global variable declarations
     const globalCounters = new Set();
     let isInTestHook = false;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     let currentHookName = null;
 
     // Forbidden filesystem imports

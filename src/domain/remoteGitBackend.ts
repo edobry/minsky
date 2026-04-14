@@ -21,7 +21,6 @@ import {
   generateRepoKey,
   RepositoryError,
 } from "../utils/repository-utils";
-import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
 
@@ -101,9 +100,6 @@ export class RemoteGitBackend implements RepositoryBackend {
    */
   async clone(session: string): Promise<CloneResult> {
     try {
-      // Normalize the repository name
-      const repoName = normalizeRepoName(this.config.url);
-
       // Create the destination directory
       const workdir = this.getSessionWorkdir(session);
       await mkdir(dirname(workdir), { recursive: true });

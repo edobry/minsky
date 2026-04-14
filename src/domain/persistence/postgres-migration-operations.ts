@@ -130,7 +130,7 @@ export async function runPostgresSchemaMigrations(
 
   if (dryRun) {
     // Build preview plan
-    const { basename } = await import("path");
+    const { basename: _basename } = await import("path");
     const status = await getPostgresMigrationsStatus(connectionString);
     const maskedConn = status.maskedConn;
     const migrationsFolder = status.migrationsFolder;
@@ -144,7 +144,7 @@ export async function runPostgresSchemaMigrations(
       // ignore
     }
 
-    const summary =
+    const _summary =
       `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\n` +
       `Migrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ` +
       `${status.appliedCount} applied, ` +

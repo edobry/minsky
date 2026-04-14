@@ -181,7 +181,7 @@ export async function validatePostgresBackend(): Promise<{
             if (vectorStorage) {
               // Try a simple vector operation with a dummy vector (all zeros)
               const dummyVector = new Array(1536).fill(0);
-              const testResults = await vectorStorage.search(dummyVector, {
+              const _testResults = await vectorStorage.search(dummyVector, {
                 limit: 1,
               });
               log.cli("✅ Vector storage accessible and functional");

@@ -103,7 +103,7 @@ export async function writeSessionsToFile(
 ): Promise<void> {
   const safeOptions = options || {};
   const fs = safeOptions.fs ?? createRealSyncFs();
-  const stateDir = getMinskyStateDir();
+  const _stateDir = getMinskyStateDir();
   const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
 
   try {

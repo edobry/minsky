@@ -39,7 +39,7 @@ function flattenObjectToKeyValue(obj: Record<string, unknown>): Record<string, u
  * @param commandId Command identifier
  * @returns Config category name
  */
-function getConfigCategory(commandId: string): string {
+function _getConfigCategory(commandId: string): string {
   const categoryMap: { [key: string]: string } = {
     "config.list": "CONFIG",
     "config.show": "CONFIG",

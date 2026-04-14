@@ -89,7 +89,7 @@ describe("Session PR Workflow Architectural Bug", () => {
       };
 
       const currentBrokenImport = "preparePrFromParams from ../../git"; // WRONG
-      const correctImport = "sessionPrImpl from ../session-pr-operations"; // CORRECT
+      const _correctImport = "sessionPrImpl from ../session-pr-operations"; // CORRECT
 
       // Test passes when we document the architectural requirement
       expect(correctLayers.sessionOperations).toContain("session-pr-operations");

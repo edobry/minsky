@@ -307,10 +307,8 @@ export async function deleteIssue(
         if (db) {
           const { tasksTable } = await import("../storage/schemas/task-embeddings");
           const { eq } = await import("drizzle-orm");
-          const result = await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
-          log.debug(`Deleted task ${taskId} from database`, {
-            rowCount: (result as unknown as Record<string, unknown>).rowCount,
-          });
+          await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+          log.debug(`Deleted task ${taskId} from database`);
         } else {
           log.debug(`No database connection available for task ${taskId} deletion`);
         }

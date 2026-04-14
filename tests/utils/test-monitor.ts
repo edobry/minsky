@@ -135,7 +135,7 @@ export class TestQualityMonitor {
   getFlakyTests(): Array<{ testName: string; filePath: string; metrics: TestMetrics }> {
     const flakyTests: Array<{ testName: string; filePath: string; metrics: TestMetrics }> = [];
 
-    for (const [key, history] of this.executions) {
+    for (const [key, _history] of this.executions) {
       const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 
@@ -155,7 +155,7 @@ export class TestQualityMonitor {
   ): Array<{ testName: string; filePath: string; metrics: TestMetrics }> {
     const allTests: Array<{ testName: string; filePath: string; metrics: TestMetrics }> = [];
 
-    for (const [key, history] of this.executions) {
+    for (const [key, _history] of this.executions) {
       const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 
@@ -197,7 +197,7 @@ export class TestQualityMonitor {
       metrics: TestMetrics;
     }> = [];
 
-    for (const [key, history] of this.executions) {
+    for (const [key, _history] of this.executions) {
       const [filePath = "", testName = ""] = key.split("::");
       const metrics = this.getTestMetrics(testName, filePath);
 

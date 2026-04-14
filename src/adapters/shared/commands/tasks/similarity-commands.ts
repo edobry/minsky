@@ -9,7 +9,7 @@ import type { EnhancedSearchResult } from "../similarity-command-factory";
  * Task-style result formatter for similarity search results
  * Format: "1. Task Title [mt#123] [IN-PROGRESS]"
  */
-function taskStyleFormatter(
+function _taskStyleFormatter(
   result: EnhancedSearchResult,
   index: number,
   showScore: boolean

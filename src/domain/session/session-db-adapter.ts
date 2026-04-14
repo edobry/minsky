@@ -67,7 +67,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     log.debug("Listing all sessions");
     try {
       log.debug("About to get storage");
-      const storage = await this.getStorage();
+      const _storage = await this.getStorage();
       log.debug("Got storage, calling getState()");
       const state = await this.getState();
       log.debug(`Got state with ${state.sessions.length} sessions`);
@@ -345,7 +345,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     warnings: string[];
   }> {
     const storage = await this.getStorage();
-    const location = storage.getStorageLocation();
+    const _location = storage.getStorageLocation();
 
     return {
       backend: this.persistence.constructor.name,

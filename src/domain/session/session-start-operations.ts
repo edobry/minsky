@@ -208,7 +208,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     try {
       // First clone the repo
-      const gitCloneResult = await deps.gitService.clone({
+      const _gitCloneResult = await deps.gitService.clone({
         repoUrl,
         session: sessionId,
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
@@ -216,7 +216,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
       // Create a branch based on the session ID - use branchWithoutSession
       // since session record hasn't been added to DB yet
-      const branchResult = await deps.gitService.branchWithoutSession({
+      const _branchResult = await deps.gitService.branchWithoutSession({
         repoName: normalizedRepoName,
         session: sessionId,
         branch: branchName,
@@ -282,7 +282,7 @@ Error: ${getErrorMessage(installError)}`
     if (taskId && !noStatusUpdate) {
       try {
         // Get the current status first
-        const previousStatus = await deps.taskService.getTaskStatus(taskId);
+        const _previousStatus = await deps.taskService.getTaskStatus(taskId);
 
         // Update the status to IN-PROGRESS
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);

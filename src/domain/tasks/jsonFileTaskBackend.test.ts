@@ -1,5 +1,5 @@
-const SIZE_6 = 6;
-const TEST_ARRAY_SIZE = 3;
+const _SIZE_6 = 6;
+const _TEST_ARRAY_SIZE = 3;
 
 /**
  * Tests for JsonFileTaskBackend

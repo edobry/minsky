@@ -69,7 +69,7 @@ describe("Session PR Body Validation Bug Fix", () => {
         createdAt: new Date().toISOString(),
       });
 
-    const mockTaskService = new FakeTaskService({
+    const _mockTaskService = new FakeTaskService({
       initialTasks: [{ id: "#123", title: "Test Task", status: "TODO" }],
     });
 

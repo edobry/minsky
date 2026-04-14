@@ -41,7 +41,7 @@ function loadMonitorData() {
   }
 }
 
-function saveMonitorData() {
+function _saveMonitorData() {
   try {
     const data = testMonitor.exportData();
     mockWriteFileSync(MONITOR_DATA_FILE, data);

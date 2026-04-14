@@ -34,7 +34,7 @@ export async function updateSessionImpl(
     noStash,
     noPush,
     force,
-    skipConflictCheck,
+    skipConflictCheck: _skipConflictCheck,
     autoResolveDeleteConflicts,
     dryRun,
     skipIfAlreadyMerged,

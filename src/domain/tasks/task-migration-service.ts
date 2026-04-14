@@ -144,7 +144,7 @@ export class TaskMigrationService {
       const taskMatch = line.match(/^(\s*-\s*\[([x ])\]\s*)(.+?)\s*\[([^\]]+)\]/);
 
       if (taskMatch) {
-        const [, prefix, checkbox, title, taskIdWithBrackets] = taskMatch;
+        const [, _prefix, checkbox, title, taskIdWithBrackets] = taskMatch;
         const taskId = taskIdWithBrackets ?? "";
         const titleStr = (title ?? "").trim();
 

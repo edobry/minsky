@@ -21,7 +21,6 @@ import {
   generateRepoKey,
   RepositoryError,
 } from "../utils/repository-utils";
-import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
 import { execGitWithTimeout } from "../utils/git-exec";
 
@@ -104,7 +103,6 @@ export class LocalGitBackend implements RepositoryBackend {
 
     try {
       // Normalize the repository name
-      const repoName = normalizeRepoName(this.config.path);
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(session);

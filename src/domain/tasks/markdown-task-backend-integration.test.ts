@@ -497,10 +497,10 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should filter tasks by status", async () => {
-      const todoTask = await backend.createTaskFromTitleAndSpec("Todo Task", "Todo description");
+      const _todoTask = await backend.createTaskFromTitleAndSpec("Todo Task", "Todo description");
       const doneTask = await backend.createTaskFromTitleAndSpec("Done Task", "Done description");
       await backend.setTaskStatus(doneTask.id, TASK_STATUS.DONE);
-      const anotherTodoTask = await backend.createTaskFromTitleAndSpec(
+      const _anotherTodoTask = await backend.createTaskFromTitleAndSpec(
         "Another Todo Task",
         "Another todo description"
       );
@@ -600,7 +600,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should persist tasks to markdown format", async () => {
-      const task1 = await backend.createTaskFromTitleAndSpec("Persisted Task", "Description 1");
+      const _task1 = await backend.createTaskFromTitleAndSpec("Persisted Task", "Description 1");
       const task2 = await backend.createTaskFromTitleAndSpec("Done Task", "Description 2");
       await backend.setTaskStatus(task2.id, TASK_STATUS.DONE);
 

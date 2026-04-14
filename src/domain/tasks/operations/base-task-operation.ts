@@ -154,7 +154,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
     params: BaseTaskOperationParams
   ): Promise<{ workspacePath: string; taskService: TaskServiceInterface }> {
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await this.deps.resolveRepoPath({
+    const _repoPath = await this.deps.resolveRepoPath({
       session: params.session,
       repo: params.repo,
     });

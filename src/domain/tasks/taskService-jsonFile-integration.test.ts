@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Integration tests for TaskService with JsonFileTaskBackend
@@ -10,10 +10,10 @@ import type { DomainDependencies } from "../../utils/test-utils/dependencies";
 
 describe("TaskService Integration with Dependency Injection", () => {
   let deps: DomainDependencies;
-  let workspacePath: string;
+  let _workspacePath: string;
 
   beforeEach(async () => {
-    workspacePath = "/test/workspace";
+    _workspacePath = "/test/workspace";
 
     // Use established DI patterns for task service integration testing
     deps = createTestDeps({
