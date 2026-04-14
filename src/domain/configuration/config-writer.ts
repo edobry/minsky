@@ -15,6 +15,7 @@ import { ConfigSchema } from "./config-schemas";
 import { log } from "../../utils/logger";
 import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
+import { elementAt } from "../../utils/array-safety";
 
 /**
  * Configuration writer options
@@ -448,10 +449,17 @@ ${stringify(config, { indent: 2 })}`;
     const pathToCheck = [...keys];
 
     for (let i = 0; i < pathToCheck.length - 1; i++) {
-      current = current[pathToCheck[i]!] as Record<string, unknown>;
+      current = current[elementAt(pathToCheck, i, "config-writer cleanupEmptyObjects")] as Record<
+        string,
+        unknown
+      >;
     }
 
-    const lastKey = pathToCheck[pathToCheck.length - 1]!;
+    const lastKey = elementAt(
+      pathToCheck,
+      pathToCheck.length - 1,
+      "config-writer cleanupEmptyObjects lastKey"
+    );
     if (
       current[lastKey] &&
       typeof current[lastKey] === "object" &&

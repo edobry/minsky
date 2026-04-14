@@ -1,4 +1,5 @@
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
+import { elementAt } from "../../../utils/array-safety";
 
 export class MemoryVectorStorage implements VectorStorage {
   private readonly dimension: number;
@@ -64,7 +65,9 @@ export class MemoryVectorStorage implements VectorStorage {
     const n = Math.min(a.length, b.length);
     let s = 0;
     for (let i = 0; i < n; i++) {
-      const d = a[i]! - b[i]!;
+      const d =
+        elementAt(a, i, "memory-vector-storage l2 a") -
+        elementAt(b, i, "memory-vector-storage l2 b");
       s += d * d;
     }
     return Math.sqrt(s);

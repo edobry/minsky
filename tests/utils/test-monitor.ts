@@ -4,6 +4,7 @@
  * Provides flaky test detection, performance monitoring, and test categorization
  * to maintain high test quality and reliability.
  */
+import { elementAt } from "../../src/utils/array-safety";
 
 export interface TestExecution {
   testName: string;
@@ -94,7 +95,10 @@ export class TestQualityMonitor {
     // Look for alternating patterns of success/failure
     let transitions = 0;
     for (let i = 1; i < history.length; i++) {
-      if (history[i]!.status !== history[i - 1]!.status) {
+      if (
+        elementAt(history, i, "test-monitor flakiness history[i]").status !==
+        elementAt(history, i - 1, "test-monitor flakiness history[i-1]").status
+      ) {
         transitions++;
       }
     }

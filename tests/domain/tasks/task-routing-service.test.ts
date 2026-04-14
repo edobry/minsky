@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach } from "bun:test";
-import { first } from "../../../src/utils/array-safety";
+import { first, elementAt } from "../../../src/utils/array-safety";
 import { TaskRoutingService } from "../../../src/domain/tasks/task-routing-service";
 import type { TaskGraphService } from "../../../src/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "../../../src/domain/tasks/taskService";
@@ -137,8 +137,11 @@ describe("TaskRoutingService", () => {
 
       // Should be sorted by readiness score descending
       for (let i = 1; i < availableTasks.length; i++) {
-        expect(availableTasks[i - 1]!.readinessScore).toBeGreaterThanOrEqual(
-          availableTasks[i]!.readinessScore
+        expect(
+          elementAt(availableTasks, i - 1, "task-routing-service readinessScore[i-1]")
+            .readinessScore
+        ).toBeGreaterThanOrEqual(
+          elementAt(availableTasks, i, "task-routing-service readinessScore[i]").readinessScore
         );
       }
     });

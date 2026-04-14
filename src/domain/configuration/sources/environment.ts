@@ -217,7 +217,7 @@ function setConfigValue(config: Record<string, unknown>, path: string, value: st
 
   // Navigate to the parent object
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]!;
+    const part = elementAt(parts, i, "environment setConfigValue parts");
     if (!(part in current)) {
       current[part] = {};
     }
@@ -225,7 +225,7 @@ function setConfigValue(config: Record<string, unknown>, path: string, value: st
   }
 
   // Set the final value with type conversion
-  const finalKey = parts[parts.length - 1]!;
+  const finalKey = elementAt(parts, parts.length - 1, "environment setConfigValue finalKey");
   const fieldType = fieldTypes[path] || "string";
   const convertedValue = typeConverters[fieldType](value);
 
