@@ -57,6 +57,11 @@ export const taskCreationParams = {
       "GitHub repository override in 'owner/repo' format (only for github-issues backend)",
     required: false,
   },
+  dependsOn: {
+    schema: z.union([z.string(), z.array(z.string())]).optional(),
+    description: "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])",
+    required: false,
+  },
 };
 
 /**
