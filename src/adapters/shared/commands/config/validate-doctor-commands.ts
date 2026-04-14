@@ -6,7 +6,7 @@ import { z } from "zod";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { getErrorMessage } from "../../../../errors/index";
 import { composeParams } from "../../common-parameters";
-import { configCommandParams } from "./list-show-commands";
+import { configCommandParams } from "./shared";
 
 /**
  * Config validate command

@@ -7,7 +7,7 @@ import { CommandCategory, defineCommand } from "../../command-registry";
 import { createConfigWriter } from "../../../../domain/configuration/config-writer";
 import { getErrorMessage } from "../../../../errors/index";
 import { composeParams } from "../../common-parameters";
-import { configCommandParams } from "./list-show-commands";
+import { configCommandParams } from "./shared";
 import { parseConfigValue } from "./config-helpers";
 
 /**

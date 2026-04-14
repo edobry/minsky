@@ -4,6 +4,8 @@
  * Registers ai.complete, ai.chat, and ai.fast-apply commands.
  */
 
+import { readFile, writeFile } from "fs/promises";
+
 import { z } from "zod";
 import {
   sharedCommandRegistry,
@@ -15,6 +17,7 @@ import { exit } from "../../../../utils/process";
 import { executeFastApply } from "../../../../domain/ai/fast-apply-service";
 import { createCompletionService } from "../../../../domain/ai/service-factory";
 import { requireAIProviders } from "../../../../domain/ai/provider-operations";
+import { getErrorMessage } from "../../../../errors/index";
 import { getResolvedConfig } from "./shared";
 
 /**
@@ -106,7 +109,7 @@ export function registerCompletionCommands(): void {
     name: "complete",
     description: "Generate AI completion for a prompt",
     parameters: aiCompleteParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { prompt, model, provider, temperature, maxTokens, stream, system } = params;
 
@@ -146,9 +149,7 @@ export function registerCompletionCommands(): void {
           }
         }
       } catch (error) {
-        log.cliError(
-          `AI completion failed: ${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`AI completion failed: ${getErrorMessage(error)}`);
         exit(1);
       }
     },
@@ -163,7 +164,7 @@ export function registerCompletionCommands(): void {
       "Apply fast edits to a file using fast-apply models " +
       "(supports both instruction and Cursor edit pattern modes)",
     parameters: aiFastApplyParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
 
@@ -172,16 +173,11 @@ export function registerCompletionCommands(): void {
           exit(1);
         }
 
-        const fs = await import("fs/promises");
-
         let originalContent: string;
         try {
-          originalContent = (await fs.readFile(filePath, "utf-8")) as string;
+          originalContent = (await readFile(filePath, "utf-8")) as string;
         } catch (error) {
-          log.cliError(
-            `Failed to read file ${filePath}: ` +
-              `${error instanceof Error ? error.message : String(error)}`
-          );
+          log.cliError(`Failed to read file ${filePath}: ${getErrorMessage(error)}`);
           exit(1);
         }
 
@@ -212,7 +208,7 @@ export function registerCompletionCommands(): void {
             log.cli(`Cost: $${result.response.usage.cost.toFixed(4)}`);
           }
         } else {
-          await fs.writeFile(filePath, result.editedContent, "utf-8");
+          await writeFile(filePath, result.editedContent, "utf-8");
           log.cli(`✅ Successfully applied edits to ${filePath}`);
           log.info(
             `Tokens used: ${result.response.usage.totalTokens} ` +
@@ -224,9 +220,7 @@ export function registerCompletionCommands(): void {
           }
         }
       } catch (error) {
-        log.cliError(
-          `Fast-apply failed: ${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Fast-apply failed: ${getErrorMessage(error)}`);
         exit(1);
       }
     },
@@ -255,7 +249,7 @@ export function registerCompletionCommands(): void {
         required: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const config = getResolvedConfig();
         requireAIProviders(config);
@@ -265,9 +259,7 @@ export function registerCompletionCommands(): void {
         );
         exit(1);
       } catch (error) {
-        log.cliError(
-          `Chat session failed: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Chat session failed: ${getErrorMessage(error)}`);
         exit(1);
       }
     },

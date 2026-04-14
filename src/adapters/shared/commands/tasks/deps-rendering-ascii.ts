@@ -118,12 +118,8 @@ export async function generateDependencyTree(
 export async function buildDependencyChain(
   root: TaskNode,
   allTasks: TaskNode[],
-  graphService: TaskGraphService,
   processed: Set<string>
 ): Promise<TaskNode[]> {
-  // graphService kept for API compatibility
-  void graphService;
-
   const chain = [root];
   processed.add(root.id);
 
@@ -157,14 +153,8 @@ export async function buildDependencyChain(
 export async function renderDependencyChain(
   chain: TaskNode[],
   lines: string[],
-  graphService: TaskGraphService,
-  taskService: TaskServiceInterface,
-  isLastChain: boolean
+  taskService: TaskServiceInterface
 ) {
-  // graphService and isLastChain are kept for API compatibility
-  void graphService;
-  void isLastChain;
-
   for (let i = 0; i < chain.length; i++) {
     const task = chain[i]!;
     const isLast = i === chain.length - 1;
@@ -287,7 +277,7 @@ export async function generateDependencyGraph(
 
     for (const root of rootTasks) {
       if (!processed.has(root.id)) {
-        const chain = await buildDependencyChain(root, tasksWithDeps, graphService, processed);
+        const chain = await buildDependencyChain(root, tasksWithDeps, processed);
         if (chain.length > 0) {
           chains.push(chain);
         }
@@ -307,7 +297,7 @@ export async function generateDependencyGraph(
       const chain = chains[chainIndex]!;
       const isLastChain = chainIndex === chains.length - 1;
 
-      await renderDependencyChain(chain, lines, graphService, taskService, isLastChain);
+      await renderDependencyChain(chain, lines, taskService);
 
       if (!isLastChain) {
         lines.push("");

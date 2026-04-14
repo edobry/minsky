@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { RuleService } from "./rules";
 import type { RuleFormat } from "./rules";
 import path from "path";
@@ -34,11 +34,11 @@ describe("RuleService", () => {
   }
 
   beforeEach(async () => {
-    // New, isolated mock filesystem per test
+    // New, isolated mock filesystem per test with unique paths to prevent pollution
     mockFs = createMockFilesystem();
 
-    // Use mock paths instead of real temporary directories
-    testDir = "/mock/test/rules";
+    // Use unique mock paths per test to avoid cross-test interference
+    testDir = `/mock/test/rules-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     cursorRulesDir = path.join(testDir, ".cursor", "rules");
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
@@ -51,6 +51,10 @@ describe("RuleService", () => {
       fsPromises: mockFs.fsPromises as any,
       existsSyncFn: (p: string) => Boolean(mockFs.existsSync(p)),
     });
+  });
+
+  afterEach(() => {
+    mockFs.reset();
   });
 
   describe("listRules", () => {

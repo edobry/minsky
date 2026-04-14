@@ -8,6 +8,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 import { exit } from "../../../../utils/process";
+import { getErrorMessage } from "../../../../errors/index";
 import {
   createCompletionService,
   createConfigService,
@@ -43,7 +44,7 @@ export function registerProviderCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { provider, json } = params;
 
@@ -98,9 +99,7 @@ export function registerProviderCommands(): void {
           }
         }
       } catch (error) {
-        log.cliError(
-          `Validation failed: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Validation failed: ${getErrorMessage(error)}`);
         exit(1);
       }
     },
@@ -126,7 +125,7 @@ export function registerProviderCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { format, json } = params;
         const outputFormat = json ? "json" : format;
@@ -165,9 +164,7 @@ export function registerProviderCommands(): void {
           }
         }
       } catch (error) {
-        log.cliError(
-          `Failed to list providers: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Failed to list providers: ${getErrorMessage(error)}`);
         exit(1);
       }
     },

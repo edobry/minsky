@@ -220,13 +220,6 @@ export async function getTaskSpecContentFromParams(
     const taskIdString = Array.isArray(validParams.taskId)
       ? validParams.taskId[0]
       : validParams.taskId;
-    const taskId = taskIdString;
-
-    // Use resolveRepoPath for both repoPath and workspacePath (existing behavior)
-    await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
 
     const workspacePath = await deps.resolveRepoPath({
       session: validParams.session,
@@ -238,15 +231,19 @@ export async function getTaskSpecContentFromParams(
       backend: validParams.backend,
     });
 
-    const task = await taskService.getTask(taskId);
+    const task = await taskService.getTask(taskIdString);
     if (!task) {
-      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+      throw new ResourceNotFoundError(`Task ${taskIdString} not found`, "task", taskIdString);
     }
 
     const specPath = task.specPath;
 
     if (!specPath) {
-      throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
+      throw new ResourceNotFoundError(
+        `Task ${taskIdString} has no specification file`,
+        "task",
+        taskIdString
+      );
     }
 
     let content: string;
@@ -270,7 +267,7 @@ export async function getTaskSpecContentFromParams(
 
       if (sectionStart === -1) {
         throw new ResourceNotFoundError(
-          `Section "${validParams.section}" not found in task ${taskId} specification`
+          `Section "${validParams.section}" not found in task ${taskIdString} specification`
         );
       }
 

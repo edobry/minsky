@@ -50,7 +50,7 @@ export function registerModelCacheCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { provider, format, json } = params;
         const outputFormat = json ? "json" : format;
@@ -145,7 +145,7 @@ export function registerModelCacheCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { provider, force } = params;
 
@@ -209,7 +209,7 @@ export function registerModelCacheCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { provider, format, showCache, json } = params;
         const outputFormat = json ? "json" : format;
@@ -278,9 +278,7 @@ export function registerModelCacheCommands(): void {
           log.cli(`Next Refresh: ${metadata.nextRefresh.toISOString()}`);
         }
       } catch (error) {
-        log.cliError(
-          `Failed to list models: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Failed to list models: ${getErrorMessage(error)}`);
         exit(1);
       }
     },
@@ -305,7 +303,7 @@ export function registerModelCacheCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       try {
         const { provider, confirm } = params;
 
@@ -326,9 +324,7 @@ export function registerModelCacheCommands(): void {
           log.cli("✓ Cleared all cached model data");
         }
       } catch (error) {
-        log.cliError(
-          `Failed to clear cache: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Failed to clear cache: ${getErrorMessage(error)}`);
         exit(1);
       }
     },

@@ -6,27 +6,16 @@ import { CommandCategory, defineCommand } from "../../command-registry";
 import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
 import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
-import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
+import { composeParams } from "../../common-parameters";
 import { z } from "zod";
 import {
   maskCredentials,
   maskCredentialsInEffectiveValues,
   gatherCredentialInfo,
 } from "./config-helpers";
+import { configCommandParams } from "./shared";
 
-/**
- * Shared parameters for config commands (eliminates duplication)
- */
-export const configCommandParams = composeParams(
-  {
-    repo: CommonParameters.repo,
-    workspace: CommonParameters.workspace,
-    json: CommonParameters.json,
-  },
-  {
-    sources: ConfigParameters.sources,
-  }
-);
+export { configCommandParams };
 
 /**
  * Parameters for config list command
