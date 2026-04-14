@@ -370,8 +370,8 @@ export function extractGitHubInfoFromUrl(
   try {
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
+    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {

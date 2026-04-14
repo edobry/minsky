@@ -36,10 +36,7 @@ export async function readTasksFile(
     const err = error instanceof Error ? error : new Error(String(error));
     // Provide concise, user-friendly context without dumping raw error object
     const code = getErrorCode(error) || "";
-    const hint =
-      code === "ENOENT"
-        ? "Tasks file not found. Ensure you're pointing to the main workspace (process/tasks.md)."
-        : undefined;
+    const hint = code === "ENOENT" ? "Tasks file not found at the specified path." : undefined;
 
     // Log at debug level for missing files (common in multi-backend mode)
     // Log at error level for other file read issues

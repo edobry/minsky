@@ -41,8 +41,7 @@ Minsky supports multiple SessionDB storage backends that can be configured at bo
 
 ### Available Backends
 
-- **`json`**: Simple file-based storage (default)
-- **`sqlite`**: Local SQLite database with ACID transactions
+- **`sqlite`**: Local SQLite database with ACID transactions (default)
 - **`postgres`**: PostgreSQL database for team environments
 
 ### Repository-Level SessionDB Configuration

@@ -22,11 +22,9 @@ describe("Multi-Backend Task System", () => {
     it("should support different backend prefixes", () => {
       const markdownBackend = createMockBackend("Markdown", "md");
       const githubBackend = createMockBackend("GitHub Issues", "gh");
-      const jsonBackend = createMockBackend("JSON File", "json");
 
       expect(markdownBackend.prefix).toBe("md");
       expect(githubBackend.prefix).toBe("gh");
-      expect(jsonBackend.prefix).toBe("json");
     });
 
     it("should validate local IDs according to backend rules", () => {
@@ -45,11 +43,10 @@ describe("Multi-Backend Task System", () => {
           service,
           mdBackend: _mdBackend,
           ghBackend: _ghBackend,
-          jsonBackend: _jsonBackend,
         } = createTaskServiceWithMocks();
         const backends = service.listBackends();
-        expect(backends.length).toBe(3);
-        expect(backends.map((b) => b.prefix)).toEqual(["md", "gh", "json"]);
+        expect(backends.length).toBe(2);
+        expect(backends.map((b) => b.prefix)).toEqual(["md", "gh"]);
       });
     });
 
@@ -66,11 +63,10 @@ describe("Multi-Backend Task System", () => {
       it("should support task listing from all backends", async () => {
         const { service } = createTaskServiceWithMocks();
         const all = await service.listTasks();
-        expect(all.length).toBe(6);
+        expect(all.length).toBe(4);
         const ids = all.map((t) => t.id);
         expect(ids).toContain("md#1");
         expect(ids).toContain("gh#1");
-        expect(ids).toContain("json#1");
       });
     });
 

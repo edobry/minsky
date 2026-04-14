@@ -18,7 +18,7 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ### Session Management
 
-- [**SessionDB Migration Guide**](./sessiondb-migration-guide.md) - Migrate between JSON, SQLite, and PostgreSQL backends
+- [**SessionDB Migration Guide**](./sessiondb-migration-guide.md) - Migrate between SQLite and PostgreSQL backends
 - [**SessionDB Troubleshooting Guide**](./sessiondb-troubleshooting.md) - Solutions for common SessionDB issues across all backends
 
 ### Task Management
@@ -26,8 +26,6 @@ This directory contains comprehensive documentation for the Minsky development w
 - [**Multi-Backend User Guide**](./multi-backend-user-guide.md) - **NEW**: Complete guide to the multi-backend task system
 - [**Multi-Backend Migration Guide**](./migration-guide.md) - **NEW**: Migrating from legacy to multi-backend system
 - [**Multi-Backend Quick Reference**](./multi-backend-quick-reference.md) - **NEW**: Command reference and cheat sheet
-- [**JSON Task Backend**](./JSON-TASK-BACKEND.md) - JSON-based task storage system
-- [**JSON Backend Migration**](./JSON-TASK-BACKEND-MIGRATION.md) - Migrating from markdown to JSON tasks
 
 ### MCP Integration
 
@@ -93,14 +91,14 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ### Backend Types
 
-- **Task Backends**: `markdown`, `json-file`, `github-issues`
+- **Task Backends**: `minsky`, `github-issues`
 - **Repository Backends**: `local`, `remote`, `github`
-- **Session Storage Backends**: `json` (file-based), `sqlite` (local database), `postgres` (server database)
+- **Session Storage Backends**: `sqlite` (local database), `postgres` (server database)
 
 ### Key File Locations
 
-- **Main Configuration**: `.minsky/config.json`
-- **Task Files**: `process/tasks.md` (markdown) or JSON database (json-file)
+- **Main Configuration**: `.minsky/config.yaml`
+- **Task Files**: `process/tasks/` (task specs)
 - **Rules Directory**: `.cursor/rules/` (Cursor format) or `.minsky/rules/` (generic)
 - **Session Storage**: `~/.local/state/minsky/git/`
 

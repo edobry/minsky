@@ -32,11 +32,11 @@ export const WorkspaceRulesComponent: ContextComponent = {
       // Check if we should use enhanced filtering
       const userQuery = context.userQuery || context.userPrompt;
       const filesInContext = context.filesInContext || [];
-      let shouldUseEnhancedFiltering = Boolean(userQuery?.trim() || filesInContext.length > 0);
+      const shouldUseEnhancedFiltering = Boolean(userQuery?.trim() || filesInContext.length > 0);
 
       let filteredRules: Rule[] = [];
       let filteredBy: string | undefined;
-      let queryUsed: string | undefined = userQuery;
+      const queryUsed: string | undefined = userQuery;
       let reductionPercentage: number | undefined;
       let rulesByType: Record<string, Rule[]> | undefined;
 

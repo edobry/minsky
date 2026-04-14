@@ -29,13 +29,6 @@ describe("Backend-Qualified ID System", () => {
         localId: "456",
         full: "gh:456",
       });
-
-      const jsonResult = parseTaskId("json:789");
-      expect(jsonResult).toEqual({
-        backend: "json",
-        localId: "789",
-        full: "json:789",
-      });
     });
 
     it("should handle numeric local IDs", () => {
@@ -66,7 +59,6 @@ describe("Backend-Qualified ID System", () => {
     it("should return true for qualified IDs", () => {
       expect(isQualifiedId("md:123")).toBe(true);
       expect(isQualifiedId("gh:456")).toBe(true);
-      expect(isQualifiedId("json:789")).toBe(true);
     });
 
     it("should return false for unqualified IDs", () => {
@@ -86,7 +78,6 @@ describe("Backend-Qualified ID System", () => {
     it("should format backend and local ID correctly", () => {
       expect(formatTaskId("md", "123")).toBe("md:123");
       expect(formatTaskId("gh", "456")).toBe("gh:456");
-      expect(formatTaskId("json", "789")).toBe("json:789");
     });
 
     it("should handle special characters in local ID", () => {
@@ -118,7 +109,6 @@ describe("Backend-Qualified ID System", () => {
     it("should extract backend from qualified IDs", () => {
       expect(extractBackendFromId("md:123")).toBe("md");
       expect(extractBackendFromId("gh:456")).toBe("gh");
-      expect(extractBackendFromId("json:789")).toBe("json");
     });
 
     it("should return null for unqualified IDs", () => {
@@ -137,7 +127,6 @@ describe("Backend-Qualified ID System", () => {
     it("should extract local ID from qualified IDs", () => {
       expect(extractLocalIdFromId("md:123")).toBe("123");
       expect(extractLocalIdFromId("gh:456")).toBe("456");
-      expect(extractLocalIdFromId("json:789")).toBe("789");
     });
 
     it("should return the full ID for unqualified IDs (backward compatibility)", () => {
@@ -158,7 +147,6 @@ describe("Git Branch Naming Conversion", () => {
     it("should convert qualified session IDs to git-compatible branch names", () => {
       expect(sessionIdToBranchName("task#md:123")).toBe("task#md-123");
       expect(sessionIdToBranchName("task#gh:456")).toBe("task#gh-456");
-      expect(sessionIdToBranchName("task#json:789")).toBe("task#json-789");
     });
 
     it("should handle unqualified session IDs for backward compatibility", () => {
@@ -174,7 +162,6 @@ describe("Git Branch Naming Conversion", () => {
     it("should convert git branch names back to session IDs", () => {
       expect(branchNameToSessionId("task#md-123")).toBe("task#md:123");
       expect(branchNameToSessionId("task#gh-456")).toBe("task#gh:456");
-      expect(branchNameToSessionId("task#json-789")).toBe("task#json:789");
     });
 
     it("should handle unqualified branch names for backward compatibility", () => {
@@ -191,7 +178,6 @@ describe("Git Branch Naming Conversion", () => {
       const sessionIds = [
         "task#md:123",
         "task#gh:456",
-        "task#json:789",
         "task#123", // backward compatibility
         TEST_DATA_PATTERNS.TASK_GH_ID,
       ];
@@ -241,12 +227,7 @@ describe("Edge Cases and Error Handling", () => {
   });
 
   it("should preserve special characters in local IDs", () => {
-    const specialIds = [
-      "gh:issue-#123",
-      "gh:feature_branch-123",
-      "md:task.with.dots",
-      "json:123-abc-def",
-    ];
+    const specialIds = ["gh:issue-#123", "gh:feature_branch-123", "md:task.with.dots"];
 
     for (const id of specialIds) {
       const parsed = parseTaskId(id);

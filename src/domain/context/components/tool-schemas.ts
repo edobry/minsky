@@ -125,7 +125,7 @@ export const ToolSchemasComponent: ContextComponent = {
       // disable query-based filtering to ensure full registry visibility.
       let shouldFilterByQuery = Boolean(userQuery?.trim()) && !context.commandRegistry;
 
-      let toolSchemas: Record<string, unknown> = {};
+      const toolSchemas: Record<string, unknown> = {};
       let totalTools = 0;
       let filteredBy: string | undefined;
       let originalToolCount: number | undefined;

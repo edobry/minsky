@@ -168,7 +168,7 @@ After PR merge:
 
 \`\`\`bash
 # 1. Verify implementation complete and tests passing
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 2. Update task status to IN-REVIEW
 ${helpers.command("tasks.status.set")}
@@ -181,7 +181,7 @@ ${helpers.command("session.pr.create")}
 
 \`\`\`bash
 # 1. Ensure fix is complete and tested
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 2. Update task status
 ${helpers.command("tasks.status.set")}
@@ -194,7 +194,7 @@ ${helpers.command("session.pr.create")}
 
 \`\`\`bash
 # 1. Verify documentation changes
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 2. Set appropriate status
 ${helpers.command("tasks.status.set")}

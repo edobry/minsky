@@ -27,7 +27,7 @@ export async function updateSessionImpl(
   params: SessionUpdateParameters,
   deps: UpdateSessionDependencies
 ): Promise<Session> {
-  let {
+  const {
     name,
     branch,
     remote,

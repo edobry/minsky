@@ -43,7 +43,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         if (stashEntries.length > 0) {
           const stashMessage =
             elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
-              /\"([^\"]+)\"/
+              /"([^"]+)"/
             )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
@@ -154,7 +154,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         if (stashEntries.length > 0) {
           const stashMessage =
             elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
-              /\"([^\"]+)\"/
+              /"([^"]+)"/
             )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
@@ -246,7 +246,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         if (stashEntries.length > 0) {
           const stashMessage =
             elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
-              /\"([^\"]+)\"/
+              /"([^"]+)"/
             )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {

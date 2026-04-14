@@ -11,7 +11,7 @@ tags: [minsky, tool-usage]
    - NEVER use file listings or static documentation for task/session data
    - NEVER directly manipulate Minsky's state files or databases
    - NEVER delete or modify files in `~/.local/state/minsky/`
-   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
+   - NEVER read or write to Minsky's session database directly - this is STRICTLY FORBIDDEN
    - ALWAYS use appropriate minsky commands (see Command Reference section below)
 
 2. **Use Official Global Installation**

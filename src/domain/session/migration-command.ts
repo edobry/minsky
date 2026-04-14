@@ -197,7 +197,7 @@ export class SessionMigrationService {
     try {
       const _enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
       // Strict-only: perform a minimal migration that upgrades legacy task IDs and session IDs
-      let migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
+      const migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
       let sessionIdChanged = false;
       let taskIdChanged = false;
       let backendAdded = false;

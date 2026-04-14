@@ -84,8 +84,8 @@ export class GitHubBackend implements RepositoryBackend {
       try {
         // SSH: git@github.com:owner/repo.git
         // HTTPS: https://github.com/owner/repo.git
-        const sshMatch = this.repoUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^\.]+)\/([^\.]+)/);
+        const sshMatch = this.repoUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
+        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^.]+)\/([^.]+)/);
         const match = sshMatch || httpsMatch;
         if (match && match[1] && match[2]) {
           this.owner = this.owner || match[1];
