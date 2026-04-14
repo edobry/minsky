@@ -165,6 +165,7 @@ export class MinskyTaskBackend implements TaskBackend {
       canList: true,
       supportsMetadata: true,
       supportsSearch: true,
+      supportsTags: true,
     };
   }
 

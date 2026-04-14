@@ -30,6 +30,7 @@ export interface BackendCapabilities {
   supportsFullTextSearch?: boolean;
   supportsTransactions?: boolean;
   supportsRealTimeSync?: boolean;
+  supportsTags?: boolean;
 }
 
 /**
@@ -90,6 +91,8 @@ export interface TaskBackend {
   // getTaskMetadata/setTaskMetadata: rich metadata access; only database-backed backends implement it
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
+  // updateTags: replace all tags on a task; only tag-capable backends implement it
+  updateTags?(id: string, tags: string[]): Promise<void>;
 }
 
 /**
