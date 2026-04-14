@@ -24,7 +24,7 @@ describe("session dir command", () => {
   test("should return correct session directory for task ID", async () => {
     // Arrange: Mock correct behavior with call tracking
     const correctSession = testData.mockSessions[1]; // task#160 session
-    let getSessionByTaskIdCalls: any[] = [];
+    const getSessionByTaskIdCalls: any[] = [];
 
     testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
       getSessionByTaskIdCalls.push(taskId);
@@ -61,7 +61,7 @@ describe("session dir command", () => {
   test("should normalize task IDs correctly (with and without # prefix)", async () => {
     // Arrange with call tracking
     const correctSession = testData.mockSessions[1];
-    let getSessionByTaskIdCalls: any[] = [];
+    const getSessionByTaskIdCalls: any[] = [];
 
     testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
       getSessionByTaskIdCalls.push(taskId);

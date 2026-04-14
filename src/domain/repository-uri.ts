@@ -64,7 +64,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
     });
 
     // Extract components based on format
-    let components: Partial<RepositoryURIComponents> = {
+    const components: Partial<RepositoryURIComponents> = {
       original: uri,
       normalized: normalizedInfo.name,
     };

@@ -591,7 +591,7 @@ export async function getTaskSpecContentFromParams(
 
       if (sectionStart === -1) {
         throw new ResourceNotFoundError(
-          `Section \"${validParams.section}\" not found in task ${taskId} specification`
+          `Section "${validParams.section}" not found in task ${taskId} specification`
         );
       }
 

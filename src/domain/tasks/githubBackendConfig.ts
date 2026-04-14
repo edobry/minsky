@@ -38,8 +38,8 @@ function extractGitHubRepoFromRemote(
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
+    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
@@ -61,8 +61,8 @@ function extractGitHubRepoFromRemote(
           .trim();
 
         // Recursively parse the upstream remote
-        const upstreamSshMatch = upstreamUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-        const upstreamHttpsMatch = upstreamUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+        const upstreamSshMatch = upstreamUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
+        const upstreamHttpsMatch = upstreamUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
 
         const upstreamMatch = upstreamSshMatch || upstreamHttpsMatch;
         if (upstreamMatch && upstreamMatch[1] && upstreamMatch[2]) {
@@ -73,7 +73,7 @@ function extractGitHubRepoFromRemote(
         }
       } catch (error) {
         // Fallback: extract from path if it looks like a repo name
-        const pathMatch = remoteUrl.match(/\/([^\/]+)$/);
+        const pathMatch = remoteUrl.match(/\/([^/]+)$/);
         if (pathMatch && (pathMatch[1] || "") === "minsky") {
           // Hardcoded fallback for known repository
           return {

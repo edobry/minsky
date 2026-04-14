@@ -366,11 +366,11 @@ export default [
       // Removed: indent, linebreak-style, quotes, semi - Prettier handles these
 
       // === OTHER ===
-      "prefer-const": "off",
+      "prefer-const": "error",
       "no-restricted-globals": "off",
       "import/extensions": "off",
       "import/no-unresolved": ["off", { ignore: [".ts"] }],
-      "no-useless-escape": "off",
+      "no-useless-escape": "error",
     },
   },
   {
