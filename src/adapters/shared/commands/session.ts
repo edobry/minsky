@@ -4,16 +4,20 @@
  * Constructs and registers all session commands (and changeset aliases)
  * in the shared command registry.
  */
+import { type SessionCommandDependencies } from "./session/types";
 import {
-  type SessionCommandDependencies,
   createSessionListCommand,
   createSessionGetCommand,
   createSessionStartCommand,
   createSessionDirCommand,
   createSessionSearchCommand,
+} from "./session/basic-commands";
+import {
   createSessionDeleteCommand,
   createSessionUpdateCommand,
   createSessionMigrateBackendCommand,
+} from "./session/management-commands";
+import {
   createSessionCommitCommand,
   createSessionInspectCommand,
   createSessionReviewCommand,
@@ -24,11 +28,11 @@ import {
   createSessionPrListCommand,
   createSessionPrGetCommand,
   createSessionPrOpenCommand,
-  createSessionConflictsCommand,
-  createSessionRepairCommand,
-  createSessionEditFileCommand,
-  registerSessionChangesetCommands,
-} from "./session/";
+} from "./session/workflow-commands";
+import { createSessionConflictsCommand } from "./session/conflicts-command";
+import { createSessionRepairCommand } from "./session/repair-command";
+import { createSessionEditFileCommand } from "./session/file-commands";
+import { registerSessionChangesetCommands } from "./session/changeset-aliases";
 import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
