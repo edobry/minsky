@@ -181,8 +181,8 @@ export type RuleOperationFactory<TParams, TResult> = (
  * Rule operation registry for managing operation instances
  */
 export class RuleOperationRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry; get<TParams,TResult>() provides typed access with an unsafe cast
-  private operations = new Map<string, BaseRuleOperation<any, any>>();
+  /** Heterogeneous map; typed access is provided by the generic get<TParams,TResult>() overload */
+  private operations = new Map<string, BaseRuleOperation<unknown, unknown>>();
 
   /**
    * Register a rule operation
@@ -195,7 +195,7 @@ export class RuleOperationRegistry {
    * Get a rule operation by name
    */
   get<TParams, TResult>(name: string): BaseRuleOperation<TParams, TResult> | undefined {
-    return this.operations.get(name);
+    return this.operations.get(name) as BaseRuleOperation<TParams, TResult> | undefined;
   }
 
   /**
