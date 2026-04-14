@@ -57,15 +57,19 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("searchByText returns top-k ordered by lexical similarity", async () => {
-    const results = await service.searchByText("refactor modules and organization", 2);
-    expect(results.length).toBe(2);
-    expect(first(results).id).toBe("md#102"); // best lexical match
+    const response = await service.searchByText("refactor modules and organization", 2);
+    expect(response.results.length).toBe(2);
+    expect(first(response.results).id).toBe("md#102"); // best lexical match
+    expect(response.backend).toBeDefined();
+    expect(response.degraded).toBe(false);
   });
 
   it("similarToTask finds similar tasks by content using lexical backend", async () => {
-    const results = await service.similarToTask("md#101", 2);
-    expect(results.length).toBeGreaterThan(0);
+    const response = await service.similarToTask("md#101", 2);
+    expect(response.results.length).toBeGreaterThan(0);
     // md#103 mentions auth/tests; md#102 is refactor; either may appear, just ensure ids exist
-    results.forEach((r) => expect(["md#102", "md#103", "md#101"]).toContain(r.id));
+    response.results.forEach((r) => expect(["md#102", "md#103", "md#101"]).toContain(r.id));
+    expect(response.backend).toBeDefined();
+    expect(response.degraded).toBe(false);
   });
 });

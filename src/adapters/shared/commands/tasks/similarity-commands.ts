@@ -110,12 +110,12 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const threshold = params.threshold;
 
     const service = await this.createService();
-    const searchResults = await service.similarToTask(taskId, limit, threshold);
+    const searchResponse = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
     const includeSpecPath = params.backend !== "minsky";
     const enhancedResults = await this.enhanceSearchResults(
-      searchResults,
+      searchResponse.results,
       params.details,
       includeSpecPath
     );
@@ -124,6 +124,11 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
       {
         success: true,
         count: enhancedResults.length,
+        backend: searchResponse.backend,
+        degraded: searchResponse.degraded,
+        ...(searchResponse.degradedReason && {
+          degradedReason: searchResponse.degradedReason,
+        }),
         results: enhancedResults,
         details: params.details, // Pass through details flag for CLI formatter
       },
@@ -264,12 +269,12 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
-    const searchResults = await service.searchByText(query, limit, threshold, filters);
+    const searchResponse = await service.searchByText(query, limit, threshold, filters);
 
     // Enhance results with task details for better usability
     const includeSpecPath = params.backend !== "minsky";
-    let enhancedResults = await this.enhanceSearchResults(
-      searchResults,
+    const enhancedResults = await this.enhanceSearchResults(
+      searchResponse.results,
       params.details,
       includeSpecPath
     );
@@ -281,6 +286,11 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       {
         success: true,
         count: enhancedResults.length,
+        backend: searchResponse.backend,
+        degraded: searchResponse.degraded,
+        ...(searchResponse.degradedReason && {
+          degradedReason: searchResponse.degradedReason,
+        }),
         results: enhancedResults,
         details: params.details, // Pass through details flag for CLI formatter
       },

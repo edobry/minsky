@@ -13,6 +13,14 @@ export interface TaskSimilarityServiceConfig {
   dimension?: number;
 }
 
+/** Task search response wrapping results with backend metadata */
+export interface TaskSearchResponse {
+  results: SearchResult[];
+  backend: string;
+  degraded: boolean;
+  degradedReason?: string;
+}
+
 export class TaskSimilarityService {
   constructor(
     private readonly embeddingService: EmbeddingService,
@@ -30,7 +38,7 @@ export class TaskSimilarityService {
     return this.config;
   }
 
-  async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
+  async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<TaskSearchResponse> {
     // Delegate to generic core; embeddings backend will be first if available
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
@@ -38,10 +46,21 @@ export class TaskSimilarityService {
       getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
     });
     const task = await this.findTaskById(taskId);
-    if (!task) return [];
+    if (!task) {
+      return { results: [], backend: "none", degraded: false };
+    }
     const content = await this.extractTaskContent(task);
-    const items = await core.search({ queryText: content, limit });
-    return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
+    const response = await core.search({ queryText: content, limit });
+    return {
+      results: response.items.map((i) => ({
+        id: i.id,
+        score: i.score,
+        metadata: i.metadata,
+      })),
+      backend: response.backend,
+      degraded: response.degraded,
+      degradedReason: response.degradedReason,
+    };
   }
 
   async searchByText(
@@ -49,14 +68,23 @@ export class TaskSimilarityService {
     limit = 10,
     threshold?: number,
     filters?: Record<string, unknown>
-  ): Promise<SearchResult[]> {
+  ): Promise<TaskSearchResponse> {
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
       listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
       getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
     });
-    const items = await core.search({ queryText: query, limit, filters });
-    return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
+    const response = await core.search({ queryText: query, limit, filters });
+    return {
+      results: response.items.map((i) => ({
+        id: i.id,
+        score: i.score,
+        metadata: i.metadata,
+      })),
+      backend: response.backend,
+      degraded: response.degraded,
+      degradedReason: response.degradedReason,
+    };
   }
 
   async searchSimilarTasks(
@@ -64,15 +92,22 @@ export class TaskSimilarityService {
     excludeTaskIds: string[] = [],
     limit = 10,
     threshold?: number
-  ): Promise<SearchResult[]> {
-    if (searchTerms.length === 0) return [];
+  ): Promise<TaskSearchResponse> {
+    if (searchTerms.length === 0) {
+      return { results: [], backend: "none", degraded: false };
+    }
 
     // Create a natural language query from the search terms
     const query = this.constructSearchQuery(searchTerms);
-    const results = await this.searchByText(query, limit * 2, threshold); // Get more to filter
+    const response = await this.searchByText(query, limit * 2, threshold);
 
     // Filter out excluded task IDs
-    return results.filter((result) => !excludeTaskIds.includes(result.id)).slice(0, limit);
+    return {
+      ...response,
+      results: response.results
+        .filter((result) => !excludeTaskIds.includes(result.id))
+        .slice(0, limit),
+    };
   }
 
   /**
