@@ -48,9 +48,12 @@ export async function createCli(): Promise<Command> {
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
 
-  // Persistence must be initialized before shared command registration because
-  // session commands resolve their provider at registration time.
-  await ensurePersistence();
+  // Initialize persistence lazily via preAction hook — only when a command
+  // actually executes, not during registration or help display. Session commands
+  // use LazySessionDeps to defer provider resolution to execution time.
+  cli.hook("preAction", async () => {
+    await ensurePersistence();
+  });
 
   // Register shared commands (session, tasks, git, rules, config, etc.)
   const { registerAllSharedCommands } = await import("./adapters/shared/commands/index");
