@@ -41,7 +41,7 @@ export function setupTestMocksWithCleanup(): void {
  * - Resetting Jest-like globals
  * - Restoring any global test state
  */
-export function resetTestState(): void {
+function resetTestState(): void {
   try {
     // Reset command registry if it exists
     const commandRegistryModule = require("../../adapters/shared/command-registry");
