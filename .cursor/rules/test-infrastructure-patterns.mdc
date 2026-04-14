@@ -153,15 +153,11 @@ export function createTestDatabase() { /* database only */ }
     // Create standard directories
     const minskyDir = join(testDir, '.local', 'state', 'minsky');
     const gitDir = join(minskyDir, 'git');
-    const sessionDbPath = join(minskyDir, 'session-db.json');
 
     // Create directory structure
     mkdirSync(gitDir, { recursive: true });
 
-    // Initialize session DB with empty array
-    writeFileSync(sessionDbPath, JSON.stringify([]));
-
-    return { minskyDir, gitDir, sessionDbPath };
+    return { minskyDir, gitDir };
   }
   ```
 
@@ -214,20 +210,17 @@ export function createTestDatabase() { /* database only */ }
 
 - **Setup Test Data Consistently**:
   ```typescript
-  function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName?: string }>) {
-    // Setup the test environment
-    testEnv = setupMinskyTestEnv(TEST_DIR);
-    sessionDbPath = testEnv.sessionDbPath;
-
-    // Normalize data structure
-    const normalizedSessions = sessions.map(session => ({
-      ...session,
-      repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
-      createdAt: session.createdAt || new Date().toISOString()
-    }));
-
-    // Write to the database file
-    writeFileSync(sessionDbPath, JSON.stringify(normalizedSessions, null, 2));
+  function setupSessionProvider(sessions: Array<{ session: string; repoUrl: string; repoName?: string }>) {
+    // Use FakeSessionProvider for in-memory session testing (no file system required)
+    const provider = new FakeSessionProvider();
+    for (const session of sessions) {
+      provider.sessions.push({
+        ...session,
+        repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
+        createdAt: session.createdAt || new Date().toISOString(),
+      });
+    }
+    return provider;
   }
   ```
 
@@ -252,7 +245,7 @@ export function createTestDatabase() { /* database only */ }
 
 - **Add Descriptive Logging** during test execution:
   ```typescript
-  console.log(`Test setup: Created session DB at ${sessionDbPath}`);
+  console.log(`Test setup: Created test environment at ${TEST_DIR}`);
   console.log(`Environment variables: XDG_STATE_HOME=${process.env.XDG_STATE_HOME}`);
 
   const { stdout, stderr } = runCliCommand(["session", "list"]);
@@ -264,9 +257,7 @@ export function createTestDatabase() { /* database only */ }
   ```typescript
   // Before running the main test, verify environment is correct
   test("verify test environment", () => {
-    expect(existsSync(testEnv.sessionDbPath)).toBe(true);
-    const dbContents = readFileSync(testEnv.sessionDbPath, 'utf8');
-    expect(dbContents).toBe("[]");
+    expect(existsSync(testEnv.gitDir)).toBe(true);
   });
   ```
 
@@ -276,7 +267,6 @@ export function createTestDatabase() { /* database only */ }
   ```typescript
   // Instead of real file system operations, consider mock-fs
   const mockFs = {
-    'session-db.json': JSON.stringify([{ session: 'test' }]),
     '/tmp/repo': {
       '.git': {}
     }
