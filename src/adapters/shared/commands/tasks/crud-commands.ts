@@ -83,6 +83,16 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     // Normalize tag param to string array for domain layer
     const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
 
+    // Validate tags don't use reserved minsky: prefix
+    if (tags) {
+      const invalidTags = tags.filter((t) => t.startsWith("minsky:"));
+      if (invalidTags.length > 0) {
+        throw new ValidationError(
+          `Tags cannot use the reserved "minsky:" prefix: ${invalidTags.join(", ")}`
+        );
+      }
+    }
+
     // List tasks with filters
     let tasks = await listTasksFromParams({
       ...this.createTaskParams(params),
@@ -208,6 +218,16 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 
       // Normalize tag param to string array for domain layer
       const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
+
+      // Validate tags don't use reserved minsky: prefix
+      if (tags) {
+        const invalidTags = tags.filter((t) => t.startsWith("minsky:"));
+        if (invalidTags.length > 0) {
+          throw new ValidationError(
+            `Tags cannot use the reserved "minsky:" prefix: ${invalidTags.join(", ")}`
+          );
+        }
+      }
 
       // Create the task using the same function as main branch
       const result = await createTaskFromTitleAndSpec({
