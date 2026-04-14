@@ -230,12 +230,18 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         status: taskData.status,
         specPath: taskData.specPath,
         description: taskData.description,
+        tags: taskData.tags || [],
       }));
 
       if (options?.status && options.status !== "all") {
         tasks = tasks.filter((task) => task.status === options.status);
       } else if (!options?.all) {
         tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
+      }
+
+      // Filter by tags if specified
+      if (options?.tags && options.tags.length > 0) {
+        tasks = tasks.filter((task) => options.tags!.every((tag) => task.tags?.includes(tag)));
       }
 
       return tasks;

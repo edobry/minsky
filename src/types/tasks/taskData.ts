@@ -27,6 +27,7 @@ export interface TaskData {
   status: TaskStatus;
   specPath?: string;
   backend?: string;
+  tags?: string[];
   metadata?: Record<string, unknown>;
   worklog?: Array<{ timestamp: string; message: string }>;
   mergeInfo?: {
