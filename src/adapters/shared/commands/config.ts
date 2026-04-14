@@ -657,6 +657,50 @@ const configDoctorRegistration = defineCommand({
       });
     }
 
+    // Embedding provider health probe
+    try {
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const embProvider = config.embeddings?.provider || config.ai?.defaultProvider || "openai";
+      const embModel = config.embeddings?.model || "text-embedding-3-small";
+      const providerCfg = config.ai?.providers?.[embProvider];
+      const hasKey = Boolean(providerCfg?.apiKey || providerCfg?.api_key);
+
+      if (!hasKey) {
+        diagnostics.push({
+          check: "Embedding Provider",
+          status: "warning",
+          message: `Embedding provider "${embProvider}" has no API key configured`,
+        });
+      } else {
+        const { createEmbeddingServiceFromConfig } = await import(
+          "../../../domain/ai/embedding-service-factory"
+        );
+        const embeddingService = await createEmbeddingServiceFromConfig();
+        await embeddingService.generateEmbedding("test");
+        diagnostics.push({
+          check: "Embedding Provider",
+          status: "pass",
+          message: `Embedding provider "${embProvider}" (${embModel}) is working`,
+        });
+      }
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      const isQuota = /quota|429|insufficient/i.test(msg);
+      const isAuth = /401|unauthorized|api.key/i.test(msg);
+      diagnostics.push({
+        check: "Embedding Provider",
+        status: "error",
+        message: `Embedding provider check failed: ${msg}`,
+        ...(isQuota && {
+          suggestion: "Check your OpenAI billing at https://platform.openai.com/account/billing",
+        }),
+        ...(isAuth && {
+          suggestion: "API key may be invalid or expired — https://platform.openai.com/api-keys",
+        }),
+      });
+    }
+
     const errors = diagnostics.filter((d) => d.status === "error");
     const warnings = diagnostics.filter((d) => d.status === "warning");
 

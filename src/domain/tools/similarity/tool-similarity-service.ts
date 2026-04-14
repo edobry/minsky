@@ -4,7 +4,6 @@ import {
   type SharedCommand,
 } from "../../../adapters/shared/command-registry";
 import { createLogger } from "../../../utils/logger";
-import type { SimilarityItem } from "../../similarity/types";
 
 const log = createLogger();
 
@@ -63,10 +62,10 @@ export class ToolSimilarityService {
       .join(" ");
 
     const core = await createToolSimilarityCore();
-    const items: SimilarityItem[] = await core.search({ queryText: toolContent, limit });
+    const response = await core.search({ queryText: toolContent, limit });
 
     // Filter out the original tool from results
-    return items
+    return response.items
       .filter((i) => i.id !== toolId)
       .map((i) => ({ id: i.id, score: i.score }) as SearchResult);
   }
@@ -76,9 +75,9 @@ export class ToolSimilarityService {
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const core = await createToolSimilarityCore();
-    const items: SimilarityItem[] = await core.search({ queryText: query, limit });
+    const response = await core.search({ queryText: query, limit });
 
-    return items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
+    return response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
   }
 
   /**
@@ -87,10 +86,11 @@ export class ToolSimilarityService {
    */
   async findRelevantTools(request: ToolSearchRequest): Promise<RelevantTool[]> {
     const core = await createToolSimilarityCore();
-    const items: SimilarityItem[] = await core.search({
+    const response = await core.search({
       queryText: request.query,
       limit: request.limit || 20,
     });
+    const items = response.items;
 
     const results: RelevantTool[] = [];
     for (const item of items) {
