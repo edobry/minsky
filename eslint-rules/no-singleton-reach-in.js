@@ -2,9 +2,14 @@
  * @fileoverview ESLint rule to prevent singleton reach-in from non-composition-root files
  * @author Task #691
  *
- * Prevents PersistenceService.getProvider() and createSessionProvider() from being called
- * outside of explicitly allowlisted composition root files. This enforces the architectural
- * boundary that only composition roots should wire up singleton providers.
+ * Prevents singleton provider access from non-composition-root files:
+ * - PersistenceService.getProvider() — static method call
+ * - getSharedSessionProvider() — cached session provider singleton
+ * - getPersistenceProvider() — direct import (not DI parameter usage)
+ * - createSessionProvider() — factory that creates providers
+ *
+ * This enforces the architectural boundary that only composition roots
+ * should wire up singleton providers.
  */
 
 //------------------------------------------------------------------------------
@@ -28,7 +33,7 @@ export default {
     type: "suggestion",
     docs: {
       description:
-        "prevent PersistenceService.getProvider() and createSessionProvider() calls outside composition root files",
+        "prevent singleton provider reach-in (PersistenceService.getProvider, getSharedSessionProvider, getPersistenceProvider, createSessionProvider) outside composition root files",
       category: "Architecture",
       recommended: false,
     },
@@ -110,6 +115,25 @@ export default {
             node,
             messageId: "singletonReachIn",
             data: { call: "createSessionProvider()" },
+          });
+        }
+
+        // Detect getSharedSessionProvider()
+        if (node.callee.type === "Identifier" && node.callee.name === "getSharedSessionProvider") {
+          context.report({
+            node,
+            messageId: "singletonReachIn",
+            data: { call: "getSharedSessionProvider()" },
+          });
+        }
+
+        // Detect getPersistenceProvider() — but only when called as a standalone function,
+        // not when used as a parameter name in function definitions
+        if (node.callee.type === "Identifier" && node.callee.name === "getPersistenceProvider") {
+          context.report({
+            node,
+            messageId: "singletonReachIn",
+            data: { call: "getPersistenceProvider()" },
           });
         }
       },

@@ -191,12 +191,10 @@ export default [
             "**/src/domain/tasks/github-issues-api.ts",
             // Rules domain
             "**/src/domain/rules/rule-similarity-service.ts",
-            // Adapter-layer composition roots
-            "**/src/adapters/shared/commands/session.ts",
-            "**/src/adapters/shared/commands/tasks-modular.ts",
-            "**/src/adapters/shared/commands/tasks/registry-setup.ts",
-            // CLI task command composition roots
-            "**/src/adapters/cli/tasks/*.ts",
+            // Adapter-layer composition roots (commands wire up DI providers)
+            "**/src/adapters/shared/commands/**/*.ts",
+            // CLI command composition roots
+            "**/src/adapters/cli/**/*.ts",
             // Git subcommand composition roots
             "**/subcommands/*.ts",
             // Scripts and one-off tools (composition roots by nature)
