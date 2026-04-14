@@ -24,6 +24,7 @@ import {
   fetchTaskSpecData,
   syncTasksToGitHub,
   updateIssueStatus,
+  updateIssueLabels,
   createIssueFromSpec,
   createIssueFromTitleAndDescription,
   createIssueFromTitleAndSpec,
@@ -203,6 +204,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       supportsTaskDeletion: true,
       supportsStatus: true,
       supportsMetadata: true,
+      supportsTags: true,
     };
   }
 
@@ -230,12 +232,18 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         status: taskData.status,
         specPath: taskData.specPath,
         description: taskData.description,
+        tags: taskData.tags || [],
       }));
 
       if (options?.status && options.status !== "all") {
         tasks = tasks.filter((task) => task.status === options.status);
       } else if (!options?.all) {
         tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
+      }
+
+      // Filter by tags if specified
+      if (options?.tags && options.tags.length > 0) {
+        tasks = tasks.filter((task) => options.tags!.every((tag) => task.tags?.includes(tag)));
       }
 
       return tasks;
@@ -291,31 +299,39 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   async createTaskFromTitleAndDescription(
     title: string,
     description: string,
-    _options: CreateTaskOptions = {}
+    options: CreateTaskOptions = {}
   ): Promise<Task> {
-    return createIssueFromTitleAndDescription(
+    const task = await createIssueFromTitleAndDescription(
       this.octokit,
       this.owner,
       this.repo,
       title,
       description,
-      this.statusLabels
+      this.statusLabels,
+      options.tags
     );
+    return { ...task, tags: options.tags || [] };
   }
 
   async createTaskFromTitleAndSpec(
     title: string,
     spec: string,
-    _options: CreateTaskOptions = {}
+    options: CreateTaskOptions = {}
   ): Promise<Task> {
-    return createIssueFromTitleAndSpec(
+    const task = await createIssueFromTitleAndSpec(
       this.octokit,
       this.owner,
       this.repo,
       title,
       spec,
-      this.statusLabels
+      this.statusLabels,
+      options.tags
     );
+    return { ...task, tags: options.tags || [] };
+  }
+
+  async updateTags(id: string, tags: string[]): Promise<void> {
+    await updateIssueLabels(this.octokit, this.owner, this.repo, id, tags, this.statusLabels);
   }
 
   async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
