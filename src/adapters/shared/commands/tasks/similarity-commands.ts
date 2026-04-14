@@ -1,8 +1,19 @@
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import { TaskStatus } from "../../../../domain/tasks/taskConstants";
-import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
+import {
+  TaskSimilarityService,
+  type TaskSearchResponse,
+} from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
+import { log } from "../../../../utils/logger";
+
+/** Emit a CLI warning when similarity search falls back to a degraded backend */
+function warnIfDegraded(response: TaskSearchResponse, json: boolean): void {
+  if (!response.degraded || json) return;
+  const reason = response.degradedReason ? `: ${response.degradedReason}` : "";
+  log.cliWarn(`Warning: similarity search degraded — using ${response.backend} fallback${reason}`);
+}
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -120,6 +131,9 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
       includeSpecPath
     );
 
+    const isJson = Boolean(params.json) || ctx.format === "json";
+    warnIfDegraded(searchResponse, isJson);
+
     return this.formatResult(
       {
         success: true,
@@ -132,7 +146,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
         results: enhancedResults,
         details: params.details, // Pass through details flag for CLI formatter
       },
-      params.json || ctx.format === "json"
+      isJson
     );
   }
 }
@@ -282,6 +296,9 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     // Server-side filtering handles all filtering - no client-side filtering needed
     // This eliminates redundant filtering and improves performance
 
+    const isJson = Boolean(params.json) || ctx.format === "json";
+    warnIfDegraded(searchResponse, isJson);
+
     return this.formatResult(
       {
         success: true,
@@ -294,7 +311,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         results: enhancedResults,
         details: params.details, // Pass through details flag for CLI formatter
       },
-      params.json || ctx.format === "json"
+      isJson
     );
   }
 }
