@@ -7,13 +7,12 @@
  */
 
 import { z } from "zod";
-import { createChangesetService } from "../../../../domain/changeset/index";
+// Domain imports deferred to execute handlers to avoid loading at registration time.
 import type {
   ChangesetListOptions,
   ChangesetSearchOptions,
   ChangesetStatus,
 } from "../../../../domain/changeset/types";
-import { getRepositoryBackendFromConfig } from "../../../../domain/session/repository-backend-detection";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -156,10 +155,14 @@ async function executeChangesetList(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository
+    // Resolve repository (lazy-imported to defer domain loading)
+    const { getRepositoryBackendFromConfig } = await import(
+      "../../../../domain/session/repository-backend-detection"
+    );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
-    // Create changeset service
+    // Create changeset service (lazy-imported)
+    const { createChangesetService } = await import("../../../../domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Build list options
@@ -242,10 +245,14 @@ async function executeChangesetSearch(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository
+    // Resolve repository (lazy-imported to defer domain loading)
+    const { getRepositoryBackendFromConfig } = await import(
+      "../../../../domain/session/repository-backend-detection"
+    );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
-    // Create changeset service
+    // Create changeset service (lazy-imported)
+    const { createChangesetService } = await import("../../../../domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Build search options
@@ -330,10 +337,14 @@ async function executeChangesetGet(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository
+    // Resolve repository (lazy-imported to defer domain loading)
+    const { getRepositoryBackendFromConfig } = await import(
+      "../../../../domain/session/repository-backend-detection"
+    );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
-    // Create changeset service
+    // Create changeset service (lazy-imported)
+    const { createChangesetService } = await import("../../../../domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Get changeset
@@ -413,10 +424,14 @@ async function executeChangesetInfo(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository
+    // Resolve repository (lazy-imported to defer domain loading)
+    const { getRepositoryBackendFromConfig } = await import(
+      "../../../../domain/session/repository-backend-detection"
+    );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
-    // Create changeset service
+    // Create changeset service (lazy-imported)
+    const { createChangesetService } = await import("../../../../domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
     const platform = await changesetService.getPlatform();
 
