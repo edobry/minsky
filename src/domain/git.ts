@@ -138,7 +138,7 @@ export class GitService implements GitServiceInterface {
     options: CloneOptions,
     deps: CloneDependencies
   ): Promise<CloneResult> {
-    await this.ensureBaseDir();
+    await (deps.ensureBaseDir ?? (() => this.ensureBaseDir()))();
     return cloneImpl(options, deps);
   }
 
