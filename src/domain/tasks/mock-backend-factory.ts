@@ -168,18 +168,15 @@ export function createTaskServiceWithMocks(): {
   service: TaskService;
   mdBackend: MultiBackendTaskBackend;
   ghBackend: MultiBackendTaskBackend;
-  jsonBackend: MultiBackendTaskBackend;
 } {
   const service = createTaskService({ workspacePath: "/test/workspace" });
   const mdBackend = createMockBackend("Markdown", "md");
   const ghBackend = createMockBackend("GitHub Issues", "gh");
-  const jsonBackend = createMockBackend("JSON File", "json");
 
   service.registerBackend(bridgeToTaskBackend(mdBackend));
   service.registerBackend(bridgeToTaskBackend(ghBackend));
-  service.registerBackend(bridgeToTaskBackend(jsonBackend));
 
-  return { service, mdBackend, ghBackend, jsonBackend };
+  return { service, mdBackend, ghBackend };
 }
 
 // Helper to create a specific backend configuration for testing
@@ -234,17 +231,6 @@ export const mockTasks = {
       createdAt: "2024-01-01T00:00:00Z",
       backend: "gh",
       issueNumber: parseInt(id),
-    },
-  }),
-
-  json: (id: string): Task => ({
-    id: `json#${id}`,
-    title: `JSON Task ${id}`,
-    status: "TODO",
-    description: `A test task from JSON backend`,
-    metadata: {
-      createdAt: "2024-01-01T00:00:00Z",
-      backend: "json",
     },
   }),
 };

@@ -95,15 +95,6 @@ export const backendValidation = {
   },
 
   /**
-   * Validate detection rule condition
-   */
-  isValidDetectionCondition: (
-    condition: string
-  ): condition is z.infer<typeof enumSchemas.detectionCondition> => {
-    return ["tasks_md_exists", "json_file_exists", "always"].includes(condition);
-  },
-
-  /**
    * Validate that GitHub Issues backend has required configuration
    */
   hasGitHubIssuesConfig: (backendConfig: BackendConfig, backend: Backend): boolean => {

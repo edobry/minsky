@@ -23,7 +23,6 @@ describe("Unified Task ID System", () => {
     it("should parse different backend types", () => {
       const mdResult = parseTaskId("md#123");
       const ghResult = parseTaskId("gh#456");
-      const jsonResult = parseTaskId("json#789");
 
       expect(mdResult).toEqual({
         backend: "md",
@@ -35,12 +34,6 @@ describe("Unified Task ID System", () => {
         backend: "gh",
         localId: "456",
         full: "gh#456",
-      });
-
-      expect(jsonResult).toEqual({
-        backend: "json",
-        localId: "789",
-        full: "json#789",
       });
     });
 
@@ -72,7 +65,6 @@ describe("Unified Task ID System", () => {
     it("should return true for qualified task IDs", () => {
       expect(isQualifiedTaskId("md#123")).toBe(true);
       expect(isQualifiedTaskId("gh#456")).toBe(true);
-      expect(isQualifiedTaskId("json#789")).toBe(true);
     });
 
     it("should return false for unqualified IDs", () => {
@@ -93,7 +85,6 @@ describe("Unified Task ID System", () => {
     it("should format backend and local ID correctly", () => {
       expect(formatTaskId("md", "123")).toBe("md#123");
       expect(formatTaskId("gh", "456")).toBe("gh#456");
-      expect(formatTaskId("json", "789")).toBe("json#789");
     });
 
     it("should handle special characters in local ID", () => {
@@ -113,7 +104,6 @@ describe("Unified Task ID System", () => {
     it("should extract backend from qualified task IDs", () => {
       expect(extractBackend("md#123")).toBe("md");
       expect(extractBackend("gh#456")).toBe("gh");
-      expect(extractBackend("json#789")).toBe("json");
     });
 
     it("should return null for unqualified IDs", () => {
@@ -132,7 +122,6 @@ describe("Unified Task ID System", () => {
     it("should extract local ID from qualified task IDs", () => {
       expect(extractLocalId("md#123")).toBe("123");
       expect(extractLocalId("gh#456")).toBe("456");
-      expect(extractLocalId("json#789")).toBe("789");
     });
 
     it("should return null for unqualified IDs", () => {
@@ -153,7 +142,6 @@ describe("Session/Branch Conversion", () => {
     it("should convert qualified task IDs to session IDs", () => {
       expect(taskIdToSessionId("md#123")).toBe("task-md#123");
       expect(taskIdToSessionId("gh#456")).toBe("task-gh#456");
-      expect(taskIdToSessionId("json#789")).toBe("task-json#789");
     });
 
     it("should return unqualified IDs as-is", () => {
@@ -170,7 +158,6 @@ describe("Session/Branch Conversion", () => {
     it("should convert session IDs to task IDs", () => {
       expect(sessionIdToTaskId("task-md#123")).toBe("md#123");
       expect(sessionIdToTaskId("task-gh#456")).toBe("gh#456");
-      expect(sessionIdToTaskId("task-json#789")).toBe("json#789");
     });
 
     it("should handle complex local IDs", () => {
@@ -180,7 +167,7 @@ describe("Session/Branch Conversion", () => {
 
   describe("Round-trip conversion", () => {
     it("should maintain consistency through round-trip conversions", () => {
-      const taskIds = ["md#123", "gh#456", "json#789", "gh#issue-456"];
+      const taskIds = ["md#123", "gh#456", "gh#issue-456"];
 
       for (const taskId of taskIds) {
         const sessionId = taskIdToSessionId(taskId);
@@ -211,12 +198,7 @@ describe("Edge Cases and Error Handling", () => {
   });
 
   it("should preserve special characters in local IDs", () => {
-    const specialIds = [
-      "gh#issue-456",
-      "gh#feature_branch-123",
-      "md#task.with.dots",
-      "json#123-abc-def",
-    ];
+    const specialIds = ["gh#issue-456", "gh#feature_branch-123", "md#task.with.dots"];
 
     for (const id of specialIds) {
       const parsed = parseTaskId(id);

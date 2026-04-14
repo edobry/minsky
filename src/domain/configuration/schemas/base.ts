@@ -99,13 +99,6 @@ export const enumSchemas = {
     }),
   }),
 
-  // Detection rule conditions
-  detectionCondition: z.enum(["tasks_md_exists", "json_file_exists", "always"], {
-    errorMap: () => ({
-      message: "Detection condition must be one of: tasks_md_exists, json_file_exists, always",
-    }),
-  }),
-
   // Repository backend types (distinct from task backendType)
   repoBackendType: z.enum(["github", "gitlab", "local"], {
     errorMap: () => ({
