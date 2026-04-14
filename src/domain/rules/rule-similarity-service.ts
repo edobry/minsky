@@ -130,14 +130,19 @@ export class RuleSimilarityService {
 /**
  * Create a configured RuleSimilarityService instance with PersistenceProvider
  */
-export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
+export async function createRuleSimilarityService(
+  persistenceProvider?: PersistenceProvider
+): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
 
-  // Use PersistenceService instead of direct dependencies
-  const { PersistenceService } = await import("../persistence/service");
-
-  // PersistenceService should already be initialized at application startup
-  const provider = PersistenceService.getProvider();
+  // Use injected provider or fall back to PersistenceService singleton
+  let provider: PersistenceProvider;
+  if (persistenceProvider) {
+    provider = persistenceProvider;
+  } else {
+    const { PersistenceService } = await import("../persistence/service");
+    provider = PersistenceService.getProvider();
+  }
 
   const service = new RuleSimilarityService(provider, workspacePath);
 

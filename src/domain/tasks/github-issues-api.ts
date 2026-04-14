@@ -288,7 +288,8 @@ export async function deleteIssue(
   owner: string,
   repo: string,
   taskId: string,
-  statusLabels: Record<string, string>
+  statusLabels: Record<string, string>,
+  persistenceProvider?: import("../persistence/types").PersistenceProvider
 ): Promise<boolean> {
   try {
     const issueNumber = getTaskIdNumber(taskId);
@@ -298,8 +299,13 @@ export async function deleteIssue(
 
     // Attempt to remove from database
     try {
-      const { PersistenceService } = await import("../persistence/service");
-      const provider = PersistenceService.getProvider();
+      let provider: import("../persistence/types").PersistenceProvider;
+      if (persistenceProvider) {
+        provider = persistenceProvider;
+      } else {
+        const { PersistenceService } = await import("../persistence/service");
+        provider = PersistenceService.getProvider();
+      }
 
       if (provider.capabilities.sql) {
         const db = await provider.getDatabaseConnection?.();
