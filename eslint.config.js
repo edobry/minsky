@@ -191,6 +191,19 @@ export default [
             "**/src/domain/tasks/github-issues-api.ts",
             // Rules domain
             "**/src/domain/rules/rule-similarity-service.ts",
+            // Changeset adapters (resolve session provider for PR operations)
+            "**/src/domain/changeset/adapters/*.ts",
+            // Context components (resolve session provider for context generation)
+            "**/src/domain/context/components/session-context.ts",
+            // Session domain (command orchestration and provider resolution)
+            "**/src/domain/session/resolve-session-directory.ts",
+            "**/src/domain/session/session-commands.ts",
+            "**/src/domain/session/session-conflicts-operations.ts",
+            // Task domain (command orchestration)
+            "**/src/domain/tasks/operations/base-task-operation.ts",
+            "**/src/domain/tasks/taskCommands.ts",
+            // Utility composition roots
+            "**/src/utils/repo.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
             "**/src/adapters/shared/commands/**/*.ts",
             // CLI command composition roots

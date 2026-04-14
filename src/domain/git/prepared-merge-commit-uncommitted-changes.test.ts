@@ -13,6 +13,8 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GIT_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+
+const STASH_LIST_COMMAND = "stash-list stashEntries";
 import { elementAt } from "../../utils/array-safety";
 import {
   createPreparedMergeCommitPR,
@@ -40,11 +42,9 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            elementAt(
-              stashEntries,
-              stashEntries.length - 1,
-              "stash-list stashEntries"
-            ).command.match(/\"([^\"]+)\"/)?.[1] || "prepared-merge";
+            elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
+              /\"([^\"]+)\"/
+            )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
@@ -153,11 +153,9 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            elementAt(
-              stashEntries,
-              stashEntries.length - 1,
-              "stash-list stashEntries"
-            ).command.match(/\"([^\"]+)\"/)?.[1] || "prepared-merge";
+            elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
+              /\"([^\"]+)\"/
+            )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
@@ -247,11 +245,9 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
           const stashMessage =
-            elementAt(
-              stashEntries,
-              stashEntries.length - 1,
-              "stash-list stashEntries"
-            ).command.match(/\"([^\"]+)\"/)?.[1] || "prepared-merge";
+            elementAt(stashEntries, stashEntries.length - 1, STASH_LIST_COMMAND).command.match(
+              /\"([^\"]+)\"/
+            )?.[1] || "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
