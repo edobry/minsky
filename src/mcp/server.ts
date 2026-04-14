@@ -13,6 +13,7 @@ import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
+import { StalenessDetector } from "./staleness-detector";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 
@@ -107,6 +108,7 @@ export class MinskyMCPServer {
   private tools: Map<string, ToolDefinition> = new Map();
   private resources: Map<string, ResourceDefinition> = new Map();
   private prompts: Map<string, PromptDefinition> = new Map();
+  private stalenessDetector: StalenessDetector;
 
   // For HTTP transport: map sessionId to transport for multiple clients
   private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
@@ -126,6 +128,11 @@ export class MinskyMCPServer {
 
     // Set up project context
     this.projectContext = options.projectContext || createProjectContextFromCwd();
+
+    // Initialize staleness detector to warn when server code is outdated
+    this.stalenessDetector = new StalenessDetector(
+      this.projectContext.repositoryPath || process.cwd()
+    );
 
     // Create server instance
     this.server = new Server(
@@ -279,7 +286,7 @@ export class MinskyMCPServer {
           content: [
             {
               type: "text",
-              text: responseText,
+              text: responseText + (this.stalenessDetector.getStaleWarning() ?? ""),
             },
           ],
         };
