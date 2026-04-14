@@ -7,24 +7,13 @@
  * - MCP interface cannot reliably resolve session context
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { CommandExecutionContext } from "../../../schemas/command-registry";
 import { TEST_PATHS, ERROR_MESSAGES } from "../../../utils/test-utils/test-constants";
 
 describe("Session Context Resolution Architecture Issues", () => {
-  let originalCwd: () => string;
+  // mockCwd is assigned per-test — each test creates its own mock before using it
   let mockCwd: ReturnType<typeof mock>;
-
-  beforeEach(() => {
-    originalCwd = process.cwd;
-    mockCwd;
-    process.cwd = mockCwd;
-  });
-
-  afterEach(() => {
-    process.cwd = originalCwd;
-    mockCwd.mockRestore();
-  });
 
   describe("🚩 PROBLEM: Mixed Concerns in Domain Layer", () => {
     it("should NOT require different validation logic based on working directory", async () => {
