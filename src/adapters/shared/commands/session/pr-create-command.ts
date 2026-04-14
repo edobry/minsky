@@ -24,6 +24,7 @@ import { composeConventionalTitle } from "./pr-conventional-title";
  */
 export interface SessionPrCreateParams {
   name?: string;
+  sessionId?: string;
   task?: string;
   repo?: string;
   json?: boolean;
@@ -178,6 +179,11 @@ export async function executeSessionPrCreate(
   params: SessionPrCreateParams,
   context: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
+  // Normalize sessionId to name for callers that use sessionId (e.g., MCP tools)
+  if (params.sessionId && !params.name) {
+    params.name = params.sessionId;
+  }
+
   if (!params.title) {
     throw new ValidationError(
       'Title is required for pull request creation.\nPlease provide:\n  --title <text>       PR title (description only; do not include "feat:")\n\nExample:\n  minsky session pr create --type feat --title "Add new feature"'
