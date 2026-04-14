@@ -153,7 +153,7 @@ export async function sessionPrGet(
 
         if (pulls.length > 0) {
           // Found a PR! Repair the session record with essential workflow state only
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Octokit REST response type for pulls.list is untyped in our codebase
           const githubPr: any = first(pulls, "GitHub PRs for branch");
           const repairedPrData: PullRequestInfo = {
             number: githubPr.number,
