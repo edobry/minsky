@@ -318,48 +318,35 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Get a single session by ID
    */
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
-    try {
-      await this.ensureConnection();
+    await this.ensureConnection();
 
-      const result = await this.drizzle!.select()
-        .from(postgresSessions)
-        .where(eq(postgresSessions.session, id))
-        .limit(1);
+    const result = await this.drizzle!.select()
+      .from(postgresSessions)
+      .where(eq(postgresSessions.session, id))
+      .limit(1);
 
-      return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      log.warn(`Failed to get session from PostgreSQL: ${typedError.message}`);
-      return null;
-    }
+    return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
   }
 
   /**
    * Get all sessions that match the query options
    */
   async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
-    try {
-      await this.ensureConnection();
-      const results = await this.drizzle!.select().from(postgresSessions);
-      log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
-      log.debug(`Sample raw record: ${JSON.stringify(results[0], null, 2)}`);
-      const mapped = results.map((record, index: number) => {
-        try {
-          return fromPostgresSelect(record);
-        } catch (mappingError) {
-          log.error(
-            `Error mapping record ${index}: ${mappingError instanceof Error ? mappingError.message : String(mappingError)}`
-          );
-          throw mappingError;
-        }
-      });
-      log.debug(`PostgreSQL getEntities: Mapped to ${mapped.length} SessionRecords`);
-      return mapped;
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      log.error(`Failed to get sessions from PostgreSQL: ${typedError.message}`);
-      return [];
-    }
+    await this.ensureConnection();
+    const results = await this.drizzle!.select().from(postgresSessions);
+    log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
+    const mapped = results.map((record, index: number) => {
+      try {
+        return fromPostgresSelect(record);
+      } catch (mappingError) {
+        log.error(
+          `Error mapping record ${index}: ${mappingError instanceof Error ? mappingError.message : String(mappingError)}`
+        );
+        throw mappingError;
+      }
+    });
+    log.debug(`PostgreSQL getEntities: Mapped to ${mapped.length} SessionRecords`);
+    return mapped;
   }
 
   /**
