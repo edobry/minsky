@@ -7,11 +7,7 @@ import type {
 } from "./types";
 export type { TaskBackend } from "./types";
 import type { TaskServiceInterface } from "../tasks";
-import { promises as fs } from "fs";
-import { getTasksFilePath } from "./taskIO";
-import { parseTasksFromMarkdown, formatTasksToMarkdown } from "./taskFunctions";
 import { log } from "../../utils/logger";
-import { elementAt } from "../../utils/array-safety";
 
 // Multi-backend specific interface - different from the main TaskBackend interface
 export interface MultiBackendTaskBackend {
@@ -212,34 +208,6 @@ export class TaskServiceImpl implements TaskService {
       if (updates.status) {
         await backend.setTaskStatus(taskId, updates.status);
         this.lastKnownStatusById.set(taskId, updates.status);
-      }
-
-      // Update title directly in tasks.md for markdown backends
-      if (typeof updates.title === "string") {
-        const workspacePath = backend.getWorkspacePath();
-        const tasksFilePath = getTasksFilePath(workspacePath);
-        const content = await fs.readFile(tasksFilePath, "utf-8").catch(() => "");
-        const tasks = parseTasksFromMarkdown(content.toString());
-
-        // Find task (replicating backend's matching logic)
-        const index = tasks.findIndex((task) => {
-          if (task.id === taskId) return true;
-          const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
-          const searchLocalId = taskId.includes("#") ? taskId.split("#").pop() : taskId;
-          if (taskLocalId === searchLocalId) return true;
-          if (!/^#/.test(taskId) && task.id === `#${taskId}`) return true;
-          if (taskId.startsWith("#") && task.id === taskId.substring(1)) return true;
-          return false;
-        });
-
-        if (index !== -1) {
-          tasks[index] = {
-            ...elementAt(tasks, index, "multi-backend updateTask"),
-            title: updates.title,
-          };
-          const updated = formatTasksToMarkdown(tasks);
-          await fs.writeFile(tasksFilePath, updated, "utf-8");
-        }
       }
     }
 
