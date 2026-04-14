@@ -49,13 +49,12 @@ interface Task {
 type BackendQualifiedId = `${BackendPrefix}:${string}`;
 
 // Backend prefixes
-type BackendPrefix = "md" | "gh" | "json";
+type BackendPrefix = "mt" | "gh";
 
 // Examples
 const examples: BackendQualifiedId[] = [
-  "md:123", // Markdown backend task 123
+  "mt:123", // Minsky backend task 123
   "gh:456", // GitHub Issues backend task 456
-  "json:789", // JSON file backend task 789
 ];
 ```
 
@@ -206,19 +205,15 @@ interface GitOperations {
 ```
 process/
 ├── tasks/
-│   ├── md/                    # Markdown backend tasks
+│   ├── mt/                    # Minsky backend tasks
 │   │   ├── 123-title.md
 │   │   └── 124-other.md
-│   ├── gh/                    # GitHub Issues backend (specs only)
-│   │   ├── 456-issue.md
-│   │   └── 457-feature.md
-│   └── json/                  # JSON backend tasks
-│       ├── 789-task.md
-│       └── 790-bug.md
+│   └── gh/                    # GitHub Issues backend (specs only)
+│       ├── 456-issue.md
+│       └── 457-feature.md
 └── sessions/
-    ├── task#md:123/          # Backend-qualified session dirs
-    ├── task#gh:456/
-    └── task#json:789/
+    ├── task#mt:123/          # Backend-qualified session dirs
+    └── task#gh:456/
 ```
 
 #### Path Generation Updates
@@ -244,16 +239,16 @@ function getSessionPath(taskId: BackendQualifiedId): string {
 ```typescript
 // All CLI commands need to support qualified task IDs
 const taskIdParam = z.union([
-  z.string().regex(/^[a-z]+:\d+$/), // Qualified: "md:123"
+  z.string().regex(/^[a-z]+:\d+$/), // Qualified: "mt:123"
   z.string().regex(/^\d+$/), // Unqualified: "123" (backward compatibility)
 ]);
 
 // Backend parameter for new tasks
-const backendParam = z.enum(["md", "gh", "json"]).optional();
+const backendParam = z.enum(["mt", "gh"]).optional();
 
 // Examples
 interface TaskGetParams {
-  taskId: string; // Accepts "md:123" or "123"
+  taskId: string; // Accepts "mt:123" or "123"
   backend?: string; // For unqualified ID resolution
 }
 
@@ -268,22 +263,22 @@ interface TaskCreateParams {
 
 ```bash
 # Using qualified task IDs
-minsky tasks get md:123
+minsky tasks get mt:123
 minsky tasks status set gh:456 done
-minsky session start --task md:123
+minsky session start --task mt:123
 
 # Backward compatibility with unqualified IDs
-minsky tasks get 123 --backend md
+minsky tasks get 123 --backend mt
 minsky tasks get 123  # Auto-detects backend
 
 # Cross-backend operations
 minsky tasks list --all-backends
 minsky tasks list --backend gh
-minsky tasks search "bug" --backends md,gh
+minsky tasks search "bug" --backends mt,gh
 
 # Migration commands
-minsky tasks migrate md:123 --to-backend gh
-minsky tasks migrate-all --from md --to gh
+minsky tasks migrate mt:123 --to-backend gh
+minsky tasks migrate-all --from mt --to gh
 ```
 
 ## Implementation Strategy

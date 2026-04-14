@@ -256,9 +256,9 @@ minsky tasks list
 
 ## Migration Guide
 
-### From Markdown Backend
+### Migrating to GitHub Issues
 
-If migrating from markdown backend to GitHub Issues:
+If migrating to GitHub Issues from another backend:
 
 1. **Export existing tasks**:
 
@@ -270,7 +270,7 @@ If migrating from markdown backend to GitHub Issues:
 
 3. **Import tasks** (when migration utilities are available):
    ```bash
-   minsky tasks import --from markdown --to github-issues
+   minsky tasks import --to github-issues
    ```
 
 ### Hybrid Workflow
@@ -278,8 +278,7 @@ If migrating from markdown backend to GitHub Issues:
 You can use different backends for different repositories:
 
 - **Open source projects**: GitHub Issues backend for public visibility
-- **Internal tools**: Markdown backend for simplicity
-- **Client projects**: JSON file backend for portability
+- **Internal tools**: Minsky backend for simplicity
 
 ## Integration with GitHub Features
 
