@@ -5,12 +5,8 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { type CommandExecutionContext } from "../../command-registry";
-import {
-  listTasksFromParams,
-  getTaskFromParams,
-  createTaskFromTitleAndSpec,
-  deleteTaskFromParams,
-} from "../../../../domain/tasks";
+// Domain task functions are lazy-imported inside execute methods to avoid
+// loading the entire domain layer at command registration time.
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
 import { getErrorMessage } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
@@ -22,7 +18,6 @@ import {
 } from "./task-parameters";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -79,6 +74,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   async execute(params: TasksListParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
+    const { listTasksFromParams } = await import("../../../../domain/tasks");
 
     // Normalize tag param to string array for domain layer
     const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
@@ -154,6 +150,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       // Get task details
       this.debug("About to call getTaskFromParams");
+      const { getTaskFromParams } = await import("../../../../domain/tasks");
       const taskParams = {
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
@@ -230,6 +227,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       }
 
       // Create the task using the same function as main branch
+      const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
         spec: params.description, // Map description to spec
@@ -254,6 +252,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           try {
             const persistence = this.getPersistenceProvider();
             const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+            const { TaskGraphService } = await import(
+              "../../../../domain/tasks/task-graph-service"
+            );
             const service = new TaskGraphService(db);
             for (const dep of deps) {
               try {
@@ -356,6 +357,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
     }
 
     // Delete the task
+    const { deleteTaskFromParams } = await import("../../../../domain/tasks");
     const result = await deleteTaskFromParams({
       ...this.createTaskParams(params),
       taskId: validatedTaskId,
@@ -383,6 +385,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
    */
   private async confirmDeletion(taskId: string, params: TasksDeleteParams): Promise<void> {
     // Get task details for confirmation
+    const { getTaskFromParams } = await import("../../../../domain/tasks");
     const task = await getTaskFromParams({
       ...this.createTaskParams(params),
       taskId,
