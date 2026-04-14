@@ -22,8 +22,6 @@ export default [
   prettierConfig, // Disables ESLint rules that conflict with Prettier
   {
     ignores: [
-      // Exclude codemod scripts from linting
-      "codemods/**",
       // Exclude other development/temporary files
       "test-tmp/**",
       "test-analysis/**",

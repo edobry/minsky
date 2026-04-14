@@ -40,7 +40,6 @@
     "node_modules",
     "dist",
     "build",
-    "codemods",
     "scripts",
     "src/scripts",
     "tests/fixtures",
