@@ -4,7 +4,7 @@
  * Constructs and registers all session commands (and changeset aliases)
  * in the shared command registry.
  */
-import { type SessionCommandDependencies } from "./session/types";
+import { type SessionCommandDependencies, type LazySessionDeps } from "./session/types";
 import {
   createSessionListCommand,
   createSessionGetCommand,
@@ -42,47 +42,54 @@ import { sharedCommandRegistry, type CommandDefinition } from "../command-regist
 export async function registerSessionCommands(
   partialDeps?: Partial<SessionCommandDependencies>
 ): Promise<void> {
-  const { getSharedSessionProvider } = await import(
-    "../../../domain/session/session-provider-cache"
-  );
-  const { createSessionDeps } = await import("../../../domain/session/session-service");
-  const sessionProvider = partialDeps?.sessionProvider ?? (await getSharedSessionProvider());
-  const deps: SessionCommandDependencies = await createSessionDeps(sessionProvider);
+  // Lazy resolver: defers persistence initialization and domain module loading
+  // to first command execution. CLI bootstrap only registers metadata.
+  let cachedDeps: SessionCommandDependencies | null = null;
+  const getDeps: LazySessionDeps = async () => {
+    if (cachedDeps) return cachedDeps;
+    const { getSharedSessionProvider } = await import(
+      "../../../domain/session/session-provider-cache"
+    );
+    const { createSessionDeps } = await import("../../../domain/session/session-service");
+    const sessionProvider = partialDeps?.sessionProvider ?? (await getSharedSessionProvider());
+    cachedDeps = await createSessionDeps(sessionProvider);
+    return cachedDeps;
+  };
 
   const commands: CommandDefinition[] = [
     // Basic
-    createSessionListCommand(deps),
-    createSessionGetCommand(deps),
-    createSessionStartCommand(deps),
-    createSessionDirCommand(deps),
-    createSessionSearchCommand(deps),
+    createSessionListCommand(getDeps),
+    createSessionGetCommand(getDeps),
+    createSessionStartCommand(getDeps),
+    createSessionDirCommand(getDeps),
+    createSessionSearchCommand(getDeps),
 
     // Management
-    createSessionDeleteCommand(deps),
-    createSessionUpdateCommand(deps),
-    createSessionMigrateBackendCommand(deps),
+    createSessionDeleteCommand(getDeps),
+    createSessionUpdateCommand(getDeps),
+    createSessionMigrateBackendCommand(getDeps),
 
     // Workflow
-    createSessionCommitCommand(deps),
+    createSessionCommitCommand(getDeps),
     // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
-    createSessionInspectCommand(deps),
-    createSessionReviewCommand(deps),
+    createSessionInspectCommand(getDeps),
+    createSessionReviewCommand(getDeps),
 
     // PR subcommands
-    createSessionPrCreateCommand(deps),
-    createSessionPrEditCommand(deps),
-    createSessionPrListCommand(deps),
-    createSessionPrGetCommand(deps),
-    createSessionPrOpenCommand(deps),
-    createSessionPrApproveCommand(deps),
-    createSessionPrMergeCommand(deps),
+    createSessionPrCreateCommand(getDeps),
+    createSessionPrEditCommand(getDeps),
+    createSessionPrListCommand(getDeps),
+    createSessionPrGetCommand(getDeps),
+    createSessionPrOpenCommand(getDeps),
+    createSessionPrApproveCommand(getDeps),
+    createSessionPrMergeCommand(getDeps),
 
     // Utility
-    createSessionConflictsCommand(deps),
-    createSessionRepairCommand(deps),
+    createSessionConflictsCommand(getDeps),
+    createSessionRepairCommand(getDeps),
 
     // File
-    createSessionEditFileCommand(deps),
+    createSessionEditFileCommand(getDeps),
   ];
 
   for (const cmd of commands) {

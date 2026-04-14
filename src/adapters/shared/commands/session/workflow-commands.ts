@@ -6,7 +6,7 @@
  * live in their own files and are re-exported here for convenience.
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionApproveCommandParams,
   sessionInspectCommandParams,
@@ -23,7 +23,7 @@ export { createSessionPrListCommand } from "./pr-list-command";
 export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";
 
-export function createSessionCommitCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.commit",
     category: CommandCategory.SESSION,
@@ -64,7 +64,7 @@ export function createSessionCommitCommand(deps: SessionCommandDependencies): Co
   };
 }
 
-export function createSessionApproveCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.approve",
     category: CommandCategory.SESSION,
@@ -86,7 +86,7 @@ export function createSessionApproveCommand(deps: SessionCommandDependencies): C
   };
 }
 
-export function createSessionInspectCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionInspectCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.inspect",
     category: CommandCategory.SESSION,
@@ -208,7 +208,7 @@ async function handleAutoApprove(
   }
 }
 
-export function createSessionReviewCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.review",
     category: CommandCategory.SESSION,
@@ -216,6 +216,7 @@ export function createSessionReviewCommand(deps: SessionCommandDependencies): Co
     description: "Review a session PR by gathering and displaying relevant information",
     parameters: sessionReviewCommandParams,
     execute: withErrorLogging("session.review", async (params: Record<string, unknown>) => {
+      const deps = await getDeps();
       const { sessionReviewImpl } = await import(
         "../../../../domain/session/session-review-operations"
       );
@@ -303,7 +304,7 @@ export function createSessionReviewCommand(deps: SessionCommandDependencies): Co
   };
 }
 
-export function createSessionPrApproveCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrApproveCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.approve",
     category: CommandCategory.SESSION,
@@ -327,7 +328,7 @@ export function createSessionPrApproveCommand(deps: SessionCommandDependencies):
   };
 }
 
-export function createSessionPrMergeCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.merge",
     category: CommandCategory.SESSION,
@@ -335,6 +336,7 @@ export function createSessionPrMergeCommand(deps: SessionCommandDependencies): C
     description: "Merge an approved session pull request",
     parameters: sessionApproveCommandParams, // Reuse same params
     execute: withErrorLogging("session.pr.merge", async (params: Record<string, unknown>) => {
+      const deps = await getDeps();
       const { mergeSessionPr } = await import(
         "../../../../domain/session/session-merge-operations"
       );

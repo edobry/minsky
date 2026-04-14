@@ -2,7 +2,7 @@
  * Session Repair Command
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionRepairCommandParams } from "./session-parameters";
 import {
   sessionRepair,
@@ -12,7 +12,7 @@ import { log } from "../../../../utils/logger";
 import { toJsonRecord } from "../../../../utils/type-utils";
 import { getErrorMessage } from "../../../../errors/index";
 
-export function createSessionRepairCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionRepairCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.repair",
     category: CommandCategory.SESSION,
@@ -21,6 +21,7 @@ export function createSessionRepairCommand(deps: SessionCommandDependencies): Co
     parameters: sessionRepairCommandParams,
     execute: withErrorLogging("session.repair", async (params: Record<string, unknown>) => {
       try {
+        const deps = await getDeps();
         const repairParams: SessionRepairParameters = {
           name: params.name as string | undefined,
           task: params.task as string | undefined,

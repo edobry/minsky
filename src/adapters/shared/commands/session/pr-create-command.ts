@@ -14,7 +14,7 @@ import {
   getErrorMessage,
 } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { type SessionCommandDependencies } from "./types";
+import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
@@ -284,7 +284,7 @@ export async function executeSessionPrCreate(
   }
 }
 
-export function createSessionPrCreateCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.create",
     category: CommandCategory.SESSION,
@@ -293,6 +293,7 @@ export function createSessionPrCreateCommand(deps: SessionCommandDependencies): 
     parameters: sessionPrCreateCommandParams,
     execute: async (params, context) => {
       try {
+        const deps = await getDeps();
         return await executeSessionPrCreate(deps, params as SessionPrCreateParams, context);
       } catch (error) {
         log.debug(`Error in session.pr.create`, {

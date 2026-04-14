@@ -4,14 +4,14 @@
  * Factories for session management operations (delete, update, migrate-backend).
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionDeleteCommandParams,
   sessionUpdateCommandParams,
   sessionMigrateBackendCommandParams,
 } from "./session-parameters";
 
-export function createSessionDeleteCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.delete",
     category: CommandCategory.SESSION,
@@ -38,7 +38,7 @@ export function createSessionDeleteCommand(deps: SessionCommandDependencies): Co
   };
 }
 
-export function createSessionUpdateCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.update",
     category: CommandCategory.SESSION,
@@ -79,9 +79,7 @@ export function createSessionUpdateCommand(deps: SessionCommandDependencies): Co
  * the upstream origin URL from the session workspace and updating the session
  * DB record.
  */
-export function createSessionMigrateBackendCommand(
-  deps: SessionCommandDependencies
-): CommandDefinition {
+export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.migrate-backend",
     category: CommandCategory.SESSION,
@@ -91,6 +89,7 @@ export function createSessionMigrateBackendCommand(
     execute: withErrorLogging(
       "session.migrate-backend",
       async (params: Record<string, unknown>) => {
+        const deps = await getDeps();
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
         );

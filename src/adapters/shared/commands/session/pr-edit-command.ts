@@ -14,7 +14,7 @@ import {
   getErrorMessage,
 } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { type SessionCommandDependencies } from "./types";
+import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
@@ -176,7 +176,7 @@ export async function executeSessionPrEdit(
   }
 }
 
-export function createSessionPrEditCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrEditCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.edit",
     category: CommandCategory.SESSION,
@@ -185,6 +185,7 @@ export function createSessionPrEditCommand(deps: SessionCommandDependencies): Co
     parameters: sessionPrEditCommandParams,
     execute: async (params, context) => {
       try {
+        const deps = await getDeps();
         return await executeSessionPrEdit(deps, params as SessionPrEditParams, context);
       } catch (error) {
         log.debug(`Error in session.pr.edit`, {

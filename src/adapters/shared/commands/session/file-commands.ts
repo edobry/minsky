@@ -6,7 +6,7 @@
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import { readTextFile } from "../../../../utils/fs";
 
@@ -236,7 +236,7 @@ function formatResult(
   };
 }
 
-export function createSessionEditFileCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.edit-file",
     category: CommandCategory.SESSION,
@@ -246,6 +246,7 @@ export function createSessionEditFileCommand(deps: SessionCommandDependencies): 
     execute: withErrorLogging("session.edit-file", async (params: Record<string, unknown>) => {
       const typedParams = params as SessionEditFileParams;
       try {
+        const deps = await getDeps();
         const sessionId = await resolveSessionId(deps, typedParams);
         const content = await getEditPattern(typedParams);
 
