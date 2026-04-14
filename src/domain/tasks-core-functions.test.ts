@@ -20,7 +20,7 @@ const TEST_VALUE = 123;
  *
  * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, spyOn, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   listTasksFromParams,
   getTaskFromParams,
@@ -100,22 +100,26 @@ describe("interface-agnostic task functions", () => {
         { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
       ];
 
-      // Update mock to implement filtering logic
-      spyOn(taskDeps.taskService, "listTasks").mockImplementation((options = {}) => {
-        if (!options.all) {
-          return Promise.resolve(
-            allTasks.filter(
-              (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
-            )
-          );
-        }
-        return Promise.resolve(allTasks);
+      const localDeps = createTaskTestDeps({
+        taskService: {
+          ...taskDeps.taskService,
+          listTasks: (options = {}) => {
+            if (!options.all) {
+              return Promise.resolve(
+                allTasks.filter(
+                  (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+                )
+              );
+            }
+            return Promise.resolve(allTasks);
+          },
+        },
       });
 
       const params = { all: false };
 
       const result = await listTasksFromParams(params, {
-        createConfiguredTaskService: () => Promise.resolve(taskDeps.taskService),
+        createConfiguredTaskService: () => Promise.resolve(localDeps.taskService),
         resolveMainWorkspacePath: () => Promise.resolve("/mock/workspace/path"),
       });
 
@@ -172,15 +176,19 @@ describe("interface-agnostic task functions", () => {
     });
 
     test("should handle task IDs without leading zeros", async () => {
-      // Update mock implementation for this test — spying on an injected mock is legitimate
-      spyOn(taskDeps.taskService, "getTask").mockImplementation((id) => {
-        // taskCommands.ts normalizes "23" → "mt#23"
-        const numericPart = id.replace(/^mt#/, "").replace(/^md#/, "").replace(/^#/, "");
-        return Promise.resolve(
-          parseInt(numericPart, 10) === TASK_ID_WITHOUT_LEADING_ZEROS
-            ? { ...mockTask, id: "mt#23" }
-            : null
-        );
+      const localDeps = createTaskTestDeps({
+        taskService: {
+          ...taskDeps.taskService,
+          getTask: (id) => {
+            // taskCommands.ts normalizes "23" → "mt#23"
+            const numericPart = id.replace(/^mt#/, "").replace(/^md#/, "").replace(/^#/, "");
+            return Promise.resolve(
+              parseInt(numericPart, 10) === TASK_ID_WITHOUT_LEADING_ZEROS
+                ? { ...mockTask, id: "mt#23" }
+                : null
+            );
+          },
+        },
       });
 
       const params = {
@@ -189,7 +197,7 @@ describe("interface-agnostic task functions", () => {
       };
 
       const result = await getTaskFromParams(params, {
-        createConfiguredTaskService: () => Promise.resolve(taskDeps.taskService),
+        createConfiguredTaskService: () => Promise.resolve(localDeps.taskService),
         resolveMainWorkspacePath: () => Promise.resolve("/mock/workspace/path"),
       });
 
