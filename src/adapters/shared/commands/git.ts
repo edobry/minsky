@@ -297,6 +297,75 @@ const searchCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Parameters for the git diff command
+ */
+const diffCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    from: {
+      schema: z.string(),
+      description: "Starting ref (commit, branch, tag). If omitted, shows unstaged changes",
+      required: false,
+    },
+    to: {
+      schema: z.string(),
+      description: "Ending ref. If omitted with from, diffs from against working tree",
+      required: false,
+    },
+    path: {
+      schema: z.string(),
+      description: "Restrict diff to a specific file or directory",
+      required: false,
+    },
+    stat: {
+      schema: z.boolean(),
+      description: "Show diffstat summary only (--stat)",
+      required: false,
+      defaultValue: false,
+    },
+    nameOnly: {
+      schema: z.boolean(),
+      description: "Show only changed file names (--name-only)",
+      required: false,
+      defaultValue: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git blame command
+ */
+const blameCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    path: {
+      schema: z.string().min(1),
+      description: "File to blame",
+      required: true,
+    },
+    ref: {
+      schema: z.string(),
+      description: "Blame at specific ref (default HEAD)",
+      required: false,
+    },
+    startLine: {
+      schema: z.number(),
+      description: "Start of line range",
+      required: false,
+    },
+    endLine: {
+      schema: z.number(),
+      description: "End of line range",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
  * Register the git commands in the shared command registry
  */
 export function registerGitCommands(): void {
@@ -634,6 +703,108 @@ export function registerGitCommands(): void {
         if (error instanceof Error && error.message.includes("exit code 1")) {
           return { success: true, output: "" };
         }
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  });
+
+  // Register git diff command
+  sharedCommandRegistry.registerCommand({
+    id: "git.diff",
+    category: CommandCategory.GIT,
+    name: "diff",
+    description: "Show diff between refs, or unstaged changes",
+    parameters: diffCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.diff command", { params });
+
+      const repoPath = params!.repo || process.cwd();
+      const from = params!.from;
+      const to = params!.to;
+      const path = params!.path;
+      const stat = params!.stat ?? false;
+      const nameOnly = params!.nameOnly ?? false;
+
+      const args: string[] = ["git", "-C", repoPath, "diff"];
+
+      // Output format flags
+      if (stat) {
+        args.push("--stat");
+      } else if (nameOnly) {
+        args.push("--name-only");
+      }
+
+      // Ref range
+      if (from && to) {
+        args.push(`${from}..${to}`);
+      } else if (from) {
+        args.push(from);
+      }
+      // No from/to: show unstaged changes (plain `git diff`)
+
+      // Path restriction
+      if (path) {
+        args.push("--", path);
+      }
+
+      try {
+        const { stdout } = await execAsync(args.join(" "));
+        return {
+          success: true,
+          output: stdout.trim(),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  });
+
+  // Register git blame command
+  sharedCommandRegistry.registerCommand({
+    id: "git.blame",
+    category: CommandCategory.GIT,
+    name: "blame",
+    description: "Show what revision and author last modified each line of a file",
+    parameters: blameCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.blame command", { params });
+
+      const repoPath = params!.repo || process.cwd();
+      const filePath = params!.path;
+      const ref = params!.ref;
+      const startLine = params!.startLine;
+      const endLine = params!.endLine;
+
+      const args: string[] = ["git", "-C", repoPath, "blame"];
+
+      // Line range
+      if (startLine !== undefined && endLine !== undefined) {
+        args.push(`-L`, `${startLine},${endLine}`);
+      } else if (startLine !== undefined) {
+        args.push(`-L`, `${startLine},${startLine}`);
+      }
+
+      // Ref (must come before -- path)
+      if (ref) {
+        args.push(ref);
+      }
+
+      // Always use -- to separate path from ref
+      args.push("--", filePath);
+
+      try {
+        const { stdout } = await execAsync(args.join(" "));
+        return {
+          success: true,
+          output: stdout.trim(),
+        };
+      } catch (error) {
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),

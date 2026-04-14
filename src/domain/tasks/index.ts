@@ -17,14 +17,10 @@ export { TaskServiceInterface, createConfiguredTaskService } from "./taskService
 
 // Optionally expose pure helpers (kept minimal to avoid surface changes)
 export {
-  parseTasksFromMarkdown,
-  formatTasksToMarkdown,
   getTaskById,
   getNextTaskId,
   filterTasks,
   parseTaskSpecFromMarkdown,
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
-  formatTaskStateToMarkdown,
-  parseMarkdownToTaskState,
 } from "./taskFunctions";

@@ -81,45 +81,72 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       const provider = getPersistenceProvider();
 
-      if (!provider.capabilities.sql) {
-        throw new Error("Current persistence provider does not support SQL operations");
-      }
-
-      const db = await provider.getDatabaseConnection?.();
-
-      if (!db) {
-        throw new Error("Failed to get database connection from persistence provider");
-      }
-
-      const graphService = new TaskGraphService(db);
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-      });
-      const routingService = new TaskRoutingService(graphService, taskService);
-
       // Parse status filter
       const statusFilter = params.status
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
+      const taskService = await createConfiguredTaskService({
+        workspacePath: process.cwd(),
+      });
+
+      // Track whether we have dependency data available
+      let dependencyDataAvailable = true;
       let availableTasks;
-      try {
-        availableTasks = await routingService.findAvailableTasks({
-          statusFilter,
-          backendFilter: params.backend,
-          limit: params.limit,
-          showEffort: params.showEffort,
-          showPriority: params.showPriority,
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
-          return {
-            success: false,
-            error:
-              "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
-          };
+
+      // Try to use the full routing service with dependency graph
+      const hasSql = provider.capabilities.sql;
+      const db = hasSql ? await provider.getDatabaseConnection?.() : undefined;
+
+      if (hasSql && db) {
+        const graphService = new TaskGraphService(db);
+        const routingService = new TaskRoutingService(graphService, taskService);
+
+        try {
+          availableTasks = await routingService.findAvailableTasks({
+            statusFilter,
+            backendFilter: params.backend,
+            limit: params.limit,
+            showEffort: params.showEffort,
+            showPriority: params.showPriority,
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.includes("no such table: task_relationships")
+          ) {
+            dependencyDataAvailable = false;
+          } else {
+            throw error;
+          }
         }
-        throw error;
+      } else {
+        dependencyDataAvailable = false;
+      }
+
+      // Fall back to listing tasks without dependency scoring
+      if (!dependencyDataAvailable) {
+        const allTasks = await taskService.listTasks({
+          status: statusFilter.length === 1 ? statusFilter[0] : undefined,
+        });
+
+        const filteredTasks = params.backend
+          ? allTasks.filter((task) => task.id.startsWith(params.backend!))
+          : allTasks;
+
+        const statusFilteredTasks =
+          statusFilter.length > 1
+            ? filteredTasks.filter((task) => statusFilter.includes(task.status))
+            : filteredTasks;
+
+        availableTasks = statusFilteredTasks.slice(0, params.limit).map((task) => ({
+          taskId: task.id,
+          title: task.title || "Unknown",
+          status: task.status,
+          readinessScore: 1.0,
+          blockedBy: [] as string[],
+          backend: task.id.includes("#") ? task.id.split("#")[0] : undefined,
+        }));
       }
 
       // Filter by readiness score (default 1.0 = only truly available tasks)
@@ -130,13 +157,21 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
       if (params.json) {
         return {
           success: true,
-          data: { availableTasks: readyTasks, count: readyTasks.length },
+          data: {
+            availableTasks: readyTasks,
+            count: readyTasks.length,
+            dependencyDataAvailable,
+          },
         };
       }
 
       // Generate human-readable output
       let output = `📋 Available Tasks (${readyTasks.length} unblocked)\n`;
-      output += `${"━".repeat(60)}\n\n`;
+      output += `${"━".repeat(60)}\n`;
+      if (!dependencyDataAvailable) {
+        output += `⚠️  Dependency data unavailable — all tasks shown as available (no SQL backend)\n`;
+      }
+      output += `\n`;
 
       if (readyTasks.length === 0) {
         output += "No tasks available with current filters.\n";
