@@ -310,7 +310,7 @@ export class ConfigurationValidator {
     // Check for values that were overridden multiple times
     const overrideCount: Record<string, number> = {};
 
-    for (const [path, valueInfo] of Object.entries(loadResult.effectiveValues)) {
+    for (const [path, _valueInfo] of Object.entries(loadResult.effectiveValues)) {
       // Count how many sources provided this value
       const sourcesWithValue = loadResult.sources.filter(
         (s) => s.success && this.hasValueAtPath(s.config, path)

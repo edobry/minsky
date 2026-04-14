@@ -263,7 +263,7 @@ describe("Custom Configuration System", () => {
   describe("Performance", () => {
     test("should load configuration within acceptable time limits", async () => {
       const startTime = Date.now();
-      const provider = await createTestProvider({});
+      const _provider = await createTestProvider({});
       const endTime = Date.now();
 
       const loadTime = endTime - startTime;

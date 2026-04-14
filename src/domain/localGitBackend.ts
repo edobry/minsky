@@ -104,7 +104,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
     try {
       // Normalize the repository name
-      const repoName = normalizeRepoName(this.config.path);
+      const _repoName = normalizeRepoName(this.config.path);
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(session);

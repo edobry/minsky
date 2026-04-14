@@ -5,18 +5,6 @@ import {
   type CommandParameter,
 } from "./command-generator";
 
-// Helper function to create mock command representation for testing
-function createMockCommandRepresentation(id: string, parameters: CommandParameter[] = []): any {
-  return {
-    id,
-    category: "TASKS",
-    description: `Mock ${id} command`,
-    cliSyntax: `minsky ${id.replace(".", " ")}`,
-    mcpSyntax: generateMockMcpSyntax(id, parameters),
-    parameters,
-  };
-}
-
 // Helper to generate expected MCP syntax for testing
 function generateMockMcpSyntax(commandId: string, parameters: CommandParameter[]): string {
   const mcpCommandName = `mcp_minsky-server_${commandId.replace(/\./g, "_")}`;

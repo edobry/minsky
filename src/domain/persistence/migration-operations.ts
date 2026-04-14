@@ -233,9 +233,9 @@ export async function checkAndGenerateMigrations(): Promise<{
       }
     );
 
-    let checkStderr = "";
+    let _checkStderr = "";
     checkProcess.stderr?.on("data", (data) => {
-      checkStderr += data.toString();
+      _checkStderr += data.toString();
     });
 
     const checkExitCode = await new Promise<number>((resolve) => {

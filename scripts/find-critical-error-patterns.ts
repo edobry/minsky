@@ -79,7 +79,6 @@ function analyzeFile(filePath: string): ErrorPattern[] {
         // Check if this line references error/Error but might be in wrong scope
         if (line.includes("error.message") || line.includes("error instanceof")) {
           // Look back to see if there's a catch block
-          let foundCatch = false;
           for (let j = Math.max(0, i - 20); j < i; j++) {
             if (lines[j].includes("} catch (") && !lines[j].includes("} catch (error)")) {
               patterns.push({

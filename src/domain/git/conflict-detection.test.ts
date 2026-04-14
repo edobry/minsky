@@ -15,9 +15,9 @@ import { createPartialMock } from "../../utils/test-utils/mocking";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";
 
 describe("ConflictDetectionService with Phase 2 DI Enhancement Demonstration", () => {
-  const testRepoPath = "/test/repo";
-  const sessionBranch = "session-branch";
-  const baseBranch = "main";
+  const _testRepoPath = "/test/repo";
+  const _sessionBranch = "session-branch";
+  const _baseBranch = "main";
 
   let deps: DomainDependencies;
 

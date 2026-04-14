@@ -201,7 +201,7 @@ describe("Session File Move Tools Integration", () => {
     expect(moveCommand).toBeDefined();
 
     // Mock the underlying move operation
-    const mockMoveResult = { success: true, message: "File moved successfully" };
+    const _mockMoveResult = { success: true, message: "File moved successfully" };
 
     // Test that the handler can be called (we're testing the interface, not implementation)
     expect(typeof moveCommand.handler).toBe("function");

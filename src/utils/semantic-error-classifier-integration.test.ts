@@ -8,10 +8,10 @@ import { SemanticErrorClassifier, ErrorContext } from "./semantic-error-classifi
 import { SemanticErrorCode } from "../types/semantic-errors";
 
 describe("SemanticErrorClassifier Integration Tests", () => {
-  let classifier: SemanticErrorClassifier;
+  let _classifier: SemanticErrorClassifier;
 
   beforeEach(() => {
-    classifier = new SemanticErrorClassifier();
+    _classifier = new SemanticErrorClassifier();
   });
 
   describe("Mock filesystem scenarios", () => {

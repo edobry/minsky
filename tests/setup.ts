@@ -90,7 +90,7 @@ if (isDebugMode) {
   );
 
   // Mock the console methods globally to prevent any console output during tests
-  const originalConsole = { ...console };
+  const _originalConsole = { ...console };
   console.log = mock(() => {});
   console.info = mock(() => {});
   console.warn = mock(() => {});

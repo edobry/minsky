@@ -12,7 +12,7 @@ import { z } from "zod";
 const SessionDbBackendSchema = z.enum(["sqlite", "postgres"]);
 const LoggerModeSchema = z.enum(["HUMAN", "STRUCTURED", "auto"]);
 const LoggerLevelSchema = z.enum(["debug", "info", "warn", "error"]);
-const BackendTypeSchema = z.enum(["github-issues", "minsky"]);
+const _BackendTypeSchema = z.enum(["github-issues", "minsky"]);
 
 // SessionDB configuration schema
 export const SessionDbConfigSchema = z.object({

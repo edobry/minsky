@@ -14,7 +14,7 @@ import {
   SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  DatabaseStorage,
+  type SessionStorage,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
@@ -31,7 +31,7 @@ export class PostgresPersistenceProvider
   protected sql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
-  private cachedStorage: DatabaseStorage<unknown, unknown> | null = null;
+  private cachedStorage: SessionStorage | null = null;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -104,7 +104,7 @@ export class PostgresPersistenceProvider
   /**
    * Get storage instance for domain entities
    */
-  getStorage<T, S>(): DatabaseStorage<T, S> {
+  getStorage(): SessionStorage {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
@@ -112,7 +112,7 @@ export class PostgresPersistenceProvider
     // Return cached storage instance — creating a new one every call caused
     // independent connection pools and fire-and-forget initialization (mt#722)
     if (this.cachedStorage) {
-      return this.cachedStorage as DatabaseStorage<T, S>;
+      return this.cachedStorage;
     }
 
     const { PostgresStorage } = require("../../storage/backends/postgres-storage");
@@ -126,7 +126,7 @@ export class PostgresPersistenceProvider
     );
 
     this.cachedStorage = storage;
-    return storage as DatabaseStorage<T, S>;
+    return storage as SessionStorage;
   }
 
   /**
@@ -278,18 +278,12 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
-    return new PostgresVectorStorage(
-      this.sql,
-      // eslint-disable-next-line custom/no-excessive-as-unknown -- PostgresJsDatabase and ReturnType<typeof drizzle> are structurally incompatible at the generic parameter level; bridge required for the constructor
-      this.db as unknown as ReturnType<typeof drizzle>,
-      dimension,
-      {
-        tableName: "tasks_embeddings",
-        idColumn: "task_id",
-        embeddingColumn: "vector",
-        lastIndexedAtColumn: "indexed_at",
-      }
-    );
+    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+      tableName: "tasks_embeddings",
+      idColumn: "task_id",
+      embeddingColumn: "vector",
+      lastIndexedAtColumn: "indexed_at",
+    });
   }
 
   getConnectionInfo(): string {

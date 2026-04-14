@@ -4,8 +4,9 @@
  * Creates appropriate persistence provider based on configuration.
  */
 
-import { PersistenceProvider, PersistenceConfig } from "./types";
-import type { DatabaseStorage } from "../storage/database-storage";
+import { PersistenceProvider, PersistenceConfig, type SessionStorage } from "./types";
+import type { SessionRecord } from "../session/types";
+import type { SessionDbState } from "../session/session-db";
 import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
 import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { log } from "../../utils/logger";
@@ -89,23 +90,23 @@ class MockPersistenceProvider extends PersistenceProvider {
     // No-op for mock
   }
 
-  getStorage<T, S>(): DatabaseStorage<T, S> {
-    const data = new Map<string, T>();
-    let state = { entities: [] } as S;
-    const storage: DatabaseStorage<T, S> = {
+  getStorage(): SessionStorage {
+    const data = new Map<string, SessionRecord>();
+    let state: SessionDbState = { sessions: [], baseDir: "" };
+    const storage: SessionStorage = {
       readState: async () => ({ success: true, data: state }),
-      writeState: async (newState: S) => {
+      writeState: async (newState: SessionDbState) => {
         state = newState;
         return { success: true };
       },
       getEntity: async (id: string) => data.get(id) ?? null,
       getEntities: async () => Array.from(data.values()),
-      createEntity: async (entity: T) => {
-        const id = ((entity as Record<string, unknown>)["id"] as string) || String(data.size);
+      createEntity: async (entity: SessionRecord) => {
+        const id = entity.session || String(data.size);
         data.set(id, entity);
         return entity;
       },
-      updateEntity: async (id: string, updates: Partial<T>) => {
+      updateEntity: async (id: string, updates: Partial<SessionRecord>) => {
         const existing = data.get(id);
         if (existing) {
           const updated = { ...existing, ...updates };

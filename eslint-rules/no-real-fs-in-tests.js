@@ -58,7 +58,8 @@ export default {
 
   create(context) {
     const options = context.options[0] || {};
-    const allowedModules = options.allowedModules || ["mock"];
+    const allowedModules = options.allowedModules || ["mock"]; // eslint-disable-line @typescript-eslint/no-unused-vars
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const strictMode = options.strictMode !== false; // Default to true
     const allowTimestamps = options.allowTimestamps === true; // Default to false
     const allowGlobalCounters = options.allowGlobalCounters === true; // Default to false
@@ -85,7 +86,7 @@ export default {
     // Track global variable declarations
     const globalCounters = new Set();
     let isInTestHook = false;
-    let currentHookName = null;
+    let _currentHookName = null;
 
     // Forbidden filesystem imports
     const forbiddenFsImports = ["fs", "fs/promises", "node:fs", "node:fs/promises"];
@@ -242,7 +243,7 @@ export default {
           ["beforeEach", "afterEach", "beforeAll", "afterAll"].includes(node.callee.name)
         ) {
           isInTestHook = true;
-          currentHookName = node.callee.name;
+          _currentHookName = node.callee.name;
         }
       },
 
@@ -299,7 +300,7 @@ export default {
           ["beforeEach", "afterEach", "beforeAll", "afterAll"].includes(node.callee.name)
         ) {
           isInTestHook = false;
-          currentHookName = null;
+          _currentHookName = null;
         }
       },
     };

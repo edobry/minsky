@@ -107,7 +107,7 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
 
   try {
     const sessionDB = await getSharedSessionProvider();
-    const result = await approveSessionPr(
+    const _result = await approveSessionPr(
       {
         session: params.session,
       },

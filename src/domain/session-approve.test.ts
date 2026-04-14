@@ -10,7 +10,7 @@ import { FakeTaskService } from "./tasks/fake-task-service";
 // Mock logger
 // Remove global module mock - use dependency injection instead
 
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 // Test constants to avoid magic strings
 const TEST_SESSION_NAME = "test-session";

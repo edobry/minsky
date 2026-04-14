@@ -1,5 +1,5 @@
-const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 3;
+const _TEST_VALUE = 123;
+const _TEST_ARRAY_SIZE = 3;
 
 /**
  * Tests for task pure functions
@@ -25,15 +25,15 @@ import {
 // Strict-only: ForStorage removed; tests should not import it
 
 // Test constants - extract repeated strings
-const TEST_TASK_ID_ALPHA = "TEST_VALUE";
-const TEST_TASK_ID_NUMERIC = "001";
-const TEST_TASK_ID_002 = "002";
-const TEST_TASK_ID_003 = "003";
+const _TEST_TASK_ID_ALPHA = "TEST_VALUE";
+const _TEST_TASK_ID_NUMERIC = "001";
+const _TEST_TASK_ID_002 = "002";
+const _TEST_TASK_ID_003 = "003";
 const LEGACY_PREFIX = "#";
 
 // Helper to construct expected format - uses mixed logic
-const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
-const expectQualifiedFormat = (id: string) => id;
+const _expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
+const _expectQualifiedFormat = (id: string) => id;
 
 describe("Task Functions", () => {
   // Removed broken tests that were testing constants instead of functions

@@ -1,6 +1,5 @@
 import { log } from "../../utils/logger";
 import { MinskyError } from "../../errors";
-import { normalizeRepoName } from "../repo-utils";
 import type { SessionProviderInterface } from "../session/types";
 
 export interface PreparePrOptions {
@@ -57,7 +56,6 @@ export async function preparePr(
           `  minsky session start --task ID   (create a new session)\n`
       );
     }
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
 
     // Get current branch from repo instead of assuming session ID is branch name

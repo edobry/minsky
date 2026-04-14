@@ -22,7 +22,7 @@ describe("Session Auto-Task Creation", () => {
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
-  let mockResolveRepoPath: (params: any) => Promise<string>;
+  let _mockResolveRepoPath: (params: any) => Promise<string>;
   let mockResolveRepositoryAndBackend: () => Promise<{
     repoUrl: string;
     backendType: RepositoryBackendType;
@@ -83,7 +83,7 @@ describe("Session Auto-Task Creation", () => {
     mockWorkspaceUtils = new FakeWorkspaceUtils();
 
     // Mock resolve repo path
-    mockResolveRepoPath = () => Promise.resolve("test-repo");
+    _mockResolveRepoPath = () => Promise.resolve("test-repo");
 
     // Mock resolve repository and backend
     mockResolveRepositoryAndBackend = () =>
