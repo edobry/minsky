@@ -69,43 +69,7 @@ import {
 
 ## Migration Steps
 
-### Automated Migration (Recommended)
-
-**Step 1: Run the Codemod**
-
-```bash
-# Navigate to project root
-cd /path/to/minsky
-
-# Run the automated migration codemod
-bun run codemods/mcp-to-domain-schema-migrator.ts
-```
-
-**Step 2: Review Changes**
-
-- Examine the changes made by the codemod
-- Verify import statements are correctly updated
-- Check schema references are properly migrated
-
-**Step 3: Manual Response Builder Adjustments**
-
-- Review response builder calls flagged by the codemod
-- Update argument structures if needed for domain response builders
-- Test response format compatibility
-
-**Step 4: Test Functionality**
-
-```bash
-# Run tests to verify MCP tools still work
-bun test src/adapters/mcp/
-
-# Test specific MCP tool functionality
-bun run test:mcp
-```
-
-### Manual Migration (Alternative)
-
-If you prefer manual migration or need to understand the process:
+### Manual Migration
 
 **Step 1: Update Imports**
 Replace MCP-specific imports with domain schema imports.
