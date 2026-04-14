@@ -25,9 +25,8 @@ describe("Configuration Integration", () => {
   });
 
   test("createConfiguredTaskService should handle missing config directory", async () => {
-    // Use a path that exists but has no .minsky config — function should fall back gracefully
-    // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
-    const emptyDir = `/tmp/minsky-test-${Date.now()}`;
+    // Use a non-existent path — function falls back gracefully when config is missing
+    const emptyDir = "/mock/nonexistent/minsky-test-workspace";
 
     const taskService = await createConfiguredTaskService({
       workspacePath: emptyDir,
@@ -42,8 +41,7 @@ describe("Configuration Integration", () => {
     // Verify that an unknown backend produces a clear error message
     await expect(
       createConfiguredTaskService({
-        // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
-        workspacePath: process.cwd(),
+        workspacePath: "/mock/workspace",
         backend: "unknown-backend",
       })
     ).rejects.toThrow(/Unknown backend/);
