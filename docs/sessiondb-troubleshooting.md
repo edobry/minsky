@@ -1,6 +1,6 @@
 # SessionDB Troubleshooting Guide
 
-This guide provides solutions for common SessionDB issues across all backends (JSON, SQLite, PostgreSQL).
+This guide provides solutions for common SessionDB issues across all backends (SQLite, PostgreSQL).
 
 ## Quick Diagnostics
 
@@ -35,87 +35,6 @@ journalctl -u minsky --since "1 hour ago"
 ```
 
 ## Common Issues by Backend
-
-### JSON File Backend Issues
-
-#### Issue: `ENOENT: no such file or directory`
-
-**Symptoms**:
-
-```
-Error: ENOENT: no such file or directory, open '/path/to/session-db.json'
-```
-
-**Causes**:
-
-- Missing session database file
-- Incorrect baseDir configuration
-- Permission issues
-
-**Solutions**:
-
-1. **Initialize the database**:
-
-   ```bash
-   minsky sessiondb init --backend json
-   ```
-
-2. **Check configuration**:
-
-   ```bash
-   minsky config get sessiondb.baseDir
-   minsky config set sessiondb.baseDir ~/.local/state/minsky
-   ```
-
-3. **Fix permissions**:
-   ```bash
-   mkdir -p ~/.local/state/minsky
-   chmod 755 ~/.local/state/minsky
-   ```
-
-#### Issue: `SyntaxError: Unexpected token`
-
-**Symptoms**:
-
-```
-SyntaxError: Unexpected token } in JSON at position 245
-```
-
-**Causes**:
-
-- Corrupted JSON file
-- Incomplete write operation
-- System crash during write
-
-**Solutions**:
-
-1. **Restore from backup**:
-
-   ```bash
-   # Find latest backup
-   ls -la ~/.local/state/minsky/backups/
-
-   # Restore
-   minsky sessiondb restore --backup ~/.local/state/minsky/backups/latest.json --to json
-   ```
-
-2. **Manual repair**:
-
-   ```bash
-   # Backup corrupted file
-   cp ~/.local/state/minsky/session-db.json ~/.local/state/minsky/session-db.json.corrupt
-
-   # Try to fix JSON syntax
-   jq '.' ~/.local/state/minsky/session-db.json > fixed.json
-   mv fixed.json ~/.local/state/minsky/session-db.json
-   ```
-
-3. **Reset if unfixable**:
-   ```bash
-   # WARNING: This will lose all session data
-   rm ~/.local/state/minsky/session-db.json
-   minsky sessiondb init --backend json
-   ```
 
 ### SQLite Backend Issues
 
@@ -337,15 +256,6 @@ Error: relation "sessions" does not exist
 
 ## Error Code Reference
 
-### JSON Backend Error Codes
-
-| Code          | Description         | Recovery Action                          |
-| ------------- | ------------------- | ---------------------------------------- |
-| `ENOENT`      | File not found      | Initialize database or fix path          |
-| `EACCES`      | Permission denied   | Fix file permissions                     |
-| `SyntaxError` | Corrupted JSON      | Restore from backup or repair            |
-| `EMFILE`      | Too many open files | Close other processes or increase limits |
-
 ### SQLite Error Codes
 
 | Code              | Description          | Recovery Action                              |
@@ -476,19 +386,7 @@ minsky sessiondb recover --auto --backup-first
 # If auto-recovery fails, try manual steps below
 ```
 
-#### 2. Manual JSON Recovery
-
-```bash
-# Extract partial data from corrupted JSON
-grep -o '"session":"[^"]*"' corrupted.json > session-ids.txt
-
-# Reconstruct basic structure
-echo '{"sessions":[' > recovered.json
-# ... manually rebuild from fragments
-echo ']}' >> recovered.json
-```
-
-#### 3. Manual SQLite Recovery
+#### 2. Manual SQLite Recovery
 
 ```bash
 # Export to SQL
@@ -501,7 +399,7 @@ sed 's/ROLLBACK/COMMIT/g' dump.sql > clean-dump.sql
 sqlite3 new.db < clean-dump.sql
 ```
 
-#### 4. PostgreSQL Point-in-Time Recovery
+#### 3. PostgreSQL Point-in-Time Recovery
 
 ```sql
 -- If you have WAL archiving enabled
@@ -523,7 +421,7 @@ minsky session end --all
 minsky sessiondb export --all --format json > emergency-backup.json
 
 # 3. Reset to known good state
-minsky sessiondb reset --backend json --force
+minsky sessiondb reset --backend sqlite --force
 
 # 4. Import emergency backup
 minsky sessiondb import --file emergency-backup.json

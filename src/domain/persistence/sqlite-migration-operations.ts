@@ -5,6 +5,7 @@
  * Extracted from migration-operations.ts to keep file sizes manageable.
  */
 
+import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
 
@@ -235,8 +236,8 @@ export async function runSqliteSchemaMigrations(
 
     const db = drizzle(sqlite, { logger: true });
     const start = Date.now();
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- drizzle() with logger option produces BunSQLiteDatabase<{}> & { $client: Database } but migrate() expects BunSQLiteDatabase; bridge required
-    await migrate(db as unknown as Parameters<typeof migrate>[0], { migrationsFolder });
+    // drizzle() returns BunSQLiteDatabase<TSchema> & { $client } which is assignable to BunSQLiteDatabase<TSchema>
+    await migrate(db as BunSQLiteDatabase<Record<string, never>>, { migrationsFolder });
     {
       const ms = Date.now() - start;
       log.cli(`Applied migrations in ${ms}ms`);
@@ -269,8 +270,8 @@ export async function runSqliteSchemaMigrationsForBackend(sqlitePath?: string): 
   const sqlite = new Database(dbPath);
   try {
     const db = drizzle(sqlite, { logger: false });
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- drizzle() with logger option produces BunSQLiteDatabase<{}> & { $client: Database } but migrate() expects BunSQLiteDatabase; bridge required
-    await migrate(db as unknown as Parameters<typeof migrate>[0], {
+    // drizzle() returns BunSQLiteDatabase<TSchema> & { $client } which is assignable to BunSQLiteDatabase<TSchema>
+    await migrate(db as BunSQLiteDatabase<Record<string, never>>, {
       migrationsFolder: "./src/domain/storage/migrations",
     });
   } finally {

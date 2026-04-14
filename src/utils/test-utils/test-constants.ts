@@ -8,7 +8,6 @@
 // Git-related constants
 export const GIT_COMMANDS = {
   STATUS_PORCELAIN: "git status --porcelain",
-  ADD_TASKS_MD: "git add process/tasks.md",
   CHECKOUT_MAIN: "git checkout main",
   FETCH_ORIGIN: "git fetch origin",
   REV_PARSE_HEAD: "git rev-parse HEAD",
