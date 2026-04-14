@@ -56,6 +56,21 @@ For each file changed, understand:
 
 Only include verified findings in the GitHub review. Drop false positives entirely rather than padding the review.
 
+### 5a. Behavioral residue search (removal PRs only)
+
+**Required when `deletions >> additions` or the PR removes a feature/module/backend.** Symbol-level grep catches dangling imports but misses semantic dead code — code that serves removed functionality without importing removed modules.
+
+Search the **entire codebase** (not just changed files) for:
+
+1. **Hardcoded paths/filenames** associated with removed features
+2. **Concept-name strings** in comments, descriptions, error messages (beyond import statements)
+3. **Interface fields** that only make sense with the removed feature
+4. **Inline code blocks** in shared services that manipulate data in the removed format
+5. **Utility functions** in shared modules where some exports served the removed feature
+6. **Documentation** describing removed behavior
+
+Any hits are **blocking findings** — they indicate incomplete removal.
+
 ### 6. Verify against task spec
 
 **This step is mandatory.** If a task spec exists:

@@ -64,6 +64,23 @@ When launching multiple subagents in parallel, **check for file overlap** betwee
 
 Merging parallel PRs that touch the same files causes cascading conflicts that require session recreation.
 
+### Removal and Deletion PRs
+
+When a PR removes a feature, module, or backend, symbol-level grep ("is the deleted class still imported?") is necessary but **not sufficient**. Code that _serves_ removed functionality often lives in other files without importing the removed module.
+
+**Behavioral residue search** — required before declaring any removal PR complete:
+
+1. **Hardcoded paths/filenames** associated with the removed feature (e.g., `process/tasks.md`, `session-db.json`)
+2. **Concept-name strings** in comments, descriptions, error messages, and docs (e.g., `"markdown"`, `"json-file"`)
+3. **Interface fields** that only make sense with the removed feature (e.g., `sessionDbPath`)
+4. **Inline code blocks** that manipulate data in the removed format (e.g., parsing markdown task lists in a shared service)
+5. **Utility functions** in shared modules that only served the removed feature
+6. **Documentation sections** describing removed behavior
+
+**Subagent instructions for partial removal**: Never use "if shared, leave it." Always: "if shared, identify which exports/functions are dead and refactor to keep only the live parts."
+
+**Task specs for removals** must include a behavioral scope section listing concepts/behaviors being removed, not just files. Include grep patterns that should return zero results after the work is done.
+
 ## PR Reviews
 
 **Always use the `/review-pr` skill when reviewing any PR.** This includes "review PR #X", "check this PR", "look at the diff", or reviewing after subagent work. A review that isn't posted to GitHub is not a review.
@@ -140,4 +157,4 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 - Clean architecture: Domain → Adapters → Infrastructure
 - Shared command registry: commands defined once, adapted to CLI and MCP
 - Capability-based persistence providers (ADR-002)
-- Multi-backend tasks: markdown, JSON, GitHub Issues, Minsky DB
+- Multi-backend tasks: GitHub Issues, Minsky DB
