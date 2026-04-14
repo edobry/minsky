@@ -12,19 +12,9 @@ import {
   CommandCategory,
   type CommandParameterMap,
 } from "../command-registry";
-import {
-  commitChangesFromParams,
-  pushFromParams,
-  cloneFromParams,
-  branchFromParams,
-  mergeFromParams,
-  checkoutFromParams,
-  rebaseFromParams,
-} from "../../../domain/git";
-import {
-  conflictsFromParams,
-  conflictsCommandParams,
-} from "../../../domain/git/commands/subcommands/conflicts-subcommand";
+// Domain git functions are lazy-imported inside execute handlers to avoid
+// loading the entire domain layer at command registration time.
+import { conflictsCommandParams } from "../../../domain/git/commands/subcommands/conflicts-subcommand";
 import { log } from "../../../utils/logger";
 import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
@@ -378,6 +368,7 @@ export function registerGitCommands(): void {
     parameters: commitCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.commit command", { params });
+      const { commitChangesFromParams } = await import("../../../domain/git");
 
       const result = await commitChangesFromParams({
         message: params!.message,
@@ -405,6 +396,7 @@ export function registerGitCommands(): void {
     parameters: pushCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.push command", { params });
+      const { pushFromParams } = await import("../../../domain/git");
 
       const result = await pushFromParams({
         repo: params!.repo,
@@ -430,6 +422,7 @@ export function registerGitCommands(): void {
     parameters: cloneCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.clone command", { params });
+      const { cloneFromParams } = await import("../../../domain/git");
 
       const result = await cloneFromParams({
         url: params!.url,
@@ -455,6 +448,7 @@ export function registerGitCommands(): void {
     parameters: branchCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.branch command", { params });
+      const { branchFromParams } = await import("../../../domain/git");
 
       const result = await branchFromParams({
         session: params!.session,
@@ -478,6 +472,7 @@ export function registerGitCommands(): void {
     parameters: mergeCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.merge command", { params });
+      const { mergeFromParams } = await import("../../../domain/git");
 
       const result = await mergeFromParams({
         sourceBranch: params!.branch,
@@ -507,6 +502,7 @@ export function registerGitCommands(): void {
     parameters: checkoutCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.checkout command", { params });
+      const { checkoutFromParams } = await import("../../../domain/git");
 
       const result = await checkoutFromParams({
         branch: params!.branch,
@@ -535,6 +531,7 @@ export function registerGitCommands(): void {
     parameters: rebaseCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.rebase command", { params });
+      const { rebaseFromParams } = await import("../../../domain/git");
 
       const result = await rebaseFromParams({
         baseBranch: params!.baseBranch,
@@ -564,6 +561,9 @@ export function registerGitCommands(): void {
     parameters: conflictsCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.conflicts command", { params });
+      const { conflictsFromParams } = await import(
+        "../../../domain/git/commands/subcommands/conflicts-subcommand"
+      );
 
       const result = await conflictsFromParams({
         format: params!.format,

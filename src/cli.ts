@@ -10,11 +10,6 @@ await setupConfiguration();
 import { Command } from "commander";
 import { log } from "./utils/logger";
 import { exit } from "./utils/process";
-import { registerAllSharedCommands } from "./adapters/shared/commands/index";
-import { createMCPCommand } from "./commands/mcp/index";
-import { createGitHubCommand } from "./commands/github/index";
-import { createContextCommand } from "./commands/context/index";
-import { createLintCommand } from "./commands/lint/index";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "./schemas/error";
 
@@ -33,29 +28,65 @@ export const cli = new Command("minsky")
   });
 
 /**
+ * Lazy PersistenceService initialization.
+ * Deferred from startup to first command execution so the CLI bootstrap
+ * (Commander parsing, help display) doesn't pay the DB connection cost.
+ */
+let persistenceInitialized = false;
+async function ensurePersistence(): Promise<void> {
+  if (persistenceInitialized) return;
+  const { PersistenceService } = await import("./domain/persistence/service");
+  await PersistenceService.initialize();
+  log.debug("PersistenceService initialized (lazy, on first command)");
+  persistenceInitialized = true;
+}
+
+/**
  * Create the CLI command structure
  */
 export async function createCli(): Promise<Command> {
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
 
-  // Register all shared commands
+  // Persistence must be initialized before shared command registration because
+  // session commands resolve their provider at registration time.
+  await ensurePersistence();
+
+  // Register shared commands (session, tasks, git, rules, config, etc.)
+  const { registerAllSharedCommands } = await import("./adapters/shared/commands/index");
   await registerAllSharedCommands();
 
   // Register all commands via CLI command factory (which applies customizations)
   cliFactory.registerAllCommands(cli);
 
-  // Add MCP command (this is not yet migrated to shared commands)
-  cli.addCommand(await createMCPCommand());
+  // Non-shared commands (context, mcp, github, lint) pull in expensive dependencies
+  // (~700ms total: AI tokenizer, MCP SDK, etc.). Only load when actually invoked
+  // or when full help is requested.
+  const requestedCommand = process.argv[2];
+  const needsAll =
+    !requestedCommand ||
+    requestedCommand === "--help" ||
+    requestedCommand === "-h" ||
+    requestedCommand === "help" ||
+    requestedCommand === "--version" ||
+    requestedCommand === "-V";
 
-  // Add GitHub command for testing and status
-  cli.addCommand(createGitHubCommand());
-
-  // Add Context command for AI-powered rule suggestions
-  cli.addCommand(createContextCommand());
-
-  // Add Lint command for structured linter issue reporting
-  cli.addCommand(createLintCommand());
+  if (needsAll || requestedCommand === "mcp") {
+    const { createMCPCommand } = await import("./commands/mcp/index");
+    cli.addCommand(await createMCPCommand());
+  }
+  if (needsAll || requestedCommand === "github") {
+    const { createGitHubCommand } = await import("./commands/github/index");
+    cli.addCommand(createGitHubCommand());
+  }
+  if (needsAll || requestedCommand === "context") {
+    const { createContextCommand } = await import("./commands/context/index");
+    cli.addCommand(createContextCommand());
+  }
+  if (needsAll || requestedCommand === "lint") {
+    const { createLintCommand } = await import("./commands/lint/index");
+    cli.addCommand(createLintCommand());
+  }
 
   // Set error handler
   cli.configureOutput({
@@ -71,18 +102,15 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
-  // Initialize PersistenceService BEFORE creating CLI commands
-  // This ensures all commands have access to initialized dependencies
-  const { PersistenceService } = await import("./domain/persistence/service");
-  await PersistenceService.initialize();
-  log.debug("PersistenceService initialized before CLI setup");
-
-  // Create CLI AFTER PersistenceService is initialized
+  // Create CLI — persistence is initialized lazily via preAction hook
   const cliInstance = await createCli();
   await cliInstance.parseAsync();
 
-  // Clean up PersistenceService on exit
-  await PersistenceService.close();
+  // Clean up PersistenceService on exit (only if it was initialized)
+  if (persistenceInitialized) {
+    const { PersistenceService } = await import("./domain/persistence/service");
+    await PersistenceService.close();
+  }
 
   // Still need explicit exit until all resource leaks are fixed
   // The improvements to workspace manager help, but there are other sources
