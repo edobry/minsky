@@ -123,6 +123,36 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // for local clones) while keeping the canonical repoUrl / backendType from config.
     const cloneSource = repo || repoUrl;
 
+    // Auto-detect local workspace for --reference clone optimization.
+    // Only when user didn't pass --repo (which already provides a fast local source).
+    // Checks config workspace.mainPath first, falls back to cwd heuristic.
+    // Gracefully skips if: not a git repo, no remote, different repo, or any error.
+    let referenceRepo: string | undefined;
+    if (!repo) {
+      try {
+        let candidatePath: string | undefined;
+        const { getConfiguration } = await import("../configuration/index");
+        const cfg = getConfiguration() as { workspace?: { mainPath?: string } };
+        candidatePath = cfg.workspace?.mainPath || currentDir;
+
+        const localRemote = (
+          await deps.gitService.execInRepository(candidatePath, "remote get-url origin")
+        ).trim();
+        if (localRemote) {
+          const { normalizeRepositoryUri } = await import("../uri-utils");
+          const opts = { validateLocalExists: false };
+          const localName = normalizeRepositoryUri(localRemote, opts).name;
+          const configName = normalizeRepositoryUri(repoUrl, opts).name;
+          if (localName === configName) {
+            referenceRepo = candidatePath;
+            log.debug("Using local workspace as reference clone source", { referenceRepo });
+          }
+        }
+      } catch {
+        // Config not available or detection failed — skip optimization
+      }
+    }
+
     // Determine the session ID using task ID if provided
     let sessionId = name;
     let taskId: string | undefined = task;
@@ -260,6 +290,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         repoUrl: cloneSource,
         session: sessionId,
         workdir: sessionDir, // Explicit workdir path computed by SessionDB
+        referenceRepo,
       });
 
       // Create a branch based on the session ID - use branchWithoutSession

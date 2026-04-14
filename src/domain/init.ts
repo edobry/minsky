@@ -4,7 +4,11 @@ import { enumSchemas } from "./configuration/schemas/base";
 import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-system";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
-import { getMinskyConfigContentYaml, getMCPConfigContent } from "./init/config-content";
+import {
+  getMinskyConfigContentYaml,
+  getLocalConfigContentYaml,
+  getMCPConfigContent,
+} from "./init/config-content";
 import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,
@@ -28,6 +32,7 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 export {
   getMinskyConfigContent,
   getMinskyConfigContentYaml,
+  getLocalConfigContentYaml,
   getMCPConfigContent,
 } from "./init/config-content";
 export {
@@ -159,6 +164,12 @@ export async function initializeProject(
   const configPath = path.join(minskyDir, "config.yaml");
   const configContent = getMinskyConfigContentYaml(backend, repository);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
+
+  // Write machine-specific local config (gitignored) with workspace.mainPath
+  // so session_start can use --reference cloning for fast session creation.
+  const localConfigPath = path.join(minskyDir, "config.local.yaml");
+  const localConfigContent = getLocalConfigContentYaml(repoPath);
+  await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
 
   // Setup MCP if enabled (default to enabled if not explicitly disabled)
   if (mcp?.enabled !== false) {
