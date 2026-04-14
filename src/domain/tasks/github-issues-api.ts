@@ -167,15 +167,63 @@ export async function updateIssueStatus(
     throw new Error(`Could not extract issue number from task ID ${taskId}`);
   }
 
+  // Fetch current labels to preserve non-status labels (tags)
+  const issue = await octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
+  const currentLabels = issue.data.labels
+    .map((l) => (typeof l === "string" ? l : l.name || ""))
+    .filter(Boolean);
+
+  // Remove old status labels, add new status label, keep everything else
+  const statusLabelValues = Object.values(statusLabels);
+  const nonStatusLabels = currentLabels.filter((l) => !statusLabelValues.includes(l));
+  const newLabels = [...nonStatusLabels, ...getLabelsForTaskStatus(status, statusLabels)];
+
   await octokit.rest.issues.update({
     owner,
     repo,
     issue_number: issueNumber,
-    labels: getLabelsForTaskStatus(status, statusLabels),
+    labels: newLabels,
     state: status === "DONE" ? "closed" : "open",
   });
 
   log.debug("Updated task status in GitHub", { taskId, status });
+}
+
+/**
+ * Update the non-status labels (tags) on a GitHub issue.
+ * Keeps status labels intact, replaces all non-status labels with the provided tags.
+ */
+export async function updateIssueLabels(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  taskId: string,
+  tags: string[],
+  statusLabels: Record<string, string>
+): Promise<void> {
+  const issueNumber = getTaskIdNumber(taskId);
+  if (!issueNumber) {
+    throw new Error(`Could not extract issue number from task ID ${taskId}`);
+  }
+
+  const issue = await octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
+  const currentLabels = issue.data.labels
+    .map((l) => (typeof l === "string" ? l : l.name || ""))
+    .filter(Boolean);
+
+  // Keep status labels, replace non-status labels with new tags
+  const statusLabelValues = Object.values(statusLabels);
+  const keptStatusLabels = currentLabels.filter((l) => statusLabelValues.includes(l));
+  const newLabels = [...keptStatusLabels, ...tags];
+
+  await octokit.rest.issues.update({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    labels: newLabels,
+  });
+
+  log.debug("Updated task labels in GitHub", { taskId, tags });
 }
 
 /**
@@ -187,7 +235,8 @@ export async function createIssueFromSpec(
   repo: string,
   specContent: string,
   specPath: string,
-  statusLabels: Record<string, string>
+  statusLabels: Record<string, string>,
+  tags?: string[]
 ): Promise<Task> {
   const spec = parseGitHubTaskSpec(specContent);
 
@@ -196,7 +245,7 @@ export async function createIssueFromSpec(
     repo,
     title: spec.title,
     body: spec.description || "",
-    labels: getLabelsForTaskStatus("TODO", statusLabels),
+    labels: [...getLabelsForTaskStatus("TODO", statusLabels), ...(tags || [])],
   });
 
   const taskId = `gh#${response.data.number}`;
@@ -219,14 +268,15 @@ export async function createIssueFromTitleAndDescription(
   repo: string,
   title: string,
   description: string,
-  statusLabels: Record<string, string>
+  statusLabels: Record<string, string>,
+  tags?: string[]
 ): Promise<Task> {
   const response = await octokit.rest.issues.create({
     owner,
     repo,
     title,
     body: description || "",
-    labels: getLabelsForTaskStatus("TODO", statusLabels),
+    labels: [...getLabelsForTaskStatus("TODO", statusLabels), ...(tags || [])],
   });
 
   const taskId = `gh#${response.data.number}`;
@@ -254,14 +304,15 @@ export async function createIssueFromTitleAndSpec(
   repo: string,
   title: string,
   spec: string,
-  statusLabels: Record<string, string>
+  statusLabels: Record<string, string>,
+  tags?: string[]
 ): Promise<Task> {
   const response = await octokit.rest.issues.create({
     owner,
     repo,
     title,
     body: spec || "",
-    labels: getLabelsForTaskStatus("TODO", statusLabels),
+    labels: [...getLabelsForTaskStatus("TODO", statusLabels), ...(tags || [])],
   });
 
   const taskId = `gh#${response.data.number}`;
