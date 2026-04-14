@@ -181,14 +181,3 @@ function isTaskStatusEnum(options: string[]): boolean {
     options.every((option) => (TASK_STATUS_VALUES as string[]).includes(option))
   );
 }
-
-/**
- * Create a formatted error message for common validation scenarios
- * @param operation The operation being performed (e.g., "setting task status")
- * @param error The Zod validation error
- * @returns Formatted error message
- */
-export function createFormattedValidationError(operation: string, error: ZodError): string {
-  const formattedError = formatZodError(error, operation);
-  return `Invalid parameters for ${operation}:\n${formattedError}`;
-}
