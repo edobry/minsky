@@ -327,9 +327,3 @@ export function createMockFilesystem(
 
   return mockFs;
 }
-
-/**
- * Helper function to create common filesystem operation mocks
- * @deprecated Use createMockFilesystem instead
- */
-export const mockFsOperations = createMockFilesystem;

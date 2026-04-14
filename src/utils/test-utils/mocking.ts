@@ -1,5 +1,3 @@
-const _TEST_VALUE = 123;
-
 /**
  * Test Mocking Utilities - Import Hub
  * @migrated Converted to import hub after extracting components to focused modules
@@ -34,16 +32,10 @@ export { setupTestMocksWithCleanup as setupTestMocks } from "./cleanup/test-clea
 export { createMockObject, createMockExecSync, createPartialMock } from "./objects/mock-objects";
 
 // Export filesystem mocking utilities
-export { createMockFilesystem, mockFsOperations } from "./filesystem/mock-filesystem";
+export { createMockFilesystem } from "./filesystem/mock-filesystem";
 
 // Compatibility export for tests that use uppercase 'S'
 export { createMockFilesystem as createMockFileSystem } from "./filesystem/mock-filesystem";
-
-// Export spy and property utilities
-export { mockReadonlyProperty, createSpyOn, spyOn } from "./spies/mock-spies";
-
-// Export test context management
-export { TestContext, createTestSuite, withCleanup } from "./context/test-context";
 
 // Note: This file now serves as an import hub, providing access to all test mocking
 // functionality through focused, modularized components. The original 668-line file
