@@ -55,6 +55,9 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
 
     let indexed = 0;
     let skipped = 0;
+    let failed = 0;
+    let quotaExhausted = false;
+    let quotaError: string | undefined;
     const { log } = await import("../../../../utils/logger");
     if (!(params.json || ctx.format === "json")) {
       log.cli(`Indexing embeddings for ${tasks.length} task(s)...`);
@@ -65,26 +68,48 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     let i = 0;
     async function worker() {
       while (true) {
+        if (quotaExhausted) break;
         const idx = i++;
         if (idx >= tasks.length) break;
         const t = elementAt(tasks, idx, "index-embeddings worker tasks");
-        const changed = await service.indexTask(t.id);
-        if (!(params.json || ctx.format === "json")) {
-          log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+        try {
+          const changed = await service.indexTask(t.id);
+          if (!(params.json || ctx.format === "json")) {
+            log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+          }
+          if (changed) indexed++;
+          else skipped++;
+        } catch (err: unknown) {
+          const msg = String((err as Error)?.message || err);
+          if (/insufficient_quota/i.test(msg)) {
+            quotaExhausted = true;
+            quotaError = msg;
+            log.warn(`Quota exhausted — stopping all workers: ${msg}`);
+            break;
+          }
+          failed++;
+          log.warn(`- ${t.id}: failed — ${msg}`);
         }
-        if (changed) indexed++;
-        else skipped++;
       }
     }
     const workers = Array.from({ length: concurrency }, () => worker());
     await Promise.all(workers);
     if (!(params.json || ctx.format === "json")) {
       log.cli("");
-      log.cli(`Done. Indexed ${indexed} task(s); skipped ${skipped}.`);
+      const parts = [`Indexed ${indexed} task(s); skipped ${skipped}`];
+      if (failed > 0) parts.push(`failed ${failed}`);
+      if (quotaExhausted) parts.push("STOPPED: quota exhausted");
+      log.cli(`Done. ${parts.join("; ")}.`);
     }
 
     return this.formatResult(
-      { success: true, indexed, skipped },
+      {
+        success: !quotaExhausted,
+        indexed,
+        skipped,
+        failed,
+        ...(quotaExhausted ? { error: quotaError } : {}),
+      },
       params.json || ctx.format === "json"
     );
   }

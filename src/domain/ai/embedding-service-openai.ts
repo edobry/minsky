@@ -1,5 +1,18 @@
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
+import { RateLimitError } from "./enhanced-error-types";
+
+/**
+ * Determines whether an AI service error is retryable.
+ * Retries on transient rate limits, server errors, and network issues.
+ * Does NOT retry on quota exhaustion (billing issue).
+ */
+export function isRetryableAIError(error: unknown): boolean {
+  const msg = String((error as Error)?.message || "");
+  if (/insufficient_quota/i.test(msg)) return false;
+  if (error instanceof RateLimitError) return true;
+  return /429|rate.limit|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
+}
 
 interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
@@ -50,8 +63,7 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       const retry = new IntelligentRetryService({ maxRetries: 3, baseDelay: 500 });
       return await retry.execute(
         async () => this.request(inputs),
-        (error) =>
-          /503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(String(error?.message || "")),
+        isRetryableAIError,
         "openai-embeddings"
       );
     } catch {
@@ -74,11 +86,13 @@ export class OpenAIEmbeddingService implements EmbeddingService {
     if (!res.ok) {
       // Try to parse a helpful JSON error first
       let extra: string = "";
+      let errorCode: string | undefined;
       try {
         const asJson: unknown = await res.json();
         const obj = asJson as { error?: { code?: unknown; type?: unknown; message?: unknown } };
         const err = obj?.error || obj;
         const errObj = err as { code?: unknown; type?: unknown; message?: unknown };
+        errorCode = errObj?.code ? String(errObj.code) : undefined;
         const parts: string[] = [];
         if (errObj?.code) parts.push(`code=${String(errObj.code)}`);
         if (errObj?.type) parts.push(`type=${String(errObj.type)}`);
@@ -88,6 +102,27 @@ export class OpenAIEmbeddingService implements EmbeddingService {
         const text = await res.text().catch(() => "");
         extra = text ? ` ${text}` : "";
       }
+
+      // Handle 429 rate limit responses with structured error
+      if (res.status === 429 && errorCode !== "insufficient_quota") {
+        const retryAfterHeader = res.headers.get("retry-after");
+        const resetHeader = res.headers.get("x-ratelimit-reset-requests");
+        const remainingHeader = res.headers.get("x-ratelimit-remaining-requests");
+        const limitHeader = res.headers.get("x-ratelimit-limit-requests");
+        const retryAfter = retryAfterHeader
+          ? Number(retryAfterHeader)
+          : resetHeader
+            ? Number(resetHeader)
+            : 60;
+        throw new RateLimitError(
+          `Embedding rate limited: 429${extra}`.trim(),
+          "openai",
+          isNaN(retryAfter) ? 60 : retryAfter,
+          remainingHeader ? Number(remainingHeader) : 0,
+          limitHeader ? Number(limitHeader) : 0
+        );
+      }
+
       throw new Error(`Embedding request failed: ${res.status} ${res.statusText}${extra}`.trim());
     }
     return (await res.json()) as OpenAIEmbeddingResponse;
