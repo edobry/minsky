@@ -26,29 +26,6 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
 }
 
 /**
- * Creates a type-safe mock function with tracking capabilities.
- * This is a more strongly typed version of createMock.
- *
- * @template T - The function signature to mock
- * @param implementation - Optional initial implementation of the mock
- * @returns A mock function that tracks calls and can be configured with proper type inference
- *
- * @example
- * // Create a type-safe mock with implementation
- * type GreetFn = (_name: unknown) => string;
- * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
- * const _result = mockGreet("World"); // TypeScript knows this returns string
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- return type any in constraint is load-bearing; unknown causes callers to lose the return type of the mocked function
-export function mockFunction<T extends (...args: unknown[]) => any>(
-  implementation?: T
-): MockFunction<ReturnType<T>, Parameters<T>> & T {
-  // Cast through unknown to ensure proper type mapping
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- intersection type MockFunction<R,P> & T cannot be expressed without cast; this is the canonical mock-function bridge
-  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
-}
-
-/**
  * Creates a mock function with type safety and tracking capabilities.
  * This is a wrapper around Bun's mock function with improved TypeScript support.
  *
