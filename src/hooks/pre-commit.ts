@@ -204,9 +204,10 @@ export class PreCommitHook {
         };
       }
 
-      // WARNING THRESHOLD: 167 no-unused-vars warnings remain after bulk cleanup (2026-04-13).
+      // WARNING THRESHOLD: 168 warnings remain (2026-04-13).
+      // Includes no-unused-vars + no-singleton-reach-in (mt#691) warnings.
       // Ratchet down as violations are fixed. Goal: 0, then enable tsconfig noUnusedLocals.
-      const MAX_LINT_WARNINGS = 167;
+      const MAX_LINT_WARNINGS = 168;
       if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");

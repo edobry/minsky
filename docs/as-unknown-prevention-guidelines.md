@@ -399,15 +399,7 @@ bun run lint
 - **High**: Fix with proper interfaces and type guards
 - **Medium**: Consider if legitimate or can be improved
 
-### Step 3: Use Automated Tools
-
-Use the AST codemod to automatically fix common patterns:
-
-```bash
-bun run codemods/ast-type-cast-fixer.ts
-```
-
-### Step 4: Manual Review
+### Step 3: Manual Review
 
 Review remaining assertions to ensure they're legitimate or can be improved with proper typing.
 
@@ -448,12 +440,6 @@ Using proper type guards and validation has minimal performance impact compared 
 - Location: `src/utils/type-guards.ts`
 - Provides safe alternatives to 'as unknown'
 - Includes utilities for common use cases
-
-### AST Codemod
-
-- Location: `codemods/ast-type-cast-fixer.ts`
-- Automatically fixes common patterns
-- Maintains comprehensive documentation and tests
 
 ## Conclusion
 
