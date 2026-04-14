@@ -48,9 +48,10 @@ export class ModularTasksCommandManager {
 
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
+      const getPersistenceProvider = () => PersistenceService.getProvider();
       const listCommand = createTasksListCommand();
       const getCommand = createTasksGetCommand();
-      const createCommand = createTasksCreateCommand();
+      const createCommand = createTasksCreateCommand(getPersistenceProvider);
       const editCommand = createTasksEditCommand();
       const deleteCommand = createTasksDeleteCommand();
       const specCommand = createTasksSpecCommand();
@@ -61,8 +62,6 @@ export class ModularTasksCommandManager {
       const similarCommand = new TasksSimilarCommand();
       const searchCommand = new TasksSearchCommand();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
-
-      const getPersistenceProvider = () => PersistenceService.getProvider();
       const depsAddCommand = createTasksDepsAddCommand(getPersistenceProvider);
       const depsRmCommand = createTasksDepsRmCommand(getPersistenceProvider);
       const depsListCommand = createTasksDepsListCommand(getPersistenceProvider);

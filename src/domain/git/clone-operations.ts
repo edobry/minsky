@@ -33,6 +33,8 @@ export interface CloneDependencies {
   access: (path: string) => Promise<void>;
   rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => Promise<void>;
   generateSessionId: () => string;
+  /** Optional override for base directory initialization (injected in tests to avoid filesystem access). */
+  ensureBaseDir?: () => Promise<void>;
 }
 
 /**

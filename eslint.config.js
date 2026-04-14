@@ -15,6 +15,7 @@ import noUnreliableFactoryMocks from "./eslint-rules/no-unreliable-factory-mocks
 import noCliExecutionInTests from "./eslint-rules/no-cli-execution-in-tests.js";
 import noMagicStringDuplication from "./eslint-rules/no-magic-string-duplication.js";
 import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js";
+import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 
 export default [
   js.configs.recommended,
@@ -108,6 +109,7 @@ export default [
           "no-cli-execution-in-tests": noCliExecutionInTests,
           "no-magic-string-duplication": noMagicStringDuplication,
           "no-unwaited-async-factory": noUnwaitedAsyncFactory,
+          "no-singleton-reach-in": noSingletonReachIn,
         },
       },
     },
@@ -165,6 +167,50 @@ export default [
           asyncFactoryFunctions: ["createSessionProvider"],
         },
       ], // Prevent unwaited async factory calls that silently assign Promises
+
+      // === SINGLETON ARCHITECTURE ===
+      "custom/no-singleton-reach-in": [
+        "warn",
+        {
+          allowedFiles: [
+            // PersistenceService composition roots
+            "**/src/domain/persistence/service.ts",
+            "**/src/domain/persistence/validation-operations.ts",
+            // Session provider composition roots
+            "**/src/domain/session/session-service.ts",
+            "**/src/domain/session/session-provider-cache.ts",
+            "**/src/domain/session/session-db-adapter.ts",
+            // Domain-level facade files that re-export/wire providers
+            "**/src/domain/session.ts",
+            "**/src/domain/git.ts",
+            // Storage backends that need direct provider access
+            "**/src/domain/storage/backends/postgres-storage.ts",
+            "**/src/domain/storage/vector/vector-storage-factory.ts",
+            "**/src/domain/storage/vector/postgres-vector-storage.ts",
+            // Task domain composition roots
+            "**/src/domain/tasks/tasks-importer-service.ts",
+            "**/src/domain/tasks/taskService.ts",
+            "**/src/domain/tasks/github-issues-api.ts",
+            // Rules domain
+            "**/src/domain/rules/rule-similarity-service.ts",
+            // Adapter-layer composition roots
+            "**/src/adapters/shared/commands/session.ts",
+            "**/src/adapters/shared/commands/tasks-modular.ts",
+            "**/src/adapters/shared/commands/tasks/registry-setup.ts",
+            // CLI task command composition roots
+            "**/src/adapters/cli/tasks/*.ts",
+            // Git subcommand composition roots
+            "**/subcommands/*.ts",
+            // Scripts and one-off tools (composition roots by nature)
+            "**/scripts/*.ts",
+            "**/debug-*.ts",
+            "**/test-*.ts",
+            "**/dependency-backfill-tool.ts",
+            // ESLint rule files (the rules themselves reference these identifiers as strings)
+            "**/eslint-rules/**",
+          ],
+        },
+      ], // Prevent singleton reach-in from non-composition-root files
 
       // === TEST ORGANIZATION ===
       "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories

@@ -20,6 +20,10 @@ import {
   tasksCreateParams,
   tasksDeleteParams,
 } from "./task-parameters";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import { log } from "../../../../utils/logger";
 
 /**
  * Parameters for tasks list command
@@ -50,6 +54,7 @@ interface TasksCreateParams extends BaseTaskParams {
   specPath?: string;
   force?: boolean;
   githubRepo?: string;
+  dependsOn?: string | string[];
 }
 
 /**
@@ -172,6 +177,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
   readonly description = "Create a new task";
   readonly parameters = tasksCreateParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksCreateParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.create execution");
 
@@ -206,6 +215,37 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 
       this.debug("Task created successfully");
 
+      // Handle dependsOn: add dependency edges after task creation
+      const depsAdded: string[] = [];
+      const depsWarnings: string[] = [];
+      if (params.dependsOn) {
+        const deps = Array.isArray(params.dependsOn) ? params.dependsOn : [params.dependsOn];
+        if (this.getPersistenceProvider) {
+          try {
+            const persistence = this.getPersistenceProvider();
+            const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+            const service = new TaskGraphService(db);
+            for (const dep of deps) {
+              try {
+                await service.addDependency(result.id, dep);
+                depsAdded.push(dep);
+              } catch (depErr) {
+                const msg = getErrorMessage(depErr);
+                depsWarnings.push(`Failed to add dependency ${dep}: ${msg}`);
+                log.warn(`[tasks.create] Failed to add dependency ${dep}: ${msg}`);
+              }
+            }
+          } catch (providerErr) {
+            const msg = getErrorMessage(providerErr);
+            depsWarnings.push(`Could not connect to persistence for dependencies: ${msg}`);
+            log.warn(`[tasks.create] Could not connect to persistence for dependencies: ${msg}`);
+          }
+        } else {
+          depsWarnings.push("No persistence provider available; dependencies were not recorded");
+          log.warn("[tasks.create] No persistence provider; skipping dependsOn");
+        }
+      }
+
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;
       if (!params.json) {
@@ -217,11 +257,19 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         }
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.id}`;
+        if (depsAdded.length > 0) {
+          message += `\n${chalk.gray("  Depends on: ")}${depsAdded.join(", ")}`;
+        }
+        for (const warning of depsWarnings) {
+          message += `\n${chalk.yellow(`  ⚠️  ${warning}`)}`;
+        }
       }
 
       return this.formatResult(
         this.createSuccessResult(result.id, message, {
           task: result,
+          ...(depsAdded.length > 0 && { depsAdded }),
+          ...(depsWarnings.length > 0 && { depsWarnings }),
         }),
         params.json
       );
@@ -332,6 +380,8 @@ export const createTasksListCommand = (): TasksListCommand => new TasksListComma
 
 export const createTasksGetCommand = (): TasksGetCommand => new TasksGetCommand();
 
-export const createTasksCreateCommand = (): TasksCreateCommand => new TasksCreateCommand();
+export const createTasksCreateCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider);
 
 export const createTasksDeleteCommand = (): TasksDeleteCommand => new TasksDeleteCommand();
