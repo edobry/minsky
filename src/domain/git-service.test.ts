@@ -3,32 +3,28 @@
  * @migrated Extracted from git.test.ts as part of modularization
  * @enhanced Enhanced with comprehensive method coverage and DI patterns
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "./git";
-import { setupTestMocks } from "../utils/test-utils/mocking";
+import { FakeGitService } from "./git/fake-git-service";
 import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
-
-// Set up automatic mock cleanup
-setupTestMocks();
 
 describe("GitService", () => {
   let gitService: GitService;
+  let fakeGit: FakeGitService;
 
   beforeEach(() => {
-    // Create a fresh GitService instance for each test
+    // Create a fresh GitService instance for real-method tests
     gitService = new GitService("/mock/base/dir");
 
-    // Mock getStatus method to return canned data
-    spyOn(GitService.prototype, "getStatus").mockImplementation(async () => {
-      return {
-        modified: ["file1.ts", "file2.ts"],
-        untracked: ["newfile1.ts", "newfile2.ts"],
-        deleted: ["deletedfile1.ts"],
-      };
+    // Use FakeGitService as the DI-based test double for behavior verification
+    fakeGit = new FakeGitService();
+    fakeGit.getStatus = async () => ({
+      modified: ["file1.ts", "file2.ts"],
+      untracked: ["newfile1.ts", "newfile2.ts"],
+      deleted: ["deletedfile1.ts"],
     });
-
-    // Mock execInRepository to avoid actual git commands
-    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
+    fakeGit.execInRepository = async (_workdir: string, command: string) => {
+      fakeGit.recordedCommands.push({ workdir: _workdir, command });
       if (command === GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD) {
         return "main";
       }
@@ -36,12 +32,7 @@ describe("GitService", () => {
         return "/mock/repo/path";
       }
       return "";
-    });
-  });
-
-  afterEach(() => {
-    // Restore all mocks
-    mock.restore();
+    };
   });
 
   // ========== Basic API Tests ==========
@@ -50,8 +41,8 @@ describe("GitService", () => {
     expect(gitService instanceof GitService).toBe(true);
   });
 
-  test("should get repository status", async () => {
-    const _status = await gitService.getStatus("/mock/repo/path");
+  test("should get repository status via fake", async () => {
+    const _status = await fakeGit.getStatus("/mock/repo/path");
 
     // Verify the returned status object has the expected structure and content
     expect(_status).toEqual({
@@ -62,6 +53,7 @@ describe("GitService", () => {
   });
 
   test("getSessionWorkdir should return the correct path", () => {
+    // Tests real GitService.getSessionWorkdir (not mocked — this tests actual behavior)
     const workdir = gitService.getSessionWorkdir("test-session");
 
     // NEW: Session-ID-based storage - expect session ID in path, not repo name
@@ -70,24 +62,24 @@ describe("GitService", () => {
     // Repository identity no longer part of filesystem path
   });
 
-  test("execInRepository should execute git commands in the specified repository", async () => {
-    const _branch = await gitService.execInRepository(
+  test("execInRepository should execute git commands in the specified repository via fake", async () => {
+    const _branch = await fakeGit.execInRepository(
       "/mock/repo/path",
       GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD
     );
     expect(_branch).toBe("main");
   });
 
-  test("execInRepository should propagate errors", async () => {
-    // Override the mock implementation to simulate an error
-    const execInRepoMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(
-      async (workdir, command) => {
-        throw new Error("Command execution failed");
-      }
+  test("execInRepository should propagate errors via fake", async () => {
+    // Configure fake to throw an error for git commands
+    const errorFake = new FakeGitService();
+    errorFake.setCommandError(
+      GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD,
+      new Error("Command execution failed")
     );
 
     try {
-      await gitService.execInRepository("/mock/repo/path", GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD);
+      await errorFake.execInRepository("/mock/repo/path", GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD);
       // The test should not reach this line
       expect(true).toBe(false);
     } catch (error: unknown) {
@@ -100,7 +92,7 @@ describe("GitService", () => {
   });
 
   test("should use session-ID-based storage in getSessionWorkdir", () => {
-    // NEW: Session-ID-based storage - repository normalization no longer needed for paths
+    // Tests real GitService.getSessionWorkdir (not mocked — this tests actual behavior)
     const workdir1 = gitService.getSessionWorkdir("test-session");
 
     // Path should contain session ID but NOT repository name
