@@ -351,6 +351,11 @@ export const sessionPrCreateCommandParams = {
     description: "Path to file containing PR body",
     required: false,
   },
+  sessionId: {
+    schema: z.string(),
+    description: "Session identifier (ID or task ID)",
+    required: false,
+  },
   name: commonSessionParams.name,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
