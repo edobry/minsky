@@ -57,9 +57,13 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("searchByText returns top-k ordered by lexical similarity", async () => {
-    const results = await service.searchByText("refactor modules and organization", 2);
+    const { results, searchBackend } = await service.searchByText(
+      "refactor modules and organization",
+      2
+    );
     expect(results.length).toBe(2);
     expect(first(results).id).toBe("md#102"); // best lexical match
+    expect(searchBackend).toBe("lexical"); // embeddings disabled, falls back to lexical
   });
 
   it("similarToTask finds similar tasks by content using lexical backend", async () => {
