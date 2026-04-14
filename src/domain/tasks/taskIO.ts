@@ -232,15 +232,6 @@ export async function listFiles(
 }
 
 /**
- * Get task file path from workspace path
- * @param workspacePath Workspace path
- * @returns Path to the tasks file
- */
-export function getTasksFilePath(workspacePath: string): string {
-  return join(workspacePath, "process", "tasks.md");
-}
-
-/**
  * Get task spec directory path from workspace path
  * @param workspacePath Workspace path
  * @returns Path to the task specs directory

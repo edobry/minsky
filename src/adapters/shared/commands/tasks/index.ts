@@ -33,7 +33,6 @@ export {
   createTasksDeleteCommand,
 } from "./crud-commands";
 
-export { MigrateTasksCommand, createMigrateTasksCommand } from "./migrate-command";
 export {
   TasksMigrateBackendCommand,
   createTasksMigrateBackendCommand,

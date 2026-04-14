@@ -17,7 +17,6 @@ import {
 import { createTasksSpecCommand } from "./tasks/spec-command";
 import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./tasks/status-commands";
 import { createTasksEditCommand } from "./tasks/edit-commands";
-import { createMigrateTasksCommand } from "./tasks/migrate-command";
 import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
 import { TasksSimilarCommand, TasksSearchCommand } from "./tasks/similarity-commands";
 import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
@@ -57,7 +56,6 @@ export class ModularTasksCommandManager {
       const specCommand = createTasksSpecCommand();
       const statusGetCommand = createTasksStatusGetCommand();
       const statusSetCommand = createTasksStatusSetCommand();
-      const migrateCommand = createMigrateTasksCommand();
       const migrateBackendCommand = createTasksMigrateBackendCommand();
 
       const similarCommand = new TasksSimilarCommand();
@@ -201,20 +199,6 @@ export class ModularTasksCommandManager {
           parameters: statusSetCommand.parameters,
           execute: async (params, context) => {
             return await statusSetCommand.execute(params, context);
-          },
-        })
-      );
-
-      // Register migrate command
-      sharedCommandRegistry.registerCommand(
-        defineCommand({
-          id: "tasks.migrate",
-          category: CommandCategory.TASKS,
-          name: "migrate",
-          description: "Migrate legacy task IDs to qualified format",
-          parameters: migrateCommand.parameters,
-          execute: async (params, context) => {
-            return await migrateCommand.execute(params, context);
           },
         })
       );

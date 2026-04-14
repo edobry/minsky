@@ -292,7 +292,6 @@ export interface WorkspaceSession {
   gitRoot: string;
   workspacePath: string;
   session: string;
-  sessionDbPath: string;
   sessionData: Record<string, unknown>;
 }
 
@@ -405,7 +404,6 @@ export async function getWorkspaceSession(
       gitRoot,
       workspacePath,
       session: sessionInfo.session,
-      sessionDbPath: "", // Placeholder for session DB path
       sessionData: {}, // Placeholder for session data
     };
   } catch {
