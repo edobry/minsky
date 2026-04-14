@@ -258,7 +258,7 @@ minsky sessiondb migrate to postgres --dry-run
 ### Error Recovery
 
 - **Automatic Retry**: Transient network errors
-- **Graceful Degradation**: Fall back to JSON backend on database failures
+- **Graceful Degradation**: Fall back to SQLite backend on database failures
 - **Data Recovery**: Restore from backups, repair corrupted data
 - **User Guidance**: Clear error messages with resolution steps
 

@@ -16,7 +16,8 @@ import { SqliteStorage } from "../../storage/backends/sqlite-storage";
 import type { SqliteStorageConfig } from "../../storage/backends/sqlite-storage";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
+import { homedir } from "os";
 
 /**
  * SQLite persistence provider implementation
@@ -60,7 +61,9 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
         throw new Error("SQLite configuration required for sqlite backend");
       }
 
-      const dbPath = this.config.sqlite.dbPath;
+      const dbPath = this.config.sqlite.dbPath.startsWith("~/")
+        ? join(homedir(), this.config.sqlite.dbPath.slice(2))
+        : this.config.sqlite.dbPath;
       log.debug(`Initializing SQLite persistence provider at ${dbPath}`);
 
       // Ensure directory exists
