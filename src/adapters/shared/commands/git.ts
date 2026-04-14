@@ -594,36 +594,13 @@ export function registerGitCommands(): void {
         let command: string;
 
         if (type === "content") {
-          // Use git grep to search working tree / specific ref
           const args: string[] = ["git", "-C", repoPath, "grep"];
           if (ignoreCase) args.push("-i");
-          args.push("-n"); // show line numbers
-          args.push("--", pattern);
-          if (params!.ref) {
-            // git grep searches working tree by default; to search at a ref, pass ref before --
-            // Rebuild: git grep [opts] <pattern> <ref> -- [path]
-            const grepArgs: string[] = ["git", "-C", repoPath, "grep"];
-            if (ignoreCase) grepArgs.push("-i");
-            grepArgs.push("-n");
-            grepArgs.push(pattern);
-            grepArgs.push(params!.ref);
-            if (params!.path) {
-              grepArgs.push("--", params!.path);
-            }
-            command = grepArgs.join(" ");
-          } else {
-            if (params!.path) args.push("--", params!.path);
-            // Remove the duplicate '--' already added before pattern
-            // Rebuild cleanly for working tree search
-            const cleanArgs: string[] = ["git", "-C", repoPath, "grep"];
-            if (ignoreCase) cleanArgs.push("-i");
-            cleanArgs.push("-n");
-            cleanArgs.push(pattern);
-            if (params!.path) {
-              cleanArgs.push("--", params!.path);
-            }
-            command = cleanArgs.join(" ");
-          }
+          args.push("-n");
+          args.push(pattern);
+          if (params!.ref) args.push(params!.ref);
+          if (params!.path) args.push("--", params!.path);
+          command = args.join(" ");
         } else if (type === "commits") {
           // Pickaxe search: find commits that added/removed the pattern
           const args: string[] = ["git", "-C", repoPath, "log"];
@@ -641,7 +618,7 @@ export function registerGitCommands(): void {
           args.push("--oneline");
           args.push("-p");
           if (ignoreCase) args.push("-i");
-          args.push(`--grep=${pattern}`);
+          args.push(`-G${pattern}`);
           if (params!.ref) args.push(params!.ref);
           if (params!.path) args.push("--", params!.path);
           command = args.join(" ");
