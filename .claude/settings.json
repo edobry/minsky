@@ -60,12 +60,12 @@
         ]
       },
       {
-        "matcher": "mcp__minsky__session_pr_merge",
+        "matcher": "mcp__minsky__session_pr_merge|mcp__github__merge_pull_request",
         "hooks": [
           {
             "type": "command",
-            "command": "git -C $CLAUDE_PROJECT_DIR pull --ff-only origin main 2>/dev/null || true",
-            "timeout": 15,
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-merge-pull.sh",
+            "timeout": 20,
             "statusMessage": "Pulling latest main..."
           }
         ]
