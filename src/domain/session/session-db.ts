@@ -5,6 +5,7 @@
 
 import { join } from "path";
 import { getMinskyStateDir } from "../../utils/paths";
+import { elementAt } from "../../utils/array-safety";
 
 /**
  * PR commit information
@@ -175,7 +176,10 @@ export function updateSessionFn(
     session?: string;
   };
   const updatedSessions = [...state.sessions];
-  updatedSessions[index] = { ...updatedSessions[index]!, ...safeUpdates } as SessionRecord;
+  updatedSessions[index] = {
+    ...elementAt(updatedSessions, index, "session-db updateSession"),
+    ...safeUpdates,
+  } as SessionRecord;
 
   return {
     ...state,

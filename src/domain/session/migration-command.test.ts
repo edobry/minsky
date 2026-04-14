@@ -2,7 +2,7 @@ import { describe, it, expect, mock } from "bun:test";
 import type { SessionProviderInterface, SessionRecord } from "./types";
 import { SessionMigrationService } from "./migration-command";
 import { isUuidSessionId } from "../tasks/task-id";
-import { first } from "../../utils/array-safety";
+import { first, elementAt } from "../../utils/array-safety";
 
 // Mock session data for testing
 const createMockSessionData = () => {
@@ -84,7 +84,10 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       async (sessionId: string, updates: Partial<Omit<SessionRecord, "session">>) => {
         const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
         if (sessionIndex !== -1) {
-          sessions[sessionIndex] = { ...sessions[sessionIndex]!, ...updates };
+          sessions[sessionIndex] = {
+            ...elementAt(sessions, sessionIndex, "migration-command.test updateSession"),
+            ...updates,
+          };
         }
       }
     ),

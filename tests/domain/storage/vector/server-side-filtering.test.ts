@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { first } from "../../../../src/utils/array-safety";
+import { first, elementAt } from "../../../../src/utils/array-safety";
 import { MemoryVectorStorage } from "../../../../src/domain/storage/vector/memory-vector-storage";
 import type { SearchOptions } from "../../../../src/domain/storage/vector/types";
 
@@ -117,7 +117,11 @@ describe("VectorStorage Server-Side Filtering", () => {
 
     // Verify scores are in ascending order (lower score = better match)
     for (let i = 1; i < results.length; i++) {
-      expect(results[i]!.score).toBeGreaterThanOrEqual(results[i - 1]!.score);
+      expect(
+        elementAt(results, i, "server-side-filtering results[i]").score
+      ).toBeGreaterThanOrEqual(
+        elementAt(results, i - 1, "server-side-filtering results[i-1]").score
+      );
     }
   });
 });

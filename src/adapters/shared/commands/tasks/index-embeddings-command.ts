@@ -3,6 +3,7 @@ import type { CommandExecutionContext } from "../../command-registry";
 import { createTaskSimilarityService } from "./similarity-commands";
 import { tasksIndexEmbeddingsParams } from "./task-parameters";
 import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks/taskCommands";
+import { elementAt } from "../../../../utils/array-safety";
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
@@ -66,7 +67,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
       while (true) {
         const idx = i++;
         if (idx >= tasks.length) break;
-        const t = tasks[idx]!;
+        const t = elementAt(tasks, idx, "index-embeddings worker tasks");
         const changed = await service.indexTask(t.id);
         if (!(params.json || ctx.format === "json")) {
           log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
