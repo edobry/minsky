@@ -1,4 +1,5 @@
 import type { SimilarityBackend, SimilarityItem, SimilarityQuery } from "./types";
+import { log } from "../../utils/logger";
 
 export class SimilaritySearchService {
   private readonly backends: SimilarityBackend[];
@@ -24,11 +25,15 @@ export class SimilaritySearchService {
         const items = await backend.search(query);
         this.lastUsedBackend = backend.name;
         return Array.isArray(items) ? items : [];
-      } catch {
+      } catch (error) {
+        log.warn(`Similarity search backend "${backend.name}" failed, trying next`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
         continue;
       }
     }
     this.lastUsedBackend = null;
+    log.warn("All similarity search backends failed; returning empty results");
     return [];
   }
 }

@@ -49,14 +49,18 @@ export class TaskSimilarityService {
     limit = 10,
     threshold?: number,
     filters?: Record<string, unknown>
-  ): Promise<SearchResult[]> {
+  ): Promise<{ results: SearchResult[]; searchBackend: string | null }> {
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
       listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
       getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
     });
     const items = await core.search({ queryText: query, limit, filters });
-    return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
+    const searchBackend = core.getLastUsedBackend();
+    return {
+      results: items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata })),
+      searchBackend,
+    };
   }
 
   async searchSimilarTasks(
@@ -69,7 +73,7 @@ export class TaskSimilarityService {
 
     // Create a natural language query from the search terms
     const query = this.constructSearchQuery(searchTerms);
-    const results = await this.searchByText(query, limit * 2, threshold); // Get more to filter
+    const { results } = await this.searchByText(query, limit * 2, threshold); // Get more to filter
 
     // Filter out excluded task IDs
     return results.filter((result) => !excludeTaskIds.includes(result.id)).slice(0, limit);

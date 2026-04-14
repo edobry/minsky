@@ -264,7 +264,30 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
-    const searchResults = await service.searchByText(query, limit, threshold, filters);
+    const { results: searchResults, searchBackend } = await service.searchByText(
+      query,
+      limit,
+      threshold,
+      filters
+    );
+
+    // Show backend info to stderr unless JSON/quiet
+    try {
+      const { log } = await import("../../../../utils/logger");
+      const quiet = Boolean(params.quiet);
+      const json = Boolean(params.json) || ctx.format === "json";
+      if (!quiet && !json) {
+        const backendLabel =
+          searchBackend === "embeddings"
+            ? "embeddings"
+            : searchBackend
+              ? searchBackend
+              : "lexical (embedding unavailable)";
+        log.cliWarn(`Search backend: ${backendLabel}`);
+      }
+    } catch {
+      // ignore logging failures
+    }
 
     // Enhance results with task details for better usability
     const includeSpecPath = params.backend !== "minsky";
@@ -282,6 +305,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
+        searchBackend: searchBackend ?? "lexical",
         details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
