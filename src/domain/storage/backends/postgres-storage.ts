@@ -21,6 +21,7 @@ import type {
 } from "../database-storage";
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
 import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schemas/session-schema";
+import type { PersistenceProvider } from "../../persistence/types";
 
 /**
  * PostgreSQL storage configuration
@@ -54,9 +55,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private sql: ReturnType<typeof postgres> | null = null;
   private drizzle: ReturnType<typeof drizzle> | null = null;
   private readonly connectionString: string;
+  private readonly persistenceProvider?: PersistenceProvider;
 
-  constructor(config: PostgresStorageConfig) {
+  constructor(config: PostgresStorageConfig, persistenceProvider?: PersistenceProvider) {
     this.connectionString = config.connectionString;
+    this.persistenceProvider = persistenceProvider;
   }
 
   /**
@@ -67,11 +70,14 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return; // Already initialized
     }
 
-    // Get connection from PersistenceService
-    const { PersistenceService } = await import("../../persistence/service");
-
-    // PersistenceService should already be initialized at application startup
-    const provider = PersistenceService.getProvider();
+    // Use injected provider or fall back to PersistenceService singleton
+    let provider: PersistenceProvider;
+    if (this.persistenceProvider) {
+      provider = this.persistenceProvider;
+    } else {
+      const { PersistenceService } = await import("../../persistence/service");
+      provider = PersistenceService.getProvider();
+    }
 
     const capabilities = provider.getCapabilities();
     if (!capabilities.sql) {

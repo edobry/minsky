@@ -11,7 +11,7 @@ import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { getDefaultSqliteDbPath } from "../../utils/paths";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
-import { PersistenceService } from "./service";
+import type { PersistenceProvider } from "./types";
 import { getPostgresMigrationsStatus } from "./migration-operations";
 
 /**
@@ -93,7 +93,7 @@ export async function validateSqliteBackend(filePath: string | undefined): Promi
 /**
  * Validate PostgreSQL backend
  */
-export async function validatePostgresBackend(): Promise<{
+export async function validatePostgresBackend(persistenceProvider?: PersistenceProvider): Promise<{
   success: boolean;
   details: string;
   issues?: string[];
@@ -129,10 +129,14 @@ export async function validatePostgresBackend(): Promise<{
       `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
     );
 
-    // Basic connection test
-    // Use PersistenceService for connection testing
-    // PersistenceService should already be initialized at CLI startup
-    const provider = PersistenceService.getProvider();
+    // Use injected provider or fall back to PersistenceService singleton
+    let provider: PersistenceProvider;
+    if (persistenceProvider) {
+      provider = persistenceProvider;
+    } else {
+      const { PersistenceService } = await import("./service");
+      provider = PersistenceService.getProvider();
+    }
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
