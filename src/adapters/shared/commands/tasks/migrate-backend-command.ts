@@ -316,6 +316,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
             force: true,
             id: newTaskId,
             status: fullTask.status,
+            tags: fullTask.tags,
           });
 
           // Update session task associations if task ID changed
