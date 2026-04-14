@@ -209,28 +209,3 @@ export const mockTaskSpecs = {
     status: "TODO",
   }),
 };
-
-export const mockTasks = {
-  markdown: (id: string): Task => ({
-    id: `md#${id}`,
-    title: `Markdown Task ${id}`,
-    status: "TODO",
-    description: `A test task from markdown backend`,
-    metadata: {
-      createdAt: "2024-01-01T00:00:00Z",
-      backend: "md",
-    },
-  }),
-
-  github: (id: string): Task => ({
-    id: `gh#${id}`,
-    title: `GitHub Issue ${id}`,
-    status: "OPEN",
-    description: `A test issue from GitHub backend`,
-    metadata: {
-      createdAt: "2024-01-01T00:00:00Z",
-      backend: "gh",
-      issueNumber: parseInt(id),
-    },
-  }),
-};
