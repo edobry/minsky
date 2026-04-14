@@ -31,6 +31,7 @@ export class PostgresPersistenceProvider
   protected sql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
+  private cachedStorage: DatabaseStorage<unknown, unknown> | null = null;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -72,7 +73,7 @@ export class PostgresPersistenceProvider
         postgres(pgConfig.connectionString, {
           max: pgConfig.maxConnections || 10,
           connect_timeout: pgConfig.connectTimeout || 10,
-          idle_timeout: pgConfig.idleTimeout || 10,
+          idle_timeout: pgConfig.idleTimeout || 60,
           prepare: pgConfig.prepareStatements ?? false,
         });
 
@@ -108,19 +109,23 @@ export class PostgresPersistenceProvider
       throw new Error("PostgresPersistenceProvider not initialized");
     }
 
-    // Return the actual PostgreSQL storage implementation
+    // Return cached storage instance — creating a new one every call caused
+    // independent connection pools and fire-and-forget initialization (mt#722)
+    if (this.cachedStorage) {
+      return this.cachedStorage as DatabaseStorage<T, S>;
+    }
+
     const { PostgresStorage } = require("../../storage/backends/postgres-storage");
-    const storage = new PostgresStorage({
-      connectionString: this.config.postgres!.connectionString,
-      maxConnections: this.config.postgres!.maxConnections || 10,
-      connectTimeout: this.config.postgres!.connectTimeout || 30,
-    });
-    // Initialize the storage before returning
-    storage.initialize().catch((err: unknown) => {
-      log.error("Failed to initialize PostgreSQL storage:", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    const storage = new PostgresStorage(
+      {
+        connectionString: this.config.postgres!.connectionString,
+        maxConnections: this.config.postgres!.maxConnections || 10,
+        connectTimeout: this.config.postgres!.connectTimeout || 30,
+      },
+      this // Pass provider so storage reuses our connections
+    );
+
+    this.cachedStorage = storage;
     return storage as DatabaseStorage<T, S>;
   }
 

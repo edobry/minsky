@@ -16,7 +16,8 @@ description = "Documentation and test examples"
 paths = [
   '''docs/.*''',
   '''README\.md''',
-  '''process/tasks/.*\.md'''
+  '''process/tasks/.*\.md''',
+  '''.*\.test\.ts'''
 ]
 regexes = [
   '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',
