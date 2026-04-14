@@ -84,12 +84,10 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract getConnectionInfo(): string;
 
   // Optional capability methods — implemented by SQL/vector-capable subclasses.
-  // These use 'any' in the base class because SQLite and PostgreSQL return different concrete
-  // DB types; callers that need typed connections should cast via SqlCapablePersistenceProvider.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL); callers narrow via SqlCapablePersistenceProvider
-  getDatabaseConnection?(): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- base class must accept multiple backend return types (SQLite vs PostgreSQL)
-  getRawSqlConnection?(): Promise<any>;
+  // Returns `unknown` because SQLite and PostgreSQL return different concrete DB types;
+  // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
+  getDatabaseConnection?(): Promise<unknown>;
+  getRawSqlConnection?(): Promise<unknown>;
   getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
 }
 

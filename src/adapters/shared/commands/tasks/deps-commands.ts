@@ -52,7 +52,7 @@ export function createTasksDepsAddCommand(getPersistenceProvider: () => Persiste
     parameters: tasksDepsAddParams,
     execute: async (params: InferParams<typeof tasksDepsAddParams>) => {
       const persistence = getPersistenceProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
 
@@ -73,7 +73,7 @@ export function createTasksDepsRmCommand(getPersistenceProvider: () => Persisten
     parameters: tasksDepsRmParams,
     execute: async (params: InferParams<typeof tasksDepsRmParams>) => {
       const persistence = getPersistenceProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -94,7 +94,7 @@ export function createTasksDepsListCommand(getPersistenceProvider: () => Persist
     parameters: tasksDepsListParams,
     execute: async (params: InferParams<typeof tasksDepsListParams>) => {
       const persistence = getPersistenceProvider();
-      const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);
       const dependents = await service.listDependents(params.task);

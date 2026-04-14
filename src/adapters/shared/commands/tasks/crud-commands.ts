@@ -223,7 +223,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         if (this.getPersistenceProvider) {
           try {
             const persistence = this.getPersistenceProvider();
-            const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+            const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
             const service = new TaskGraphService(db);
             for (const dep of deps) {
               try {
