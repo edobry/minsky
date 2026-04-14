@@ -151,7 +151,7 @@ export function generateDiffSummary(
 
   let linesAdded = 0;
   let linesRemoved = 0;
-  let linesChanged = 0;
+  const linesChanged = 0;
 
   const minLines = Math.min(originalLines.length, modifiedLines.length);
   const _maxLines = Math.max(originalLines.length, modifiedLines.length);

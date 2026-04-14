@@ -40,7 +40,7 @@ export async function preparePr(
 
   // Determine working directory and current branch
   if (options.session) {
-    let record = await deps.sessionDb.getSession(options.session);
+    const record = await deps.sessionDb.getSession(options.session);
 
     // Add more detailed debugging
     log.debug(

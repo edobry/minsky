@@ -59,7 +59,7 @@ export function formatGitHubTasks(tasks: TaskData[], statusLabels: Record<string
 export function parseGitHubTaskSpec(content: string): TaskSpecData {
   const lines = content.toString().split("\n");
   let title = "";
-  let metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = {};
   let currentSection = "";
   const descriptionLines: string[] = [];
 

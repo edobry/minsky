@@ -297,7 +297,7 @@ export class SemanticErrorClassifier {
       this.extractPathFromError(rawMessage);
 
     // Enhance solutions based on context
-    let solutions = [...mapping.solutions];
+    const solutions = [...mapping.solutions];
 
     // Add context-specific solutions
     if (

@@ -130,10 +130,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     let referenceRepo: string | undefined;
     if (!repo) {
       try {
-        let candidatePath: string | undefined;
         const { getConfiguration } = await import("../configuration/index");
         const cfg = getConfiguration() as { workspace?: { mainPath?: string } };
-        candidatePath = cfg.workspace?.mainPath || currentDir;
+        const candidatePath = cfg.workspace?.mainPath || currentDir;
 
         const localRemote = (
           await deps.gitService.execInRepository(candidatePath, "git remote get-url origin")
@@ -212,7 +211,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Check if a session already exists for this task
     if (taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
-      let taskSession = existingSessions.find((s: SessionRecord) => {
+      const taskSession = existingSessions.find((s: SessionRecord) => {
         // Both taskId (from schema normalization) and s.taskId should be in plain format
         return s.taskId === taskId;
       });

@@ -9,7 +9,7 @@ import { mkdir, writeFile } from "fs/promises";
 
 // ❌ SHOULD BE DETECTED: Global counters
 let testSequenceNumber = 0;
-let _globalCounter = 0;
+const _globalCounter = 0;
 
 describe("filesystem operations test", () => {
   // ❌ SHOULD BE DETECTED: Real filesystem in test hooks
