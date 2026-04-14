@@ -10,6 +10,8 @@ export interface CloneOptions {
   workdir: string; // Explicit path where to clone, provided by caller
   session?: string;
   branch?: string;
+  /** Local repo path to use as git --reference source for faster cloning */
+  referenceRepo?: string;
 }
 
 /**
@@ -61,8 +63,9 @@ export async function cloneImpl(
     }
 
     // Clone the repository with verbose logging FIRST
-    log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
-    const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
+    const refFlag = options.referenceRepo ? `--reference "${options.referenceRepo}" ` : "";
+    const cloneCmd = `git clone ${refFlag}${options.repoUrl} ${workdir}`;
+    log.debug(`Executing: ${cloneCmd}`);
 
     // Ensure parent directory exists (handle undefined workdir)
     if (!workdir) {
