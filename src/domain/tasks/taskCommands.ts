@@ -309,7 +309,7 @@ export async function setTaskStatusFromParams(
         validParams.taskId
       );
     }
-    const oldStatus = task.status;
+    const _oldStatus = task.status;
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
@@ -425,7 +425,7 @@ export async function createTaskFromParams(
     const validParams = taskCreateParamsSchema.parse(params);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
+    const _repoPath = await deps.resolveRepoPath({
       session: validParams.session,
       repo: validParams.repo,
     });
@@ -538,7 +538,7 @@ export async function getTaskSpecContentFromParams(
     const taskId = taskIdString; // Use directly since we now only accept qualified IDs
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
+    const _repoPath = await deps.resolveRepoPath({
       session: validParams.session,
       repo: validParams.repo,
     });

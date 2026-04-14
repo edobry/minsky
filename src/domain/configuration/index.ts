@@ -324,7 +324,7 @@ export class CustomConfigFactory implements ConfigurationFactory {
  * It can be switched between implementations for migration.
  */
 let globalProvider: ConfigurationProvider | null = null;
-let globalFactory: ConfigurationFactory | null = null;
+let _globalFactory: ConfigurationFactory | null = null;
 
 /**
  * Initialize the configuration system
@@ -341,7 +341,7 @@ export async function initializeConfiguration(
     enableCache?: boolean;
   }
 ): Promise<void> {
-  globalFactory = factory;
+  _globalFactory = factory;
   globalProvider = await factory.createProvider(options);
 }
 

@@ -110,7 +110,7 @@ export async function sessionPrGet(
       try {
         // Use the repository backend to query GitHub
         const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
-        const repositoryBackend = await createRepositoryBackendFromSession(
+        const _repositoryBackend = await createRepositoryBackendFromSession(
           sessionRecord,
           sessionDB
         );

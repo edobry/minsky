@@ -141,7 +141,7 @@ describe("session update command", () => {
     };
 
     // Use directory isolation to mock process.cwd
-    const dirIsolation = withDirectoryIsolation();
+    const _dirIsolation = withDirectoryIsolation();
 
     const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     mockSessionDB.getSessionWorkdir = async () => sessionPath;

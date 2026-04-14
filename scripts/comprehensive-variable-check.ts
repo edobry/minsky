@@ -29,7 +29,7 @@ async function analyzeFile(filePath: string): Promise<VariableIssue[]> {
       skipLibCheck: true,
     });
 
-    const checker = program.getTypeChecker();
+    const _checker = program.getTypeChecker();
     const diagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
 
     // Look for "Cannot find name" errors

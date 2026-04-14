@@ -16,7 +16,6 @@ import type {
   RepositoryBackendConfig,
   CloneResult,
   BranchResult,
-  Result,
   ValidationResult,
   RepoStatus,
   PRInfo,
@@ -492,7 +491,7 @@ Repository: ${this.repoUrl}
     const { sessionPr } = await import("../session/commands/pr-command");
     const { createGitService } = await import("../git");
 
-    const result = await sessionPr(
+    const _result = await sessionPr(
       {
         sessionId: options.session!,
         title: options.title ?? "Update PR",

@@ -286,7 +286,7 @@ export function createStartCommand(): Command {
         log.cli("Press Ctrl+C to stop");
 
         // Handle termination signals gracefully when possible
-        const cleanup = async () => {
+        const _cleanup = async () => {
           log.cli("\nStopping Minsky MCP Server...");
           try {
             await server.close();

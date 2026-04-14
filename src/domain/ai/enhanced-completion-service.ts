@@ -24,7 +24,7 @@ export class EnhancedAICompletionService implements AICompletionService {
   }
 
   async complete(params: AICompletionRequest): Promise<AICompletionResponse> {
-    const { provider, model } = params;
+    const { provider: _provider, model: _model } = params;
 
     try {
       return await this.retryService.execute(

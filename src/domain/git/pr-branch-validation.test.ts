@@ -3,7 +3,7 @@ import { preparePrImpl } from "./prepare-pr-operations";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
 // Mock execGitWithTimeout since that's what preparePrImpl actually uses
-const mockExecGitWithTimeout = mock();
+const _mockExecGitWithTimeout = mock();
 
 const TEST_SESSION = "550e8400-e29b-41d4-a716-446655440000";
 const TEST_BRANCH = "task/md-357";

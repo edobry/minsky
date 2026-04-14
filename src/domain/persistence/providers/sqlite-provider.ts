@@ -10,7 +10,7 @@ import {
   PersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  DatabaseStorage,
+  type SessionStorage,
 } from "../types";
 import { SqliteStorage } from "../../storage/backends/sqlite-storage";
 import type { SqliteStorageConfig } from "../../storage/backends/sqlite-storage";
@@ -116,12 +116,11 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
   /**
    * Get storage instance for domain entities
    */
-  getStorage<T, S>(): DatabaseStorage<T, S> {
+  getStorage(): SessionStorage {
     if (!this.storage) {
       throw new Error("SqlitePersistenceProvider not initialized");
     }
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- generic narrowing from concrete storage type to typed DatabaseStorage<T,S> is unavoidable
-    return this.storage as unknown as DatabaseStorage<T, S>;
+    return this.storage;
   }
 
   /**

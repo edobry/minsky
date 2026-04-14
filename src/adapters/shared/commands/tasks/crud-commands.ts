@@ -192,7 +192,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 
     try {
       // Validate required parameters
-      const title = this.validateRequired(params.title, "title");
+      this.validateRequired(params.title, "title");
 
       // Validate that either description or specPath is provided
       if (!params.description && !params.specPath) {

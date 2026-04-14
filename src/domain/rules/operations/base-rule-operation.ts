@@ -188,7 +188,7 @@ export class RuleOperationRegistry {
    * Register a rule operation
    */
   register<TParams, TResult>(name: string, operation: BaseRuleOperation<TParams, TResult>): void {
-    this.operations.set(name, operation);
+    this.operations.set(name, operation as BaseRuleOperation<unknown, unknown>);
   }
 
   /**

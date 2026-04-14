@@ -163,7 +163,7 @@ export class SharedErrorHandler {
    */
   static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    const normalizedError = ensureError(error);
+    const _normalizedError = ensureError(error);
 
     // Format error for structured logging
     const formattedError = SharedErrorHandler.formatError(error, debug);

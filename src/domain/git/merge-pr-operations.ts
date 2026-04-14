@@ -1,4 +1,3 @@
-import { normalizeRepoName } from "../repo-utils";
 import type { SessionProviderInterface } from "../session";
 
 export interface MergePrOptions {
@@ -42,7 +41,6 @@ export async function mergePrImpl(
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
   } else if (options.repoPath) {
     workdir = options.repoPath;

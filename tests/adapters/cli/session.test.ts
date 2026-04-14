@@ -139,7 +139,7 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       // Use directory isolation to mock process.cwd
-      const dirIsolation = withDirectoryIsolation();
+      const _dirIsolation = withDirectoryIsolation();
 
       const mockSessionProviderCurrent = new FakeSessionProvider({
         initialSessions: [

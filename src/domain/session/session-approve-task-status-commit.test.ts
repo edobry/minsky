@@ -24,7 +24,7 @@ import { FakeSessionProvider } from "./fake-session-provider";
 
 describe("Session Approve Task Status Commit", () => {
   // Mock log functions used by session approve operations
-  const log = {
+  const _log = {
     cli: mock(() => {}),
     info: mock(() => {}),
     debug: mock(() => {}),

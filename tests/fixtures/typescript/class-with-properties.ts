@@ -6,11 +6,6 @@ interface User {
   email: string;
 }
 
-interface UserServiceConfig {
-  apiUrl: string;
-  timeout: number;
-}
-
 export class UserService {
   private users: User[] = [];
 

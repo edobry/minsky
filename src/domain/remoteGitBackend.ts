@@ -102,7 +102,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   async clone(session: string): Promise<CloneResult> {
     try {
       // Normalize the repository name
-      const repoName = normalizeRepoName(this.config.url);
+      const _repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(session);

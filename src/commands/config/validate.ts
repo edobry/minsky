@@ -20,7 +20,7 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
   try {
     // Get current configuration
     const provider = getConfigurationProvider();
-    const config = provider.getConfig();
+    const _config = provider.getConfig();
 
     // Validate configuration
     const validationResult = validateConfiguration();

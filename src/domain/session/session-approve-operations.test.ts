@@ -10,7 +10,7 @@ describe("Session Approval Repository Backend Bug", () => {
   let mockSessionDB: FakeSessionProvider;
   let mockGitService: FakeGitService;
   let mockRepositoryBackend: RepositoryBackend;
-  let mockCreateRepositoryBackend: ReturnType<typeof mock>;
+  let _mockCreateRepositoryBackend: ReturnType<typeof mock>;
   let mockTaskService: FakeTaskService;
 
   beforeEach(() => {
@@ -36,7 +36,7 @@ describe("Session Approval Repository Backend Bug", () => {
     mockTaskService.getTaskStatus = mock(() => Promise.resolve("TODO")) as any;
 
     // Mock createRepositoryBackend to return our mock backend
-    mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
+    _mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
   });
 
   /**

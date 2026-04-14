@@ -361,7 +361,7 @@ async function discoverTestFiles(workspacePath: string): Promise<TestContextInpu
 
     // Categorize by type
     files.forEach((file) => {
-      const ext = path.extname(file);
+      const _ext = path.extname(file);
       const type = getTestFileType(file);
       testFiles.byType[type] = (testFiles.byType[type] || 0) + 1;
     });

@@ -41,16 +41,6 @@ function loadMonitorData() {
   }
 }
 
-function saveMonitorData() {
-  try {
-    const data = testMonitor.exportData();
-    mockWriteFileSync(MONITOR_DATA_FILE, data);
-    console.log("💾 Saved test monitoring data");
-  } catch (error) {
-    console.error("❌ Failed to save test monitoring data:", error);
-  }
-}
-
 function showQualityReport() {
   loadMonitorData();
 

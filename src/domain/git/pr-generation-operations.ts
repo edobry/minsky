@@ -55,12 +55,11 @@ export async function prWithDependenciesImpl(
     log.debug(`Using branch: ${branch}`);
   }
 
-  const { baseBranch, mergeBase, comparisonDescription } = await determineBaseBranchAndMergeBase(
-    workdir,
-    branch,
-    options,
-    deps
-  );
+  const {
+    baseBranch: _baseBranch,
+    mergeBase,
+    comparisonDescription,
+  } = await determineBaseBranchAndMergeBase(workdir, branch, options, deps);
 
   if (options.debug) {
     log.debug(`Using merge base: ${mergeBase}`);
