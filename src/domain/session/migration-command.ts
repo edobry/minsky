@@ -139,7 +139,7 @@ export class SessionMigrationService {
     const backupPath = `session-backup-${timestamp}.json`;
 
     // In a real implementation, this would write to the actual backup location
-    const backupData = {
+    const _backupData = {
       timestamp: new Date().toISOString(),
       sessionCount: allSessions.length,
       sessions: allSessions,
@@ -195,7 +195,7 @@ export class SessionMigrationService {
    */
   private migrateSession(session: SessionRecord): SessionMigrationResult {
     try {
-      const enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
+      const _enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
       // Strict-only: perform a minimal migration that upgrades legacy task IDs and session IDs
       let migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
       let sessionIdChanged = false;

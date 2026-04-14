@@ -109,7 +109,7 @@ async function loggingApplyEditPattern(
   }
 
   console.log("\n🚀 CALLING MORPH API WITH REAL COMPLETION SERVICE...");
-  const startTime = Date.now();
+  const _startTime = Date.now();
 
   try {
     // Use the same import pattern as session-edit-tools.ts

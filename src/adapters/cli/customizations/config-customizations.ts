@@ -35,20 +35,6 @@ function flattenObjectToKeyValue(obj: Record<string, unknown>): Record<string, u
 }
 
 /**
- * Determine config category name from command ID
- * @param commandId Command identifier
- * @returns Config category name
- */
-function getConfigCategory(commandId: string): string {
-  const categoryMap: { [key: string]: string } = {
-    "config.list": "CONFIG",
-    "config.show": "CONFIG",
-  };
-
-  return categoryMap[commandId] || "CONFIG";
-}
-
-/**
  * Flatten nested object into key=value pairs suitable for display
  * @param obj Object to flatten
  * @param prefix Prefix for keys

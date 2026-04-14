@@ -12,11 +12,8 @@ import {
   type RuleGenerationConfig,
   type TemplateContext,
 } from "./template-system";
-import * as grayMatterNamespace from "gray-matter";
 import { log } from "../../utils/logger";
 import { serializeYamlFrontmatter } from "./utils/yaml-frontmatter";
-
-const matter = grayMatterNamespace.default || grayMatterNamespace;
 
 /**
  * Template for generating rule content and metadata

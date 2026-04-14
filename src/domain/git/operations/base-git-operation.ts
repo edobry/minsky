@@ -169,7 +169,7 @@ export class GitOperationRegistry {
    * Register a git operation
    */
   register<TParams, TResult>(name: string, operation: BaseGitOperation<TParams, TResult>): void {
-    this.operations.set(name, operation);
+    this.operations.set(name, operation as BaseGitOperation<unknown, unknown>);
   }
 
   /**

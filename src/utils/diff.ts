@@ -154,7 +154,7 @@ export function generateDiffSummary(
   let linesChanged = 0;
 
   const minLines = Math.min(originalLines.length, modifiedLines.length);
-  const maxLines = Math.max(originalLines.length, modifiedLines.length);
+  const _maxLines = Math.max(originalLines.length, modifiedLines.length);
 
   // Compare overlapping lines first
   for (let i = 0; i < minLines; i++) {

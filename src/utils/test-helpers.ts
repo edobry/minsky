@@ -4,7 +4,7 @@ const SHORT_ID_LENGTH = 8;
 /**
  * Test utilities for ensuring consistent test environment setup and cleanup.
  */
-import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
+// fs imports removed — test-helpers uses in-memory virtualFS instead of real filesystem operations
 import { join, dirname } from "path";
 import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
 import type { WriteFileOptions } from "fs";
@@ -68,16 +68,6 @@ export function mockReadFileSync(path: string, _options?: { encoding?: BufferEnc
   }
   return file?.content || "";
 }
-
-// Use function type assertions to avoid TypeScript errors with type compatibility
-// Create a union type of the real and mock operations
-type FS = {
-  mkdirSync: typeof mkdirSync | typeof mockMkdirSync;
-  existsSync: typeof existsSync | typeof mockExistsSync;
-  rmSync: typeof rmSync | typeof mockRmSync;
-  writeFileSync: typeof writeFileSync | typeof mockWriteFileSync;
-  readFileSync: typeof readFileSync | typeof mockReadFileSync;
-};
 
 // Setup to use real or mock filesystem based on environment
 const _useVirtualFS = true; // Set to true to use virtual filesystem

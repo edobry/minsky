@@ -488,7 +488,7 @@ async function main() {
 
     // Create and run the backfill tool
     const tool = new DependencyBackfillTool(taskService, graphService);
-    const results = await tool.execute(isDryRun);
+    await tool.execute(isDryRun);
 
     // Print results
     tool.printResults();

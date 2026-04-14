@@ -240,7 +240,7 @@ describe("Session Migration Command", () => {
         const migrationService = new SessionMigrationService(sessionDB);
 
         // Mock the backup creation
-        const originalCreateBackup = migrationService.createBackup;
+        const _originalCreateBackup = migrationService.createBackup;
         const mockCreateBackup = mock(async () => "backup-123.json");
         migrationService.createBackup = mockCreateBackup;
 
@@ -344,7 +344,7 @@ describe("Session Migration Command", () => {
         const migrationService = new SessionMigrationService(sessionDB);
 
         // Force an error by mocking the migration logic
-        const originalMigrateSession = (migrationService as any).migrateSession;
+        const _originalMigrateSession = (migrationService as any).migrateSession;
         (migrationService as any).migrateSession = mock(() => {
           throw new Error("Migration failed");
         });

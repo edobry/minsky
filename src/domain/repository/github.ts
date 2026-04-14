@@ -13,7 +13,6 @@ import type {
   RepositoryBackendConfig,
   CloneResult,
   BranchResult,
-  Result,
   ValidationResult,
   RepoStatus,
   PRInfo,
@@ -149,7 +148,7 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const result = await this.gitService.clone({
+      const _result = await this.gitService.clone({
         repoUrl: this.repoUrl,
         workdir,
         session,
@@ -313,7 +312,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
    * @returns Object with repository status information
    */
   async getStatusForSession(session: string): Promise<RepositoryStatus> {
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(session);
     return this.getStatus(); // Reuse the existing implementation
   }
 

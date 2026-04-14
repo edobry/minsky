@@ -287,13 +287,13 @@ export function createProjectConfigFile(
   const fileName = format === "json" ? "minsky.config.json" : "minsky.config.yaml";
   const filePath = join(projectRoot, fileName);
 
-  let content: string;
+  let _content: string;
 
   if (format === "json") {
-    content = JSON.stringify(config, null, 2);
+    _content = JSON.stringify(config, null, 2);
   } else {
     // Convert to YAML (simple implementation)
-    content = `# Minsky Project Configuration
+    _content = `# Minsky Project Configuration
 # This file is committed to version control and shared across the team
 
 ${objectToYaml(config)}`;

@@ -317,7 +317,7 @@ export const isHumanMode = () => getDefaultLogger().isHumanMode();
 export { createLogger as createConfigurableLogger };
 
 // Ensure logs are written before exiting on unhandled exceptions/rejections
-const handleExit = async (error?: Error) => {
+const _handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
     defaultLogger!._internal.programLogger.error("Unhandled error or rejection, exiting.", error);

@@ -33,7 +33,7 @@ async function createTempDir(): Promise<string> {
  */
 function createTestRepo(baseDir: string, name: string): string {
   const repoPath = join(baseDir, name);
-  const gitDir = join(repoPath, ".git");
+  const _gitDir = join(repoPath, ".git");
 
   // Mock directory creation - avoiding real filesystem operations
   return repoPath;

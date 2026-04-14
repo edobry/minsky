@@ -155,7 +155,7 @@ describe("Session Database BaseDir Bug", () => {
     });
 
     // Mock successful git operations with correct path
-    const mockSuccessfulExecGit = mock(() =>
+    const _mockSuccessfulExecGit = mock(() =>
       Promise.resolve({
         stdout: "",
         stderr: "",

@@ -277,7 +277,7 @@ async function selectRelevantFiles(
 function scoreFileRelevance(filePath: string, userPrompt?: string, workspacePath?: string): number {
   let score = 0;
   const fileName = path.basename(filePath).toLowerCase();
-  const dirName = path.dirname(filePath).toLowerCase();
+  const _dirName = path.dirname(filePath).toLowerCase();
 
   // Base score for common important files
   if (fileName === "package.json") score += 5;

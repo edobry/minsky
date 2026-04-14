@@ -72,7 +72,7 @@ export async function cloneImpl(
     log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
     try {
-      const { stdout, stderr } = await deps.execAsync(cloneCmd);
+      const { stdout, stderr: _stderr } = await deps.execAsync(cloneCmd);
       log.debug("git clone succeeded", {
         stdout: stdout.trim().substring(0, 200),
       });

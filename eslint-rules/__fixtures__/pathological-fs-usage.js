@@ -9,12 +9,12 @@ import { mkdir, writeFile } from "fs/promises";
 
 // ❌ SHOULD BE DETECTED: Global counters
 let testSequenceNumber = 0;
-let globalCounter = 0;
+let _globalCounter = 0;
 
 describe("filesystem operations test", () => {
   // ❌ SHOULD BE DETECTED: Real filesystem in test hooks
   beforeEach(async () => {
-    const sequence = ++testSequenceNumber; // Race condition!
+    const _sequence = ++testSequenceNumber; // Race condition!
     await mkdir(testDir, { recursive: true }); // Race condition!
     await writeFile(testFile, "data"); // Filesystem conflict!
   });
@@ -39,7 +39,7 @@ describe("filesystem operations test", () => {
   it("should detect dynamic imports", () => {
     // ❌ SHOULD BE DETECTED: Dynamic imports of filesystem modules
     const fs = require("fs");
-    const path = require("path");
+    const _path = require("path");
 
     const testPath = "/tmp/dynamic-test";
     fs.mkdirSync(testPath);

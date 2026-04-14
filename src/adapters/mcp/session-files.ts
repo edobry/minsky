@@ -20,140 +20,6 @@ import {
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
 /**
- * Utility function to process file content with line range support
- */
-function processFileContentWithLineRange(
-  content: string,
-  options: {
-    startLine?: number;
-    endLine?: number;
-    shouldReadEntireFile?: boolean;
-    filePath: string;
-  }
-): {
-  content: string;
-  totalLines: number;
-  linesShown: string;
-  summary?: string;
-} {
-  const lines = content.split("\n");
-  const totalLines = lines.length;
-
-  // If should read entire file, return everything
-  if (options.shouldReadEntireFile) {
-    return {
-      content,
-      totalLines,
-      linesShown: `1-${totalLines} (entire file)`,
-    };
-  }
-
-  // If no line range specified, use default behavior (first 250 lines max)
-  if (!options.startLine && !options.endLine) {
-    const maxLines = Math.min(250, totalLines);
-    const selectedLines = lines.slice(0, maxLines);
-    const resultContent = selectedLines.join("\n");
-
-    let summary: string | undefined;
-    if (totalLines > maxLines) {
-      summary = `Outline of the rest of the file:\n[Lines ${maxLines + 1}-${totalLines} contain additional content...]`;
-    }
-
-    return {
-      content: resultContent,
-      totalLines,
-      linesShown: `1-${maxLines}`,
-      summary,
-    };
-  }
-
-  // Handle line range specification
-  let startLine = Math.max(1, options.startLine || 1);
-  let endLine: number;
-
-  if (options.endLine !== undefined) {
-    endLine = Math.min(totalLines, options.endLine);
-  } else {
-    // Default window size, but clamp to available content
-    endLine = Math.min(totalLines, startLine + 249);
-  }
-
-  // Check if explicit ranges were provided (before any modifications)
-  const isExplicitRange = options.startLine !== undefined || options.endLine !== undefined;
-
-  // Handle edge cases where startLine > endLine after clamping
-  if (startLine > endLine) {
-    // If start line is beyond available content, clamp to last line
-    if (startLine > totalLines) {
-      startLine = totalLines;
-      endLine = totalLines;
-    } else {
-      // If end line is before start line due to user error, just use start line
-      endLine = startLine;
-    }
-  }
-
-  // Additional safety check: ensure both are within bounds
-  startLine = Math.max(1, Math.min(totalLines, startLine));
-  endLine = Math.max(startLine, Math.min(totalLines, endLine));
-
-  // Determine actual lines to use
-  let actualStartLine: number;
-  let actualEndLine: number;
-
-  if (isExplicitRange) {
-    // For explicit ranges, use exact clamped values without any expansion
-    actualStartLine = startLine;
-    actualEndLine = endLine;
-  } else {
-    // Only apply context expansion logic if no explicit ranges were provided
-    actualStartLine = startLine;
-    actualEndLine = endLine;
-
-    // For very small files (≤50 lines), show entire file if range is small
-    if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
-      actualStartLine = 1;
-      actualEndLine = totalLines;
-    } else {
-      // Expand small ranges to at least 50 lines for better context (like Cursor does)
-      const requestedLines = endLine - startLine + 1;
-      if (requestedLines < 50 && totalLines > 50) {
-        const expansion = Math.floor((50 - requestedLines) / 2);
-        actualStartLine = Math.max(1, startLine - expansion);
-        actualEndLine = Math.min(totalLines, endLine + expansion);
-      }
-    }
-  }
-
-  const selectedLines = lines.slice(actualStartLine - 1, actualEndLine);
-  const resultContent = selectedLines.join("\n");
-
-  let summary: string | undefined;
-  if (actualStartLine > 1 || actualEndLine < totalLines) {
-    const before =
-      actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
-    const after =
-      actualEndLine < totalLines
-        ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]`
-        : "";
-    const parts = [before, after].filter(Boolean);
-    if (parts.length > 0) {
-      summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
-    }
-  }
-
-  return {
-    content: resultContent,
-    totalLines,
-    linesShown:
-      actualStartLine === actualEndLine
-        ? `${actualStartLine}`
-        : `${actualStartLine}-${actualEndLine}`,
-    summary,
-  };
-}
-
-/**
  * Create a new session path resolver instance
  */
 function createPathResolver(): SessionPathResolver {
@@ -250,7 +116,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const errorContext: ErrorContext = {
+        const _errorContext: ErrorContext = {
           operation: "move_file",
           path: `${typedArgs.sourcePath} -> ${typedArgs.targetPath}`,
           session: typedArgs.sessionId,
@@ -351,7 +217,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const errorContext: ErrorContext = {
+        const _errorContext: ErrorContext = {
           operation: "rename_file",
           path: `${typedArgs.path} -> ${typedArgs.newName}`,
           session: typedArgs.sessionId,

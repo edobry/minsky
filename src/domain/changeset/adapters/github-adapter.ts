@@ -300,7 +300,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     }
 
     // Use existing repository backend update method
-    const prInfo = await this.repositoryBackend.updatePullRequest({
+    const _prInfo = await this.repositoryBackend.updatePullRequest({
       prIdentifier: parseInt(id),
       title: updates.title,
       body: updates.description,

@@ -18,7 +18,7 @@ import {
 } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
-import type { SessionRecord, SessionDbState } from "../../../domain/session/session-db";
+import type { SessionRecord } from "../../../domain/session/session-db";
 import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../../utils/paths";
 import {
   runMigrationsWithDrizzleKit,
@@ -88,7 +88,15 @@ const persistenceMigrateRegistration = defineCommand({
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: persistenceMigrateCommandParams,
   async execute(params, context) {
-    const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
+    const {
+      to,
+      from,
+      sqlitePath,
+      backup = true,
+      execute,
+      setDefault,
+      dryRun: _dryRun = false,
+    } = params;
 
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
@@ -149,10 +157,7 @@ const persistenceMigrateRegistration = defineCommand({
       const { getConfiguration } = await import("../../../domain/configuration/index");
       const config = getConfiguration();
 
-      // Check for drift in current configuration
-      const configuredBackend = getEffectivePersistenceConfig(config).backend;
-      // JSON backend has been removed; retain guardrails without impossible comparisons
-      // (no action needed here)
+      // JSON backend has been removed; configuration is checked at startup via getEffectivePersistenceConfig
 
       log.cli(`🚀 Persistence Migration - Target: ${to}`);
       log.cli("");
@@ -311,7 +316,7 @@ const persistenceMigrateRegistration = defineCommand({
       // Create target storage with config-driven approach
       const targetConfig: Record<string, unknown> = { backend: to };
       let targetSqlitePath: string | undefined;
-      let targetPostgresConn: string | undefined;
+      let _targetPostgresConn: string | undefined;
 
       if (to === "sqlite") {
         targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
@@ -332,7 +337,7 @@ const persistenceMigrateRegistration = defineCommand({
         log.cli(
           `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
-        targetPostgresConn = connectionString;
+        _targetPostgresConn = connectionString;
         targetConfig.postgres = { connectionString: connectionString };
       }
 
@@ -354,7 +359,7 @@ const persistenceMigrateRegistration = defineCommand({
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
 
-      const targetStorage = targetProvider.getStorage<SessionRecord, SessionDbState>();
+      const targetStorage = targetProvider.getStorage();
       const writeResult = await targetStorage.writeState(sourceState);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);

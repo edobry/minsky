@@ -214,13 +214,13 @@ export function createUserConfigFile(
   const fileName = format === "json" ? "config.json" : "config.yaml";
   const filePath = join(configDir, fileName);
 
-  let content: string;
+  let _content: string;
 
   if (format === "json") {
-    content = JSON.stringify(config, null, 2);
+    _content = JSON.stringify(config, null, 2);
   } else {
     // Convert to YAML (simple implementation)
-    content = `# Minsky User Configuration
+    _content = `# Minsky User Configuration
 # This file contains your personal configuration settings
 # It is stored in your user profile and not shared with others
 

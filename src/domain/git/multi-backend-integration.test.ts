@@ -129,7 +129,7 @@ describe("Git Operations Multi-Backend Integration", () => {
     });
 
     it("should handle mixed session database (legacy + modern)", async () => {
-      const deps = createMockDependencies();
+      const _deps = createMockDependencies();
 
       const testSessions = [
         { session: "task123", taskId: "123" },

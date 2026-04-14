@@ -78,7 +78,7 @@ export function createConfigListCommand(): Command {
         // Apply credential masking unless explicitly requested to show secrets
         const resolvedRecord = resolved as Record<string, unknown>;
         const metadataRecord = toJsonRecord(metadata);
-        const maskedConfig = maskCredentials(resolvedRecord, options.showSecrets || false);
+        const _maskedConfig = maskCredentials(resolvedRecord, options.showSecrets || false);
 
         if (options.json) {
           const output = {

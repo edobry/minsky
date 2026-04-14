@@ -164,7 +164,7 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
     it("should handle legacy generate function for backward compatibility", () => {
       const { WorkspaceRulesComponent } = require(WORKSPACE_RULES_MODULE);
 
-      const context = {
+      const _context = {
         userPrompt: "test prompt",
         workspacePath: "/test/workspace",
       };
