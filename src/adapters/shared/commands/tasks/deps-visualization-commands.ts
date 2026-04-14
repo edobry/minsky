@@ -105,7 +105,7 @@ interface TasksDepsGraphParams {
 
 async function createServices(getPersistenceProvider: () => PersistenceProvider) {
   const persistence = getPersistenceProvider();
-  const db: PostgresJsDatabase = await persistence.getDatabaseConnection?.();
+  const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
   const graphService = new TaskGraphService(db);
   const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
   return { graphService, taskService };

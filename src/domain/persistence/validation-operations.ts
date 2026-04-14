@@ -140,7 +140,9 @@ export async function validatePostgresBackend(persistenceProvider?: PersistenceP
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
-      const rawConnection = await provider.getRawSqlConnection?.();
+      const rawConnection = (await provider.getRawSqlConnection?.()) as
+        | ReturnType<typeof import("postgres")>
+        | undefined;
       if (rawConnection) {
         // Test SQL query
         await rawConnection`SELECT 1 as test`;

@@ -84,9 +84,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       throw new Error("Current persistence provider does not support SQL operations");
     }
 
-    // Get both drizzle and raw SQL connections from the provider
-    this.drizzle = await provider.getDatabaseConnection?.();
-    this.sql = await provider.getRawSqlConnection?.();
+    // Get both drizzle and raw SQL connections from the provider.
+    // The base PersistenceProvider returns `unknown`; we narrow here after the sql capability check.
+    this.drizzle = (await provider.getDatabaseConnection?.()) as typeof this.drizzle;
+    this.sql = (await provider.getRawSqlConnection?.()) as typeof this.sql;
 
     if (!this.drizzle) {
       throw new Error("Failed to get database connection from persistence provider");

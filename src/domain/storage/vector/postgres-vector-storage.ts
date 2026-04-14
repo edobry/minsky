@@ -45,8 +45,8 @@ export class PostgresVectorStorage implements VectorStorage {
       throw new Error("Current persistence provider does not support SQL or vector storage");
     }
 
-    const sql = await provider.getRawSqlConnection?.();
-    const db = await provider.getDatabaseConnection?.();
+    const sql = (await provider.getRawSqlConnection?.()) as ReturnType<typeof postgres>;
+    const db = (await provider.getDatabaseConnection?.()) as ReturnType<typeof drizzle>;
 
     if (!sql || !db) {
       throw new Error("Failed to get database connections from persistence provider");

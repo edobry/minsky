@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { TaskRoutingService, type RouteStep } from "../../../../domain/tasks/task-routing-service";
@@ -96,7 +97,9 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
 
       // Try to use the full routing service with dependency graph
       const hasSql = provider.capabilities.sql;
-      const db = hasSql ? await provider.getDatabaseConnection?.() : undefined;
+      const db = hasSql
+        ? ((await provider.getDatabaseConnection?.()) as PostgresJsDatabase)
+        : undefined;
 
       if (hasSql && db) {
         const graphService = new TaskGraphService(db);
@@ -238,7 +241,7 @@ export function createTasksRouteCommand(getPersistenceProvider: () => Persistenc
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = await provider.getDatabaseConnection?.();
+      const db = (await provider.getDatabaseConnection?.()) as PostgresJsDatabase | undefined;
 
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");
