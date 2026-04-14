@@ -32,7 +32,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
   "GitHub API Integration Tests",
   () => {
     let octokit: Octokit;
-    let createdIssueNumbers: number[] = [];
+    const createdIssueNumbers: number[] = [];
 
     beforeAll(async () => {
       console.log("🔍 Setting up GitHub API integration tests...");

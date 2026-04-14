@@ -33,7 +33,7 @@ describe("Dynamic Backend Selection", () => {
   });
 
   test("should support both explicit and automatic backend selection", async () => {
-    let capturedBackends: (string | undefined)[] = [];
+    const capturedBackends: (string | undefined)[] = [];
 
     const mockCreateTaskService = mock(
       async (options: { workspacePath: string; backend?: string }) => {

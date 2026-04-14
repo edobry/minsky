@@ -181,7 +181,7 @@ Only suggest rules that are actually relevant. If no rules match well, return em
       const ruleText = `${rule.id} ${rule.name || ""} ${rule.description || ""}`.toLowerCase();
 
       let relevanceScore = 0;
-      let matchedKeywords: string[] = [];
+      const matchedKeywords: string[] = [];
 
       // Look for meaningful keyword matches (not just any substring)
       for (const queryWord of queryWords) {

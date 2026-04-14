@@ -67,7 +67,7 @@ const createMockSessionData = () => {
 
 // Mock SessionProviderInterface
 function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProviderInterface {
-  let sessions = [...initialSessions];
+  const sessions = [...initialSessions];
 
   return {
     listSessions: mock(async () => [...sessions]),

@@ -179,7 +179,7 @@ ${helpers.command("tasks.get")}
 ${helpers.command("session.start")}
 
 # 3. Navigate to session workspace
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 4. Begin implementation
 \`\`\`
@@ -194,14 +194,14 @@ ${helpers.command("session.list")}
 ${helpers.command("session.dir")}
 
 # 3. Navigate and continue work
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 \`\`\`
 
 ### Scenario 3: Updating Session
 
 \`\`\`bash
 # 1. Ensure you're in session directory
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 2. Update session with latest changes
 ${helpers.command("session.update")}
@@ -213,7 +213,7 @@ ${helpers.command("session.update")}
 
 \`\`\`bash
 # 1. Verify all changes committed in session
-cd \$(${helpers.command("session.dir")})
+cd $(${helpers.command("session.dir")})
 
 # 2. Create pull request from session
 ${helpers.command("session.pr.create")}

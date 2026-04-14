@@ -440,7 +440,9 @@ export interface CompileRulesResult {
  * Compile rules into a monolithic file, with optional check (staleness) mode.
  */
 export async function compileRules(options: CompileRulesOptions): Promise<CompileRulesResult> {
-  const { createCompileService, agentsMdTarget, claudeMdTarget } = await import("./compile");
+  const { createCompileService } = await import("./compile/compile-service");
+  const { agentsMdTarget } = await import("./compile/targets/agents-md");
+  const { claudeMdTarget } = await import("./compile/targets/claude-md");
 
   const targetId = options.target || "agents.md";
   const ruleService = new RuleService(options.workspacePath);

@@ -99,7 +99,7 @@ export function normalizeRepositoryUri(
   if (normalizedUri.startsWith("https://")) {
     format = UriFormat?.HTTPS;
     // Extract org/repo from the URL
-    const match = normalizedUri.match(/https:\/\/[^\/]+\/([^\/]+)\/([^\/]+?)(\.git)?$/);
+    const match = normalizedUri.match(/https:\/\/[^/]+\/([^/]+)\/([^/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
       throw new ValidationError(`Invalid HTTPS repository URL: ${uri}`);
     }
@@ -114,7 +114,7 @@ export function normalizeRepositoryUri(
   else if (normalizedUri.includes("@") && normalizedUri.includes(":")) {
     format = UriFormat?.SSH;
     // Extract org/repo from the URL
-    const match = normalizedUri.match(/[^@]+@[^:]+:([^\/]+)\/([^\/]+?)(\.git)?$/);
+    const match = normalizedUri.match(/[^@]+@[^:]+:([^/]+)\/([^/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
       throw new ValidationError(`Invalid SSH repository URL: ${uri}`);
     }
@@ -177,7 +177,7 @@ export function normalizeRepositoryUri(
     }
   }
   // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
-  else if (normalizedUri.match(/^[^\/]+\/[^\/]+$/)) {
+  else if (normalizedUri.match(/^[^/]+\/[^/]+$/)) {
     format = UriFormat?.SHORTHAND;
     // Shorthand is already in org/repo format
     normalizedName = normalizedUri;
