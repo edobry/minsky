@@ -9,7 +9,6 @@ import { SessionPathResolver } from "../../domain/session/session-path-resolver"
 export { SessionPathResolver };
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import type { ErrorContext } from "../../utils/semantic-error-classifier";
 import {
   FileMoveSchema,
   FileRenameSchema,
@@ -116,13 +115,6 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const _errorContext: ErrorContext = {
-          operation: "move_file",
-          path: `${typedArgs.sourcePath} -> ${typedArgs.targetPath}`,
-          session: typedArgs.sessionId,
-          createDirs: typedArgs.createDirs,
-        };
-
         log.error("Session file move failed", {
           session: typedArgs.sessionId,
           sourcePath: typedArgs.sourcePath,
@@ -217,12 +209,6 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwritten: targetExists,
         });
       } catch (error) {
-        const _errorContext: ErrorContext = {
-          operation: "rename_file",
-          path: `${typedArgs.path} -> ${typedArgs.newName}`,
-          session: typedArgs.sessionId,
-        };
-
         log.error("Session file rename failed", {
           session: typedArgs.sessionId,
           path: typedArgs.path,
