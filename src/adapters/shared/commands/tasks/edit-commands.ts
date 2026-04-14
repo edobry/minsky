@@ -155,6 +155,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     // Handle tags update
     if (hasTagOperation) {
       const newTags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : [];
+      if (newTags.length > 0) {
+        const invalidTags = newTags.filter((t) => t.startsWith("minsky:"));
+        if (invalidTags.length > 0) {
+          throw new ValidationError(
+            `Tags cannot use the reserved "minsky:" prefix: ${invalidTags.join(", ")}`
+          );
+        }
+      }
       updates.tags = newTags;
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
