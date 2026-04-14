@@ -7,6 +7,7 @@
  */
 
 import type { PartialConfiguration } from "../schemas";
+import { getDefaultSqliteDbPath } from "../../../utils/paths";
 
 /**
  * Application default configuration
@@ -26,7 +27,7 @@ export const defaultConfiguration: PartialConfiguration = {
   persistence: {
     backend: "sqlite",
     sqlite: {
-      dbPath: "~/.local/state/minsky/minsky.db",
+      dbPath: getDefaultSqliteDbPath(),
     },
     postgres: undefined,
   },
