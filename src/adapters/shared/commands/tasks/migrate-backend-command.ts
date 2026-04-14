@@ -228,6 +228,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     return detectedBackend as string;
   }
 
+  /** @internal — exposed as non-private for test DI injection */
+  createTaskServiceFactory = createConfiguredTaskService;
+
   private async migrateTasksBetweenBackends(options: {
     sourceBackend: string;
     targetBackend: string;
@@ -240,12 +243,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
-    // Create source and target task services using unified async factory
-    const sourceService = await createConfiguredTaskService({
+    // Create source and target task services using injectable factory
+    const sourceService = await this.createTaskServiceFactory({
       workspacePath,
       backend: sourceBackend,
     });
-    const targetService = await createConfiguredTaskService({
+    const targetService = await this.createTaskServiceFactory({
       workspacePath,
       backend: targetBackend,
     });
