@@ -18,6 +18,13 @@ import type { SessionDeps } from "../../../../domain/session/session-service";
 export type SessionCommandDependencies = SessionDeps;
 
 /**
+ * Lazy resolver for session command dependencies.
+ * Defers persistence initialization and domain module loading to first command execution,
+ * keeping CLI bootstrap fast (command registration only needs metadata + parameter schemas).
+ */
+export type LazySessionDeps = () => Promise<SessionCommandDependencies>;
+
+/**
  * Minimal parameter shape used by the error-logging helper to extract
  * session/task/repo context from arbitrary command params.
  */

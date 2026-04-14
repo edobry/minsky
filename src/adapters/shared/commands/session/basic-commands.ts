@@ -4,7 +4,7 @@
  * Factories for basic session operations (list, get, start, dir, search).
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -13,7 +13,7 @@ import {
   sessionSearchCommandParams,
 } from "./session-parameters";
 
-export function createSessionListCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.list",
     category: CommandCategory.SESSION,
@@ -49,7 +49,7 @@ export function createSessionListCommand(deps: SessionCommandDependencies): Comm
   };
 }
 
-export function createSessionGetCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.get",
     category: CommandCategory.SESSION,
@@ -91,7 +91,7 @@ export function createSessionGetCommand(deps: SessionCommandDependencies): Comma
   };
 }
 
-export function createSessionStartCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.start",
     category: CommandCategory.SESSION,
@@ -131,7 +131,7 @@ export function createSessionStartCommand(deps: SessionCommandDependencies): Com
   };
 }
 
-export function createSessionDirCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionDirCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.dir",
     category: CommandCategory.SESSION,
@@ -155,7 +155,7 @@ export function createSessionDirCommand(deps: SessionCommandDependencies): Comma
   };
 }
 
-export function createSessionSearchCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.search",
     category: CommandCategory.SESSION,
@@ -167,6 +167,7 @@ export function createSessionSearchCommand(deps: SessionCommandDependencies): Co
       const limit = params.limit as number | undefined;
 
       const { log } = await import("../../../../utils/logger");
+      const deps = await getDeps();
       const sessions = await deps.sessionProvider.listSessions();
 
       const lowerQuery = query.toLowerCase();

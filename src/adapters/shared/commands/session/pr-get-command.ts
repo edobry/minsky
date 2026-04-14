@@ -4,12 +4,12 @@
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrGetCommandParams } from "./session-parameters";
 import { sessionPrGet } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
 
-export function createSessionPrGetCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.get",
     category: CommandCategory.SESSION,
@@ -18,6 +18,7 @@ export function createSessionPrGetCommand(deps: SessionCommandDependencies): Com
     parameters: sessionPrGetCommandParams,
     execute: withErrorLogging("session.pr.get", async (params: Record<string, unknown>) => {
       try {
+        const deps = await getDeps();
         const result = await sessionPrGet(
           {
             sessionId: params.sessionId as string | undefined,

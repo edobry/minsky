@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   scanSessionConflicts,
   formatSessionConflictResults,
@@ -44,7 +44,7 @@ export const sessionConflictsCommandParams = {
   },
 };
 
-export function createSessionConflictsCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionConflictsCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.conflicts",
     category: CommandCategory.SESSION,

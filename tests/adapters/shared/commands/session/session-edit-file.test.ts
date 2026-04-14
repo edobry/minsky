@@ -7,9 +7,9 @@ import type { SessionCommandDependencies } from "../../../../../src/adapters/sha
 
 describe("session edit-file command definition", () => {
   // The factory only constructs the command definition; execute is never invoked
-  // in this suite, so an empty deps cast is sufficient.
+  // in this suite, so an empty deps thunk is sufficient.
   const deps = {} as SessionCommandDependencies;
-  const command = createSessionEditFileCommand(deps);
+  const command = createSessionEditFileCommand(() => Promise.resolve(deps));
 
   describe("command properties", () => {
     test("should have correct command id", () => {

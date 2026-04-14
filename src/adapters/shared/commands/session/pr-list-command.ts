@@ -4,7 +4,7 @@
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { type SessionCommandDependencies, withErrorLogging } from "./types";
+import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrListCommandParams } from "./session-parameters";
 import { sessionPrList } from "../../../../domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
@@ -32,7 +32,7 @@ function formatRelativeTime(isoString: string): string {
   }
 }
 
-export function createSessionPrListCommand(deps: SessionCommandDependencies): CommandDefinition {
+export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.list",
     category: CommandCategory.SESSION,
@@ -41,6 +41,7 @@ export function createSessionPrListCommand(deps: SessionCommandDependencies): Co
     parameters: sessionPrListCommandParams,
     execute: withErrorLogging("session.pr.list", async (params: Record<string, unknown>) => {
       try {
+        const deps = await getDeps();
         const result = await sessionPrList(
           {
             session: params.session as string | undefined,
