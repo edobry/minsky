@@ -59,9 +59,9 @@ export class RuleSimilarityService {
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const core = await createRuleSimilarityCore(this.workspacePath);
-    const items = await core.search({ queryText: query, limit });
+    const response = await core.search({ queryText: query, limit });
     // Map to SearchResult shape (id/score compatible)
-    return items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
+    return response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
   }
 
   /**
