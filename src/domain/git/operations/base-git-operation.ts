@@ -162,8 +162,8 @@ export type GitOperationFactory<TParams, TResult> = (
  * Git operation registry for managing operation instances
  */
 export class GitOperationRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry; get<TParams,TResult>() provides typed access with an unsafe cast
-  private operations = new Map<string, BaseGitOperation<any, any>>();
+  /** Heterogeneous map; typed access is provided by the generic get<TParams,TResult>() overload */
+  private operations = new Map<string, BaseGitOperation<unknown, unknown>>();
 
   /**
    * Register a git operation
@@ -176,7 +176,7 @@ export class GitOperationRegistry {
    * Get a git operation by name
    */
   get<TParams, TResult>(name: string): BaseGitOperation<TParams, TResult> | undefined {
-    return this.operations.get(name);
+    return this.operations.get(name) as BaseGitOperation<TParams, TResult> | undefined;
   }
 
   /**
