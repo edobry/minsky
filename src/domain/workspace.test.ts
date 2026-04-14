@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { resolveWorkspacePath } from "./workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
+import { mockCurrentWorkingDirectory } from "../utils/process";
 
 describe("resolveWorkspacePath", () => {
   let mockFs: ReturnType<typeof createMockFilesystem>;
@@ -32,16 +33,14 @@ describe("resolveWorkspacePath", () => {
   });
 
   it("returns current directory when no workspace option is provided", async () => {
-    // Mock process.cwd()
-    const originalCwd = process.cwd;
-    process.cwd = () => "/current/directory";
-
-    const _result = await resolveWorkspacePath();
-
-    expect(_result).toBe("/current/directory");
-
-    // Restore process.cwd
-    process.cwd = originalCwd;
+    // Use mockCurrentWorkingDirectory for hermetic cwd injection
+    const restore = mockCurrentWorkingDirectory(() => "/current/directory");
+    try {
+      const _result = await resolveWorkspacePath();
+      expect(_result).toBe("/current/directory");
+    } finally {
+      restore();
+    }
   });
 
   it("returns sessionRepo when provided", async () => {
