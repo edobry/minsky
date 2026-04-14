@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { OpenAIEmbeddingService } from "./embedding-service-openai";
+import { OpenAIEmbeddingService, isRetryableAIError } from "./embedding-service-openai";
 import { RateLimitError } from "./enhanced-error-types";
 
 const originalFetch = globalThis.fetch;
@@ -259,5 +259,43 @@ describe("OpenAIEmbeddingService shouldRetry logic", () => {
     // retry service calls request() once, shouldRetry returns false, throws;
     // catch clause calls request() once more as fallback.
     expect(callCount).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("isRetryableAIError", () => {
+  it("returns true for RateLimitError (transient 429)", () => {
+    const err = new RateLimitError("Rate limited", "openai", 5, 0, 60);
+    expect(isRetryableAIError(err)).toBe(true);
+  });
+
+  it("returns false for insufficient_quota errors", () => {
+    const err = new Error("insufficient_quota: You exceeded your current quota");
+    expect(isRetryableAIError(err)).toBe(false);
+  });
+
+  it("returns true for 503 Service Unavailable", () => {
+    const err = new Error("503 Service Unavailable");
+    expect(isRetryableAIError(err)).toBe(true);
+  });
+
+  it("returns true for network errors (ECONNRESET, ETIMEDOUT)", () => {
+    expect(isRetryableAIError(new Error("ECONNRESET"))).toBe(true);
+    expect(isRetryableAIError(new Error("ETIMEDOUT"))).toBe(true);
+  });
+
+  it("returns true for generic 429 message", () => {
+    const err = new Error("Request failed: 429 Too Many Requests");
+    expect(isRetryableAIError(err)).toBe(true);
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(isRetryableAIError(new Error("Invalid API key"))).toBe(false);
+    expect(isRetryableAIError(new Error("Bad request"))).toBe(false);
+  });
+
+  it("handles non-Error values gracefully", () => {
+    expect(isRetryableAIError("some string")).toBe(false);
+    expect(isRetryableAIError(null)).toBe(false);
+    expect(isRetryableAIError(undefined)).toBe(false);
   });
 });

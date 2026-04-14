@@ -2,6 +2,18 @@ import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
 import { RateLimitError } from "./enhanced-error-types";
 
+/**
+ * Determines whether an AI service error is retryable.
+ * Retries on transient rate limits, server errors, and network issues.
+ * Does NOT retry on quota exhaustion (billing issue).
+ */
+export function isRetryableAIError(error: unknown): boolean {
+  const msg = String((error as Error)?.message || "");
+  if (/insufficient_quota/i.test(msg)) return false;
+  if (error instanceof RateLimitError) return true;
+  return /429|rate.limit|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
+}
+
 interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
 }
@@ -51,15 +63,7 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       const retry = new IntelligentRetryService({ maxRetries: 3, baseDelay: 500 });
       return await retry.execute(
         async () => this.request(inputs),
-        (error) => {
-          // Don't retry on quota exhaustion — that's a billing issue
-          if (/insufficient_quota/i.test(String(error?.message || ""))) return false;
-          // Retry on transient rate limits, server errors, and network issues
-          if (error instanceof RateLimitError) return true;
-          return /429|rate.limit|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(
-            String(error?.message || "")
-          );
-        },
+        isRetryableAIError,
         "openai-embeddings"
       );
     } catch {
