@@ -86,7 +86,6 @@ const _useVirtualFS = true; // Set to true to use virtual filesystem
 export interface MinskyTestEnv {
   minskyDir: string;
   gitDir: string;
-  sessionDbPath: string;
   processDir: string;
   tasksDir: string;
 }
@@ -110,7 +109,6 @@ export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   const basePath = "/virtual/test-dir";
   const minskyDir = join(basePath, "minsky");
   const gitDir = join(minskyDir, "git");
-  const sessionDbPath = join(minskyDir, "session-db.json");
   const processDir = join(basePath, "process");
   const tasksDir = join(processDir, "tasks");
 
@@ -119,7 +117,6 @@ export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   return {
     minskyDir,
     gitDir,
-    sessionDbPath,
     processDir,
     tasksDir,
   };

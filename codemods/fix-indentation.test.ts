@@ -10,13 +10,14 @@
  */
 
 import { test, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { join } from "path";
+import { fileURLToPath } from "url";
 
 // Read the actual codemod content to validate its behavior
-const codemodContent = readFileSync(
-  "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-indentation.ts",
-  "utf8"
-);
+// Use import.meta.url to resolve the path relative to this test file (hermetic)
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const codemodPath = join(__dirname, "fix-indentation.ts");
+const codemodContent = await Bun.file(codemodPath).text();
 
 test("ESLint auto-fix codemod runs ONLY the correct ESLint command", () => {
   // Should contain exactly the right command

@@ -5,3 +5,7 @@
 dist/
 out/
 coverage/
+
+# Local Claude Code settings and worktrees
+.claude/settings.local.json
+.claude/worktrees/
