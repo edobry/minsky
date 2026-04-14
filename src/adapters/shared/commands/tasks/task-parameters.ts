@@ -62,6 +62,12 @@ export const taskCreationParams = {
     description: "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])",
     required: false,
   },
+  tag: {
+    schema: z.union([z.string(), z.array(z.string())]).optional(),
+    description:
+      "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
+    required: false,
+  },
 };
 
 /**
@@ -72,6 +78,12 @@ export const taskFilterParams = {
   status: TaskParameters.status,
   filter: TaskParameters.filter,
   limit: TaskParameters.limit,
+  tag: {
+    schema: z.union([z.string(), z.array(z.string())]).optional(),
+    description:
+      "Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality)",
+    required: false,
+  },
   // Optional time window filters for list/get style commands
   since: {
     schema: z.string(),
@@ -125,6 +137,12 @@ export const taskEditParams = {
   specContent: {
     schema: z.string(),
     description: "New specification content (completely replaces existing)",
+    required: false,
+  },
+  tag: {
+    schema: z.union([z.string(), z.array(z.string())]).optional(),
+    description:
+      "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
   execute: {

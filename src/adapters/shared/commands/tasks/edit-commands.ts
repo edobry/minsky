@@ -26,6 +26,7 @@ interface TasksEditParams extends BaseTaskParams {
   spec?: boolean;
   specFile?: string;
   specContent?: string;
+  tag?: string | string[];
   execute?: boolean;
 }
 
@@ -54,8 +55,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
+    const hasTagOperation = params.tag !== undefined;
 
-    if (!params.title && !hasSpecOperation) {
+    if (!params.title && !hasSpecOperation && !hasTagOperation) {
       throw new ValidationError(
         `${
           chalk.red("❌ At least one edit operation must be specified:\n") +
@@ -115,7 +117,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     this.debug("Task found, preparing updates");
 
     // Prepare the updates object
-    const updates: { title?: string; spec?: string } = {};
+    const updates: { title?: string; spec?: string; tags?: string[] } = {};
 
     // Handle title update
     if (params.title) {
@@ -150,8 +152,15 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       updates.spec = newSpecContent!;
     }
 
+    // Handle tags update
+    if (hasTagOperation) {
+      const newTags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : [];
+      updates.tags = newTags;
+      this.debug(`Tags update: ${JSON.stringify(newTags)}`);
+    }
+
     // Show preview if not executing
-    if (!params.execute && (updates.title || updates.spec)) {
+    if (!params.execute && (updates.title || updates.spec || updates.tags)) {
       return this.formatResult(
         this.createSuccessResult(
           validatedTaskId,
@@ -219,6 +228,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         // Title-only update via updateTask
         await service.updateTask?.(validatedTaskId, { title: updates.title });
         this.debug("Updated task title only");
+      }
+
+      // Apply tags update separately (tags are stored as JSON in the tasks table)
+      if (updates.tags !== undefined) {
+        await service.updateTask?.(validatedTaskId, { tags: updates.tags });
+        this.debug("Updated task tags");
       }
 
       const message = this.buildUpdateMessage(updates, validatedTaskId);
@@ -365,15 +380,20 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   /**
    * Build a descriptive update message
    */
-  private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
+  private buildUpdateMessage(
+    updates: { title?: string; spec?: string; tags?: string[] },
+    taskId: string
+  ): string {
     const parts: string[] = [];
 
-    if (updates.title && updates.spec) {
-      parts.push("title and specification");
-    } else if (updates.title) {
+    if (updates.title) {
       parts.push("title");
-    } else if (updates.spec) {
+    }
+    if (updates.spec) {
       parts.push("specification");
+    }
+    if (updates.tags !== undefined) {
+      parts.push("tags");
     }
 
     return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
@@ -384,7 +404,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    */
   private buildPreviewMessage(
     currentTask: Task,
-    updates: { title?: string; spec?: string },
+    updates: { title?: string; spec?: string; tags?: string[] },
     taskId: string
   ): string {
     let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
@@ -418,6 +438,13 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       } else {
         message += `  ${chalk.green("+ ")}${newPreview}\n\n`;
       }
+    }
+
+    if (updates.tags !== undefined) {
+      message += `${chalk.bold("Tags change:")}\n`;
+      const currentTags = currentTask.tags || [];
+      message += `  ${chalk.red("- ")}${currentTags.length > 0 ? currentTags.join(", ") : "(none)"}\n`;
+      message += `  ${chalk.green("+ ")}${updates.tags.length > 0 ? updates.tags.join(", ") : "(none)"}\n\n`;
     }
 
     message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;

@@ -33,6 +33,7 @@ interface TasksListParams extends BaseTaskParams {
   status?: string;
   filter?: string;
   limit?: number;
+  tag?: string | string[];
   since?: string;
   until?: string;
 }
@@ -55,6 +56,7 @@ interface TasksCreateParams extends BaseTaskParams {
   force?: boolean;
   githubRepo?: string;
   dependsOn?: string | string[];
+  tag?: string | string[];
 }
 
 /**
@@ -78,6 +80,9 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     this.debug("Starting tasks.list execution");
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
 
+    // Normalize tag param to string array for domain layer
+    const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
+
     // List tasks with filters
     let tasks = await listTasksFromParams({
       ...this.createTaskParams(params),
@@ -85,6 +90,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       status: params.status,
       filter: params.filter,
       limit: params.limit,
+      tags,
     });
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
@@ -200,6 +206,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         );
       }
 
+      // Normalize tag param to string array for domain layer
+      const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
+
       // Create the task using the same function as main branch
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
@@ -211,6 +220,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         workspace: params.workspace,
         session: params.session,
         githubRepo: params.githubRepo,
+        tags,
       });
 
       this.debug("Task created successfully");
@@ -257,6 +267,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         }
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.id}`;
+        if (tags && tags.length > 0) {
+          message += `\n${chalk.gray("  Tags: ")}${tags.join(", ")}`;
+        }
         if (depsAdded.length > 0) {
           message += `\n${chalk.gray("  Depends on: ")}${depsAdded.join(", ")}`;
         }
