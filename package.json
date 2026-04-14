@@ -14,7 +14,6 @@
     "format:all": "bun run format && bun run lint:fix",
     "test": "bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain",
     "test:unit": "bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain",
-    "test:codemods": "bun test --timeout=15000 codemods",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:all": "bun test --preload ./tests/setup.ts --timeout=30000",
     "test:watch": "bun test --preload ./tests/setup.ts --watch src tests/adapters tests/domain --timeout=15000",
