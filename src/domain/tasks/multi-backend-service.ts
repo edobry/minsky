@@ -11,6 +11,7 @@ import { promises as fs } from "fs";
 import { getTasksFilePath } from "./taskIO";
 import { parseTasksFromMarkdown, formatTasksToMarkdown } from "./taskFunctions";
 import { log } from "../../utils/logger";
+import { elementAt } from "../../utils/array-safety";
 
 // Multi-backend specific interface - different from the main TaskBackend interface
 export interface MultiBackendTaskBackend {
@@ -232,7 +233,10 @@ export class TaskServiceImpl implements TaskService {
         });
 
         if (index !== -1) {
-          tasks[index] = { ...tasks[index]!, title: updates.title };
+          tasks[index] = {
+            ...elementAt(tasks, index, "multi-backend updateTask"),
+            title: updates.title,
+          };
           const updated = formatTasksToMarkdown(tasks);
           await fs.writeFile(tasksFilePath, updated, "utf-8");
         }

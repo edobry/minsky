@@ -6,6 +6,7 @@ import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { type Task } from "../../../../domain/tasks/types";
 import { getErrorMessage } from "../../../../errors/index";
+import { elementAt } from "../../../../utils/array-safety";
 
 export interface LayoutOptions {
   layout?: string;
@@ -168,7 +169,7 @@ export async function renderDependencyChain(
   void isLastChain;
 
   for (let i = 0; i < chain.length; i++) {
-    const task = chain[i]!;
+    const task = elementAt(chain, i, "renderDependencyChain chain");
     const isLast = i === chain.length - 1;
     const isFirst = i === 0;
 
@@ -194,7 +195,7 @@ export async function renderDependencyChain(
       const otherDependents = task.dependents.filter((depId) => !chain.some((t) => t.id === depId));
 
       for (let j = 0; j < Math.min(otherDependents.length, 2); j++) {
-        const depId = otherDependents[j]!;
+        const depId = elementAt(otherDependents, j, "renderDependencyChain otherDependents");
         try {
           const depTask = await taskService.getTask(depId);
           const depTitle = depTask?.title?.substring(0, 40) || "Unknown";
@@ -306,7 +307,7 @@ export async function generateDependencyGraph(
 
     // Render chains
     for (let chainIndex = 0; chainIndex < chains.length; chainIndex++) {
-      const chain = chains[chainIndex]!;
+      const chain = elementAt(chains, chainIndex, "renderDependencyChains chains");
       const isLastChain = chainIndex === chains.length - 1;
 
       await renderDependencyChain(chain, lines, graphService, taskService, isLastChain);

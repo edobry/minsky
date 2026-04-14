@@ -11,6 +11,7 @@ import { getErrorMessage } from "../../errors/index";
 import type { TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { Task } from "../tasks";
+import { elementAt } from "../../utils/array-safety";
 import {
   getLabelsForTaskStatus,
   buildSpecContentFromIssue,
@@ -65,7 +66,7 @@ export async function fetchTaskSpecData(
 ): Promise<TaskReadOperationResult> {
   try {
     const pathParts = specPath.split("/");
-    const fileName = pathParts[pathParts.length - 1]!;
+    const fileName = elementAt(pathParts, pathParts.length - 1, "github-issues-api specPath parts");
 
     // Only match legitimate task files: {1-4 digit ID}-{title}.md
     const taskIdMatch = fileName.match(/^(\d{1,4})-[^0-9]/);
