@@ -209,6 +209,8 @@ export interface CloneOptions {
   workdir: string; // Explicit path where to clone, provided by caller
   session?: string;
   branch?: string;
+  /** Local repo path to use as git --reference source for faster cloning */
+  referenceRepo?: string;
 }
 
 export interface CloneResult {

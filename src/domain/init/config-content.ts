@@ -84,6 +84,14 @@ export function getMinskyConfigContentYaml(
 }
 
 /**
+ * Returns the content for the local (machine-specific, gitignored) Minsky config file.
+ * Currently stores workspace.mainPath so session_start can use --reference cloning.
+ */
+export function getLocalConfigContentYaml(repoPath: string): string {
+  return yamlStringify({ workspace: { mainPath: repoPath } });
+}
+
+/**
  * Returns the content for the MCP config file
  */
 export function getMCPConfigContent(mcpOptions?: McpOptions): string {

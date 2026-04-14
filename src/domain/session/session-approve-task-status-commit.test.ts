@@ -13,6 +13,8 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
+
+const GIT_ADD_TASKS_COMMAND = "git add process/tasks.md";
 import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT MOCK: Use the function that actually merges, not just approves
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 import type { ApprovalInfo } from "../repository/approval-types";
@@ -104,7 +106,7 @@ describe("Session Approve Task Status Commit", () => {
         // After task status update, tasks.md should be modified
         return Promise.resolve("M process/tasks.md");
       }
-      if (command.includes("git add process/tasks.md")) {
+      if (command.includes(GIT_ADD_TASKS_COMMAND)) {
         return Promise.resolve("");
       }
       if (command.includes(`git commit -m "${COMMIT_MESSAGE}"`)) {
@@ -189,7 +191,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Under new behavior, no auto-commit occurs in session flows
     expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_ADD_TASKS_COMMAND);
     expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
     expect(gitCommands).not.toContain("git push");
   });
@@ -323,7 +325,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // No git status/commit attempts in session flow
     expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_ADD_TASKS_COMMAND);
     expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
   });
 
@@ -445,7 +447,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_ADD_TASKS_COMMAND);
     expect(gitCommands).not.toContain('git commit -m "chore(#125): update task status to DONE"');
     expect(gitCommands).not.toContain("git push");
   });
@@ -553,7 +555,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_ADD_TASKS_COMMAND);
     expect(gitCommands).not.toContain('git commit -m "chore(#266): update task status to DONE"');
   });
 });

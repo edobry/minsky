@@ -16,17 +16,7 @@
 // Rule Definition
 //------------------------------------------------------------------------------
 
-/**
- * Convert a glob-style pattern to a regex.
- * Supports ** (any path segment), * (within a segment), and ? (single char).
- */
-function globToRegex(pattern) {
-  // Handle ** before * to avoid double-substitution
-  // Split on **, replace *, then rejoin with .*
-  const parts = pattern.replace(/\./g, "\\.").split("**");
-  const withStarReplaced = parts.map((p) => p.replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]"));
-  return new RegExp(withStarReplaced.join(".*"));
-}
+import { minimatch } from "minimatch";
 
 export default {
   meta: {
@@ -84,8 +74,7 @@ export default {
 
     // Check if the current file matches any of the allowlist patterns
     const isAllowed = allowedFiles.some((pattern) => {
-      const regex = globToRegex(pattern);
-      return regex.test(normalizedFilename);
+      return minimatch(normalizedFilename, pattern, { dot: true });
     });
 
     if (isAllowed) {
