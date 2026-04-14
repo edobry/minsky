@@ -58,9 +58,7 @@ export default {
 
   create(context) {
     const options = context.options[0] || {};
-    const allowedModules = options.allowedModules || ["mock"]; // eslint-disable-line @typescript-eslint/no-unused-vars
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const strictMode = options.strictMode !== false; // Default to true
+    // allowedModules and strictMode are accepted in the schema for future use but not yet implemented
     const allowTimestamps = options.allowTimestamps === true; // Default to false
     const allowGlobalCounters = options.allowGlobalCounters === true; // Default to false
     const allowDynamicImports = options.allowDynamicImports === true; // Default to false

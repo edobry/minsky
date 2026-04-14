@@ -179,7 +179,7 @@ export class MockConfigurationLoader {
     });
 
     // Override the loadAllSources method
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ConfigurationLoader has no public interface for overriding loadAllSources; test-only monkey-patch
     (mockLoader as any).loadAllSources = async () => {
       if (this.loadError) {
         throw this.loadError;

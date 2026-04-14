@@ -192,11 +192,3 @@ function generateAutoFix(fixer, node, gitCommand, originalCommand) {
     return fixer.replaceText(node, replacementText);
   }
 }
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getTemplateLiteralValue(node) {
-  if (node.quasis.length === 1 && node.expressions.length === 0) {
-    return node.quasis[0].value.cooked;
-  }
-  return null;
-}

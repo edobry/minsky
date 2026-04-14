@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { OpenAIEmbeddingService } from "./embedding-service-openai";
 
 function mockFetchOnce(status: number, statusText: string, body: any) {
-  // @ts-ignore
+  // @ts-expect-error -- assigning a partial Response mock to globalThis.fetch for test isolation
   globalThis.fetch = async () => {
     return {
       ok: status >= 200 && status < 300,
