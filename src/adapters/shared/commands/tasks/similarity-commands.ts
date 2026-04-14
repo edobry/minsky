@@ -110,21 +110,42 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const threshold = params.threshold;
 
     const service = await this.createService();
-    const searchResults = await service.similarToTask(taskId, limit, threshold);
+    const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
     const includeSpecPath = params.backend !== "minsky";
     const enhancedResults = await this.enhanceSearchResults(
-      searchResults,
+      response.results,
       params.details,
       includeSpecPath
     );
+
+    // Show degraded warning to stderr unless JSON/quiet
+    if (response.degraded) {
+      try {
+        const { log } = await import("../../../../utils/logger");
+        const quiet = Boolean(params.quiet);
+        const json = Boolean(params.json) || ctx.format === "json";
+        if (!quiet && !json) {
+          log.cliWarn(
+            `Warning: similarity search degraded — using lexical fallback: ` +
+              `${response.degradedReason ?? "unknown"}. ` +
+              `Run 'minsky config doctor' to diagnose.`
+          );
+        }
+      } catch {
+        // ignore logging failures
+      }
+    }
 
     return this.formatResult(
       {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
+        backend: response.backend,
+        degraded: response.degraded,
+        degradedReason: response.degradedReason,
         details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
@@ -264,12 +285,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
-    const { results: searchResults, searchBackend } = await service.searchByText(
-      query,
-      limit,
-      threshold,
-      filters
-    );
+    const response = await service.searchByText(query, limit, threshold, filters);
 
     // Show backend info to stderr unless JSON/quiet
     try {
@@ -277,13 +293,17 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       const quiet = Boolean(params.quiet);
       const json = Boolean(params.json) || ctx.format === "json";
       if (!quiet && !json) {
-        const backendLabel =
-          searchBackend === "embeddings"
-            ? "embeddings"
-            : searchBackend
-              ? searchBackend
-              : "lexical (embedding unavailable)";
-        log.cliWarn(`Search backend: ${backendLabel}`);
+        if (response.degraded) {
+          log.cliWarn(
+            `Warning: similarity search degraded — using lexical fallback: ` +
+              `${response.degradedReason ?? "unknown"}. ` +
+              `Run 'minsky config doctor' to diagnose.`
+          );
+        } else {
+          const backendLabel =
+            response.backend === "embeddings" ? "embeddings" : response.backend || "lexical";
+          log.cliWarn(`Search backend: ${backendLabel}`);
+        }
       }
     } catch {
       // ignore logging failures
@@ -291,8 +311,8 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
 
     // Enhance results with task details for better usability
     const includeSpecPath = params.backend !== "minsky";
-    let enhancedResults = await this.enhanceSearchResults(
-      searchResults,
+    const enhancedResults = await this.enhanceSearchResults(
+      response.results,
       params.details,
       includeSpecPath
     );
@@ -305,7 +325,9 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        searchBackend: searchBackend ?? "lexical",
+        backend: response.backend,
+        degraded: response.degraded,
+        degradedReason: response.degradedReason,
         details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"

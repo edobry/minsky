@@ -16,3 +16,10 @@ export interface SimilarityBackend {
   isAvailable(): Promise<boolean>;
   search(query: SimilarityQuery): Promise<SimilarityItem[]>;
 }
+
+export interface SimilaritySearchResponse {
+  items: SimilarityItem[];
+  backend: string;
+  degraded: boolean;
+  degradedReason?: string;
+}

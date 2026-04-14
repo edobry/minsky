@@ -35,6 +35,7 @@ export async function executeConfigDoctor(options: DoctorOptions): Promise<void>
     await runValidationCheck(diagnostics);
     await runFileSystemCheck(diagnostics);
     await runConnectivityCheck(diagnostics);
+    await runEmbeddingProviderCheck(diagnostics);
     await runPermissionsCheck(diagnostics);
 
     // Count results
@@ -292,6 +293,63 @@ async function runConnectivityCheck(diagnostics: DiagnosticResult[]): Promise<vo
       status: "error",
       message: `Connectivity check failed: ${error instanceof Error ? error.message : String(error)}`,
       suggestion: "Check configuration format and connectivity settings",
+    });
+  }
+}
+
+/**
+ * Check embedding provider health by making a tiny test request
+ */
+async function runEmbeddingProviderCheck(diagnostics: DiagnosticResult[]): Promise<void> {
+  try {
+    const provider = getConfigurationProvider();
+    const config = provider.getConfig();
+
+    const embeddingProvider = config.embeddings?.provider || config.ai?.defaultProvider || "openai";
+    const embeddingModel = config.embeddings?.model || "text-embedding-3-small";
+
+    // Check if the provider has an API key configured
+    const providerConfig = config.ai?.providers?.[embeddingProvider];
+    if (!providerConfig?.apiKey && !providerConfig?.api_key) {
+      diagnostics.push({
+        check: "Embedding Provider",
+        status: "warning",
+        message: `Embedding provider "${embeddingProvider}" has no API key configured`,
+        suggestion: `Set the API key with 'minsky config set ai.providers.${embeddingProvider}.apiKey <key>'`,
+      });
+      return;
+    }
+
+    // Make a tiny test embedding request
+    const { createEmbeddingServiceFromConfig } = await import(
+      "../../domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+    await embeddingService.generateEmbedding("test");
+
+    diagnostics.push({
+      check: "Embedding Provider",
+      status: "pass",
+      message: `Embedding provider "${embeddingProvider}" (${embeddingModel}) is working`,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const isQuota = /quota|429|insufficient/i.test(errorMsg);
+    const isAuth = /401|unauthorized|api.key/i.test(errorMsg);
+
+    let suggestion = "Check your embedding provider configuration";
+    if (isQuota) {
+      suggestion = "Check your OpenAI billing at https://platform.openai.com/account/billing";
+    } else if (isAuth) {
+      suggestion =
+        "Your API key may be invalid or expired. Generate a new one at https://platform.openai.com/api-keys";
+    }
+
+    diagnostics.push({
+      check: "Embedding Provider",
+      status: "error",
+      message: `Embedding provider check failed: ${errorMsg}`,
+      suggestion,
     });
   }
 }
