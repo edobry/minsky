@@ -212,16 +212,12 @@ export class TaskServiceImpl implements TaskService {
     }
 
     // Handle tags update if backend supports it
-    if (updates.tags !== undefined) {
-      type BackendWithTags = typeof backend & {
-        updateTags: (id: string, tags: string[]) => Promise<void>;
-      };
-      if (
-        "updateTags" in backend &&
-        typeof (backend as BackendWithTags).updateTags === "function"
-      ) {
-        await (backend as BackendWithTags).updateTags(taskId, updates.tags);
-      }
+    if (
+      updates.tags !== undefined &&
+      backend.getCapabilities().supportsTags &&
+      backend.updateTags
+    ) {
+      await backend.updateTags(taskId, updates.tags);
     }
 
     const final = await this.getTask(taskId);

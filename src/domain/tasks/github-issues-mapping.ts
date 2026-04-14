@@ -124,12 +124,19 @@ export function convertIssueToTaskData(
   const taskId = extractTaskIdFromIssue(issue);
   const status = getTaskStatusFromIssue(issue, statusLabels);
 
+  // Extract non-status labels as tags
+  const statusLabelValues = Object.values(statusLabels);
+  const tags = issue.labels
+    .map((label) => (typeof label === "string" ? label : label.name || ""))
+    .filter((name) => name && !statusLabelValues.includes(name));
+
   return {
     id: taskId,
     title: issue.title,
     description: issue.body || "",
     status,
     specPath: getTaskSpecPath(taskId, issue.title),
+    tags,
   };
 }
 
