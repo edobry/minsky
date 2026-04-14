@@ -119,6 +119,10 @@ export const taskCreateParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (available: github-issues, minsky)"),
+    dependsOn: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe("Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])"),
   })
   .merge(commonCommandOptionsSchema)
   .refine(
