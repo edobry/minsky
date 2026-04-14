@@ -136,7 +136,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         candidatePath = cfg.workspace?.mainPath || currentDir;
 
         const localRemote = (
-          await deps.gitService.execInRepository(candidatePath, "remote get-url origin")
+          await deps.gitService.execInRepository(candidatePath, "git remote get-url origin")
         ).trim();
         if (localRemote) {
           const { normalizeRepositoryUri } = await import("../uri-utils");
