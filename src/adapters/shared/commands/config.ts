@@ -215,7 +215,7 @@ const configShowRegistration = defineCommand({
 
       // Gather credential information safely
       const credentialResolver = new DefaultCredentialResolver();
-      const credentials = await gatherCredentialInfo(credentialResolver, config);
+      const credentials = await gatherCredentialInfo(credentialResolver, config, effectiveValues);
 
       // Show ALL configuration properties dynamically instead of hardcoding subset
       const resolved = {
@@ -256,7 +256,8 @@ const configShowRegistration = defineCommand({
  */
 async function gatherCredentialInfo(
   credentialResolver: DefaultCredentialResolver,
-  config: Record<string, unknown>
+  config: Record<string, unknown>,
+  effectiveValues: Record<string, { value: unknown; source: string; path: string }>
 ) {
   const credentials: Record<string, unknown> = {};
 
@@ -266,7 +267,7 @@ async function gatherCredentialInfo(
     if (githubToken) {
       credentials.github = {
         token: `${"*".repeat(20)} (configured)`,
-        source: "environment", // Simplified for display
+        source: effectiveValues["github.token"]?.source ?? "unknown",
       };
     }
   } catch (error) {
@@ -288,9 +289,10 @@ async function gatherCredentialInfo(
       ) {
         const providerCfg = providerConfig as Record<string, unknown>;
         if (providerCfg.apiKey) {
+          const keyPath = `ai.providers.${provider}.apiKey`;
           (credentials.ai as Record<string, unknown>)[provider] = {
             apiKey: `${"*".repeat(20)} (configured)`,
-            source: "environment",
+            source: effectiveValues[keyPath]?.source ?? "unknown",
           };
         }
       }
