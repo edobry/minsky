@@ -16,6 +16,7 @@ import { readTextFile } from "../../../../utils/fs";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
+import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 
 /**
  * Parameters for tasks edit command
@@ -242,6 +243,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (updates.tags !== undefined) {
         await service.updateTask?.(validatedTaskId, { tags: updates.tags });
         this.debug("Updated task tags");
+      }
+
+      // Fire-and-forget embedding re-index if content that affects embeddings changed
+      if (updates.title || updates.spec) {
+        autoIndexTaskEmbedding(validatedTaskId);
       }
 
       const message = this.buildUpdateMessage(updates, validatedTaskId);
