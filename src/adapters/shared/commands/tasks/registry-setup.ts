@@ -70,7 +70,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksStatusSetCommand(),
     createTasksSpecCommand(),
     createTasksListCommand(getPersistenceProvider),
-    createTasksGetCommand(),
+    createTasksGetCommand(getPersistenceProvider),
     createTasksCreateCommand(getPersistenceProvider),
     createTasksEditCommand(),
     createTasksDeleteCommand(getPersistenceProvider),
