@@ -26,6 +26,29 @@ Subagents have limited tool-call budgets and context windows. They cannot detect
 - **If a subagent returns incomplete work** (changes applied but not committed/PR'd), check the session's `git diff` and `git status`, then finish the commit/PR from the main agent.
 - **For cascading changes** (where editing one file forces changes in its callers), the blast radius is unpredictable. Err on the side of smaller scope and let the cascade determine one wave's natural boundary.
 
+### Subagent Prompt Generation
+
+**Always use `session.generate_prompt`** to generate subagent prompts instead of hand-crafting them. The tool ensures correct sessionId, taskId, absolute paths, scope bounds, and guard rails — eliminating the class of failures seen in mt#672 (wrong task IDs, missing sessionIds, unbounded scope).
+
+**Workflow:**
+
+1. Start a session: `mcp__minsky__session_start`
+2. Generate the prompt: `mcp__minsky__session_generate_prompt` with `task`, `type`, and `instructions`
+3. Dispatch: pass the returned `prompt` string to the Agent tool, using `suggestedModel` and `suggestedSubagentType` from the result
+4. Review and merge as normal
+
+**Prompt types:**
+
+- `implementation` — Feature work with commit + PR instructions
+- `refactor` — Structural changes, suggests `subagent_type: "refactor"`
+- `review` — Read-only, no commit/PR instructions
+- `cleanup` — Mechanical fixes with batching guidance
+- `audit` — Post-merge spec verification, suggests `subagent_type: "verify-completion"`
+
+**Scope batching:** When `scope` has > 40 files, the tool returns multiple prompts in the `batches` array (~30 files each). Dispatch each batch as a separate subagent with intermediate commits.
+
+**Do NOT hand-craft subagent prompts.** The tool handles session resolution, metadata injection, guard rails, and scope validation. Hand-crafting bypasses these safety mechanisms.
+
 ## Minsky Session Workflow
 
 Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID>/` (branch names follow `task/<backend>-<id>` format). The correct working pattern:
@@ -123,6 +146,10 @@ The `/review-pr` skill requires a **Spec verification** section in every review.
 - **Artifact creation is not progress.** Creating tasks, updating specs, writing rules, and process discussion are not substitutes for doing the work. If you can describe exactly what needs to be done, do it.
 - **Before proposing to ship**, check the task spec's success criteria. If items are unmet and actionable, keep working.
 - **Never notice an issue without acting on it.** If you discover a problem, duplication, or architectural concern that's out of scope to fix now, immediately file a task with `mcp__minsky__tasks_create`. Mentioning it in chat is not action — it must become a trackable artifact (task, spec update, or memory). There is no "worth noting for a follow-up" without creating the follow-up.
+
+## Task Creation
+
+**Always use the `/create-task` skill when creating tasks.** This ensures every task has a structured spec with required sections (Summary, Success Criteria, Scope, Acceptance Tests, Context). A PostToolUse hook on `tasks_create` blocks creation if specs over 100 chars are missing `## Success Criteria` or `## Acceptance Tests`.
 
 ## MCP Tools
 
