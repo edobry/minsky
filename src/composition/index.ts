@@ -8,6 +8,8 @@
  */
 
 export { AppContainer } from "./container";
+export { createCliContainer } from "./cli";
+export { createTestContainer } from "./test";
 export type {
   AppServices,
   ServiceKey,
