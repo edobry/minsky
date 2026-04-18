@@ -57,7 +57,6 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       }
 
       const sessionId = session.session;
-      const deps = await getDeps();
       const sessionDir = await resolveSessionDirectory(sessionId, deps.sessionProvider);
 
       const scope =
