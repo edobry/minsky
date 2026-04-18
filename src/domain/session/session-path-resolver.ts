@@ -20,6 +20,12 @@ export class SessionNotFoundError extends Error {
  * Ensures all paths are within session workspace boundaries
  */
 export class SessionPathResolver {
+  private sessionProvider?: import("./index").SessionProviderInterface;
+
+  constructor(sessionProvider?: import("./index").SessionProviderInterface) {
+    this.sessionProvider = sessionProvider;
+  }
+
   /**
    * Validate that a path is within session boundaries
    * @param sessionDir Absolute path to the session workspace
@@ -212,9 +218,20 @@ export class SessionPathResolver {
    * @param sessionId Session ID / identifier (e.g. "task-mt#123")
    * @returns Absolute filesystem path to the session workspace
    */
-  async getSessionWorkspacePath(sessionId: string): Promise<string> {
+  async getSessionWorkspacePath(
+    sessionId: string,
+    sessionProvider?: import("./index").SessionProviderInterface
+  ): Promise<string> {
     const { resolveSessionDirectory } = await import("./resolve-session-directory");
-    return resolveSessionDirectory(sessionId);
+    let provider = sessionProvider ?? this.sessionProvider;
+    if (!provider) {
+      // Lazy fallback for callers that don't have DI context (e.g. MCP handlers).
+      // Callers with DI should pass sessionProvider to the constructor.
+      const { getSharedSessionProvider } = await import("./session-provider-cache");
+      provider = await getSharedSessionProvider();
+      this.sessionProvider = provider;
+    }
+    return resolveSessionDirectory(sessionId, provider);
   }
 
   /**
@@ -226,8 +243,12 @@ export class SessionPathResolver {
    * @returns Absolute path guaranteed to lie within the session workspace
    * @throws Error if the resolved path escapes the session workspace
    */
-  async resolvePath(sessionId: string, inputPath: string): Promise<string> {
-    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId);
+  async resolvePath(
+    sessionId: string,
+    inputPath: string,
+    sessionProvider?: import("./index").SessionProviderInterface
+  ): Promise<string> {
+    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId, sessionProvider);
 
     let targetPath: string;
     if (inputPath.startsWith("/")) {

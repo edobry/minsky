@@ -26,7 +26,6 @@ import type {
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
 import { type SessionProviderInterface } from "../../session/index";
-import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { execSync as defaultExecSync } from "child_process";
@@ -37,7 +36,7 @@ import { first } from "../../../utils/array-safety";
  */
 export interface LocalGitAdapterDeps {
   execSync?: typeof defaultExecSync;
-  sessionProvider?: SessionProviderInterface;
+  sessionProvider: SessionProviderInterface;
 }
 
 /**
@@ -65,9 +64,10 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
     deps?: LocalGitAdapterDeps
   ) {
     this.execSync = deps?.execSync ?? defaultExecSync;
-    this.resolveSessionProvider = deps?.sessionProvider
-      ? () => Promise.resolve(deps.sessionProvider!)
-      : () => getSharedSessionProvider();
+    if (!deps?.sessionProvider) {
+      throw new MinskyError("LocalGitChangesetAdapter requires sessionProvider in deps");
+    }
+    this.resolveSessionProvider = () => Promise.resolve(deps.sessionProvider);
   }
 
   async isAvailable(): Promise<boolean> {

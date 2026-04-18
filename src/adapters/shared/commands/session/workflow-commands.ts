@@ -32,14 +32,18 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
     parameters: sessionCommitCommandParams,
     execute: withErrorLogging("session.commit", async (params: Record<string, unknown>) => {
       const { sessionCommit } = await import("../../../../domain/session/session-commands");
+      const deps = await getDeps();
 
-      const result = await sessionCommit({
-        session: (params.sessionId as string | undefined) ?? "",
-        message: (params.message as string | undefined) ?? "",
-        all: params.all as boolean | undefined,
-        amend: params.amend as boolean | undefined,
-        noStage: params.noStage as boolean | undefined,
-      });
+      const result = await sessionCommit(
+        {
+          session: (params.sessionId as string | undefined) ?? "",
+          message: (params.message as string | undefined) ?? "",
+          all: params.all as boolean | undefined,
+          amend: params.amend as boolean | undefined,
+          noStage: params.noStage as boolean | undefined,
+        },
+        deps.sessionProvider
+      );
 
       return {
         success: result.success,
