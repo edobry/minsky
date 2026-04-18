@@ -151,7 +151,10 @@ export class SessionService {
    * Delete a session.
    */
   async delete(params: SessionDeleteParams): Promise<DeleteSessionResult> {
-    return deleteSessionImpl(params, { sessionDB: this.deps.sessionProvider });
+    return deleteSessionImpl(params, {
+      sessionDB: this.deps.sessionProvider,
+      gitService: this.deps.gitService,
+    });
   }
 
   /**
