@@ -5,6 +5,7 @@
  * This file serves as the central point for registering all shared commands.
  */
 
+import type { AppContainerInterface } from "../../../composition/types";
 import { registerGitCommands } from "./git";
 import { registerTasksCommands } from "./tasks";
 import { registerSessionCommands } from "./session";
@@ -19,17 +20,19 @@ import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 
 /**
- * Register all shared commands in the shared command registry
+ * Register all shared commands in the shared command registry.
+ * @param container Optional DI container — when provided, command groups can
+ *   resolve services from it instead of reaching into singletons.
  */
-export async function registerAllSharedCommands(): Promise<void> {
+export async function registerAllSharedCommands(container?: AppContainerInterface): Promise<void> {
   // Register git commands
   registerGitCommands();
 
   // Register tasks commands
   registerTasksCommands();
 
-  // Register session commands (async)
-  await registerSessionCommands();
+  // Register session commands (async) — pass container for DI migration (mt#761)
+  await registerSessionCommands(undefined, container);
 
   // Register rules commands
   registerRulesCommands();

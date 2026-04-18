@@ -32,6 +32,11 @@ export const cli = new Command("minsky")
  * Create the CLI command structure
  */
 export async function createCli(container: AppContainerInterface): Promise<Command> {
+  // Make the container available to CLI command execution contexts (mt#761).
+  // Execute handlers access it via context.container.get("serviceName").
+  const { setAppContainer } = await import("./adapters/shared/bridges/cli/command-generator-core");
+  setAppContainer(container);
+
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
 
@@ -47,7 +52,7 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   // Register shared commands (session, tasks, git, rules, config, etc.)
   const { registerAllSharedCommands } = await import("./adapters/shared/commands/index");
-  await registerAllSharedCommands();
+  await registerAllSharedCommands(container);
 
   // Register all commands via CLI command factory (which applies customizations)
   cliFactory.registerAllCommands(cli);

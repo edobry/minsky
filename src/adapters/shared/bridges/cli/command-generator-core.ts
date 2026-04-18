@@ -42,6 +42,27 @@ export interface CommandGeneratorDependencies {
 }
 
 /**
+ * Module-scoped container reference, set once from the CLI composition root.
+ * Injected into CommandExecutionContext so execute handlers can access DI services.
+ * @see mt#761
+ */
+let _appContainer: import("../../../../composition/types").AppContainerInterface | undefined;
+
+/** Set the app container for CLI command execution contexts. Called once from cli.ts. */
+export function setAppContainer(
+  container: import("../../../../composition/types").AppContainerInterface
+): void {
+  _appContainer = container;
+}
+
+/** Get the app container (for MCP integration and other context creators). */
+export function getAppContainer():
+  | import("../../../../composition/types").AppContainerInterface
+  | undefined {
+  return _appContainer;
+}
+
+/**
  * Core command generator implementation
  */
 export class CommandGeneratorCore {
@@ -151,6 +172,7 @@ export class CommandGeneratorCore {
           interface: "cli",
           debug: !!rawParameters.debug,
           format: rawParameters.json ? "json" : "text",
+          container: _appContainer,
           cliSpecificData: {
             command: commandInstance,
             rawArgs: commandInstance.args,

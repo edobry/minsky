@@ -151,10 +151,21 @@ export function registerSharedCommandsWithMcp(
 
           try {
             // Create execution context for shared command
+            // Get the app container set by the composition root (mt#761).
+            let appContainer;
+            try {
+              const { getAppContainer } = await import(
+                "../shared/bridges/cli/command-generator-core"
+              );
+              appContainer = getAppContainer();
+            } catch {
+              // Container not available — backward compatibility
+            }
             const context: CommandExecutionContext = {
               interface: "mcp",
               debug: Boolean(args?.debug),
               format: args?.json === "true" ? "json" : "text", // Use json format only when explicitly requested
+              container: appContainer,
             };
             log.debug(`[MCP] Created execution context: ${command.id}`, { context });
 

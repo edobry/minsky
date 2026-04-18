@@ -4,6 +4,7 @@
  * Constructs and registers all session commands (and changeset aliases)
  * in the shared command registry.
  */
+import type { AppContainerInterface } from "../../../composition/types";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./session/types";
 import {
   createSessionListCommand,
@@ -41,13 +42,20 @@ import { sharedCommandRegistry, type CommandDefinition } from "../command-regist
  * command registry.
  */
 export async function registerSessionCommands(
-  partialDeps?: Partial<SessionCommandDependencies>
+  partialDeps?: Partial<SessionCommandDependencies>,
+  container?: AppContainerInterface
 ): Promise<void> {
   // Lazy resolver: defers persistence initialization and domain module loading
   // to first command execution. CLI bootstrap only registers metadata.
   let cachedDeps: SessionCommandDependencies | null = null;
   const getDeps: LazySessionDeps = async () => {
     if (cachedDeps) return cachedDeps;
+    // Prefer container-provided sessionDeps if available (mt#761 DI migration).
+    // Falls back to singleton for backward compatibility during migration.
+    if (container?.has("sessionDeps")) {
+      cachedDeps = container.get("sessionDeps");
+      return cachedDeps;
+    }
     const { getSharedSessionProvider } = await import(
       "../../../domain/session/session-provider-cache"
     );

@@ -92,9 +92,10 @@ async function executeSessionChangesetList(
     let sessionFilter: string | undefined;
     if (!params.all) {
       try {
-        const { getSharedSessionProvider } = await import("../../../../domain/session");
         const { execAsync } = await import("../../../../utils/exec");
-        const sessionDB = await getSharedSessionProvider();
+        const sessionDB = ctx?.container?.has("sessionProvider")
+          ? ctx.container.get("sessionProvider")
+          : await (await import("../../../../domain/session")).getSharedSessionProvider();
         const currentSessionId = await getCurrentSession(process.cwd(), execAsync, sessionDB);
         if (currentSessionId) {
           sessionFilter = currentSessionId;
@@ -198,9 +199,10 @@ async function executeSessionChangesetGet(
     // If no ID specified, try to find current session's changeset
     if (!changesetId) {
       try {
-        const { getSharedSessionProvider } = await import("../../../../domain/session");
         const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
-        const sessionDB2 = await getSharedSessionProvider();
+        const sessionDB2 = ctx?.container?.has("sessionProvider")
+          ? ctx.container.get("sessionProvider")
+          : await (await import("../../../../domain/session")).getSharedSessionProvider();
         const currentSessionId = await getCurrentSession(process.cwd(), execAsyncFn, sessionDB2);
         if (currentSessionId) {
           const sessionProvider = sessionDB2;
