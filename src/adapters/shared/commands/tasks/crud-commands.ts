@@ -32,6 +32,7 @@ interface TasksListParams extends BaseTaskParams {
   tag?: string | string[];
   since?: string;
   until?: string;
+  hierarchical?: boolean;
 }
 
 /**
@@ -52,6 +53,7 @@ interface TasksCreateParams extends BaseTaskParams {
   force?: boolean;
   githubRepo?: string;
   dependsOn?: string | string[];
+  parent?: string;
   tag?: string | string[];
 }
 
@@ -71,6 +73,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
   readonly parameters = tasksListParams;
+
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
 
   async execute(params: TasksListParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
@@ -110,11 +116,90 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       // If utilities unavailable, skip
     }
 
+    // Enrich with parent info and build hierarchical view if requested
+    let depthMap: Map<string, number> | undefined;
+    if (params.hierarchical && this.getPersistenceProvider) {
+      try {
+        const persistence = this.getPersistenceProvider();
+        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+        const service = new TaskGraphService(db);
+        const taskIds = tasks.map((t) => t.id);
+        const parentEdges = await service.getRelationshipsForTasks(taskIds, "parent");
+
+        // Build parent map: childId → parentId
+        const parentMap = new Map<string, string>();
+        for (const edge of parentEdges) {
+          parentMap.set(edge.fromTaskId, edge.toTaskId);
+        }
+
+        // Enrich tasks with parentTaskId
+        for (const task of tasks) {
+          const parent = parentMap.get(task.id);
+          if (parent) task.parentTaskId = parent;
+        }
+
+        // Build tree output: root tasks first, then children indented
+        const taskById = new Map(tasks.map((t) => [t.id, t]));
+        const childrenMap = new Map<string, typeof tasks>();
+        const rootTasks: typeof tasks = [];
+
+        for (const task of tasks) {
+          if (task.parentTaskId && taskById.has(task.parentTaskId)) {
+            if (!childrenMap.has(task.parentTaskId)) {
+              childrenMap.set(task.parentTaskId, []);
+            }
+            childrenMap.get(task.parentTaskId)!.push(task);
+          } else {
+            rootTasks.push(task);
+          }
+        }
+
+        // Flatten tree back to ordered array with depth tracked separately
+        const orderedTasks: typeof tasks = [];
+        depthMap = new Map<string, number>();
+        const addWithChildren = (task: (typeof tasks)[0], depth: number) => {
+          depthMap!.set(task.id, depth);
+          orderedTasks.push(task);
+          const children = childrenMap.get(task.id) ?? [];
+          for (const child of children) {
+            addWithChildren(child, depth + 1);
+          }
+        };
+        for (const root of rootTasks) {
+          addWithChildren(root, 0);
+        }
+
+        tasks = orderedTasks;
+      } catch {
+        // If graph service unavailable, fall back to flat list
+      }
+    } else if (params.hierarchical) {
+      log.warn(
+        "[tasks.list] Hierarchical view unavailable — no persistence provider (no SQL backend)"
+      );
+    }
+
     this.debug(`Found ${tasks.length} tasks`);
     const wantJson = params.json || ctx.format === "json";
     if (wantJson) {
       // For JSON output, return tasks array only
       return tasks;
+    }
+
+    // Format output — hierarchical mode uses indentation
+    if (params.hierarchical) {
+      const lines: string[] = [];
+      for (const task of tasks) {
+        const depth = depthMap?.get(task.id) ?? 0;
+        const indent = depth > 0 ? `${"  ".repeat(depth)}└─ ` : "";
+        lines.push(`${indent}${task.id}: ${task.title} [${task.status}]`);
+      }
+      return {
+        success: true,
+        count: tasks.length,
+        output: lines.join("\n"),
+      };
     }
 
     return this.formatResult(
@@ -278,6 +363,31 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         }
       }
 
+      // Handle parent: set parent-child relationship after task creation
+      let parentSet = false;
+      const parentWarnings: string[] = [];
+      if (params.parent) {
+        if (this.getPersistenceProvider) {
+          try {
+            const persistence = this.getPersistenceProvider();
+            const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+            const { TaskGraphService } = await import(
+              "../../../../domain/tasks/task-graph-service"
+            );
+            const service = new TaskGraphService(db);
+            await service.addParent(result.id, params.parent);
+            parentSet = true;
+          } catch (parentErr) {
+            const msg = getErrorMessage(parentErr);
+            parentWarnings.push(`Failed to set parent ${params.parent}: ${msg}`);
+            log.warn(`[tasks.create] Failed to set parent ${params.parent}: ${msg}`);
+          }
+        } else {
+          parentWarnings.push("No persistence provider available; parent was not set");
+          log.warn("[tasks.create] No persistence provider; skipping parent");
+        }
+      }
+
       // Fire-and-forget embedding indexing for the newly created task
       autoIndexTaskEmbedding(result.id);
 
@@ -295,10 +405,16 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         if (tags && tags.length > 0) {
           message += `\n${chalk.gray("  Tags: ")}${tags.join(", ")}`;
         }
+        if (parentSet) {
+          message += `\n${chalk.gray("  Parent: ")}${params.parent}`;
+        }
         if (depsAdded.length > 0) {
           message += `\n${chalk.gray("  Depends on: ")}${depsAdded.join(", ")}`;
         }
         for (const warning of depsWarnings) {
+          message += `\n${chalk.yellow(`  ⚠️  ${warning}`)}`;
+        }
+        for (const warning of parentWarnings) {
           message += `\n${chalk.yellow(`  ⚠️  ${warning}`)}`;
         }
       }
@@ -348,6 +464,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly description = "Delete a task";
   readonly parameters = tasksDeleteParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksDeleteParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.delete execution");
 
@@ -367,6 +487,28 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
       taskId: validatedTaskId,
       force: params.force ?? false,
     });
+
+    // Clean up parent-child edges for the deleted task (D7: orphan children)
+    if (result.success && this.getPersistenceProvider) {
+      try {
+        const persistence = this.getPersistenceProvider();
+        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+        const service = new TaskGraphService(db);
+
+        // Remove this task's parent edge (if it was a child)
+        await service.removeParent(validatedTaskId);
+
+        // Orphan any children by removing their parent edges pointing to this task
+        const children = await service.listChildren(validatedTaskId);
+        for (const childId of children) {
+          await service.removeParent(childId);
+        }
+      } catch {
+        // Graph cleanup is best-effort; don't fail the delete
+        log.warn(`[tasks.delete] Could not clean up parent-child edges for ${validatedTaskId}`);
+      }
+    }
 
     const message = result.success
       ? `Task ${validatedTaskId} deleted successfully`
@@ -416,7 +558,9 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
 /**
  * Factory functions for creating command instances
  */
-export const createTasksListCommand = (): TasksListCommand => new TasksListCommand();
+export const createTasksListCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksListCommand => new TasksListCommand(getPersistenceProvider);
 
 export const createTasksGetCommand = (): TasksGetCommand => new TasksGetCommand();
 
@@ -424,4 +568,6 @@ export const createTasksCreateCommand = (
   getPersistenceProvider?: () => PersistenceProvider
 ): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider);
 
-export const createTasksDeleteCommand = (): TasksDeleteCommand => new TasksDeleteCommand();
+export const createTasksDeleteCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider);

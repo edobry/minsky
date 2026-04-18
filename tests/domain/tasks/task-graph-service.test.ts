@@ -1,165 +1,315 @@
 import { describe, it, expect } from "bun:test";
-import { TaskGraphService } from "../../../src/domain/tasks/task-graph-service";
+import {
+  TaskGraphService,
+  type RelationshipType,
+  type TaskRelationship,
+} from "../../../src/domain/tasks/task-graph-service";
 
-function createInMemoryRepo(initial: Array<[string, string]> = []) {
-  const edges = new Set(initial.map(([f, t]) => `${f}→${t}`));
+function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> = []) {
+  // Store edges as "from→to→type"
+  const edges = new Set(initial.map(([f, t, type]) => `${f}→${t}→${type ?? "depends"}`));
+
+  function parseKey(key: string): { from: string; to: string; type: RelationshipType } {
+    const parts = key.split("→");
+    return { from: parts[0]!, to: parts[1]!, type: parts[2]! as RelationshipType };
+  }
+
   return {
-    async findEdge(fromId: string, toId: string) {
-      return edges.has(`${fromId}→${toId}`);
+    async findEdge(fromId: string, toId: string, type: RelationshipType) {
+      return edges.has(`${fromId}→${toId}→${type}`);
     },
-    async createEdge(fromId: string, toId: string) {
-      edges.add(`${fromId}→${toId}`);
+    async createEdge(fromId: string, toId: string, type: RelationshipType) {
+      edges.add(`${fromId}→${toId}→${type}`);
     },
-    async deleteEdge(fromId: string, toId: string) {
-      const key = `${fromId}→${toId}`;
+    async deleteEdge(fromId: string, toId: string, type: RelationshipType) {
+      const key = `${fromId}→${toId}→${type}`;
       const had = edges.delete(key);
       return had ? 1 : 0;
     },
-    async listFrom(taskId: string) {
-      const res: string[] = [];
+    async deleteEdgesFrom(fromId: string, type: RelationshipType) {
+      let count = 0;
       for (const key of edges) {
-        const [f, t] = key.split("→");
-        if (f === taskId) res.push(t!);
-      }
-      return res;
-    },
-    async listTo(taskId: string) {
-      const res: string[] = [];
-      for (const key of edges) {
-        const [f, t] = key.split("→");
-        if (t === taskId) res.push(f!);
-      }
-      return res;
-    },
-    async getAllRelationships() {
-      return Array.from(edges).map((key) => {
-        const [fromTaskId, toTaskId] = key.split("→");
-        return { fromTaskId: fromTaskId!, toTaskId: toTaskId! };
-      });
-    },
-    async getRelationshipsForTasks(taskIds: string[]) {
-      const result: { fromTaskId: string; toTaskId: string }[] = [];
-      for (const key of edges) {
-        const [f, t] = key.split("→");
-        if (taskIds.includes(f!) || taskIds.includes(t!)) {
-          result.push({ fromTaskId: f!, toTaskId: t! });
+        const parsed = parseKey(key);
+        if (parsed.from === fromId && parsed.type === type) {
+          edges.delete(key);
+          count++;
         }
       }
-      return result;
+      return count;
+    },
+    async listFrom(taskId: string, type: RelationshipType) {
+      const res: string[] = [];
+      for (const key of edges) {
+        const parsed = parseKey(key);
+        if (parsed.from === taskId && parsed.type === type) res.push(parsed.to);
+      }
+      return res;
+    },
+    async listTo(taskId: string, type: RelationshipType) {
+      const res: string[] = [];
+      for (const key of edges) {
+        const parsed = parseKey(key);
+        if (parsed.to === taskId && parsed.type === type) res.push(parsed.from);
+      }
+      return res;
+    },
+    async getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]> {
+      return Array.from(edges)
+        .map(parseKey)
+        .filter((e) => !type || e.type === type)
+        .map((e) => ({ fromTaskId: e.from, toTaskId: e.to, type: e.type }));
+    },
+    async getRelationshipsForTasks(
+      taskIds: string[],
+      type?: RelationshipType
+    ): Promise<TaskRelationship[]> {
+      return Array.from(edges)
+        .map(parseKey)
+        .filter((e) => taskIds.includes(e.from) || taskIds.includes(e.to))
+        .filter((e) => !type || e.type === type)
+        .map((e) => ({ fromTaskId: e.from, toTaskId: e.to, type: e.type }));
     },
   };
 }
 
+function createService(initial: Array<[string, string, RelationshipType?]> = []): TaskGraphService {
+  const repo = createInMemoryRepo(initial);
+  return new TaskGraphService(repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]);
+}
+
 describe("TaskGraphService (in-memory)", () => {
-  it("adds dependency idempotently and lists dependencies", async () => {
-    const svc = new TaskGraphService(
-      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-    );
-    const r1 = await svc.addDependency("md#1", "db#2");
-    const r2 = await svc.addDependency("md#1", "db#2");
-    expect(r1.created).toBe(true);
-    expect(r2.created).toBe(false);
-    expect(await svc.listDependencies("md#1")).toEqual(["db#2"]);
+  // ── Dependency operations ─────────────────────────────────────────
+
+  describe("dependencies", () => {
+    it("adds dependency idempotently and lists dependencies", async () => {
+      const svc = createService();
+      const r1 = await svc.addDependency("md#1", "db#2");
+      const r2 = await svc.addDependency("md#1", "db#2");
+      expect(r1.created).toBe(true);
+      expect(r2.created).toBe(false);
+      expect(await svc.listDependencies("md#1")).toEqual(["db#2"]);
+    });
+
+    it("prevents self-edge", async () => {
+      const svc = createService();
+      await expect(svc.addDependency("md#1", "md#1")).rejects.toThrow();
+    });
+
+    it("validates qualified IDs", async () => {
+      const svc = createService();
+      await expect(svc.addDependency("1", "db#2")).rejects.toThrow();
+      await expect(svc.addDependency("md#1", "2")).rejects.toThrow();
+    });
+
+    it("removes dependency and lists dependents", async () => {
+      const svc = createService([
+        ["md#1", "db#2"],
+        ["md#3", "db#2"],
+      ]);
+      expect(await svc.listDependents("db#2")).toEqual(["md#1", "md#3"]);
+      const r = await svc.removeDependency("md#1", "db#2");
+      expect(r.removed).toBe(true);
+      expect(await svc.listDependents("db#2")).toEqual(["md#3"]);
+    });
   });
 
-  it("prevents self-edge", async () => {
-    const svc = new TaskGraphService(
-      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-    );
-    await expect(svc.addDependency("md#1", "md#1")).rejects.toThrow();
+  // ── Parent-child operations ───────────────────────────────────────
+
+  describe("parent-child", () => {
+    it("adds parent and retrieves it", async () => {
+      const svc = createService();
+      const r = await svc.addParent("mt#2", "mt#1");
+      expect(r.created).toBe(true);
+      expect(await svc.getParent("mt#2")).toBe("mt#1");
+    });
+
+    it("lists children of a parent", async () => {
+      const svc = createService([
+        ["mt#2", "mt#1", "parent"],
+        ["mt#3", "mt#1", "parent"],
+      ]);
+      const children = await svc.listChildren("mt#1");
+      expect(children).toContain("mt#2");
+      expect(children).toContain("mt#3");
+      expect(children).toHaveLength(2);
+    });
+
+    it("returns null for tasks with no parent", async () => {
+      const svc = createService();
+      expect(await svc.getParent("mt#1")).toBeNull();
+    });
+
+    it("returns empty array for tasks with no children", async () => {
+      const svc = createService();
+      expect(await svc.listChildren("mt#1")).toEqual([]);
+    });
+
+    it("addParent is idempotent", async () => {
+      const svc = createService();
+      await svc.addParent("mt#2", "mt#1");
+      const r2 = await svc.addParent("mt#2", "mt#1");
+      expect(r2.created).toBe(false);
+    });
+
+    it("rejects adding second parent", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      await expect(svc.addParent("mt#2", "mt#3")).rejects.toThrow(/already has parent mt#1/);
+    });
+
+    it("prevents self-parent", async () => {
+      const svc = createService();
+      await expect(svc.addParent("mt#1", "mt#1")).rejects.toThrow();
+    });
+
+    it("validates qualified IDs", async () => {
+      const svc = createService();
+      await expect(svc.addParent("1", "mt#2")).rejects.toThrow();
+      await expect(svc.addParent("mt#1", "2")).rejects.toThrow();
+    });
+
+    it("removes parent", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const r = await svc.removeParent("mt#2");
+      expect(r.removed).toBe(true);
+      expect(await svc.getParent("mt#2")).toBeNull();
+      expect(await svc.listChildren("mt#1")).toEqual([]);
+    });
+
+    it("removeParent returns false when no parent exists", async () => {
+      const svc = createService();
+      const r = await svc.removeParent("mt#1");
+      expect(r.removed).toBe(false);
+    });
   });
 
-  it("validates qualified IDs", async () => {
-    const svc = new TaskGraphService(
-      createInMemoryRepo() as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-    );
-    await expect(svc.addDependency("1", "db#2")).rejects.toThrow();
-    await expect(svc.addDependency("md#1", "2")).rejects.toThrow();
+  // ── Cycle prevention ──────────────────────────────────────────────
+
+  describe("cycle prevention", () => {
+    it("prevents direct cycle: A parent of B, B parent of A", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      await expect(svc.addParent("mt#1", "mt#2")).rejects.toThrow(/Cycle detected/);
+    });
+
+    it("prevents indirect cycle: A→B→C, then C→A", async () => {
+      const svc = createService([
+        ["mt#2", "mt#1", "parent"],
+        ["mt#3", "mt#2", "parent"],
+      ]);
+      // mt#1 has child mt#2, mt#2 has child mt#3
+      // Trying to make mt#1 a child of mt#3 would create a cycle
+      await expect(svc.addParent("mt#1", "mt#3")).rejects.toThrow(/Cycle detected/);
+    });
+
+    it("allows non-cyclic deep hierarchies", async () => {
+      const svc = createService([
+        ["mt#2", "mt#1", "parent"],
+        ["mt#3", "mt#2", "parent"],
+      ]);
+      // Adding mt#4 as child of mt#3 should work (no cycle)
+      const r = await svc.addParent("mt#4", "mt#3");
+      expect(r.created).toBe(true);
+    });
   });
 
-  it("removes dependency and lists dependents", async () => {
-    const repo = createInMemoryRepo([
-      ["md#1", "db#2"],
-      ["md#3", "db#2"],
-    ]);
-    const svc = new TaskGraphService(
-      repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-    );
-    expect(await svc.listDependents("db#2")).toEqual(["md#1", "md#3"]);
-    const r = await svc.removeDependency("md#1", "db#2");
-    expect(r.removed).toBe(true);
-    expect(await svc.listDependents("db#2")).toEqual(["md#3"]);
+  // ── Ancestor queries ──────────────────────────────────────────────
+
+  describe("getAncestors", () => {
+    it("returns empty for root tasks", async () => {
+      const svc = createService();
+      expect(await svc.getAncestors("mt#1")).toEqual([]);
+    });
+
+    it("returns chain of ancestors", async () => {
+      const svc = createService([
+        ["mt#3", "mt#2", "parent"],
+        ["mt#2", "mt#1", "parent"],
+      ]);
+      const ancestors = await svc.getAncestors("mt#3");
+      expect(ancestors).toEqual(["mt#2", "mt#1"]);
+    });
   });
 
-  describe("Bulk query operations", () => {
-    it("getAllRelationships returns all edges", async () => {
-      const repo = createInMemoryRepo([
+  // ── Dependency/parent isolation ───────────────────────────────────
+
+  describe("isolation between types", () => {
+    it("dependency edges don't appear as parent edges", async () => {
+      const svc = createService([["mt#1", "mt#2", "depends"]]);
+      expect(await svc.getParent("mt#1")).toBeNull();
+      expect(await svc.listChildren("mt#2")).toEqual([]);
+      expect(await svc.listDependencies("mt#1")).toEqual(["mt#2"]);
+    });
+
+    it("parent edges don't appear as dependency edges", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      expect(await svc.listDependencies("mt#2")).toEqual([]);
+      expect(await svc.listDependents("mt#1")).toEqual([]);
+      expect(await svc.getParent("mt#2")).toBe("mt#1");
+    });
+
+    it("same pair can have both dependency and parent edges", async () => {
+      const svc = createService([
+        ["mt#2", "mt#1", "depends"],
+        ["mt#2", "mt#1", "parent"],
+      ]);
+      expect(await svc.listDependencies("mt#2")).toEqual(["mt#1"]);
+      expect(await svc.getParent("mt#2")).toBe("mt#1");
+    });
+  });
+
+  // ── Bulk query operations ─────────────────────────────────────────
+
+  describe("bulk query operations", () => {
+    it("getAllRelationships returns all edges with types", async () => {
+      const svc = createService([
         ["md#1", "db#2"],
         ["mt#3", "gh#4"],
-        ["db#2", "mt#5"],
+        ["mt#5", "mt#3", "parent"],
       ]);
-      const svc = new TaskGraphService(
-        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-      );
-
       const relationships = await svc.getAllRelationships();
       expect(relationships).toHaveLength(3);
-      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
-      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "gh#4" });
-      expect(relationships).toContainEqual({ fromTaskId: "db#2", toTaskId: "mt#5" });
+      expect(relationships).toContainEqual({
+        fromTaskId: "md#1",
+        toTaskId: "db#2",
+        type: "depends",
+      });
+      expect(relationships).toContainEqual({
+        fromTaskId: "mt#5",
+        toTaskId: "mt#3",
+        type: "parent",
+      });
     });
 
-    it("getRelationshipsForTasks filters by task IDs", async () => {
-      const repo = createInMemoryRepo([
-        ["md#1", "db#2"],
-        ["mt#3", "gh#4"],
-        ["db#2", "mt#5"],
-        ["gh#6", "mt#7"], // Should not be included
+    it("getAllRelationships filters by type", async () => {
+      const svc = createService([
+        ["md#1", "db#2", "depends"],
+        ["mt#5", "mt#3", "parent"],
       ]);
-      const svc = new TaskGraphService(
-        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-      );
+      const deps = await svc.getAllRelationships("depends");
+      expect(deps).toHaveLength(1);
+      expect(deps[0]!.type).toBe("depends");
 
-      // Get relationships involving md#1 or mt#3
-      const relationships = await svc.getRelationshipsForTasks(["md#1", "mt#3"]);
-      expect(relationships).toHaveLength(2);
-      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
-      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "gh#4" });
-      expect(relationships).not.toContainEqual({ fromTaskId: "gh#6", toTaskId: "mt#7" });
+      const parents = await svc.getAllRelationships("parent");
+      expect(parents).toHaveLength(1);
+      expect(parents[0]!.type).toBe("parent");
     });
 
-    it("getRelationshipsForTasks includes relationships where task is dependent", async () => {
-      const repo = createInMemoryRepo([
-        ["md#1", "db#2"],
-        ["mt#3", "db#2"], // db#2 is dependency of both md#1 and mt#3
+    it("getRelationshipsForTasks filters by task IDs and type", async () => {
+      const svc = createService([
+        ["md#1", "db#2", "depends"],
+        ["mt#3", "db#2", "parent"],
+        ["gh#6", "mt#7", "depends"],
       ]);
-      const svc = new TaskGraphService(
-        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-      );
-
-      // Get relationships involving db#2 (as dependency)
-      const relationships = await svc.getRelationshipsForTasks(["db#2"]);
-      expect(relationships).toHaveLength(2);
-      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
-      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "db#2" });
-    });
-
-    it("getRelationshipsForTasks returns empty array for unknown task IDs", async () => {
-      const repo = createInMemoryRepo([["md#1", "db#2"]]);
-      const svc = new TaskGraphService(
-        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-      );
-
-      const relationships = await svc.getRelationshipsForTasks(["unknown#1", "unknown#2"]);
-      expect(relationships).toHaveLength(0);
+      const deps = await svc.getRelationshipsForTasks(["db#2"], "depends");
+      expect(deps).toHaveLength(1);
+      expect(deps).toContainEqual({
+        fromTaskId: "md#1",
+        toTaskId: "db#2",
+        type: "depends",
+      });
     });
 
     it("getRelationshipsForTasks handles empty task ID array", async () => {
-      const repo = createInMemoryRepo([["md#1", "db#2"]]);
-      const svc = new TaskGraphService(
-        repo as unknown as ConstructorParameters<typeof TaskGraphService>[0]
-      );
-
+      const svc = createService([["md#1", "db#2"]]);
       const relationships = await svc.getRelationshipsForTasks([]);
       expect(relationships).toHaveLength(0);
     });

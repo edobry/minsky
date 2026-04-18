@@ -62,6 +62,11 @@ export const taskCreationParams = {
     description: "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])",
     required: false,
   },
+  parent: {
+    schema: z.string().optional(),
+    description: "Parent task ID — makes this a subtask (e.g., 'mt#237')",
+    required: false,
+  },
   tag: {
     schema: z.union([z.string(), z.array(z.string())]).optional(),
     description:
@@ -93,6 +98,11 @@ export const taskFilterParams = {
   until: {
     schema: z.string(),
     description: "Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
+  hierarchical: {
+    schema: z.boolean().default(false),
+    description: "Group subtasks under their parent tasks in a tree view",
     required: false,
   },
 };

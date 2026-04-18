@@ -43,6 +43,8 @@ export function createAllTaskCommands() {
     createTasksDepsAddCommand,
     createTasksDepsRmCommand,
     createTasksDepsListCommand,
+    createTasksChildrenCommand,
+    createTasksParentCommand,
   } = require("./deps-commands");
   const {
     createTasksDepsTreeCommand,
@@ -54,11 +56,11 @@ export function createAllTaskCommands() {
     createTasksStatusGetCommand(),
     createTasksStatusSetCommand(),
     createTasksSpecCommand(),
-    createTasksListCommand(),
+    createTasksListCommand(getPersistenceProvider),
     createTasksGetCommand(),
-    createTasksCreateCommand(),
+    createTasksCreateCommand(getPersistenceProvider),
     createTasksEditCommand(),
-    createTasksDeleteCommand(),
+    createTasksDeleteCommand(getPersistenceProvider),
     new TasksSimilarCommand(),
     new TasksSearchCommand(),
     new TasksIndexEmbeddingsCommand(),
@@ -69,6 +71,9 @@ export function createAllTaskCommands() {
     createTasksDepsListCommand(getPersistenceProvider),
     createTasksDepsTreeCommand(getPersistenceProvider),
     createTasksDepsGraphCommand(getPersistenceProvider),
+    // Parent-child (subtask) commands
+    createTasksChildrenCommand(getPersistenceProvider),
+    createTasksParentCommand(getPersistenceProvider),
     // Routing commands
     createTasksAvailableCommand(getPersistenceProvider),
     createTasksRouteCommand(getPersistenceProvider),

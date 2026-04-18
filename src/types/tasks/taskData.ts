@@ -27,8 +27,10 @@ export interface TaskData {
   status: TaskStatus;
   specPath?: string;
   backend?: string;
-  tags?: string[];
+  /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
+  parentTaskId?: string;
   metadata?: Record<string, unknown>;
+  tags?: string[];
   worklog?: Array<{ timestamp: string; message: string }>;
   mergeInfo?: {
     commitHash?: string;
