@@ -20,9 +20,13 @@ export interface GeneratePromptResult {
   suggestedSubagentType?: string;
   suggestedModel?: string;
   scopeWarning?: string;
+  batches?: GeneratePromptResult[]; // populated when scope > SCOPE_WARNING_THRESHOLD
+  batchIndex?: number; // 1-based index of this batch
+  totalBatches?: number; // total number of batches
 }
 
 const SCOPE_WARNING_THRESHOLD = 40;
+const BATCH_SIZE = 30;
 
 function renderCommonHeader(params: GeneratePromptParams): string {
   return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
@@ -64,18 +68,26 @@ function renderToolingNote(): string {
 Do NOT run Bash commands for formatting, linting, type-checking, or tests — the pre-commit hooks handle all of that.`;
 }
 
-export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePromptResult {
+function generateSinglePrompt(
+  params: GeneratePromptParams,
+  batchScope?: string[],
+  batchIndex?: number,
+  totalBatches?: number
+): string {
   const { type, scope, sessionId, taskId } = params;
+  const effectiveScope = batchScope ?? scope;
 
-  const scopeWarning =
-    scope && scope.length > SCOPE_WARNING_THRESHOLD
-      ? `Scope has ${scope.length} files (exceeds ${SCOPE_WARNING_THRESHOLD}). Consider batching into multiple smaller tasks to stay within subagent capacity limits.`
-      : undefined;
+  const sections: string[] = [];
 
-  const sections: string[] = [renderCommonHeader(params)];
+  const header = renderCommonHeader(params);
+  if (batchIndex !== undefined && totalBatches !== undefined) {
+    sections.push(`${header}\n\n**Batch ${batchIndex} of ${totalBatches}**`);
+  } else {
+    sections.push(header);
+  }
 
-  if (scope && scope.length > 0) {
-    sections.push(renderScopeSection(scope));
+  if (effectiveScope && effectiveScope.length > 0) {
+    sections.push(renderScopeSection(effectiveScope));
   }
 
   if (type === "review") {
@@ -84,12 +96,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
 
 Report findings as structured output. Do NOT make any changes.`);
     sections.push(renderToolingNote());
-
-    return {
-      prompt: sections.join("\n"),
-      suggestedModel: "sonnet",
-      scopeWarning,
-    };
+    return sections.join("\n");
   }
 
   if (type === "refactor") {
@@ -106,11 +113,89 @@ After making changes, re-read each modified file end-to-end and verify: no stale
 For large scopes, commit after each batch of ~10 files rather than all at once.`);
   }
 
-  sections.push(renderCommitInstructions(sessionId, taskId));
+  if (batchIndex !== undefined && totalBatches !== undefined && batchIndex < totalBatches) {
+    sections.push(`
+## Intermediate Commit
+
+Commit this batch before proceeding to the next.
+- Tool: \`mcp__minsky__session_commit\`
+- Parameters: \`sessionId: "${sessionId}"\`, \`all: true\``);
+  } else {
+    sections.push(renderCommitInstructions(sessionId, taskId));
+  }
+
   sections.push(renderToolingNote());
 
+  return sections.join("\n");
+}
+
+export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePromptResult {
+  const { type, scope } = params;
+
+  const needsBatching = scope && scope.length > SCOPE_WARNING_THRESHOLD;
+
+  if (needsBatching) {
+    const scopeWarning = `Scope has ${scope.length} files (exceeds ${SCOPE_WARNING_THRESHOLD}). Using batching into chunks of ${BATCH_SIZE} files for subagent capacity.`;
+
+    // Split scope into chunks of BATCH_SIZE
+    const chunks: string[][] = [];
+    for (let i = 0; i < scope.length; i += BATCH_SIZE) {
+      chunks.push(scope.slice(i, i + BATCH_SIZE));
+    }
+    const totalBatches = chunks.length;
+
+    let firstBatchPrompt = "";
+
+    const batches: GeneratePromptResult[] = chunks.map((chunk, idx) => {
+      const batchIndex = idx + 1;
+      const prompt = generateSinglePrompt(params, chunk, batchIndex, totalBatches);
+      if (batchIndex === 1) {
+        firstBatchPrompt = prompt;
+      }
+      const batchResult: GeneratePromptResult = {
+        prompt,
+        suggestedModel: "sonnet",
+        batchIndex,
+        totalBatches,
+        scopeWarning,
+      };
+      if (type === "refactor") {
+        batchResult.suggestedSubagentType = "refactor";
+      }
+      return batchResult;
+    });
+
+    const result: GeneratePromptResult = {
+      prompt: firstBatchPrompt,
+      suggestedModel: "sonnet",
+      scopeWarning,
+      batches,
+    };
+
+    if (type === "refactor") {
+      result.suggestedSubagentType = "refactor";
+    }
+
+    return result;
+  }
+
+  const scopeWarning =
+    scope && scope.length > SCOPE_WARNING_THRESHOLD
+      ? `Scope has ${scope.length} files (exceeds ${SCOPE_WARNING_THRESHOLD}). Consider batching into multiple smaller tasks to stay within subagent capacity limits.`
+      : undefined;
+
+  const prompt = generateSinglePrompt(params);
+
+  if (type === "review") {
+    return {
+      prompt,
+      suggestedModel: "sonnet",
+      scopeWarning,
+    };
+  }
+
   const result: GeneratePromptResult = {
-    prompt: sections.join("\n"),
+    prompt,
     suggestedModel: "sonnet",
     scopeWarning,
   };
