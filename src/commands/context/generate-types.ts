@@ -70,7 +70,7 @@ export interface GenerateRequest {
   input: {
     environment: { os: string; shell: string };
     workspacePath: string;
-    task: { id: string; title: string; status: string; description: string };
+    task: { id: string; title: string; status: string; spec?: string };
     userQuery: string;
     userPrompt?: string;
     targetModel: string;

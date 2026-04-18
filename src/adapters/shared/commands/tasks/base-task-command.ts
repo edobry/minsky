@@ -156,8 +156,8 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
 
           // Note: Task objects don't contain spec content directly
           // Spec content needs to be fetched separately via getTaskSpecContent
-          if (taskObj.description) {
-            output += `Description: ${taskObj.description}\n`;
+          if (taskObj.spec) {
+            output += `Spec: ${taskObj.spec}\n`;
           }
 
           if (taskObj.specPath) {

@@ -231,7 +231,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         title: taskData.title,
         status: taskData.status,
         specPath: taskData.specPath,
-        description: taskData.description,
+        spec: taskData.spec,
         tags: taskData.tags || [],
       }));
 

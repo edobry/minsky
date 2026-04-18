@@ -287,15 +287,18 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       // Validate required parameters
       this.validateRequired(params.title, "title");
 
-      // Validate that either description or specPath is provided
-      if (!params.description && !params.specPath) {
-        throw new ValidationError("Either --description or --spec-path must be provided");
+      // Resolve spec content: prefer params.spec, fall back to deprecated params.description
+      const specContent = params.spec || params.description;
+
+      // Validate that either spec or specPath is provided
+      if (!specContent && !params.specPath) {
+        throw new ValidationError("Either --spec or --spec-path must be provided");
       }
 
-      // Both description and specPath provided is an error
-      if (params.description && params.specPath) {
+      // Both spec and specPath provided is an error
+      if (specContent && params.specPath) {
         throw new ValidationError(
-          "Cannot provide both --description and --spec-path - use one or the other"
+          "Cannot provide both --spec and --spec-path - use one or the other"
         );
       }
 
@@ -316,7 +319,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
-        spec: params.description, // Map description to spec
+        spec: specContent, // spec content (or deprecated description alias)
         specPath: params.specPath,
         force: params.force ?? false,
         backend: params.backend,
