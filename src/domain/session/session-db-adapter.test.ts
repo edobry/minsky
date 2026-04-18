@@ -173,6 +173,51 @@ describe("SessionDbAdapter", () => {
     expect(failingProvider.getStorage).toHaveBeenCalledTimes(2);
   });
 
+  test("getSession() propagates storage errors instead of returning null", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      getEntity: mock(() => Promise.reject(new Error("connection lost"))),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.getSession("test")).rejects.toThrow("connection lost");
+  });
+
+  test("listSessions() propagates storage errors instead of returning []", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      readState: mock(() => Promise.resolve({ success: false, error: new Error("DB down") })),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.listSessions()).rejects.toThrow("Failed to read session state");
+  });
+
+  test("doesSessionExist() propagates storage errors instead of returning false", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      entityExists: mock(() => Promise.reject(new Error("timeout"))),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.doesSessionExist("test")).rejects.toThrow("timeout");
+  });
+
   test("getStorage() caches storage after successful initialization", async () => {
     const getStorage = (adapter as unknown as { getStorage: () => Promise<unknown> }).getStorage;
 

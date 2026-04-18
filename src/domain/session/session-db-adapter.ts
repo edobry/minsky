@@ -19,7 +19,7 @@ import {
   formatTaskIdForDisplay,
   isValidTaskIdInput,
 } from "../tasks/task-id-utils";
-import { initializeSessionDbState, getRepoPathFn } from "./session-db";
+import { getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -54,29 +54,15 @@ export class SessionDbAdapter implements SessionProviderInterface {
   // Implementation of the SessionProviderInterface
   async getSession(sessionId: string): Promise<SessionRecord | null> {
     log.debug(`Getting session: ${sessionId}`);
-    try {
-      const storage = await this.getStorage();
-      const result = await storage.getEntity(sessionId);
-      return result;
-    } catch (error) {
-      log.error(`Failed to get session '${sessionId}': ${getErrorMessage(error)}`);
-      return null;
-    }
+    const storage = await this.getStorage();
+    return await storage.getEntity(sessionId);
   }
 
   async listSessions(): Promise<SessionRecord[]> {
     log.debug("Listing all sessions");
-    try {
-      log.debug("About to get storage");
-      const _storage = await this.getStorage();
-      log.debug("Got storage, calling getState()");
-      const state = await this.getState();
-      log.debug(`Got state with ${state.sessions.length} sessions`);
-      return state.sessions || [];
-    } catch (error) {
-      log.error(`Failed to list sessions: ${getErrorMessage(error)}`);
-      return [];
-    }
+    const state = await this.getState();
+    log.debug(`Got state with ${state.sessions.length} sessions`);
+    return state.sessions || [];
   }
 
   async addSession(sessionRecord: SessionRecord): Promise<void> {
@@ -124,50 +110,40 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   async doesSessionExist(sessionId: string): Promise<boolean> {
-    try {
-      const storage = await this.getStorage();
-      return await storage.entityExists(sessionId);
-    } catch (error) {
-      log.error(`Error checking if session exists '${sessionId}': ${getErrorMessage(error)}`);
-      return false;
-    }
+    const storage = await this.getStorage();
+    return await storage.entityExists(sessionId);
   }
 
   async addTaskToSession(sessionId: string, taskId: string): Promise<boolean> {
-    try {
-      // Validate task ID format
-      if (!isValidTaskIdInput(taskId)) {
-        log.error(`Invalid task ID format: ${taskId}. Must be either mt#123, md#123, or 123`);
-        return false;
-      }
-
-      // Normalize task ID to qualified format (mt#123 or md#123)
-      let validatedTaskId: string;
-      try {
-        validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
-      } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
-        return false;
-      }
-
-      // Get current session
-      const session = await this.getSession(sessionId);
-      if (!session) {
-        log.error(`Session not found: ${sessionId}`);
-        return false;
-      }
-
-      // Update session with new task ID
-      await this.updateSession(sessionId, {
-        taskId: validatedTaskId,
-      });
-
-      log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionId}`);
-      return true;
-    } catch (error) {
-      log.error(`Failed to add task to session '${sessionId}': ${getErrorMessage(error)}`);
+    // Validate task ID format
+    if (!isValidTaskIdInput(taskId)) {
+      log.warn(`Invalid task ID format: ${taskId}. Must be either mt#123, md#123, or 123`);
       return false;
     }
+
+    // Normalize task ID to qualified format (mt#123 or md#123)
+    let validatedTaskId: string;
+    try {
+      validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
+    } catch (error) {
+      log.warn(`Task ID validation failed: ${getErrorMessage(error)}`);
+      return false;
+    }
+
+    // Get current session
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      log.error(`Session not found: ${sessionId}`);
+      return false;
+    }
+
+    // Update session with new task ID
+    await this.updateSession(sessionId, {
+      taskId: validatedTaskId,
+    });
+
+    log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionId}`);
+    return true;
   }
 
   async setSessionRepo(
@@ -176,89 +152,63 @@ export class SessionDbAdapter implements SessionProviderInterface {
     repoName?: string,
     repoUrl?: string
   ): Promise<boolean> {
-    try {
-      const updates: Partial<SessionRecord> = { repoPath };
+    const updates: Partial<SessionRecord> = { repoPath };
 
-      if (repoName !== undefined) {
-        updates.repoName = repoName;
-      }
-      if (repoUrl !== undefined) {
-        updates.repoUrl = repoUrl;
-      }
-
-      await this.updateSession(sessionId, updates);
-
-      log.debug(
-        `Repository set for session ${sessionId}: ${repoPath}${repoName ? ` (${repoName})` : ""}`
-      );
-      return true;
-    } catch (error) {
-      log.error(`Failed to set repo for session '${sessionId}': ${getErrorMessage(error)}`);
-      return false;
+    if (repoName !== undefined) {
+      updates.repoName = repoName;
     }
+    if (repoUrl !== undefined) {
+      updates.repoUrl = repoUrl;
+    }
+
+    await this.updateSession(sessionId, updates);
+
+    log.debug(
+      `Repository set for session ${sessionId}: ${repoPath}${repoName ? ` (${repoName})` : ""}`
+    );
+    return true;
   }
 
   async findSessionsForRepo(repoPath: string): Promise<SessionRecord[]> {
-    try {
-      const sessions = await this.listSessions();
-
-      return sessions.filter((session) => {
-        return session.repoPath === repoPath;
-      });
-    } catch (error) {
-      log.error(`Failed to find sessions for repo '${repoPath}': ${getErrorMessage(error)}`);
-      return [];
-    }
+    const sessions = await this.listSessions();
+    return sessions.filter((session) => session.repoPath === repoPath);
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+    // Validate and normalize task ID
+    let validatedTaskId: string | null;
     try {
-      // Validate and normalize task ID
-      let validatedTaskId: string | null;
-      try {
-        validatedTaskId = validateQualifiedTaskId(taskId);
-      } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
-        return null;
-      }
-
-      if (!validatedTaskId) {
-        return null;
-      }
-
-      const state = await this.getState();
-      const sessions = state.sessions;
-      log.debug(`Looking for taskId: '${validatedTaskId}' in ${sessions.length} sessions`);
-      sessions.forEach((session, i) => {
-        log.debug(`Session ${i}: taskId='${session.taskId}', session='${session.session}'`);
-      });
-
-      const found = sessions.find((session) => session.taskId === validatedTaskId);
-      log.debug(`Found session: ${found ? "YES" : "NO"}`);
-      return found || null;
+      validatedTaskId = validateQualifiedTaskId(taskId);
     } catch (error) {
-      log.error(`Failed to find session for task '${taskId}': ${getErrorMessage(error)}`);
+      log.warn(`Task ID validation failed: ${getErrorMessage(error)}`);
       return null;
     }
+
+    if (!validatedTaskId) {
+      return null;
+    }
+
+    const state = await this.getState();
+    const sessions = state.sessions;
+    log.debug(`Looking for taskId: '${validatedTaskId}' in ${sessions.length} sessions`);
+
+    const found = sessions.find((session) => session.taskId === validatedTaskId);
+    log.debug(`Found session: ${found ? "YES" : "NO"}`);
+    return found || null;
   }
 
   async getSessionsForTask(taskId: string): Promise<SessionRecord[]> {
+    // Validate and normalize task ID
+    let validatedTaskId: string;
     try {
-      // Validate and normalize task ID
-      let validatedTaskId: string;
-      try {
-        validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
-      } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
-        return [];
-      }
-
-      const sessions = await this.listSessions();
-      return sessions.filter((session) => session.taskId === validatedTaskId);
+      validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
     } catch (error) {
-      log.error(`Failed to find sessions for task '${taskId}': ${getErrorMessage(error)}`);
+      log.warn(`Task ID validation failed: ${getErrorMessage(error)}`);
       return [];
     }
+
+    const sessions = await this.listSessions();
+    return sessions.filter((session) => session.taskId === validatedTaskId);
   }
 
   async getSessionWorkdir(sessionId: string): Promise<string> {
@@ -285,14 +235,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   async clearSessionTask(sessionId: string): Promise<boolean> {
-    try {
-      await this.updateSession(sessionId, { taskId: undefined });
-      log.debug(`Task cleared from session: ${sessionId}`);
-      return true;
-    } catch (error) {
-      log.error(`Failed to clear task from session '${sessionId}': ${getErrorMessage(error)}`);
-      return false;
-    }
+    await this.updateSession(sessionId, { taskId: undefined });
+    log.debug(`Task cleared from session: ${sessionId}`);
+    return true;
   }
 
   async getRepoPath(record: SessionRecord): Promise<string> {
@@ -319,24 +264,17 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   // Internal helper methods
   private async getState(): Promise<SessionDbState> {
-    try {
-      const storage = await this.getStorage();
-      log.debug("About to call storage.readState()");
-      const result = await storage.readState();
-      log.debug(`readState result: success=${result.success}, data=${!!result.data}`);
-      if (result.success && result.data) {
-        log.debug(`readState returned ${result.data.sessions.length} sessions`);
-        return result.data;
-      }
-      log.warn("Failed to read session state from storage, initializing empty state");
-      log.debug(
-        `Result details: success=${result.success}, data=${!!result.data}, error=${result.error?.message}`
-      );
-      return initializeSessionDbState();
-    } catch (error) {
-      log.error(`Error reading session state: ${getErrorMessage(error)}`);
-      return initializeSessionDbState();
+    const storage = await this.getStorage();
+    log.debug("About to call storage.readState()");
+    const result = await storage.readState();
+    log.debug(`readState result: success=${result.success}, data=${!!result.data}`);
+    if (result.success && result.data) {
+      log.debug(`readState returned ${result.data.sessions.length} sessions`);
+      return result.data;
     }
+    // Propagate storage failures instead of hiding them behind empty state
+    const errorMsg = result.error?.message || "Unknown storage error";
+    throw new Error(`Failed to read session state: ${errorMsg}`);
   }
 
   async getStorageInfo(): Promise<{
