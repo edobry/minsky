@@ -187,8 +187,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
       const { resolveRepoPath } = await import("../../../../domain/repo-utils");
       const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
-      const { getSharedSessionProvider } = await import("../../../../domain/session");
-      const sessionDB = await getSharedSessionProvider();
+      const sessionDB = ctx?.container?.has("sessionProvider")
+        ? ctx.container.get("sessionProvider")
+        : await (await import("../../../../domain/session")).getSharedSessionProvider();
 
       const service = await createConfiguredTaskService({
         workspacePath: params.repo

@@ -15,6 +15,7 @@ import {
   TaskBackend,
 } from "../../../../domain/configuration/backend-detection";
 import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
+import type { SessionProviderInterface } from "../../../../domain/session/types";
 
 // Supported backends for migration (subset of TaskBackend)
 const MIGRATION_BACKENDS = [TaskBackend.MINSKY, TaskBackend.GITHUB] as const;
@@ -150,6 +151,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       limit: p.limit,
       filterStatus: p.filterStatus,
       updateIds: p.updateIds,
+      sessionProvider: context.container?.has("sessionProvider")
+        ? context.container.get("sessionProvider")
+        : undefined,
     });
 
     // Perform post-migration validation if not dry run
@@ -239,6 +243,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     limit?: number;
     filterStatus?: string;
     updateIds: boolean;
+    sessionProvider?: SessionProviderInterface;
   }): Promise<MigrationResult> {
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
@@ -325,8 +330,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           // Update session task associations if task ID changed
           if (newTaskId !== taskId) {
             try {
-              const { getSharedSessionProvider } = await import("../../../../domain/session");
-              const sessionProvider = await getSharedSessionProvider();
+              const sessionProvider =
+                options.sessionProvider ??
+                (await (await import("../../../../domain/session")).getSharedSessionProvider());
               const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
                 dryRun: false, // We're already in execute mode
                 sessionProvider,
@@ -360,8 +366,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         } else if (dryRun && newTaskId !== taskId) {
           // In dry-run mode, show what session updates would happen
           try {
-            const { getSharedSessionProvider } = await import("../../../../domain/session");
-            const sp = await getSharedSessionProvider();
+            const sp =
+              options.sessionProvider ??
+              (await (await import("../../../../domain/session")).getSharedSessionProvider());
             const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
               dryRun: true,
               sessionProvider: sp,
