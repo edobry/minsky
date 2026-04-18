@@ -34,7 +34,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
     description: "Generate a complete subagent prompt for session work",
     parameters: promptCommandParams,
     execute: withErrorLogging("session.generate_prompt", async (params) => {
-      const { getSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
       const { generateSubagentPrompt } = await import(
         "../../../../domain/session/prompt-generation"
       );
@@ -42,12 +42,15 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         "../../../../domain/session/resolve-session-directory"
       );
 
+      const deps = await getDeps();
+      const service = new SessionService(deps);
+
       const task = params.task as string;
       const type = params.type as "implementation" | "refactor" | "review" | "cleanup" | "audit";
       const instructions = params.instructions as string;
       const scopeRaw = params.scope as string | undefined;
 
-      const session = await getSessionFromParams({ task });
+      const session = await service.get({ task });
 
       if (!session) {
         throw new Error(`No session found for task '${task}'`);
