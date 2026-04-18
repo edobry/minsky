@@ -66,7 +66,7 @@ export interface SessionConflictParams {
 export async function scanSessionConflicts(
   params: SessionConflictParams,
   options: SessionConflictScanOptions = {},
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<SessionConflictScanResult> {
   try {
     let sessionPath: string;

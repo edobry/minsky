@@ -94,7 +94,7 @@ export interface SessionApproveParams {
  */
 export async function pureSessionApprove(
   params: SessionApproveParams,
-  sessionProvider?: import("./types").SessionProviderInterface,
+  sessionProvider?: import("./types").SessionProviderInterface
 ): Promise<{
   success: boolean;
   message: string;
@@ -143,7 +143,7 @@ export async function sessionCommit(
     amend?: boolean;
     noStage?: boolean;
   },
-  sessionProvider?: import("./types").SessionProviderInterface,
+  sessionProvider?: import("./types").SessionProviderInterface
 ): Promise<{
   success: boolean;
   nothingToCommit?: boolean;

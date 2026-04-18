@@ -59,7 +59,7 @@ export async function executeCheckoutCommand(
     [K in keyof typeof checkoutCommandParams]: z.infer<(typeof checkoutCommandParams)[K]["schema"]>;
   },
   context: CommandExecutionContext,
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<unknown> {
   const { branch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
 

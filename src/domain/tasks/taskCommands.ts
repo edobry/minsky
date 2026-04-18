@@ -26,7 +26,7 @@ import { first } from "../../utils/array-safety";
  */
 async function resolveRepoPath(
   options: { repo?: string; session?: string },
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<string> {
   const provider = sessionProvider ?? (await getSharedSessionProvider());
   return resolveRepoPathBase(options, { sessionProvider: provider });

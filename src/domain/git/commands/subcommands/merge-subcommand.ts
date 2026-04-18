@@ -60,7 +60,7 @@ export async function executeMergeCommand(
     [K in keyof typeof mergeCommandParams]: z.infer<(typeof mergeCommandParams)[K]["schema"]>;
   },
   context: CommandExecutionContext,
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<unknown> {
   const { sourceBranch, targetBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;

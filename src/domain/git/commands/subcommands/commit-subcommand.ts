@@ -67,7 +67,7 @@ interface CommitCommandContext extends CommandExecutionContext {
  */
 export async function executeCommitCommand(
   context: CommitCommandContext,
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<{ commitHash: string; message: string }> {
   const { message, all, amend, noStage, repo, session } = context.parameters;
 

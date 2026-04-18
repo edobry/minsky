@@ -60,7 +60,7 @@ export async function executeRebaseCommand(
     [K in keyof typeof rebaseCommandParams]: z.infer<(typeof rebaseCommandParams)[K]["schema"]>;
   },
   context: CommandExecutionContext,
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<unknown> {
   const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;

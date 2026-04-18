@@ -26,7 +26,7 @@ import { log } from "../../utils/logger";
  */
 export async function resolveSessionDirectory(
   sessionId: string,
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<string> {
   log.debug(`Resolving session directory for: ${sessionId}`);
 

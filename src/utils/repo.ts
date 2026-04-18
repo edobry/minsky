@@ -15,7 +15,7 @@ export interface RepoResolutionOptions {
  */
 export async function resolveRepoPath(
   options: RepoResolutionOptions = {},
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): Promise<string> {
   const provider = sessionProvider ?? (await getSharedSessionProvider());
   return resolveRepoPathInternal(options, { sessionProvider: provider });

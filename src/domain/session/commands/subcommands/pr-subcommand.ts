@@ -41,7 +41,7 @@ export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
  * Use this factory when you want to pass a provider from a DI container.
  */
 export function createPrSessionSubcommand(
-  sessionProvider?: SessionProviderInterface,
+  sessionProvider?: SessionProviderInterface
 ): CommandExecutionHandler {
   return async (params) => {
     const { args, options } = params;
