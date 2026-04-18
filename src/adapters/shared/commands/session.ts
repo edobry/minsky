@@ -32,6 +32,7 @@ import {
 import { createSessionConflictsCommand } from "./session/conflicts-command";
 import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
+import { createSessionGeneratePromptCommand } from "./session/prompt-command";
 import { registerSessionChangesetCommands } from "./session/changeset-aliases";
 import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
@@ -87,6 +88,7 @@ export async function registerSessionCommands(
     // Utility
     createSessionConflictsCommand(getDeps),
     createSessionRepairCommand(getDeps),
+    createSessionGeneratePromptCommand(getDeps),
 
     // File
     createSessionEditFileCommand(getDeps),
