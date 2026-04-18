@@ -59,7 +59,7 @@ workspace:
   mainPath: "/Users/you/Projects/minsky"
 ```
 
-- When set, in-tree task backends (markdown, json-file) resolve `process/tasks.*` and task specs against `workspace.mainPath`.
+- When set, task backends that operate on the local workspace resolve `process/tasks.*` and task specs against `workspace.mainPath`.
 - If unset, backends fall back to explicit `workspacePath` or `process.cwd()`.
 - Environment override: `MINSKY_WORKSPACE_MAIN_PATH`.
 

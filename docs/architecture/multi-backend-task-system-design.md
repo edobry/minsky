@@ -1,3 +1,5 @@
+> **Historical design document**: The `markdown` backend mentioned in the "Current Architecture" section was subsequently removed. The active task backends are now `minsky` (PostgreSQL) and `github-issues`.
+
 # Multi-Backend Task System Architecture Design
 
 ## Overview

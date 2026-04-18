@@ -1,3 +1,5 @@
+> **Historical document**: This is a session summary from May 2025. It is preserved as an architectural record but reflects the state of the project at that time.
+
 # Recent Sessions Summary - May 2025
 
 This document provides a high-level overview of significant sessions completed in recent weeks that represent important milestones or learning opportunities.
