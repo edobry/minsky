@@ -7,6 +7,7 @@
  */
 
 import { getSharedSessionProvider, _setProviderForTesting } from "./session-provider-cache";
+import type { SessionProviderInterface } from "./index";
 import { log } from "../../utils/logger";
 
 /**
@@ -19,13 +20,17 @@ import { log } from "../../utils/logger";
  *   3. Filesystem path resolution via getRepoPath
  *
  * @param sessionId - The session identifier (e.g. "task-mt#123")
+ * @param sessionProvider - Optional pre-created provider; falls back to shared singleton
  * @returns The absolute filesystem path to the session's working directory
  * @throws Error if the session is not found or the path cannot be resolved
  */
-export async function resolveSessionDirectory(sessionId: string): Promise<string> {
+export async function resolveSessionDirectory(
+  sessionId: string,
+  sessionProvider?: SessionProviderInterface
+): Promise<string> {
   log.debug(`Resolving session directory for: ${sessionId}`);
 
-  const provider = await getSharedSessionProvider();
+  const provider = sessionProvider ?? (await getSharedSessionProvider());
 
   const session = await provider.getSession(sessionId);
   if (!session) {

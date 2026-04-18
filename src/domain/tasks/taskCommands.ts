@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath as resolveRepoPathBase } from "../repo-utils";
 import { getSharedSessionProvider } from "../session/session-provider-cache";
+import type { SessionProviderInterface } from "../session/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -23,9 +24,12 @@ import { first } from "../../utils/array-safety";
  * Module-level wrapper that lazily creates a sessionProvider for bare resolveRepoPath calls.
  * This is a composition boundary — domain functions above should receive deps injected.
  */
-async function resolveRepoPath(options: { repo?: string; session?: string }): Promise<string> {
-  const sessionProvider = await getSharedSessionProvider();
-  return resolveRepoPathBase(options, { sessionProvider });
+async function resolveRepoPath(
+  options: { repo?: string; session?: string },
+  sessionProvider?: SessionProviderInterface
+): Promise<string> {
+  const provider = sessionProvider ?? (await getSharedSessionProvider());
+  return resolveRepoPathBase(options, { sessionProvider: provider });
 }
 
 // Re-export task data types

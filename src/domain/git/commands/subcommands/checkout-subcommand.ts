@@ -5,6 +5,7 @@ import {
 } from "../../../../adapters/shared/command-registry";
 import { checkoutFromParams } from "../checkout-command";
 import { getSharedSessionProvider } from "../../../session/session-provider-cache";
+import type { SessionProviderInterface } from "../../../session/index";
 import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
@@ -57,11 +58,12 @@ export async function executeCheckoutCommand(
   parameters: {
     [K in keyof typeof checkoutCommandParams]: z.infer<(typeof checkoutCommandParams)[K]["schema"]>;
   },
-  context: CommandExecutionContext
+  context: CommandExecutionContext,
+  sessionProvider?: SessionProviderInterface
 ): Promise<unknown> {
   const { branch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
 
-  const sessionProvider = await getSharedSessionProvider();
+  const resolvedSessionProvider = sessionProvider ?? (await getSharedSessionProvider());
   const result = await checkoutFromParams(
     {
       branch,
@@ -71,7 +73,7 @@ export async function executeCheckoutCommand(
       autoResolve,
       conflictStrategy,
     },
-    { sessionProvider }
+    { sessionProvider: resolvedSessionProvider }
   );
 
   if (context.debug) {
