@@ -174,6 +174,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       } catch {
         // If graph service unavailable, fall back to flat list
       }
+    } else if (params.hierarchical) {
+      log.warn(
+        "[tasks.list] Hierarchical view unavailable — no persistence provider (no SQL backend)"
+      );
     }
 
     this.debug(`Found ${tasks.length} tasks`);
@@ -460,6 +464,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly description = "Delete a task";
   readonly parameters = tasksDeleteParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksDeleteParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.delete execution");
 
@@ -479,6 +487,28 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
       taskId: validatedTaskId,
       force: params.force ?? false,
     });
+
+    // Clean up parent-child edges for the deleted task (D7: orphan children)
+    if (result.success && this.getPersistenceProvider) {
+      try {
+        const persistence = this.getPersistenceProvider();
+        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+        const service = new TaskGraphService(db);
+
+        // Remove this task's parent edge (if it was a child)
+        await service.removeParent(validatedTaskId);
+
+        // Orphan any children by removing their parent edges pointing to this task
+        const children = await service.listChildren(validatedTaskId);
+        for (const childId of children) {
+          await service.removeParent(childId);
+        }
+      } catch {
+        // Graph cleanup is best-effort; don't fail the delete
+        log.warn(`[tasks.delete] Could not clean up parent-child edges for ${validatedTaskId}`);
+      }
+    }
 
     const message = result.success
       ? `Task ${validatedTaskId} deleted successfully`
@@ -538,4 +568,6 @@ export const createTasksCreateCommand = (
   getPersistenceProvider?: () => PersistenceProvider
 ): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider);
 
-export const createTasksDeleteCommand = (): TasksDeleteCommand => new TasksDeleteCommand();
+export const createTasksDeleteCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider);
