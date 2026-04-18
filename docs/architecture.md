@@ -245,8 +245,10 @@ Session records are stored in PostgreSQL via `SessionProviderInterface`.
 
 ## 5. Rules Compilation Pipeline
 
-Rules are Markdown files with YAML frontmatter stored under `.minsky/rules/`. They can be
-compiled into the formats expected by different AI coding assistants.
+Rules are Markdown files with YAML frontmatter. The storage location depends on the configured
+format: `.cursor/rules/` for Cursor format (current default in this project), `.minsky/rules/`
+for Minsky-native format. They can be compiled into the formats expected by different AI coding
+assistants.
 
 ### Rule structure
 
@@ -372,7 +374,7 @@ repository:
     repo: minsky
 
 tasks:
-  backend: github-issues # or "minsky-db"
+  backend: github-issues # or "minsky"
 
 rules:
   presets: [default]
