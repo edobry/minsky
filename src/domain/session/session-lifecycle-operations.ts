@@ -13,6 +13,8 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors";
 import { rmSync, existsSync } from "node:fs";
 import { getSessionsDir } from "../../utils/paths";
+import type { GitServiceInterface } from "../git/types";
+import { taskIdToBranchName } from "../tasks/task-id";
 
 /**
  * Gets session details based on parameters
@@ -76,12 +78,14 @@ export interface DeleteSessionResult {
  * Using proper dependency injection for better testability
  *
  * Returns a structured result so callers can surface error messages.
- * Also removes the session's workspace directory from the filesystem.
+ * Also removes the session's workspace directory from the filesystem and
+ * deletes the remote git branch if one exists.
  */
 export async function deleteSessionImpl(
   params: SessionDeleteParams,
   deps: {
     sessionDB: SessionProviderInterface;
+    gitService?: GitServiceInterface;
   }
 ): Promise<DeleteSessionResult> {
   const { name, task, repo } = params;
@@ -120,8 +124,42 @@ export async function deleteSessionImpl(
     throw error;
   }
 
-  // Remove workspace directory from filesystem (if it exists)
+  // Retrieve the session record so we can determine the branch name
+  const sessionRecord = await deps.sessionDB.getSession(resolvedSessionId);
+
+  // Compute the workspace dir once — used for both remote branch deletion and directory removal
   const sessionWorkspaceDir = `${getSessionsDir()}/${resolvedSessionId}`;
+
+  // Delete the remote git branch if a git service is available
+  if (deps.gitService && sessionRecord) {
+    const branchName = sessionRecord.taskId
+      ? taskIdToBranchName(sessionRecord.taskId)
+      : resolvedSessionId;
+
+    if (existsSync(sessionWorkspaceDir)) {
+      try {
+        log.debug(`Deleting remote branch '${branchName}' for session '${resolvedSessionId}'`);
+        await deps.gitService.execInRepository(
+          sessionWorkspaceDir,
+          `push origin --delete ${branchName}`
+        );
+        log.debug(`Successfully deleted remote branch '${branchName}'`);
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        // Remote branch not existing is not an error — git exits with non-zero in that case.
+        // Log at debug level; the deletion continues regardless.
+        log.debug(
+          `Remote branch '${branchName}' does not exist or could not be deleted (non-fatal): ${msg}`
+        );
+      }
+    } else {
+      log.debug(
+        `Session workspace directory does not exist, skipping remote branch deletion: ${sessionWorkspaceDir}`
+      );
+    }
+  }
+
+  // Remove workspace directory from filesystem (if it exists)
   try {
     if (existsSync(sessionWorkspaceDir)) {
       log.debug(`Removing session workspace directory: ${sessionWorkspaceDir}`);
