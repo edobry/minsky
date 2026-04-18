@@ -144,4 +144,44 @@ describe("SessionDbAdapter", () => {
     expect(mockPersistenceProvider.getStorage).toHaveBeenCalledTimes(1);
     expect(mockStorage.initialize).toHaveBeenCalledTimes(1);
   });
+
+  test("getStorage() does not cache storage when initialize() fails", async () => {
+    // Make initialize fail on first call, succeed on second
+    const failingStorage = {
+      ...mockStorage,
+      initialize: mock()
+        .mockImplementationOnce(() => Promise.reject(new Error("init failed")))
+        .mockImplementationOnce(() => Promise.resolve()),
+      readState: mockStorage.readState,
+    };
+    const failingProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => failingStorage),
+    } as unknown as PersistenceProvider;
+
+    const failAdapter = new SessionDbAdapter(failingProvider);
+    const getStorage = (failAdapter as unknown as { getStorage: () => Promise<unknown> })
+      .getStorage;
+
+    // First call should throw
+    await expect(getStorage.call(failAdapter)).rejects.toThrow("init failed");
+
+    // Second call should re-attempt initialization (not return stale cache)
+    const storage = await getStorage.call(failAdapter);
+    expect(storage).toBeDefined();
+    expect(failingStorage.initialize).toHaveBeenCalledTimes(2);
+    expect(failingProvider.getStorage).toHaveBeenCalledTimes(2);
+  });
+
+  test("getStorage() caches storage after successful initialization", async () => {
+    const getStorage = (adapter as unknown as { getStorage: () => Promise<unknown> }).getStorage;
+
+    // Call twice
+    await getStorage.call(adapter);
+    await getStorage.call(adapter);
+
+    // getStorage on provider should only be called once (cached after first success)
+    expect(mockPersistenceProvider.getStorage).toHaveBeenCalledTimes(1);
+    expect(mockStorage.initialize).toHaveBeenCalledTimes(1);
+  });
 });
