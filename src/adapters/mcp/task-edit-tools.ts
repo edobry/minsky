@@ -11,6 +11,7 @@ import { getTaskSpecContentFromParams, updateTaskFromParams } from "../../domain
 import { log } from "../../utils/logger";
 import { applyEditPattern } from "../../domain/ai/edit-pattern-service";
 import { countOccurrences } from "./session-edit-tools";
+import { autoIndexTaskEmbedding } from "../shared/commands/tasks/auto-index-embedding";
 
 // ========================
 // SCHEMAS
@@ -168,6 +169,9 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           backend: typedArgs.backend,
         });
 
+        // Fire-and-forget embedding re-index after spec update
+        autoIndexTaskEmbedding(typedArgs.taskId);
+
         log.debug("Task edit_file operation completed", { taskId: typedArgs.taskId });
 
         return {
@@ -252,6 +256,9 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           session: typedArgs.session,
           backend: typedArgs.backend,
         });
+
+        // Fire-and-forget embedding re-index after spec update
+        autoIndexTaskEmbedding(typedArgs.taskId);
 
         log.debug("Task search_replace operation completed", {
           taskId: typedArgs.taskId,
