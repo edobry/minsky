@@ -266,7 +266,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Prepare session record but don't add to DB yet (branch no longer persisted)
+    // Define branchName before session record so it can be persisted
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
+
+    // Prepare session record but don't add to DB yet
     // Detect repository backend type up-front so session records have correct backendType
     const sessionRecord: SessionRecord = {
       session: sessionId,
@@ -275,11 +278,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       createdAt: new Date().toISOString(),
       taskId,
       backendType,
+      branch: branchName,
     };
 
     let sessionAdded = false;
-    // Define branchName outside try block so it's available in return statement
-    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
     try {
       // First clone the repo.  Use cloneSource so that an explicit --repo path can

@@ -190,21 +190,23 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Prepare session record but don't add to DB yet (branch no longer persisted)
+    // Define branchName before session record so it can be persisted
+    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
+
+    // Prepare session record but don't add to DB yet
     const baseSessionRecord: SessionRecord = {
       session: sessionId,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
       taskId: taskId ? SessionBackwardCompatibility.toStorageFormat(taskId) : undefined,
+      branch: branchName,
     };
 
     // Enhance session record with multi-backend information
     const sessionRecord = SessionMultiBackendIntegration.enhanceSessionRecord(baseSessionRecord);
 
     let sessionAdded = false;
-    // Define branchName outside try block so it's available in return statement
-    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
     try {
       // First clone the repo
