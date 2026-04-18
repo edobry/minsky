@@ -26,6 +26,8 @@ const mockSql = Object.assign(mockSqlFunction, {
   end: mock(() => Promise.resolve()),
 });
 
+const CONNECTION_REFUSED = "connection refused";
+
 describe("PostgresPersistenceProvider", () => {
   let provider: PostgresPersistenceProvider;
   let mockConfig: PersistenceConfig;
@@ -95,5 +97,45 @@ describe("PostgresPersistenceProvider", () => {
     expect(capabilities.jsonb).toBe(true);
     expect(capabilities.vectorStorage).toBe(false); // Base provider has no vector support
     expect(capabilities.migrations).toBe(true);
+  });
+
+  test("initialize() cleans up state when connection verification fails", async () => {
+    // Create a SQL client whose template-tag call (SELECT 1) rejects
+    const failingSqlFunction = mock(() => Promise.reject(new Error(CONNECTION_REFUSED)));
+    const failingSql = Object.assign(failingSqlFunction, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.reject(new Error(CONNECTION_REFUSED))),
+      end: mock(() => Promise.resolve()),
+    });
+
+    await expect(provider.initialize({ sqlClient: failingSql as any })).rejects.toThrow(
+      CONNECTION_REFUSED
+    );
+
+    // Provider should NOT be marked as initialized
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
+    // Internal fields should be nulled out
+    expect((provider as unknown as { sql: unknown }).sql).toBeNull();
+    expect((provider as unknown as { db: unknown }).db).toBeNull();
+    // Should NOT call end() on injected client (caller owns it)
+    expect(failingSql.end).not.toHaveBeenCalled();
+  });
+
+  test("initialize() can be retried after failure", async () => {
+    // First attempt: fail
+    const failingSqlFunction = mock(() => Promise.reject(new Error(CONNECTION_REFUSED)));
+    const failingSql = Object.assign(failingSqlFunction, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.reject(new Error(CONNECTION_REFUSED))),
+      end: mock(() => Promise.resolve()),
+    });
+
+    await expect(provider.initialize({ sqlClient: failingSql as any })).rejects.toThrow();
+
+    // Second attempt: succeed with working client
+    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
+    await provider.initialize({ sqlClient: mockSql as any });
+
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 });

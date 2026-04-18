@@ -63,12 +63,14 @@ export class PostgresPersistenceProvider
     }
 
     const pgConfig = this.config.postgres!;
+    // Track whether we created the connection (vs injected) for cleanup
+    let createdSql: ReturnType<typeof postgres> | null = null;
 
     try {
       log.debug("Initializing PostgreSQL persistence provider");
 
       // Create PostgreSQL connection (use injected client or create new one)
-      this.sql =
+      const sql =
         deps?.sqlClient ??
         postgres(pgConfig.connectionString, {
           max: pgConfig.maxConnections || 10,
@@ -77,15 +79,35 @@ export class PostgresPersistenceProvider
           prepare: pgConfig.prepareStatements ?? false,
         });
 
+      // Track only connections we created, so we can clean up on failure without
+      // closing an injected client that the caller still owns
+      if (!deps?.sqlClient) {
+        createdSql = sql;
+      }
+
       // Create Drizzle instance
-      this.db = drizzle(this.sql);
+      const db = drizzle(sql);
 
       // Verify connection
-      await this.sql`SELECT 1`;
+      await sql`SELECT 1`;
 
+      // All checks passed — now cache
+      this.sql = sql;
+      this.db = db;
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
+      // Clean up connection we created to prevent pool leaks
+      if (createdSql) {
+        try {
+          await createdSql.end();
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+      this.sql = null;
+      this.db = null;
+      this.isInitialized = false;
       log.error(
         "Failed to initialize PostgreSQL provider:",
         error instanceof Error ? error : { error: String(error) }
