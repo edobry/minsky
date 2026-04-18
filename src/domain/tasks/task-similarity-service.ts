@@ -3,7 +3,9 @@ import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import { createHash } from "crypto";
-import { createTaskSimilarityCore } from "../similarity/create-task-similarity-core";
+import { SimilaritySearchService } from "../similarity/similarity-search-service";
+import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
+import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "../../utils/array-safety";
 
 export interface TaskSimilarityServiceConfig {
@@ -21,6 +23,8 @@ export interface TaskSearchResponse {
 }
 
 export class TaskSimilarityService {
+  private searchService: SimilaritySearchService | null = null;
+
   constructor(
     private readonly embeddingService: EmbeddingService,
     private readonly vectorStorage: VectorStorage,
@@ -32,24 +36,35 @@ export class TaskSimilarityService {
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
+  /** Build or return the cached SimilaritySearchService from injected deps */
+  private getSearchService(): SimilaritySearchService {
+    if (!this.searchService) {
+      const embeddingsBackend = new EmbeddingsSimilarityBackend(
+        this.embeddingService,
+        this.vectorStorage
+      );
+      const lexicalBackend = new LexicalSimilarityBackend({
+        getById: this.findTaskById,
+        listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
+        getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
+      });
+      this.searchService = new SimilaritySearchService([embeddingsBackend, lexicalBackend]);
+    }
+    return this.searchService;
+  }
+
   /** Expose service configuration for diagnostics */
   getConfig(): TaskSimilarityServiceConfig {
     return this.config;
   }
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<TaskSearchResponse> {
-    // Delegate to generic core; embeddings backend will be first if available
-    const core = await createTaskSimilarityCore({
-      getById: this.findTaskById,
-      listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
-      getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
-    });
     const task = await this.findTaskById(taskId);
     if (!task) {
       return { results: [], backend: "none", degraded: false };
     }
     const content = await this.extractTaskContent(task);
-    const response = await core.search({ queryText: content, limit });
+    const response = await this.getSearchService().search({ queryText: content, limit });
     return {
       results: response.items.map((i) => ({
         id: i.id,
@@ -68,12 +83,7 @@ export class TaskSimilarityService {
     threshold?: number,
     filters?: Record<string, unknown>
   ): Promise<TaskSearchResponse> {
-    const core = await createTaskSimilarityCore({
-      getById: this.findTaskById,
-      listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
-      getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
-    });
-    const response = await core.search({ queryText: query, limit, filters });
+    const response = await this.getSearchService().search({ queryText: query, limit, filters });
     return {
       results: response.items.map((i) => ({
         id: i.id,
