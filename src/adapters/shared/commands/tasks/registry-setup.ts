@@ -50,6 +50,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
+  const { TasksEmbeddingsStatusCommand } = require("./embeddings-status-command");
+  const { TasksEmbeddingsRepairCommand } = require("./embeddings-repair-command");
   const {
     createTasksDepsAddCommand,
     createTasksDepsRmCommand,
@@ -75,6 +77,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     new TasksSimilarCommand(),
     new TasksSearchCommand(),
     new TasksIndexEmbeddingsCommand(),
+    new TasksEmbeddingsStatusCommand(),
+    new TasksEmbeddingsRepairCommand(),
     createTasksMigrateBackendCommand(),
     // Dependency management commands
     createTasksDepsAddCommand(getPersistenceProvider),

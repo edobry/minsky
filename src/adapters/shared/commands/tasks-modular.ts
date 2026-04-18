@@ -22,6 +22,8 @@ import { createTasksEditCommand } from "./tasks/edit-commands";
 import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
 import { TasksSimilarCommand, TasksSearchCommand } from "./tasks/similarity-commands";
 import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
+import { TasksEmbeddingsStatusCommand } from "./tasks/embeddings-status-command";
+import { TasksEmbeddingsRepairCommand } from "./tasks/embeddings-repair-command";
 import {
   createTasksDepsAddCommand,
   createTasksDepsRmCommand,
@@ -78,6 +80,8 @@ export class ModularTasksCommandManager {
       const similarCommand = new TasksSimilarCommand();
       const searchCommand = new TasksSearchCommand();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
+      const embeddingsStatusCommand = new TasksEmbeddingsStatusCommand();
+      const embeddingsRepairCommand = new TasksEmbeddingsRepairCommand();
       const depsAddCommand = createTasksDepsAddCommand(getPersistenceProvider);
       const depsRmCommand = createTasksDepsRmCommand(getPersistenceProvider);
       const depsListCommand = createTasksDepsListCommand(getPersistenceProvider);
@@ -275,6 +279,38 @@ export class ModularTasksCommandManager {
             indexEmbeddingsCommand.execute(
               params as Parameters<typeof indexEmbeddingsCommand.execute>[0],
               ctx as Parameters<typeof indexEmbeddingsCommand.execute>[1]
+            ),
+        })
+      );
+
+      // Register embeddings status command
+      sharedCommandRegistry.registerCommand(
+        defineCommand({
+          id: embeddingsStatusCommand.id,
+          category: CommandCategory.TASKS,
+          name: embeddingsStatusCommand.name,
+          description: embeddingsStatusCommand.description,
+          parameters: embeddingsStatusCommand.parameters,
+          execute: (params, ctx) =>
+            embeddingsStatusCommand.execute(
+              params as Parameters<typeof embeddingsStatusCommand.execute>[0],
+              ctx as Parameters<typeof embeddingsStatusCommand.execute>[1]
+            ),
+        })
+      );
+
+      // Register embeddings repair command
+      sharedCommandRegistry.registerCommand(
+        defineCommand({
+          id: embeddingsRepairCommand.id,
+          category: CommandCategory.TASKS,
+          name: embeddingsRepairCommand.name,
+          description: embeddingsRepairCommand.description,
+          parameters: embeddingsRepairCommand.parameters,
+          execute: (params, ctx) =>
+            embeddingsRepairCommand.execute(
+              params as Parameters<typeof embeddingsRepairCommand.execute>[0],
+              ctx as Parameters<typeof embeddingsRepairCommand.execute>[1]
             ),
         })
       );
