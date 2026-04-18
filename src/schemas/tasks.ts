@@ -152,16 +152,16 @@ export const taskCreateParamsSchema = z
 export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
 
 /**
- * Type for task create from title and description parameters
+ * Type for task create from title and spec parameters
  */
-export type TaskCreateFromTitleAndDescriptionParams = z.infer<
-  typeof taskCreateFromTitleAndDescriptionParamsSchema
+export type TaskCreateFromTitleAndSpecParams = z.infer<
+  typeof taskCreateFromTitleAndSpecParamsSchema
 >;
 
 /**
- * Schema for task create from title and description parameters
+ * Schema for task create from title and spec parameters
  */
-export const taskCreateFromTitleAndDescriptionParamsSchema = z
+export const taskCreateFromTitleAndSpecParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task (required)"),
     spec: z.string().optional().describe("Spec text for the task"),
