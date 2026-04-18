@@ -76,6 +76,7 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     description: "Approve a session pull request",
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging("session.approve", async (params: Record<string, unknown>) => {
+      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
       const { approveSessionFromParams } = await import("../../../../domain/session");
       const deps = await getDeps();
 
@@ -328,6 +329,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     description: "Approve a session pull request (does not merge)",
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging("session.pr.approve", async (params: Record<string, unknown>) => {
+      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
       const { approveSessionFromParams } = await import("../../../../domain/session");
       const deps = await getDeps();
 
