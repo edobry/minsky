@@ -133,8 +133,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
       test("should create a new GitHub issue from task spec", async () => {
         const taskSpec = {
           title: `${INTEGRATION_CONFIG.testPrefix} Test Task Creation`,
-          description:
-            "This is a test task created by integration tests.\n\nIt should be automatically cleaned up.",
+          spec: "This is a test task created by integration tests.\n\nIt should be automatically cleaned up.",
           status: "TODO" as TaskStatus,
         };
 
@@ -143,7 +142,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         expect(task).toBeDefined();
         expect(task.id).toBeTruthy();
         expect(task.title).toBe(taskSpec.title);
-        expect(task.spec).toBe(taskSpec.description);
+        expect(task.spec).toBe(taskSpec.spec);
         expect(task.status).toBe("TODO");
 
         // Verify issue was created in GitHub
@@ -157,7 +156,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         });
 
         expect(issue.title).toBe(taskSpec.title);
-        expect(issue.body).toBe(taskSpec.description);
+        expect(issue.body).toBe(taskSpec.spec);
         expect(issue.state).toBe("open");
 
         // Verify Minsky labels are applied
@@ -259,7 +258,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         // Create a test task first
         const taskSpec = {
           title: `${INTEGRATION_CONFIG.testPrefix} Fetch Test`,
-          description: "Testing task retrieval",
+          spec: "Testing task retrieval",
           status: "TODO" as TaskStatus,
         };
 
@@ -276,7 +275,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         const testTask = tasks.find((task) => task.id === createdTask.id);
         expect(testTask).toBeDefined();
         expect(testTask?.title).toBe(taskSpec.title);
-        expect(testTask?.spec).toBe(taskSpec.description);
+        expect(testTask?.spec).toBe(taskSpec.spec);
       });
 
       test("should get individual task by ID", async () => {

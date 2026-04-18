@@ -37,7 +37,7 @@ function bridgeToTaskBackend(backend: MultiBackendTaskBackend): TaskBackend {
       const mockSpec: TaskSpec = {
         id: options?.id ?? `mock-${Date.now()}`,
         title,
-        description: spec,
+        spec,
         status: options?.status ?? "TODO",
       };
       return backend.createTask(mockSpec);
@@ -65,7 +65,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         id: `${prefix}#mock-${Math.random().toString(36).substr(2, 9)}`,
         title: spec.title,
         status: spec.status || "TODO",
-        spec: spec.description,
+        spec: spec.spec,
         metadata: {},
       };
     }),
@@ -124,7 +124,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         spec: {
           id: taskId,
           title: `Exported Task ${taskId}`,
-          description: `Task exported from ${name} backend`,
+          spec: `Task exported from ${name} backend`,
           status: "TODO",
         },
         metadata: {
@@ -142,7 +142,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         id: `${prefix}#${importedId}`,
         title: data.spec.title,
         status: data.spec.status || "TODO",
-        spec: data.spec.description,
+        spec: data.spec.spec,
         metadata: {
           ...data.metadata,
           importedAt: new Date().toISOString(),
@@ -191,21 +191,21 @@ export const mockTaskSpecs = {
   simple: (): TaskSpec => ({
     id: "simple-test-task",
     title: "Simple Test Task",
-    description: "A simple task for testing",
+    spec: "A simple task for testing",
     status: "TODO",
   }),
 
   complex: (): TaskSpec => ({
     id: "complex-test-task",
     title: "Complex Test Task",
-    description: "A complex task with metadata",
+    spec: "A complex task with metadata",
     status: "IN_PROGRESS",
   }),
 
   minimal: (): TaskSpec => ({
     id: "minimal-task",
     title: "Minimal Task",
-    description: "",
+    spec: "",
     status: "TODO",
   }),
 };
