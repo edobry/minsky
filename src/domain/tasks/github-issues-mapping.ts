@@ -85,7 +85,7 @@ export function parseGitHubTaskSpec(content: string): TaskSpecData {
 
   return {
     title,
-    description: descriptionLines.join("\n"),
+    body: descriptionLines.join("\n"),
     metadata,
   };
 }
@@ -94,12 +94,12 @@ export function parseGitHubTaskSpec(content: string): TaskSpecData {
  * Format a TaskSpecData object into markdown content.
  */
 export function formatGitHubTaskSpec(spec: TaskSpecData): string {
-  const { title, description, metadata } = spec;
+  const { title, body, metadata } = spec;
 
   let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
 
-  if (description) {
-    content += `## Description\n${description}\n\n`;
+  if (body) {
+    content += `## Description\n${body}\n\n`;
   }
 
   if (metadata?.githubIssue) {
@@ -133,7 +133,7 @@ export function convertIssueToTaskData(
   return {
     id: taskId,
     title: issue.title,
-    description: issue.body || "",
+    spec: issue.body || "",
     status,
     specPath: getTaskSpecPath(taskId, issue.title),
     tags,
@@ -149,7 +149,7 @@ export function convertTaskDataToIssueFormat(
 ): Record<string, unknown> {
   return {
     title: task.title,
-    body: task.description,
+    body: task.spec || "",
     labels: getLabelsForTaskStatus(task.status, statusLabels),
     state: task.status === "DONE" ? "closed" : "open",
   };

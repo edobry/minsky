@@ -34,16 +34,16 @@ export const TaskStatusSchema = z.nativeEnum(TaskStatus, {
 });
 
 /**
- * Task description schema
+ * Task spec content schema
  */
-export const TaskDescriptionSchema = z.string().optional();
+export const TaskSpecContentSchema = z.string().optional();
 
 /**
  * Task creation parameters schema
  */
 export const TaskCreateParametersSchema = BaseBackendParametersSchema.extend({
   title: TaskTitleSchema,
-  description: TaskDescriptionSchema,
+  spec: TaskSpecContentSchema,
   force: ForceSchema,
 });
 

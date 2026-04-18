@@ -65,7 +65,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         id: `${prefix}#mock-${Math.random().toString(36).substr(2, 9)}`,
         title: spec.title,
         status: spec.status || "TODO",
-        description: spec.description,
+        spec: spec.description,
         metadata: {},
       };
     }),
@@ -84,7 +84,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         id: `${prefix}#${taskId}`,
         title: updates.title || `Updated Mock Task`,
         status: updates.status || "TODO",
-        description: updates.description,
+        spec: updates.spec,
         metadata: updates.metadata || {},
       };
     }),
@@ -142,7 +142,7 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
         id: `${prefix}#${importedId}`,
         title: data.spec.title,
         status: data.spec.status || "TODO",
-        description: data.spec.description,
+        spec: data.spec.description,
         metadata: {
           ...data.metadata,
           importedAt: new Date().toISOString(),

@@ -59,7 +59,7 @@ describe("Task Functions", () => {
       expect(task0.id).toBe("#001");
       expect(task0.title).toBe("First task");
       expect(task0.status).toBe(TaskStatus.TODO);
-      expect(task0.description).toBe("Description line 1\nDescription line 2");
+      expect(task0.spec).toBe("Description line 1\nDescription line 2");
 
       const task1 = elementAt(tasks, 1);
       expect(task1.id).toBe("#002");
@@ -100,7 +100,7 @@ Code block with task-like content:
           id: "#001",
           title: "First task",
           status: TaskStatus.TODO,
-          description: "Description line 1\nDescription line 2",
+          spec: "Description line 1\nDescription line 2",
         },
         {
           id: "#002",
@@ -350,7 +350,7 @@ This is a test description.
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("Task #TEST_VALUE: Test Task Title");
-      expect(spec.description).toBe(TEST_DATA_PATTERNS.TEST_DESCRIPTION);
+      expect(spec.body).toBe(TEST_DATA_PATTERNS.TEST_DESCRIPTION);
       // The function doesn't extract IDs from titles, so don't expect one
       expect(spec.id).toBeUndefined();
     });
@@ -365,7 +365,7 @@ ${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("No ID Task");
-      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
+      expect(spec.body).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
       expect(spec.id).toBeUndefined();
     });
 
@@ -379,17 +379,17 @@ ${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("Just a general title");
-      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
+      expect(spec.body).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
     });
 
     test("should return empty values for invalid input", () => {
       expect(parseTaskSpecFromMarkdown("")).toEqual({
         title: "",
-        description: "",
+        body: "",
       });
       expect(parseTaskSpecFromMarkdown("No headers")).toEqual({
         title: "",
-        description: "",
+        body: "",
       });
     });
   });
@@ -398,7 +398,7 @@ ${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
     test("should format task spec to markdown with ID", () => {
       const spec = {
         title: "Test Task",
-        description: TEST_DATA_PATTERNS.TEST_DESCRIPTION,
+        body: TEST_DATA_PATTERNS.TEST_DESCRIPTION,
         id: "#TEST_VALUE",
       };
 
@@ -410,7 +410,7 @@ ${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
     test("should format task spec without ID", () => {
       const spec = {
         title: "Test Task Without ID",
-        description: RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER,
+        body: RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER,
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);

@@ -244,7 +244,7 @@ export async function createIssueFromSpec(
     owner,
     repo,
     title: spec.title,
-    body: spec.description || "",
+    body: spec.body || "",
     labels: [...getLabelsForTaskStatus("TODO", statusLabels), ...(tags || [])],
   });
 
@@ -255,7 +255,7 @@ export async function createIssueFromSpec(
     title: spec.title,
     status: "TODO",
     specPath,
-    description: spec.description || "",
+    spec: spec.body || "",
   };
 }
 
@@ -291,7 +291,7 @@ export async function createIssueFromTitleAndDescription(
     id: taskId,
     title,
     status: "TODO",
-    description,
+    spec: description,
   };
 }
 
@@ -327,8 +327,7 @@ export async function createIssueFromTitleAndSpec(
     id: taskId,
     title,
     status: "TODO",
-    description: spec,
-    specPath: undefined,
+    spec: spec,
   };
 }
 

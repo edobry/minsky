@@ -57,7 +57,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }> = [];
 
     for (const result of searchResults) {
@@ -78,8 +78,8 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
             title: task.title,
             status: task.status,
             specPath: includeSpecPath ? task.specPath : undefined,
-            // Only include description if details requested
-            description: includeDetails ? task.description : undefined,
+            // Only include spec if details requested
+            spec: includeDetails ? task.spec : undefined,
           });
         } else {
           // Task not found, include minimal info
@@ -182,7 +182,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }> = [];
 
     for (const result of searchResults) {
@@ -203,8 +203,8 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
             title: task.title,
             status: task.status,
             specPath: includeSpecPath ? task.specPath : undefined,
-            // Only include description if details requested
-            description: includeDetails ? task.description : undefined,
+            // Only include spec if details requested
+            spec: includeDetails ? task.spec : undefined,
           });
         } else {
           // Task not found, include minimal info

@@ -108,7 +108,7 @@ describe("GitHubIssuesTaskBackend", () => {
       expect(tasks.length).toBe(1);
       expect(tasks[0]?.id).toBe("gh#001");
       expect(tasks[0]?.title).toBe("Test Issue #001");
-      expect(tasks[0]?.description).toBe("Test description");
+      expect(tasks[0]?.spec).toBe("Test description");
       expect(tasks[0]?.status).toBe(TaskStatus.TODO);
     });
 
@@ -164,7 +164,7 @@ describe("GitHubIssuesTaskBackend", () => {
         {
           id: "#001",
           title: "Test Task",
-          description: "Test description",
+          spec: "Test description",
           status: TaskStatus.TODO,
           specPath: PATH_TEST_PATTERNS.TASK_MD_001,
         },
@@ -195,7 +195,7 @@ This is a test task description.
       const spec = backend.parseTaskSpec(specContent);
 
       expect(spec.title).toBe("Test Task");
-      expect(spec.description).toBe("This is a test task description.");
+      expect(spec.body).toBe("This is a test task description.");
       expect(spec.metadata?.taskId).toBe("#001");
     });
   });
@@ -204,7 +204,7 @@ This is a test task description.
     test("should format task specification data", () => {
       const spec = {
         title: "Test Task",
-        description: "Test description",
+        body: "Test description",
         metadata: {
           taskId: "001",
           githubIssue: {

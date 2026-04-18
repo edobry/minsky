@@ -40,7 +40,7 @@ const mockTask: Task = {
   id: `md#${TEST_VALUE}`,
   title: "Test Task",
   status: TASK_STATUS.TODO,
-  description: "This is a test task",
+  spec: "This is a test task",
 };
 
 describe("interface-agnostic task functions", () => {

@@ -383,9 +383,6 @@ export async function updateTaskFromParams(
     if (params.title !== undefined) {
       updates.title = params.title;
     }
-    if (params.spec !== undefined) {
-      updates.specPath = params.spec;
-    }
 
     // Update the task
     const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
@@ -459,10 +456,10 @@ export async function createTaskFromParams(
 }
 
 /**
- * Create a task from title and description
+ * Create a task from title and spec
  * (exported for tests that import from ./tasks/taskCommands)
  */
-export async function createTaskFromTitleAndDescription(
+export async function createTaskFromTitleAndSpec(
   params: TaskCreateFromTitleAndDescriptionParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;

@@ -143,7 +143,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         expect(task).toBeDefined();
         expect(task.id).toBeTruthy();
         expect(task.title).toBe(taskSpec.title);
-        expect(task.description).toBe(taskSpec.description);
+        expect(task.spec).toBe(taskSpec.description);
         expect(task.status).toBe("TODO");
 
         // Verify issue was created in GitHub
@@ -276,7 +276,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         const testTask = tasks.find((task) => task.id === createdTask.id);
         expect(testTask).toBeDefined();
         expect(testTask?.title).toBe(taskSpec.title);
-        expect(testTask?.description).toBe(taskSpec.description);
+        expect(testTask?.spec).toBe(taskSpec.description);
       });
 
       test("should get individual task by ID", async () => {

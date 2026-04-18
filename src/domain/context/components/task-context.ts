@@ -29,7 +29,7 @@ export const TaskContextComponent: ContextComponent = {
       taskId: task?.id,
       taskTitle: task?.title,
       taskStatus: task?.status,
-      taskDescription: task?.description,
+      taskDescription: task?.spec,
       userQuery,
     } as TaskContextInputs;
   },
