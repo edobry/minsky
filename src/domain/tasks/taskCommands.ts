@@ -4,7 +4,6 @@
  */
 import { z } from "zod";
 import { resolveRepoPath as resolveRepoPathBase } from "../repo-utils";
-import { getSharedSessionProvider } from "../session/session-provider-cache";
 import type { SessionProviderInterface } from "../session/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
@@ -27,8 +26,11 @@ async function resolveRepoPath(
   options: { repo?: string; session?: string },
   sessionProvider?: SessionProviderInterface
 ): Promise<string> {
-  const provider = sessionProvider ?? (await getSharedSessionProvider());
-  return resolveRepoPathBase(options, { sessionProvider: provider });
+  if (!sessionProvider) {
+    const { getSharedSessionProvider } = await import("../session/session-provider-cache");
+    sessionProvider = await getSharedSessionProvider();
+  }
+  return resolveRepoPathBase(options, { sessionProvider });
 }
 
 // Re-export task data types
