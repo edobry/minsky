@@ -10,7 +10,7 @@ The Minsky configuration system is designed to be powerful and flexible, support
     - **Location**: `.minsky/config.yaml` at the root of your repository.
     - **State**: This file **should be committed** to your repository.
     - **Controls**:
-      - The default task backend (`markdown`, `json-file`, `github-issues`).
+      - The default task backend (`minsky`, `github-issues`).
       - SessionDB storage backend for consistent team session management.
       - GitHub repository details (`owner`, `repo`) if using the `github-issues` backend.
       - Backend auto-detection rules.

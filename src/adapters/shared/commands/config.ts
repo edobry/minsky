@@ -563,7 +563,7 @@ const configDoctorRegistration = defineCommand({
       defaultValue: false,
     },
   }),
-  execute: async (params, _ctx) => {
+  execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
     const diagnostics: Array<{ check: string; status: string; message: string }> = [];
     const { getConfigurationProvider, validateConfiguration } = await import(
@@ -705,9 +705,13 @@ const configDoctorRegistration = defineCommand({
 
     // Embedding index coverage
     try {
-      const { PersistenceService } = await import("../../../domain/persistence/service");
-      if (PersistenceService.isInitialized()) {
-        const provider = PersistenceService.getProvider();
+      const provider = ctx.container?.has("persistence")
+        ? ctx.container.get("persistence")
+        : (() => {
+            const { PersistenceService } = require("../../../domain/persistence/service");
+            return PersistenceService.isInitialized() ? PersistenceService.getProvider() : null;
+          })();
+      if (provider) {
         if (provider.capabilities.sql) {
           const rawSql = await provider.getRawSqlConnection?.();
           if (rawSql) {

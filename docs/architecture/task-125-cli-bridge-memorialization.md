@@ -1,3 +1,5 @@
+> **Historical document**: This is a task memorialization from May 2025. It is preserved as an architectural record documenting the CLI bridge implementation.
+
 # Task #125 CLI Bridge Implementation - Project Memorialization
 
 **Date**: May 22, 2025

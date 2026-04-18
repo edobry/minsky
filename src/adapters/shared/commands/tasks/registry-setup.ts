@@ -4,17 +4,17 @@
  * Lazy initialization to avoid circular dependencies.
  */
 import { TaskCommandRegistry } from "./base-task-command";
-import { PersistenceService } from "../../../../domain/persistence/service";
+import type { AppContainerInterface } from "../../../../composition/types";
 
 let registry: TaskCommandRegistry | null = null;
 
 // Lazy registry setup function
-export function setupTaskCommandRegistry() {
+export function setupTaskCommandRegistry(container?: AppContainerInterface) {
   if (!registry) {
     registry = new TaskCommandRegistry();
 
     // Import and register commands only when needed
-    const commands = createAllTaskCommands();
+    const commands = createAllTaskCommands(container);
     commands.forEach((command) => {
       registry!.register(command);
     });
@@ -24,8 +24,19 @@ export function setupTaskCommandRegistry() {
 }
 
 // Factory function that creates commands when called
-export function createAllTaskCommands() {
-  const getPersistenceProvider = () => PersistenceService.getProvider();
+export function createAllTaskCommands(container?: AppContainerInterface) {
+  let cachedPersistence: {
+    getProvider: () => import("../../../../domain/persistence/types").PersistenceProvider;
+  } | null = null;
+  const getPersistenceProvider = () => {
+    if (container?.has("persistence")) {
+      return container.get("persistence");
+    }
+    if (!cachedPersistence) {
+      cachedPersistence = require("../../../../domain/persistence/service").PersistenceService;
+    }
+    return cachedPersistence!.getProvider();
+  };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");

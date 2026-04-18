@@ -16,6 +16,8 @@ export interface ComponentInput {
   filesInContext?: string[];
   // Optional rules service for testing isolation
   rulesService?: unknown;
+  // Optional session provider for DI (avoids reaching into shared singleton)
+  sessionProvider?: import("../../session/index").SessionProviderInterface;
   // ... other potential inputs
 }
 

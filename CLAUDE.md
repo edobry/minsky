@@ -46,14 +46,16 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID
 
 After a session's PR is merged, the session is **frozen** — write operations (`session_pr_create`, `session_pr_edit`, `session_commit`, `session_pr_approve`, `session_update`) will refuse. Read operations still work.
 
-To continue work on the same task with a new PR, delete the old session and start a fresh one:
+For multi-phase work, **use subtasks** — each phase gets its own task, session, and PR:
 
 ```
-mcp__minsky__session_delete (or `minsky session delete <session>`)
-mcp__minsky__session_start  (or `minsky session start --task <task>`)
+mcp__minsky__tasks_create (title: "Next phase", parent: "<parent-task-id>")
+mcp__minsky__session_start (task: "<new-subtask-id>")
 ```
 
-Reusing a session across multiple PRs would silently corrupt PR metadata. The freeze prevents this. Read mt#687 if you're tempted to make this less strict — there's a parked design question about whether the model should change.
+This preserves the 1:1 task↔session invariant while giving each phase its own identity, spec, and status tracking. The parent task tracks progress across subtasks.
+
+**Do NOT use the delete-restart pattern** (`session_delete` → `session_start` on the same task). That is an anti-pattern — it loses context, wastes time on re-cloning, and risks branch collisions. Subtasks are the correct decomposition.
 
 ### Parallel Task Planning
 

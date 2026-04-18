@@ -12,6 +12,7 @@ import {
   modularTasksManager,
   registerTasksCommands as modularRegisterTasksCommands,
 } from "./tasks-modular";
+import type { AppContainerInterface } from "../../../composition/types";
 
 /**
  * Register task commands function (Backward Compatibility)
@@ -22,8 +23,8 @@ import {
  * This wrapper delegates all functionality to the new modular architecture
  * while preserving the original API surface.
  */
-export function registerTasksCommands(): void {
-  return modularRegisterTasksCommands();
+export function registerTasksCommands(container?: AppContainerInterface): void {
+  return modularRegisterTasksCommands(container);
 }
 
 // Export modular components for migration path

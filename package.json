@@ -1,5 +1,20 @@
 {
   "name": "minsky",
+  "description": "A development workflow orchestration platform that creates collaborative environments for both human and AI developers through organizational cybernetic principles.",
+  "keywords": [
+    "minsky",
+    "workflow",
+    "orchestration",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "developer-tools",
+    "cybernetics",
+    "task-management",
+    "session",
+    "git",
+    "cli"
+  ],
   "module": "src/cli.ts",
   "type": "module",
   "scripts": {

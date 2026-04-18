@@ -1,3 +1,5 @@
+> **Historical document**: This is a task progress log from May 2025. It is preserved for reference but reflects the state of the codebase at that time, not the current implementation.
+
 # Task #130: System Stability Post-CLI Bridge - Progress Report
 
 **Date**: May 23, 2025

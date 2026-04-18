@@ -145,12 +145,11 @@ export class MinskyTaskBackend implements TaskBackend {
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
-    const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id));
-    const rowCount =
-      result && typeof result === "object" && "rowCount" in result
-        ? (result.rowCount as number)
-        : 0;
-    return rowCount > 0;
+    const deleted = await this.db
+      .delete(tasksTable)
+      .where(eq(tasksTable.id, id))
+      .returning({ id: tasksTable.id });
+    return deleted.length > 0;
   }
 
   getWorkspacePath(): string {

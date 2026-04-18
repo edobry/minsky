@@ -398,11 +398,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async deleteEntity(id: string): Promise<boolean> {
     await this.ensureConnection();
-    const result = await this.drizzle!.delete(postgresSessions).where(
-      eq(postgresSessions.session, id)
-    );
-    const rowCount = (result as { rowCount?: number }).rowCount ?? 0;
-    return rowCount > 0;
+    const deleted = await this.drizzle!.delete(postgresSessions)
+      .where(eq(postgresSessions.session, id))
+      .returning({ session: postgresSessions.session });
+    return deleted.length > 0;
   }
 
   /**

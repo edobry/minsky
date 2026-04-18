@@ -29,7 +29,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   registerGitCommands();
 
   // Register tasks commands
-  registerTasksCommands();
+  registerTasksCommands(container);
 
   // Register session commands (async) — pass container for DI migration (mt#761)
   await registerSessionCommands(undefined, container);

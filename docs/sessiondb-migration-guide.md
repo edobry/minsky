@@ -9,6 +9,8 @@ Minsky supports two session database backends:
 - **SQLite**: Local database with ACID transactions
 - **PostgreSQL**: Server-based database for team environments
 
+> **Legacy note**: An older JSON-file sessiondb backend was previously supported. If you have session data in JSON format, migrate to SQLite using the instructions below.
+
 ## Quick Start
 
 ### 1. Check Current Status
@@ -21,7 +23,7 @@ This shows your current backend configuration and provides recommendations.
 
 ### 2. Basic Migration
 
-Migrate from JSON to SQLite:
+Migrate from JSON (legacy) to SQLite:
 
 ```bash
 minsky sessiondb migrate to sqlite --backup ./backups
@@ -83,7 +85,7 @@ connectionString = "postgresql://team:password@db.company.com:5432/minsky_sessio
 
 ### Step-by-Step Migration
 
-#### JSON to SQLite
+#### JSON (Legacy) to SQLite
 
 1. **Run the migration with backup**:
 
@@ -150,27 +152,25 @@ connectionString = "postgresql://team:password@db.company.com:5432/minsky_sessio
 
 **From Development (SQLite) to Production (PostgreSQL)**:
 
-1. **Export development data**:
+1. **Export development data as backup**:
 
    ```bash
    # On development machine
-   minsky sessiondb migrate to json \
-     --backup ./dev-export \
-     --from sqlite
+   minsky sessiondb migrate to sqlite \
+     --backup ./dev-export
    ```
 
 2. **Transfer backup to production**:
 
    ```bash
-   scp ./dev-export/session-backup-*.json production-server:/tmp/
+   scp ./dev-export/sessions.db production-server:/tmp/
    ```
 
-3. **Import on production**:
+3. **Import on production** (SQLite to PostgreSQL):
    ```bash
    # On production server
-   minsky sessiondb restore \
-     --backup /tmp/session-backup-*.json \
-     --to postgres \
+   minsky sessiondb migrate to postgres \
+     --from sqlite \
      --connection-string "$MINSKY_POSTGRES_URL"
    ```
 
@@ -405,7 +405,7 @@ CREATE INDEX CONCURRENTLY idx_sessions_created_at ON sessions(created_at);
    #!/bin/bash
    BACKUP_DIR="$HOME/minsky-backups/$(date +%Y-%m-%d)"
    mkdir -p "$BACKUP_DIR"
-   minsky sessiondb migrate to json --backup "$BACKUP_DIR" --from current
+   minsky sessiondb migrate to sqlite --backup "$BACKUP_DIR"
    ```
 
 ### Security Considerations
