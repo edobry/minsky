@@ -200,6 +200,7 @@ export default [
             // Session domain (command orchestration and provider resolution)
             "**/src/domain/tasks/operations/base-task-operation.ts",
             "**/src/domain/tasks/taskCommands.ts",
+            "**/src/domain/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
