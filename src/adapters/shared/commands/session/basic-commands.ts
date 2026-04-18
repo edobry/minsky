@@ -109,6 +109,7 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         );
       }
 
+      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring startSessionImpl backward-compat shims
       const { startSessionFromParams } = await import("../../../../domain/session");
       const deps = await getDeps();
 
