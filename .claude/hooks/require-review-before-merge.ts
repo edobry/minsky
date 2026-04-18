@@ -3,7 +3,7 @@
 // or if the review lacks a spec verification section.
 // Ensures code review AND spec verification are complete before merging.
 
-import { readInput, execSync } from "./types";
+import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
 
 const input = await readInput<ToolHookInput>();
@@ -40,15 +40,13 @@ const reviewsResult = execSync([
 ]);
 const reviews = reviewsResult.stdout.trim();
 if (reviews === "0" || !reviews) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: `No review on PR #${pr}. Use /review-pr to submit a review before merging.`,
-      },
-    })
-  );
+  writeOutput({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `No review on PR #${pr}. Use /review-pr to submit a review before merging.`,
+    },
+  });
   process.exit(0);
 }
 
@@ -62,14 +60,12 @@ const hasSpecResult = execSync([
 ]);
 const hasSpec = hasSpecResult.stdout.trim();
 if (hasSpec !== "true") {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: `Review on PR #${pr} lacks spec verification section. Use /review-pr to post a review that includes spec verification before merging.`,
-      },
-    })
-  );
+  writeOutput({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `Review on PR #${pr} lacks spec verification section. Use /review-pr to post a review that includes spec verification before merging.`,
+    },
+  });
   process.exit(0);
 }
