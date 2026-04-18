@@ -132,9 +132,11 @@ export async function deleteSessionImpl(
 
   // Delete the remote git branch if a git service is available
   if (deps.gitService && sessionRecord) {
-    const branchName = sessionRecord.taskId
-      ? taskIdToBranchName(sessionRecord.taskId)
-      : resolvedSessionId;
+    // Prefer the stored branch name (persisted since mt#782), fall back to
+    // computing from taskId for sessions created before that change.
+    const branchName =
+      sessionRecord.branch ||
+      (sessionRecord.taskId ? taskIdToBranchName(sessionRecord.taskId) : resolvedSessionId);
 
     if (existsSync(sessionWorkspaceDir)) {
       try {
