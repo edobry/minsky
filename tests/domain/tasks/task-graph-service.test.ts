@@ -101,6 +101,40 @@ describe("TaskGraphService (in-memory)", () => {
       await expect(svc.addDependency("md#1", "2")).rejects.toThrow();
     });
 
+    it("prevents direct dependency cycle: A→B, B→A", async () => {
+      const svc = createService([["mt#1", "mt#2", "depends"]]);
+      await expect(svc.addDependency("mt#2", "mt#1")).rejects.toThrow(/Cycle detected/);
+    });
+
+    it("prevents indirect dependency cycle: A→B→C, C→A", async () => {
+      const svc = createService([
+        ["mt#1", "mt#2", "depends"],
+        ["mt#2", "mt#3", "depends"],
+      ]);
+      await expect(svc.addDependency("mt#3", "mt#1")).rejects.toThrow(/Cycle detected/);
+    });
+
+    it("allows non-cyclic dependency chains", async () => {
+      const svc = createService([
+        ["mt#1", "mt#2", "depends"],
+        ["mt#2", "mt#3", "depends"],
+      ]);
+      // mt#1 depending on mt#3 is fine (parallel dependency, not a cycle)
+      const r = await svc.addDependency("mt#1", "mt#3");
+      expect(r.created).toBe(true);
+    });
+
+    it("allows diamond dependencies (not cycles)", async () => {
+      const svc = createService([
+        ["mt#1", "mt#2", "depends"],
+        ["mt#1", "mt#3", "depends"],
+        ["mt#2", "mt#4", "depends"],
+      ]);
+      // mt#3 also depending on mt#4 creates a diamond, not a cycle
+      const r = await svc.addDependency("mt#3", "mt#4");
+      expect(r.created).toBe(true);
+    });
+
     it("removes dependency and lists dependents", async () => {
       const svc = createService([
         ["md#1", "db#2"],
