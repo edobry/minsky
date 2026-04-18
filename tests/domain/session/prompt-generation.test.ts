@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   generateSubagentPrompt,
+  PROMPT_WATERMARK,
   type GeneratePromptParams,
 } from "../../../src/domain/session/prompt-generation";
 
@@ -296,6 +297,42 @@ describe("generateSubagentPrompt", () => {
       const result = generateSubagentPrompt({ ...baseParams, scope });
       expect(result.scopeWarning).toBeDefined();
       expect(result.scopeWarning).toContain("41");
+    });
+
+    it("includes watermark in each batch prompt", () => {
+      const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
+      const result = generateSubagentPrompt({ ...baseParams, scope });
+      expect(result.batches).toBeDefined();
+      for (const batch of result.batches!) {
+        expect(batch.prompt).toContain(PROMPT_WATERMARK);
+      }
+    });
+  });
+
+  describe("watermark", () => {
+    it("includes watermark in implementation prompts", () => {
+      const result = generateSubagentPrompt(baseParams);
+      expect(result.prompt).toContain(PROMPT_WATERMARK);
+    });
+
+    it("includes watermark in refactor prompts", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "refactor" });
+      expect(result.prompt).toContain(PROMPT_WATERMARK);
+    });
+
+    it("includes watermark in review prompts", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "review" });
+      expect(result.prompt).toContain(PROMPT_WATERMARK);
+    });
+
+    it("includes watermark in cleanup prompts", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
+      expect(result.prompt).toContain(PROMPT_WATERMARK);
+    });
+
+    it("includes watermark in audit prompts", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.prompt).toContain(PROMPT_WATERMARK);
     });
   });
 });

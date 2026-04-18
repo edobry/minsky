@@ -27,6 +27,7 @@ export interface GeneratePromptResult {
 
 const SCOPE_WARNING_THRESHOLD = 40;
 const BATCH_SIZE = 30;
+export const PROMPT_WATERMARK = "<!-- minsky:prompt:v1 -->";
 
 function renderCommonHeader(params: GeneratePromptParams): string {
   return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
@@ -96,6 +97,7 @@ function generateSinglePrompt(
 
 Report findings as structured output. Do NOT make any changes.`);
     sections.push(renderToolingNote());
+    sections.push(`\n${PROMPT_WATERMARK}`);
     return sections.join("\n");
   }
 
@@ -108,6 +110,7 @@ Verify the merged changes against the task spec. For each success criterion, che
 - **Not met** — criterion not delivered
 - **Not applicable** — criterion stale or already satisfied`);
     sections.push(renderToolingNote());
+    sections.push(`\n${PROMPT_WATERMARK}`);
     return sections.join("\n");
   }
 
@@ -137,6 +140,7 @@ Commit this batch before proceeding to the next.
   }
 
   sections.push(renderToolingNote());
+  sections.push(`\n${PROMPT_WATERMARK}`);
 
   return sections.join("\n");
 }
