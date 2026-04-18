@@ -47,7 +47,7 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   // Register shared commands (session, tasks, git, rules, config, etc.)
   const { registerAllSharedCommands } = await import("./adapters/shared/commands/index");
-  await registerAllSharedCommands();
+  await registerAllSharedCommands(container);
 
   // Register all commands via CLI command factory (which applies customizations)
   cliFactory.registerAllCommands(cli);
