@@ -10,8 +10,8 @@ import { z } from "zod";
 const promptCommandParams = {
   task: { schema: z.string(), description: "Task ID (required)", required: true },
   type: {
-    schema: z.enum(["implementation", "refactor", "review", "cleanup"]),
-    description: "Prompt type: implementation, refactor, review, or cleanup",
+    schema: z.enum(["implementation", "refactor", "review", "cleanup", "audit"]),
+    description: "Prompt type: implementation, refactor, review, cleanup, or audit",
     required: true,
   },
   instructions: {
@@ -43,7 +43,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       );
 
       const task = params.task as string;
-      const type = params.type as "implementation" | "refactor" | "review" | "cleanup";
+      const type = params.type as "implementation" | "refactor" | "review" | "cleanup" | "audit";
       const instructions = params.instructions as string;
       const scopeRaw = params.scope as string | undefined;
 

@@ -4,7 +4,7 @@
  * Generates complete, correct subagent prompt strings for session work.
  */
 
-export type PromptType = "implementation" | "refactor" | "review" | "cleanup";
+export type PromptType = "implementation" | "refactor" | "review" | "cleanup" | "audit";
 
 export interface GeneratePromptParams {
   sessionDir: string;
@@ -95,6 +95,18 @@ function generateSinglePrompt(
 ## Review Instructions
 
 Report findings as structured output. Do NOT make any changes.`);
+    sections.push(renderToolingNote());
+    return sections.join("\n");
+  }
+
+  if (type === "audit") {
+    sections.push(`
+## Audit Instructions
+
+Verify the merged changes against the task spec. For each success criterion, check whether the code actually delivers it. Report structured findings as:
+- **Met** — criterion satisfied, with file:line evidence
+- **Not met** — criterion not delivered
+- **Not applicable** — criterion stale or already satisfied`);
     sections.push(renderToolingNote());
     return sections.join("\n");
   }
@@ -190,6 +202,15 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     return {
       prompt,
       suggestedModel: "sonnet",
+      scopeWarning,
+    };
+  }
+
+  if (type === "audit") {
+    return {
+      prompt,
+      suggestedModel: "sonnet",
+      suggestedSubagentType: "verify-completion",
       scopeWarning,
     };
   }
