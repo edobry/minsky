@@ -62,6 +62,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
               .split(",")
               .map((s) => s.trim())
               .filter((s) => s.length > 0)
+              .map((s) => (s.startsWith("/") ? s : `${sessionDir}/${s}`))
           : undefined;
 
       const taskId = task.replace(/^mt#/, "").replace(/^#/, "");
