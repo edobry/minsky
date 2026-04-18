@@ -1,5 +1,4 @@
 import { resolveRepoPath as resolveRepoPathInternal } from "../domain/repo-utils";
-import { getSharedSessionProvider } from "../domain/session/session-provider-cache";
 import type { SessionProviderInterface } from "../domain/session/index";
 
 export interface RepoResolutionOptions {
@@ -11,12 +10,12 @@ export interface RepoResolutionOptions {
  * Resolve the repository path from session or explicit path
  * If neither is provided, attempt to determine from current directory
  *
- * Note: This is a composition boundary — uses the shared session provider cache.
+ * @param options - Resolution options (session ID or explicit repo path)
+ * @param sessionProvider - The session provider for resolving session paths
  */
 export async function resolveRepoPath(
   options: RepoResolutionOptions = {},
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<string> {
-  const provider = sessionProvider ?? (await getSharedSessionProvider());
-  return resolveRepoPathInternal(options, { sessionProvider: provider });
+  return resolveRepoPathInternal(options, { sessionProvider });
 }

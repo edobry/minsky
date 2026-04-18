@@ -6,7 +6,6 @@ import {
 } from "./types";
 // Reuse existing Minsky session utilities
 import { getCurrentSessionContext, isSessionWorkspace } from "../../workspace";
-import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import type { SessionProviderInterface } from "../../session/index";
 
 interface SessionContextInputs {
@@ -46,52 +45,55 @@ export const SessionContextComponent: ContextComponent = {
       isInSession = isSessionWorkspace(workspacePath);
 
       if (isInSession) {
-        // Get current session context
-        const sessionDB: SessionProviderInterface =
-          context.sessionProvider ?? (await getSharedSessionProvider());
-        const sessionContext = await getCurrentSessionContext(workspacePath, {
-          sessionDbOverride: sessionDB,
-        });
-
-        if (sessionContext) {
-          sessionId = sessionContext.sessionId;
-          taskId = sessionContext.taskId;
-
-          // Get full session record with additional metadata
-          try {
-            const sessionProvider: SessionProviderInterface =
-              context.sessionProvider ?? (await getSharedSessionProvider());
-            const fullSessionRecord = await sessionProvider.getSession(sessionId);
-
-            if (fullSessionRecord) {
-              sessionRecord = {
-                id: fullSessionRecord.session || sessionId,
-                name: fullSessionRecord.name || fullSessionRecord.session || sessionId || "unknown",
-                taskId: fullSessionRecord.taskId || taskId,
-                repoUrl: fullSessionRecord.repoUrl || "unknown",
-                branch: fullSessionRecord.branch || "main",
-                createdAt: fullSessionRecord.createdAt || new Date().toISOString(),
-                updatedAt: fullSessionRecord.createdAt || new Date().toISOString(),
-                status: undefined,
-              };
-            }
-          } catch (sessionError) {
-            error = `Failed to get session details: ${sessionError instanceof Error ? sessionError.message : String(sessionError)}`;
-            // Create minimal session record from what we know
-            if (sessionId) {
-              sessionRecord = {
-                id: sessionId,
-                name: sessionId,
-                taskId: taskId,
-                repoUrl: "unknown",
-                branch: "main",
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-            }
-          }
+        if (!context.sessionProvider) {
+          error = "In session workspace but no sessionProvider available on context";
         } else {
-          error = "In session workspace but no session context found";
+          // Get current session context
+          const sessionDB: SessionProviderInterface = context.sessionProvider;
+          const sessionContext = await getCurrentSessionContext(workspacePath, {
+            sessionDbOverride: sessionDB,
+          });
+
+          if (sessionContext) {
+            sessionId = sessionContext.sessionId;
+            taskId = sessionContext.taskId;
+
+            // Get full session record with additional metadata
+            try {
+              const sessionProvider: SessionProviderInterface = context.sessionProvider;
+              const fullSessionRecord = await sessionProvider.getSession(sessionId);
+
+              if (fullSessionRecord) {
+                sessionRecord = {
+                  id: fullSessionRecord.session || sessionId,
+                  name:
+                    fullSessionRecord.name || fullSessionRecord.session || sessionId || "unknown",
+                  taskId: fullSessionRecord.taskId || taskId,
+                  repoUrl: fullSessionRecord.repoUrl || "unknown",
+                  branch: fullSessionRecord.branch || "main",
+                  createdAt: fullSessionRecord.createdAt || new Date().toISOString(),
+                  updatedAt: fullSessionRecord.createdAt || new Date().toISOString(),
+                  status: undefined,
+                };
+              }
+            } catch (sessionError) {
+              error = `Failed to get session details: ${sessionError instanceof Error ? sessionError.message : String(sessionError)}`;
+              // Create minimal session record from what we know
+              if (sessionId) {
+                sessionRecord = {
+                  id: sessionId,
+                  name: sessionId,
+                  taskId: taskId,
+                  repoUrl: "unknown",
+                  branch: "main",
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+              }
+            }
+          } else {
+            error = "In session workspace but no session context found";
+          }
         }
       }
     } catch (sessionError) {

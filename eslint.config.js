@@ -178,9 +178,13 @@ export default [
             "**/src/domain/session/session-service.ts",
             "**/src/domain/session/session-provider-cache.ts",
             "**/src/domain/session/session-db-adapter.ts",
+            // Session path resolver (lazy fallback for MCP handlers without DI context)
+            "**/src/domain/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers
             "**/src/domain/session.ts",
             "**/src/domain/git.ts",
+            // Git operations base class (lazy fallback for session resolution)
+            "**/src/domain/git/operations/base-git-operation.ts",
             // Storage backends that need direct provider access
             "**/src/domain/storage/backends/postgres-storage.ts",
             "**/src/domain/storage/vector/vector-storage-factory.ts",
@@ -193,17 +197,9 @@ export default [
             "**/src/domain/rules/rule-similarity-service.ts",
             // Changeset adapters (resolve session provider for PR operations)
             "**/src/domain/changeset/adapters/*.ts",
-            // Context components (resolve session provider for context generation)
-            "**/src/domain/context/components/session-context.ts",
             // Session domain (command orchestration and provider resolution)
-            "**/src/domain/session/resolve-session-directory.ts",
-            "**/src/domain/session/session-commands.ts",
-            "**/src/domain/session/session-conflicts-operations.ts",
-            // Task domain (command orchestration)
             "**/src/domain/tasks/operations/base-task-operation.ts",
             "**/src/domain/tasks/taskCommands.ts",
-            // Utility composition roots
-            "**/src/utils/repo.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
