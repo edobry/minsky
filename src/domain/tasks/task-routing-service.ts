@@ -78,7 +78,7 @@ export class TaskRoutingService {
     const taskIds = statusFilteredTasks.map((task) => task.id);
 
     // Get all relationships for these tasks in bulk
-    const relationships = await this.taskGraphService.getRelationshipsForTasks(taskIds);
+    const relationships = await this.taskGraphService.getRelationshipsForTasks(taskIds, "depends");
 
     // Build dependency map: taskId -> array of tasks it depends on
     const dependencyMap = new Map<string, string[]>();

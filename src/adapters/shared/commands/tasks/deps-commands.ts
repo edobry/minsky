@@ -147,3 +147,65 @@ export function createTasksDepsListCommand(getPersistenceProvider: () => Persist
     },
   };
 }
+
+const tasksChildrenParams = {
+  task: {
+    schema: z.string(),
+    description: "ID of the parent task to list children for",
+    required: true,
+  },
+} satisfies CommandParameterMap;
+
+const tasksParentParams = {
+  task: {
+    schema: z.string(),
+    description: "ID of the task to find parent of",
+    required: true,
+  },
+} satisfies CommandParameterMap;
+
+export function createTasksChildrenCommand(getPersistenceProvider: () => PersistenceProvider) {
+  return {
+    id: "tasks.children",
+    name: "children",
+    description: "List subtasks (children) of a parent task",
+    parameters: tasksChildrenParams,
+    execute: async (params: InferParams<typeof tasksChildrenParams>) => {
+      const persistence = getPersistenceProvider();
+      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+      const service = new TaskGraphService(db);
+      const children = await service.listChildren(params.task);
+
+      if (children.length === 0) {
+        return { success: true, output: `${params.task}: no subtasks` };
+      }
+
+      const lines = [`${params.task}: ${children.length} subtask(s)`];
+      for (const child of children) {
+        lines.push(`  ${child}`);
+      }
+      return { success: true, output: lines.join("\n") };
+    },
+  };
+}
+
+export function createTasksParentCommand(getPersistenceProvider: () => PersistenceProvider) {
+  return {
+    id: "tasks.parent",
+    name: "parent",
+    description: "Show the parent task of a subtask",
+    parameters: tasksParentParams,
+    execute: async (params: InferParams<typeof tasksParentParams>) => {
+      const persistence = getPersistenceProvider();
+      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+      const service = new TaskGraphService(db);
+      const parent = await service.getParent(params.task);
+
+      if (parent === null) {
+        return { success: true, output: `${params.task}: no parent (root task)` };
+      }
+
+      return { success: true, output: `${params.task}: parent is ${parent}` };
+    },
+  };
+}

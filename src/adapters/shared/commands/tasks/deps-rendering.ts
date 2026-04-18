@@ -240,7 +240,7 @@ export async function generateDependencyGraph(
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
-    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds, "depends");
 
     // Build dependency maps in memory from single query result
     const dependenciesMap = new Map<string, string[]>();
@@ -441,7 +441,7 @@ export async function generateGraphvizDot(
 
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
-    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds, "depends");
 
     // Build dependency maps in memory from single query result
     const dependenciesMap = new Map<string, string[]>();

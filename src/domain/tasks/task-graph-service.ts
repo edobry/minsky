@@ -2,6 +2,9 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 
+/** Edge types for task relationships */
+export type RelationshipType = "depends" | "parent";
+
 function isQualifiedId(id: string): boolean {
   return (
     typeof id === "string" &&
@@ -11,84 +14,116 @@ function isQualifiedId(id: string): boolean {
   );
 }
 
+function validateQualifiedIds(...ids: string[]): void {
+  for (const id of ids) {
+    if (!isQualifiedId(id)) {
+      throw new Error(`Invalid task ID format "${id}"; use qualified IDs like mt#123`);
+    }
+  }
+}
+
+export interface TaskRelationship {
+  fromTaskId: string;
+  toTaskId: string;
+  type: RelationshipType;
+}
+
 interface TaskRelationshipsRepository {
-  findEdge(fromId: string, toId: string): Promise<boolean>;
-  createEdge(fromId: string, toId: string): Promise<void>;
-  deleteEdge(fromId: string, toId: string): Promise<number>;
-  listFrom(taskId: string): Promise<string[]>;
-  listTo(taskId: string): Promise<string[]>;
-  // Bulk operations for efficient graph building
-  getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]>;
-  getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]>;
+  findEdge(fromId: string, toId: string, type: RelationshipType): Promise<boolean>;
+  createEdge(fromId: string, toId: string, type: RelationshipType): Promise<void>;
+  deleteEdge(fromId: string, toId: string, type: RelationshipType): Promise<number>;
+  deleteEdgesFrom(fromId: string, type: RelationshipType): Promise<number>;
+  listFrom(taskId: string, type: RelationshipType): Promise<string[]>;
+  listTo(taskId: string, type: RelationshipType): Promise<string[]>;
+  getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]>;
+  getRelationshipsForTasks(taskIds: string[], type?: RelationshipType): Promise<TaskRelationship[]>;
 }
 
 function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
   return {
-    async findEdge(fromId, toId) {
+    async findEdge(fromId, toId, type) {
       const existing = await db
         .select({ id: taskRelationshipsTable.id })
         .from(taskRelationshipsTable)
         .where(
           and(
             eq(taskRelationshipsTable.fromTaskId, fromId),
-            eq(taskRelationshipsTable.toTaskId, toId)
+            eq(taskRelationshipsTable.toTaskId, toId),
+            eq(taskRelationshipsTable.type, type)
           )
         )
         .limit(1);
       return existing.length > 0;
     },
-    async createEdge(fromId, toId) {
-      await db.insert(taskRelationshipsTable).values({ fromTaskId: fromId, toTaskId: toId });
+    async createEdge(fromId, toId, type) {
+      await db.insert(taskRelationshipsTable).values({ fromTaskId: fromId, toTaskId: toId, type });
     },
-    async deleteEdge(fromId, toId) {
+    async deleteEdge(fromId, toId, type) {
       const res = await db
         .delete(taskRelationshipsTable)
         .where(
           and(
             eq(taskRelationshipsTable.fromTaskId, fromId),
-            eq(taskRelationshipsTable.toTaskId, toId)
+            eq(taskRelationshipsTable.toTaskId, toId),
+            eq(taskRelationshipsTable.type, type)
           )
         );
       return (res as { rowCount?: number })?.rowCount ?? 0;
     },
-    async listFrom(taskId) {
+    async deleteEdgesFrom(fromId, type) {
+      const res = await db
+        .delete(taskRelationshipsTable)
+        .where(
+          and(eq(taskRelationshipsTable.fromTaskId, fromId), eq(taskRelationshipsTable.type, type))
+        );
+      return (res as { rowCount?: number })?.rowCount ?? 0;
+    },
+    async listFrom(taskId, type) {
       const rows = await db
         .select({ to: taskRelationshipsTable.toTaskId })
         .from(taskRelationshipsTable)
-        .where(eq(taskRelationshipsTable.fromTaskId, taskId));
+        .where(
+          and(eq(taskRelationshipsTable.fromTaskId, taskId), eq(taskRelationshipsTable.type, type))
+        );
       return rows.map((r) => r.to);
     },
-    async listTo(taskId) {
+    async listTo(taskId, type) {
       const rows = await db
         .select({ from: taskRelationshipsTable.fromTaskId })
         .from(taskRelationshipsTable)
-        .where(eq(taskRelationshipsTable.toTaskId, taskId));
+        .where(
+          and(eq(taskRelationshipsTable.toTaskId, taskId), eq(taskRelationshipsTable.type, type))
+        );
       return rows.map((r) => r.from);
     },
-    async getAllRelationships() {
+    async getAllRelationships(type?) {
+      const conditions = type ? [eq(taskRelationshipsTable.type, type)] : [];
       const rows = await db
         .select({
           fromTaskId: taskRelationshipsTable.fromTaskId,
           toTaskId: taskRelationshipsTable.toTaskId,
-        })
-        .from(taskRelationshipsTable);
-      return rows;
-    },
-    async getRelationshipsForTasks(taskIds) {
-      if (taskIds.length === 0) return [];
-      const rows = await db
-        .select({
-          fromTaskId: taskRelationshipsTable.fromTaskId,
-          toTaskId: taskRelationshipsTable.toTaskId,
+          type: taskRelationshipsTable.type,
         })
         .from(taskRelationshipsTable)
-        .where(
-          or(
-            inArray(taskRelationshipsTable.fromTaskId, taskIds),
-            inArray(taskRelationshipsTable.toTaskId, taskIds)
-          )
-        );
-      return rows;
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
+      return rows as TaskRelationship[];
+    },
+    async getRelationshipsForTasks(taskIds, type?) {
+      if (taskIds.length === 0) return [];
+      const taskFilter = or(
+        inArray(taskRelationshipsTable.fromTaskId, taskIds),
+        inArray(taskRelationshipsTable.toTaskId, taskIds)
+      );
+      const conditions = type ? and(taskFilter, eq(taskRelationshipsTable.type, type)) : taskFilter;
+      const rows = await db
+        .select({
+          fromTaskId: taskRelationshipsTable.fromTaskId,
+          toTaskId: taskRelationshipsTable.toTaskId,
+          type: taskRelationshipsTable.type,
+        })
+        .from(taskRelationshipsTable)
+        .where(conditions);
+      return rows as TaskRelationship[];
     },
   };
 }
@@ -104,48 +139,124 @@ export class TaskGraphService {
         : (dbOrRepo as TaskRelationshipsRepository);
   }
 
+  // ── Dependency operations (type = "depends") ─────────────────────────
+
   async addDependency(fromId: string, toId: string): Promise<{ created: boolean }> {
-    if (!isQualifiedId(fromId) || !isQualifiedId(toId)) {
-      throw new Error("Invalid task ID format; use qualified IDs like md#123");
-    }
+    validateQualifiedIds(fromId, toId);
     if (fromId === toId) {
       throw new Error("A task cannot depend on itself");
     }
 
-    const exists = await this.repo.findEdge(fromId, toId);
+    const exists = await this.repo.findEdge(fromId, toId, "depends");
     if (exists) {
       return { created: false };
     }
-    await this.repo.createEdge(fromId, toId);
+    await this.repo.createEdge(fromId, toId, "depends");
     return { created: true };
   }
 
   async removeDependency(fromId: string, toId: string): Promise<{ removed: boolean }> {
-    const count = await this.repo.deleteEdge(fromId, toId);
+    const count = await this.repo.deleteEdge(fromId, toId, "depends");
     return { removed: count > 0 };
   }
 
   async listDependencies(taskId: string): Promise<string[]> {
-    return this.repo.listFrom(taskId);
+    return this.repo.listFrom(taskId, "depends");
   }
 
   async listDependents(taskId: string): Promise<string[]> {
-    return this.repo.listTo(taskId);
+    return this.repo.listTo(taskId, "depends");
   }
 
+  // ── Parent-child operations (type = "parent") ────────────────────────
+
   /**
-   * Get all relationships at once - efficient for graph visualization
+   * Set the parent of a child task. A task can have at most one parent.
+   * The edge direction is child→parent (from=child, to=parent).
    */
-  async getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]> {
-    return this.repo.getAllRelationships();
+  async addParent(childId: string, parentId: string): Promise<{ created: boolean }> {
+    validateQualifiedIds(childId, parentId);
+    if (childId === parentId) {
+      throw new Error("A task cannot be its own parent");
+    }
+
+    // Cycle prevention: ensure parentId is not a descendant of childId
+    const ancestors = await this.getAncestors(parentId);
+    if (ancestors.includes(childId)) {
+      throw new Error(`Cycle detected: ${parentId} is already a descendant of ${childId}`);
+    }
+
+    // Check if child already has a parent
+    const existingParent = await this.getParent(childId);
+    if (existingParent === parentId) {
+      return { created: false };
+    }
+    if (existingParent !== null) {
+      throw new Error(`Task ${childId} already has parent ${existingParent}; remove it first`);
+    }
+
+    await this.repo.createEdge(childId, parentId, "parent");
+    return { created: true };
   }
 
   /**
-   * Get relationships for a specific set of tasks - efficient for filtered graphs
+   * Remove the parent relationship for a child task.
+   * Returns whether a parent edge was actually removed.
+   */
+  async removeParent(childId: string): Promise<{ removed: boolean }> {
+    const count = await this.repo.deleteEdgesFrom(childId, "parent");
+    return { removed: count > 0 };
+  }
+
+  /**
+   * Get the parent of a task, or null if it has no parent.
+   */
+  async getParent(taskId: string): Promise<string | null> {
+    const parents = await this.repo.listFrom(taskId, "parent");
+    return parents[0] ?? null;
+  }
+
+  /**
+   * List the direct children (subtasks) of a task.
+   */
+  async listChildren(taskId: string): Promise<string[]> {
+    return this.repo.listTo(taskId, "parent");
+  }
+
+  /**
+   * Walk up the parent chain from a task, returning all ancestors.
+   * Used for cycle prevention. Stops at root (no parent) or max depth.
+   */
+  async getAncestors(taskId: string, maxDepth = 10): Promise<string[]> {
+    const ancestors: string[] = [];
+    let current = taskId;
+    for (let i = 0; i < maxDepth; i++) {
+      const parent = await this.getParent(current);
+      if (parent === null) break;
+      ancestors.push(parent);
+      current = parent;
+    }
+    return ancestors;
+  }
+
+  // ── Bulk operations (all types by default) ────────────────────────────
+
+  /**
+   * Get all relationships at once — efficient for graph visualization.
+   * Pass a type to filter; omit to get all edge types.
+   */
+  async getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]> {
+    return this.repo.getAllRelationships(type);
+  }
+
+  /**
+   * Get relationships for a specific set of tasks — efficient for filtered graphs.
+   * Pass a type to filter; omit to get all edge types.
    */
   async getRelationshipsForTasks(
-    taskIds: string[]
-  ): Promise<{ fromTaskId: string; toTaskId: string }[]> {
-    return this.repo.getRelationshipsForTasks(taskIds);
+    taskIds: string[],
+    type?: RelationshipType
+  ): Promise<TaskRelationship[]> {
+    return this.repo.getRelationshipsForTasks(taskIds, type);
   }
 }

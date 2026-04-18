@@ -55,6 +55,8 @@ export interface Task {
   status: string;
   specPath?: string;
   backend?: string;
+  /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
+  parentTaskId?: string;
   description?: string;
   metadata?: Record<string, unknown>;
   spec?: string;
