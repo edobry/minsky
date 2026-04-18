@@ -50,13 +50,16 @@ export class PersistenceService {
       const persistenceConfig = config || PersistenceService.loadConfiguration();
 
       // Create provider using factory (now async for runtime capability detection)
-      PersistenceService.provider = await PersistenceProviderFactory.create(persistenceConfig);
+      const provider = await PersistenceProviderFactory.create(persistenceConfig);
 
-      // Initialize the provider
-      await PersistenceService.provider.initialize();
+      // Initialize before caching — if init fails, provider stays null so
+      // isInitialized() returns false and getProvider() throws correctly
+      await provider.initialize();
 
+      PersistenceService.provider = provider;
       log.info("PersistenceService initialized successfully");
     } catch (error) {
+      PersistenceService.provider = null;
       log.error(
         "Failed to initialize PersistenceService:",
         error instanceof Error ? error : { error: String(error) }
