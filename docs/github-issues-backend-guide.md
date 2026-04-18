@@ -88,9 +88,9 @@ backend: "github-issues"
 
 # SessionDB Configuration
 sessiondb:
-  backend: "json"
-  json:
-    baseDir: "~/.local/state/minsky"
+  backend: "sqlite"
+  sqlite:
+    path: "~/.local/state/minsky/sessions.db"
 ```
 
 ### Step 4: Verify Setup
@@ -161,9 +161,9 @@ backendConfig:
       CLOSED: "minsky:closed"
 
 sessiondb:
-  backend: "json"
-  json:
-    baseDir: "~/.local/state/minsky"
+  backend: "sqlite"
+  sqlite:
+    path: "~/.local/state/minsky/sessions.db"
 ```
 
 ## Troubleshooting

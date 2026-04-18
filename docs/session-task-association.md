@@ -43,11 +43,11 @@ console.log(`Session names: ${result.updatedSessions.join(", ")}`);
 ### Task Migration with Session Updates
 
 ```bash
-# Migrate task from markdown to minsky backend (dry-run)
-minsky tasks migrate-backend --from markdown --to minsky
+# Migrate task to minsky backend (dry-run)
+minsky tasks migrate-backend --to minsky
 
 # Execute the migration (includes automatic session updates)
-minsky tasks migrate-backend --from markdown --to minsky --execute
+minsky tasks migrate-backend --to minsky --execute
 ```
 
 ## Technical Details

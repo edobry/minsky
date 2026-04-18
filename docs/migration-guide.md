@@ -1,5 +1,7 @@
 # Multi-Backend Migration Guide
 
+> **Note**: The `markdown` and `json-file` task backends referenced in this guide have been removed. The active task backends are now `minsky` (PostgreSQL, prefix `mt#`) and `github-issues` (prefix `gh#`). Some examples below still reference the old `md#` prefix and should be updated.
+
 ## Overview
 
 This guide helps you migrate from the legacy single-backend task system to the new multi-backend architecture introduced in Task #356.
@@ -26,17 +28,14 @@ git branch task123
 
 ```bash
 # Task IDs are now qualified with backend prefix
-minsky tasks get md#123        # Explicit markdown backend
+minsky tasks get mt#123        # Minsky (PostgreSQL) backend
 minsky tasks get gh#456        # GitHub Issues backend
 
-# Legacy IDs still work with auto-migration
-minsky tasks get 123           # → Automatically becomes md#123
-
 # Session names are qualified
-~/.local/state/minsky/sessions/task-md#123/
+~/.local/state/minsky/sessions/task-mt#123/
 
 # Git branches are qualified but git-compatible
-git branch task-md#123
+git branch task-mt#123
 ```
 
 ## Migration Timeline
@@ -83,14 +82,13 @@ minsky config validate
 Test auto-migration with existing task IDs:
 
 ```bash
-# These all resolve to md#123 automatically
+# These all resolve to mt#123 automatically (using the default minsky backend)
 minsky tasks get 123
-minsky tasks get task#123
 minsky tasks get #123
 
 # Check the migration message in debug mode
 minsky tasks get 123 --debug
-# Output: "Migrated legacy task ID '123' to 'md#123'"
+# Output: "Migrated legacy task ID '123' to 'mt#123'"
 ```
 
 ### 3. Start Using Qualified IDs (Optional)
@@ -99,10 +97,10 @@ Begin using qualified IDs for new tasks:
 
 ```bash
 # Create new task with explicit backend
-minsky tasks create --backend md "Update migration guide"  # → md#124
+minsky tasks create --backend minsky "Update migration guide"  # → mt#124
 
 # Start session with qualified ID
-minsky session start md#124
+minsky session start mt#124
 ```
 
 ### 4. Bulk Session Migration (Optional)
@@ -115,8 +113,8 @@ minsky session migrate --dry-run
 
 # Example output:
 # Sessions to migrate: 15
-# task123 → task-md#123
-# task456 → task-md#456
+# task123 → task-mt#123
+# task456 → task-mt#456
 # No conflicts detected
 
 # 2. Create backup and migrate
@@ -136,27 +134,27 @@ echo "Working on task 123"
 git commit -m "fix: Resolve issue (task#123)"
 
 # After
-echo "Working on task md#123"
-git commit -m "fix: Resolve issue (md#123)"
+echo "Working on task mt#123"
+git commit -m "fix: Resolve issue (mt#123)"
 ```
 
 ## Migration Scenarios
 
 ### Scenario 1: Individual Developer
 
-**Situation**: Personal project with markdown tasks only
+**Situation**: Personal project using the Minsky (PostgreSQL) backend
 
 **Migration**:
 
 - ✅ No action required - everything works automatically
-- 🎯 Optional: Start using `md#` prefix for new tasks for clarity
+- 🎯 Optional: Start using `mt#` prefix for new tasks for clarity
 
 ```bash
 # Continue existing workflow
 minsky tasks get 123           # Works automatically
 
 # Or be explicit with new tasks
-minsky tasks create --backend md "New feature"  # → md#125
+minsky tasks create --backend minsky "New feature"  # → mt#125
 ```
 
 ### Scenario 2: Team with GitHub Integration
@@ -227,7 +225,7 @@ minsky session list --verbose
 git checkout task123
 
 # New sessions create qualified branches
-minsky session start md#456  # Creates task-md#456 branch
+minsky session start mt#456  # Creates task-mt#456 branch
 ```
 
 ### Issue 3: ID Collisions
@@ -241,11 +239,11 @@ minsky session start md#456  # Creates task-md#456 branch
 minsky tasks detect-collisions
 
 # Example output:
-# Collision: md#123 and gh#123 both exist
+# Collision: mt#123 and gh#123 both exist
 # Recommendation: Use qualified IDs to differentiate
 
 # Resolution: Always use qualified IDs for clarity
-minsky tasks get md#123  # Markdown task
+minsky tasks get mt#123  # Minsky (PostgreSQL) task
 minsky tasks get gh#123  # GitHub issue
 ```
 
@@ -257,10 +255,10 @@ minsky tasks get gh#123  # GitHub issue
 
 ```bash
 # Scripts continue working with auto-migration
-./deploy-script.sh 123  # Auto-migrates to md#123
+./deploy-script.sh 123  # Auto-migrates to mt#123
 
 # Or update scripts to be explicit
-./deploy-script.sh md#123  # Explicit backend
+./deploy-script.sh mt#123  # Explicit backend
 ```
 
 ## Migration Validation
@@ -276,15 +274,15 @@ minsky tasks get gh#123  # GitHub issue
 
 ```bash
 # Verify task operations
-minsky tasks get md#123
+minsky tasks get mt#123
 minsky tasks list --all-backends
 
 # Verify session operations
 minsky session list
-minsky session start md#456
+minsky session start mt#456
 
 # Verify git operations
-cd ~/.local/state/minsky/sessions/task-md#456
+cd ~/.local/state/minsky/sessions/task-mt#456
 git status
 ```
 
@@ -348,17 +346,16 @@ console.log(`Migrated ${result.successful} sessions`);
 
 ```bash
 # Use qualified IDs in team communication
-"Working on md#123 and gh#456"
+"Working on mt#123 and gh#456"
 
 # Use qualified IDs in commit messages
-git commit -m "feat(md#123): Add feature X"
+git commit -m "feat(mt#123): Add feature X"
 ```
 
 ### 2. Backend Selection Guidelines
 
-- **md#**: Internal tasks, documentation, personal projects
+- **mt#**: Internal tasks, documentation, personal projects (Minsky PostgreSQL backend)
 - **gh#**: Public issues, team collaboration, external contributions
-- **json#**: Programmatic tasks, automation, integrations
 
 ### 3. Documentation Standards
 
@@ -369,7 +366,7 @@ See task 123 for requirements
 
 # After
 
-See task md#123 for requirements
+See task mt#123 for requirements
 Related GitHub issue: gh#456
 ```
 

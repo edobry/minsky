@@ -59,7 +59,7 @@ The `RepositoryConfig` interface in `types.ts` mirrors this shape for YAML-facin
 
 ### Separation from Task Backend
 
-This `repository.backend` is **not** the same as `tasks.backend` (which controls where task data is stored: markdown files, JSON files, GitHub Issues, etc.). These are orthogonal concerns:
+This `repository.backend` is **not** the same as `tasks.backend` (which controls where task data is stored: Minsky PostgreSQL database, GitHub Issues, etc.). These are orthogonal concerns:
 
 - `tasks.backend` — where task records live
 - `repository.backend` — which VCS hosting platform manages PRs and code review

@@ -126,7 +126,7 @@ const taskService = new TaskService(backends, workspacePath); // ✅ Matches con
 //                                  ^^^^^^^^ Correct parameter name
 ```
 
-**Performance Evidence**:
+**Performance Evidence** (historical benchmarks from when JsonFileTaskBackend existed; backend since removed):
 
 - JsonFileTaskBackend: 4,319,673,451ms → 241ms (99.999% improvement)
 - SessionPathResolver: 4,319,805,914ms → 143ms (99.999% improvement)
