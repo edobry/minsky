@@ -42,7 +42,7 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
-  taskCreateFromTitleAndDescriptionParamsSchema,
+  taskCreateFromTitleAndSpecParamsSchema,
   taskSpecContentParamsSchema,
   taskDeleteParamsSchema,
   type TaskListParams,
@@ -50,7 +50,7 @@ import {
   type TaskStatusGetParams,
   type TaskStatusSetParams,
   type TaskCreateParams,
-  type TaskCreateFromTitleAndDescriptionParams,
+  type TaskCreateFromTitleAndSpecParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
 } from "../../schemas/tasks";
@@ -383,9 +383,6 @@ export async function updateTaskFromParams(
     if (params.title !== undefined) {
       updates.title = params.title;
     }
-    if (params.spec !== undefined) {
-      updates.specPath = params.spec;
-    }
 
     // Update the task
     const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
@@ -459,11 +456,11 @@ export async function createTaskFromParams(
 }
 
 /**
- * Create a task from title and description
+ * Create a task from title and spec
  * (exported for tests that import from ./tasks/taskCommands)
  */
-export async function createTaskFromTitleAndDescription(
-  params: TaskCreateFromTitleAndDescriptionParams,
+export async function createTaskFromTitleAndSpec(
+  params: TaskCreateFromTitleAndSpecParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
@@ -471,7 +468,7 @@ export async function createTaskFromTitleAndDescription(
   }
 ): Promise<Task> {
   // Validate params
-  const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
+  const validParams = taskCreateFromTitleAndSpecParamsSchema.parse(params);
 
   // Resolve workspace path (prefer injected main path)
   const workspacePath =

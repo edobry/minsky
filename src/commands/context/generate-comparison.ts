@@ -41,7 +41,7 @@ export async function displayModelComparison(models: string[], options: Generate
             id: "mt#461",
             title: "Context Visualization Redesign",
             status: TaskStatus.IN_PROGRESS,
-            description: "Implementing context visualization using new component architecture",
+            spec: "Implementing context visualization using new component architecture",
           },
           userQuery: options.prompt || "Generating context visualization analysis",
           userPrompt: options.prompt,

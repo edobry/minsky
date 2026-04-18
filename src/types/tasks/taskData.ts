@@ -22,7 +22,6 @@ export interface TaskData {
   /** Task ID in storage format (plain number string, e.g., "283") */
   id: string;
   title: string;
-  description?: string;
   spec?: string;
   status: TaskStatus;
   specPath?: string;
@@ -65,7 +64,7 @@ export interface TaskFilter {
  */
 export interface TaskSpecData {
   title: string;
-  description: string;
+  body: string;
   id?: string;
   metadata?: Record<string, unknown>;
 }
@@ -116,7 +115,7 @@ export function toTaskData(task: Record<string, unknown>): TaskData {
   return {
     id: task["id"] as string,
     title: task["title"] as string,
-    description: task["description"] as string | undefined,
+    spec: task["spec"] as string | undefined,
     status: task["status"] as TaskData["status"],
     specPath: task["specPath"] as string | undefined,
     worklog: task["worklog"] as TaskData["worklog"],
@@ -133,7 +132,7 @@ export function fromTaskData(taskData: TaskData): Record<string, unknown> {
   return {
     id: taskData!.id,
     title: taskData!.title,
-    description: taskData!.description,
+    spec: taskData!.spec,
     status: taskData!.status,
     specPath: taskData!.specPath,
     worklog: taskData!.worklog,

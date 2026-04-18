@@ -44,11 +44,11 @@ export const taskStatusParam = {
  */
 export const taskCreationParams = {
   title: TaskParameters.title,
-  description: TaskParameters.description,
+  spec: TaskParameters.spec,
   force: CommonParameters.force,
   specPath: {
     schema: z.string(),
-    description: "Path to file containing task description",
+    description: "Path to file containing task specification",
     required: false,
   },
   githubRepo: {

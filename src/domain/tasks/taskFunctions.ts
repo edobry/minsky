@@ -63,7 +63,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       id: id,
       title,
       status,
-      description: description.trim(),
+      spec: description.trim(),
     });
   }
 
@@ -301,7 +301,7 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
  */
 export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   if (!content) {
-    return { title: "", description: "" };
+    return { title: "", body: "" };
   }
 
   const lines = content.toString().split("\n");
@@ -309,7 +309,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   // Extract title from the first heading
   const titleLine = lines.find((line) => line.startsWith("# "));
   if (!titleLine) {
-    return { title: "", description: "" };
+    return { title: "", body: "" };
   }
 
   // Title is the text after the leading "# ", normalize legacy "Task: X" to just "X"
@@ -317,21 +317,21 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   const noIdLegacyMatch = rawTitle.match(/^Task:\s*(.+)$/);
   const title = noIdLegacyMatch ? noIdLegacyMatch[1] || rawTitle : rawTitle;
 
-  // Extract description from the Context section
+  // Extract body from the Context section
   const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
-  let description = "";
+  let body = "";
 
   if (contextIndex !== -1) {
     for (let i = contextIndex + 1; i < lines.length; i++) {
       const line = lines[i] || "";
       if (line.trim().startsWith("## ")) break;
-      if (line.trim()) description += `${line.trim()}\n`;
+      if (line.trim()) body += `${line.trim()}\n`;
     }
   }
 
   return {
     title,
-    description: description.trim(),
+    body: body.trim(),
   };
 }
 
@@ -349,7 +349,7 @@ export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   const contextSection = `
 ## Context
 
-${spec.description}
+${spec.body}
 
 ## Requirements
 

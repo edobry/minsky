@@ -57,7 +57,6 @@ export interface Task {
   backend?: string;
   /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
   parentTaskId?: string;
-  description?: string;
   metadata?: Record<string, unknown>;
   spec?: string;
   tags?: string[];
@@ -114,7 +113,6 @@ export interface TaskListOptions {
 export interface CreateTaskOptions {
   force?: boolean;
   spec?: string; // This is the spec content for creation
-  description?: string; // Alternative to spec for description-based creation
   id?: string; // Specific ID to use instead of generating one
   status?: string; // Specific status to use instead of defaulting to TODO
   tags?: string[]; // Tags/labels for thematic batching

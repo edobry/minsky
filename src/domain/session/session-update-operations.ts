@@ -12,6 +12,7 @@ import type { SessionProviderInterface, SessionRecord, Session } from "../sessio
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { gitFetchWithTimeout } from "../../utils/git-exec";
 import { assertSessionMutable } from "./session-mutability";
+import { taskIdToBranchName } from "../tasks/task-id";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
@@ -112,13 +113,14 @@ export async function updateSessionImpl(
           // Extract task ID from session ID - simpler and more reliable approach
           const taskId = sessionId.startsWith("task#") ? sessionId : undefined;
 
-          // Create session record (branch no longer persisted)
+          // Create session record
           const newSessionRecord: SessionRecord = {
             session: sessionId,
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),
             taskId,
+            branch: taskId ? taskIdToBranchName(taskId) : sessionId,
           };
 
           await deps.sessionDB.addSession(newSessionRecord);

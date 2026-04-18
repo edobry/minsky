@@ -18,7 +18,8 @@ export interface SessionRecord {
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  // Removed: branch (no longer stored persistently)
+  /** Git branch name created for this session */
+  branch?: string;
   prState?: {
     branchName: string;
     commitHash?: string; // Hash of the prepared merge commit
@@ -38,8 +39,6 @@ export interface SessionRecord {
   name?: string;
   workspacePath?: string;
   sessionPath?: string;
-  /** Branch name - removed from persistent schema but kept for test compatibility */
-  branch?: string;
   /** @deprecated Use `createdAt` instead */
   created?: string;
   github?: {

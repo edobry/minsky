@@ -275,8 +275,8 @@ export class TaskSimilarityService {
       log.debug(
         `Failed to get spec content for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`
       );
-      if (task.description) {
-        parts.push(task.description);
+      if (task.spec) {
+        parts.push(task.spec);
       }
     }
 

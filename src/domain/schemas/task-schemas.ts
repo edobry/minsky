@@ -45,14 +45,14 @@ export const TaskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]).de
 export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
 
 /**
- * Task description schema - used across all interfaces
+ * Task spec content schema - used across all interfaces
  */
-export const TaskDescriptionSchema = z.string().optional();
+export const TaskSpecContentSchema = z.string().optional();
 
 /**
- * Task description path schema - used across all interfaces
+ * Task spec path schema - used across all interfaces
  */
-export const TaskDescriptionPathSchema = z.string().optional();
+export const TaskSpecPathSchema = z.string().optional();
 
 /**
  * Task tag schema - used across all interfaces
@@ -84,8 +84,8 @@ export const TaskDueDateSchema = z.string().datetime().optional();
 export const TaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
-    description: TaskDescriptionSchema,
-    specPath: TaskDescriptionPathSchema,
+    spec: TaskSpecContentSchema,
+    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -101,8 +101,8 @@ export const TaskUpdateParametersSchema = z
   .object({
     taskId: TaskIdSchema,
     title: TaskTitleSchema.optional(),
-    description: TaskDescriptionSchema,
-    specPath: TaskDescriptionPathSchema,
+    spec: TaskSpecContentSchema,
+    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,
@@ -178,8 +178,8 @@ export const TaskSpecParametersSchema = z
 export const MultiBackendTaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
-    description: TaskDescriptionSchema,
-    specPath: TaskDescriptionPathSchema,
+    spec: TaskSpecContentSchema,
+    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -196,8 +196,8 @@ export const MultiBackendTaskUpdateParametersSchema = z
   .object({
     taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
     title: TaskTitleSchema.optional(),
-    description: TaskDescriptionSchema,
-    specPath: TaskDescriptionPathSchema,
+    spec: TaskSpecContentSchema,
+    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,
@@ -279,7 +279,7 @@ export const TaskMigrationParametersSchema = z
 export const BaseTaskDataSchema = z.object({
   id: TaskIdSchema,
   title: TaskTitleSchema,
-  description: TaskDescriptionSchema,
+  spec: TaskSpecContentSchema,
   status: TaskStatusSchema,
   priority: TaskPrioritySchema,
   tags: TaskTagsSchema,
@@ -350,7 +350,7 @@ export const TaskStatusResponseSchema = z.union([
 
 export type TaskPriority = z.infer<typeof TaskPrioritySchema>;
 export type TaskTitle = z.infer<typeof TaskTitleSchema>;
-export type TaskDescription = z.infer<typeof TaskDescriptionSchema>;
+export type TaskSpecContent = z.infer<typeof TaskSpecContentSchema>;
 export type TaskTags = z.infer<typeof TaskTagsSchema>;
 export type TaskCreateParameters = z.infer<typeof TaskCreateParametersSchema>;
 export type TaskUpdateParameters = z.infer<typeof TaskUpdateParametersSchema>;

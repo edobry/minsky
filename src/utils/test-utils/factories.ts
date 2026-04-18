@@ -16,7 +16,7 @@ export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
     id: defaultId,
     title: "Test Task",
     status: TaskStatus.TODO,
-    description: "This is a test task",
+    spec: "This is a test task",
     worklog: [
       {
         timestamp: new Date().toISOString(),

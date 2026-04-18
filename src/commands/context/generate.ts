@@ -165,7 +165,7 @@ function buildGenerateRequest(components: string[], options: GenerateOptions): G
         id: "md#082",
         title: "Add Context Management Commands for Environment-Agnostic AI Collaboration",
         status: TaskStatus.IN_PROGRESS,
-        description: "Implementing modular context component system for testbench development",
+        spec: "Implementing modular context component system for testbench development",
       },
       userQuery:
         options.prompt ||

@@ -29,7 +29,7 @@ export interface MultiBackendTaskBackend {
 export interface TaskSpec {
   id: string;
   title: string;
-  description: string;
+  spec: string;
   status: string;
 }
 

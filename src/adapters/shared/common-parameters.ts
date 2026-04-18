@@ -278,11 +278,11 @@ export const TaskParameters = {
   } as CommandParameterDefinition,
 
   /**
-   * Task description parameter
+   * Task spec parameter (also accepts deprecated 'description' alias)
    */
-  description: {
+  spec: {
     schema: z.string(),
-    description: "Task description",
+    description: "Task specification content",
     required: false,
   } as CommandParameterDefinition,
 
