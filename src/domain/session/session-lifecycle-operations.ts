@@ -86,9 +86,11 @@ export async function deleteSessionImpl(
   deps: {
     sessionDB: SessionProviderInterface;
     gitService?: GitServiceInterface;
+    fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
   }
 ): Promise<DeleteSessionResult> {
   const { name, task, repo } = params;
+  const fsOps = deps.fs ?? { existsSync, rmSync };
 
   // Delete is destructive — require explicit identification, never auto-detect
   if (!name && !task && !repo) {
@@ -138,7 +140,7 @@ export async function deleteSessionImpl(
       sessionRecord.branch ||
       (sessionRecord.taskId ? taskIdToBranchName(sessionRecord.taskId) : resolvedSessionId);
 
-    if (existsSync(sessionWorkspaceDir)) {
+    if (fsOps.existsSync(sessionWorkspaceDir)) {
       try {
         log.debug(`Deleting remote branch '${branchName}' for session '${resolvedSessionId}'`);
         await deps.gitService.execInRepository(
@@ -163,18 +165,22 @@ export async function deleteSessionImpl(
 
   // Remove workspace directory from filesystem (if it exists)
   try {
-    if (existsSync(sessionWorkspaceDir)) {
+    if (fsOps.existsSync(sessionWorkspaceDir)) {
       log.debug(`Removing session workspace directory: ${sessionWorkspaceDir}`);
-      rmSync(sessionWorkspaceDir, { recursive: true, force: true });
+      fsOps.rmSync(sessionWorkspaceDir, { recursive: true, force: true });
       log.debug(`Successfully removed session workspace directory: ${sessionWorkspaceDir}`);
     } else {
       log.debug(`Session workspace directory does not exist, skipping: ${sessionWorkspaceDir}`);
     }
   } catch (error) {
-    // Filesystem removal failure is non-fatal — log but continue with DB deletion
-    log.warn(
-      `Failed to remove session workspace directory '${sessionWorkspaceDir}': ${getErrorMessage(error)}`
-    );
+    // Filesystem removal failed — do NOT delete the DB record, as that would
+    // create an orphan directory with no tracking. Surface the error to the caller.
+    const msg = `Failed to remove session workspace directory '${sessionWorkspaceDir}': ${getErrorMessage(error)}`;
+    log.error(msg);
+    return {
+      deleted: false,
+      error: `${msg}. DB record preserved to prevent orphan directory.`,
+    };
   }
 
   // Delete the session record from the database
@@ -325,9 +331,10 @@ export async function cleanupSessionImpl(
       }
     }
 
-    // 5. Remove session from database
+    // 5. Remove session from database — only if all directory removals succeeded.
+    // If any directory removal failed, preserving the DB record prevents orphan directories.
     let sessionDeleted = false;
-    if (sessionRecord) {
+    if (sessionRecord && errors.length === 0) {
       try {
         sessionDeleted = await deps.sessionDB.deleteSession(sessionId);
         if (sessionDeleted) {
@@ -340,6 +347,10 @@ export async function cleanupSessionImpl(
         log.error(errorMsg, { sessionId, error });
         errors.push(errorMsg);
       }
+    } else if (errors.length > 0) {
+      log.warn(
+        `Skipping DB record deletion for session ${sessionId} — filesystem cleanup had errors. DB record preserved to prevent orphan directories.`
+      );
     }
 
     log.debug("Session cleanup completed", {
