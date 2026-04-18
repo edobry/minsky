@@ -7,6 +7,7 @@
 import { sharedCommandRegistry, defineCommand } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
+import type { AppContainerInterface } from "../../../composition/types";
 // PersistenceService is lazy-imported inside the closure to avoid loading
 // the persistence module (~95ms) during command registration.
 import {
@@ -42,7 +43,7 @@ export class ModularTasksCommandManager {
   /**
    * Register all task commands in the shared command registry
    */
-  registerAllCommands(): void {
+  registerAllCommands(container?: AppContainerInterface): void {
     // Register all tasks commands using static imports
     try {
       log.debug("[ModularTasksCommandManager] Starting registerAllCommands");
@@ -56,6 +57,9 @@ export class ModularTasksCommandManager {
         getProvider: () => import("../../../domain/persistence/types").PersistenceProvider;
       } | null = null;
       const getPersistenceProvider = () => {
+        if (container?.has("persistence")) {
+          return container.get("persistence");
+        }
         if (!cachedPersistence) {
           cachedPersistence = require("../../../domain/persistence/service").PersistenceService;
         }
@@ -394,8 +398,8 @@ export const modularTasksManager = new ModularTasksCommandManager();
 /**
  * Register task commands function for backward compatibility
  */
-export function registerTasksCommands(): void {
-  modularTasksManager.registerAllCommands();
+export function registerTasksCommands(container?: AppContainerInterface): void {
+  modularTasksManager.registerAllCommands(container);
 }
 
 /**
