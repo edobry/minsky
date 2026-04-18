@@ -33,6 +33,7 @@ interface TasksListParams extends BaseTaskParams {
   since?: string;
   until?: string;
   hierarchical?: boolean;
+  showDeps?: boolean;
 }
 
 /**
@@ -179,6 +180,48 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       );
     }
 
+    // Enrich with dependency status if requested
+    let depsStatusMap: Map<string, { ready: boolean; blockedBy: string[] }> | undefined;
+    if (params.showDeps && this.getPersistenceProvider) {
+      try {
+        const persistence = this.getPersistenceProvider();
+        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+        const service = new TaskGraphService(db);
+        const taskIds = tasks.map((t) => t.id);
+        const depEdges = await service.getRelationshipsForTasks(taskIds, "depends");
+
+        // Build dependency map: taskId → [depIds]
+        const depMap = new Map<string, string[]>();
+        for (const edge of depEdges) {
+          if (!depMap.has(edge.fromTaskId)) depMap.set(edge.fromTaskId, []);
+          depMap.get(edge.fromTaskId)!.push(edge.toTaskId);
+        }
+
+        // Check which deps are unmet (not DONE/CLOSED)
+        const taskById = new Map(tasks.map((t) => [t.id, t]));
+        depsStatusMap = new Map();
+        for (const task of tasks) {
+          const deps = depMap.get(task.id) ?? [];
+          if (deps.length === 0) {
+            depsStatusMap.set(task.id, { ready: true, blockedBy: [] });
+          } else {
+            const blockedBy: string[] = [];
+            for (const depId of deps) {
+              const depTask = taskById.get(depId);
+              const status = depTask?.status;
+              if (status !== "DONE" && status !== "CLOSED") {
+                blockedBy.push(depId);
+              }
+            }
+            depsStatusMap.set(task.id, { ready: blockedBy.length === 0, blockedBy });
+          }
+        }
+      } catch {
+        // Graph service unavailable, skip dep status
+      }
+    }
+
     this.debug(`Found ${tasks.length} tasks`);
     const wantJson = params.json || ctx.format === "json";
     if (wantJson) {
@@ -186,13 +229,20 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       return tasks;
     }
 
-    // Format output — hierarchical mode uses indentation
-    if (params.hierarchical) {
+    // Format output with optional hierarchy and dependency status
+    if (params.hierarchical || params.showDeps) {
       const lines: string[] = [];
       for (const task of tasks) {
-        const depth = depthMap?.get(task.id) ?? 0;
+        const depth = params.hierarchical ? (depthMap?.get(task.id) ?? 0) : 0;
         const indent = depth > 0 ? `${"  ".repeat(depth)}└─ ` : "";
-        lines.push(`${indent}${task.id}: ${task.title} [${task.status}]`);
+        let depSuffix = "";
+        if (depsStatusMap) {
+          const depInfo = depsStatusMap.get(task.id);
+          if (depInfo && depInfo.blockedBy.length > 0) {
+            depSuffix = ` ← BLOCKED by ${depInfo.blockedBy.join(", ")}`;
+          }
+        }
+        lines.push(`${indent}${task.id}: ${task.title} [${task.status}]${depSuffix}`);
       }
       return {
         success: true,
