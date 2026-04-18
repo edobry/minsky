@@ -1,9 +1,9 @@
 echo "Running tests before push..."
 
-# Run tests and capture exit code before piping
-# Using a temp file avoids PIPESTATUS which requires bash
+# Match pre-commit hook: --timeout prevents hung tests, --bail stops on first failure
+# AGENT=1 ensures clean non-interactive output
 TEST_OUTPUT_FILE=$(mktemp)
-bun test --preload ./tests/setup.ts src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
+AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
 TEST_EXIT_CODE=$?
 
 # Show only the summary line
