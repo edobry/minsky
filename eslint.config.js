@@ -202,6 +202,7 @@ export default [
             // Task domain (command orchestration)
             "**/src/domain/tasks/operations/base-task-operation.ts",
             "**/src/domain/tasks/taskCommands.ts",
+            "**/src/domain/tasks/commands/shared-helpers.ts",
             // Utility composition roots
             "**/src/utils/repo.ts",
             // DI composition roots (the canonical place for singleton resolution)
