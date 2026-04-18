@@ -24,6 +24,7 @@ import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { registerValidateTools } from "../../adapters/mcp/validate";
+import { registerPrompts } from "../../adapters/mcp/prompts";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -234,6 +235,7 @@ export function createStartCommand(): Command {
         // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         registerAllTools(commandMapper);
+        registerPrompts(server);
 
         // Launch inspector if requested
         if (options.withInspector) {

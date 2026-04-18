@@ -155,6 +155,36 @@ describe("generateSubagentPrompt", () => {
     });
   });
 
+  describe("audit type", () => {
+    it("omits commit instructions", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.prompt).not.toContain(MCP_SESSION_COMMIT);
+    });
+
+    it("omits PR instructions", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.prompt).not.toContain(MCP_SESSION_PR_CREATE);
+    });
+
+    it("includes audit instructions with Met/Not met/Not applicable format", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.prompt).toContain("Audit Instructions");
+      expect(result.prompt).toContain("**Met**");
+      expect(result.prompt).toContain("**Not met**");
+      expect(result.prompt).toContain("**Not applicable**");
+    });
+
+    it("suggests verify-completion subagent type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.suggestedSubagentType).toBe("verify-completion");
+    });
+
+    it("suggests sonnet as the model for audit", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.suggestedModel).toBe(EXPECTED_MODEL);
+    });
+  });
+
   describe("scope handling", () => {
     it("lists files in the prompt when scope is provided", () => {
       const scope = ["src/foo.ts", "src/bar.ts"];
