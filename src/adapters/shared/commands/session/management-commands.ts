@@ -19,9 +19,11 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
-      const { deleteSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      const result = await deleteSessionFromParams({
+      const result = await service.delete({
         name: params.name as string | undefined,
         task: params.task as string | undefined,
         force: (params.force as boolean | undefined) ?? false,
@@ -46,9 +48,11 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
     description: "Update a session",
     parameters: sessionUpdateCommandParams,
     execute: withErrorLogging("session.update", async (params: Record<string, unknown>) => {
-      const { updateSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      await updateSessionFromParams({
+      await service.update({
         name: params.name as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,

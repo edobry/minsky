@@ -77,13 +77,23 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging("session.approve", async (params: Record<string, unknown>) => {
       const { approveSessionFromParams } = await import("../../../../domain/session");
+      const deps = await getDeps();
 
-      const result = await approveSessionFromParams({
-        session: params.name as string | undefined,
-        task: params.task as string | undefined,
-        repo: params.repo as string | undefined,
-        json: params.json as boolean | undefined,
-      });
+      const result = await approveSessionFromParams(
+        {
+          session: params.name as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+        },
+        {
+          sessionDB: deps.sessionProvider,
+          gitService: deps.gitService,
+          taskService: deps.taskService,
+          workspaceUtils: deps.workspaceUtils,
+          getCurrentSession: deps.getCurrentSession,
+        }
+      );
 
       return { success: true, result };
     }),
@@ -98,9 +108,11 @@ export function createSessionInspectCommand(getDeps: LazySessionDeps): CommandDe
     description: "Inspect the current session (auto-detected from workspace)",
     parameters: sessionInspectCommandParams,
     execute: withErrorLogging("session.inspect", async (params: Record<string, unknown>) => {
-      const { inspectSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      const result = await inspectSessionFromParams({
+      const result = await service.inspect({
         json: params.json as boolean | undefined,
       });
 
@@ -317,15 +329,25 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging("session.pr.approve", async (params: Record<string, unknown>) => {
       const { approveSessionFromParams } = await import("../../../../domain/session");
+      const deps = await getDeps();
 
-      const result = await approveSessionFromParams({
-        session: params.name as string | undefined,
-        task: params.task as string | undefined,
-        repo: params.repo as string | undefined,
-        json: params.json as boolean | undefined,
-        reviewComment:
-          (params.comment as string | undefined) || (params.reviewComment as string | undefined),
-      });
+      const result = await approveSessionFromParams(
+        {
+          session: params.name as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+          reviewComment:
+            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
+        },
+        {
+          sessionDB: deps.sessionProvider,
+          gitService: deps.gitService,
+          taskService: deps.taskService,
+          workspaceUtils: deps.workspaceUtils,
+          getCurrentSession: deps.getCurrentSession,
+        }
+      );
 
       return { success: true, result };
     }),
