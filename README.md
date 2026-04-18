@@ -4,46 +4,9 @@ A development workflow orchestration platform that creates collaborative environ
 
 > _"The power of intelligence stems from our vast diversity, not from any single, perfect principle."_ — Marvin Minsky, The Society of Mind
 
-## Philosophy
+## What Minsky Does
 
-Minsky operates on a fundamental principle: **the mechanisms that coordinate human developers work equally well for AI agents**. By implementing organizational cybernetic control structures—the same feedback loops, quality gates, and workflow patterns that guide human teams—we create environments where both humans and AI naturally produce high-quality work.
-
-This isn't about making special tools for AI. It's about recognizing that good development practices emerge from well-designed systems, not individual discipline. A pre-commit hook that blocks unformatted code shapes behavior the same way whether the committer is human or artificial.
-
-## Core Concepts
-
-### Development Workflow Orchestration
-
-Rather than building yet another linter, test runner, or task tracker, Minsky orchestrates your existing tools into coherent workflows. Like a conductor who doesn't play instruments but ensures each section performs at the right moment, Minsky coordinates when and how your development tools run.
-
-### Organizational Cybernetics
-
-Minsky applies principles from organizational cybernetics—the study of control and communication in complex systems. By creating the right feedback loops and control structures, we shape an environment where good practices become the path of least resistance:
-
-- **Fast feedback loops** (pre-commit hooks) catch issues immediately
-- **Progressive gates** (pre-push, CI/CD) balance thoroughness with productivity
-- **Visibility mechanisms** (workflow maturity scores) make quality tangible
-- **Automation** makes good practices easier than bad ones
-
-### Agent Equivalence
-
-The same incentive structures that guide human behavior guide AI behavior. This isn't coincidence—it's design.
-
-**We don't need to teach AI to follow best practices.** We create an environment where following best practices is the only way to succeed, just like for humans. This is the key insight: alignment isn't achieved through training or instruction, but through environmental design.
-
-Consider how this works in practice:
-
-- A human developer can't commit code with linting errors—the pre-commit hook blocks it
-- An AI agent can't commit code with linting errors—the same hook blocks it
-- Neither needs to be "taught" to value clean code; the environment enforces it
-
-This is mechanism design at work. By shaping the incentive landscape through tooling and automation, we make good practices inevitable rather than aspirational. The AI doesn't need to understand _why_ formatting matters—it just needs to operate in an environment where unformatted code literally cannot be committed.
-
-The beauty of this approach is that it's already proven. These are the same organizational cybernetic structures that have guided human teams to quality for decades. We're not inventing new constraints for AI; we're applying the same time-tested control mechanisms that work for any intelligent agent operating in the system.
-
-## What Minsky Provides
-
-### 1. Task Management with Multiple Backends
+### Task Management with Multiple Backends
 
 Coordinate work items across different storage systems:
 
@@ -51,76 +14,56 @@ Coordinate work items across different storage systems:
 # Minsky database (default)
 minsky init --tasks-backend minsky
 
-# GitHub Issues for open source
+# GitHub Issues for open source projects
 minsky init --tasks-backend github-issues
 ```
 
-### 2. Session-Based Development
+### Session-Based Development
 
 Isolated workspaces that prevent conflicts and enable parallel work:
 
 ```bash
-# Start a session for a task
+# Start an isolated session for a task
 minsky session start --task mt#123
 
-# Work in isolated environment
+# Work in the isolated environment
 cd $(minsky session dir mt#123)
 
-# Prepare changes for review
+# Create a PR when ready
 minsky session pr create --title "Fix critical bug" --type fix
-# Changeset aliases also available:
-minsky session changeset create --title "Fix critical bug" --type fix
-minsky session cs create --title "Fix critical bug" --type fix
 ```
 
-### 3. Workflow Orchestration
+### Unified CLI and MCP Interface
 
-Configure your existing tools and let Minsky coordinate them:
+Minsky exposes all commands as both CLI and MCP tools, so AI agents interact with the same interface as human developers. There is no separate AI API — the same `session start`, `tasks create`, and `session pr create` commands work whether you are typing them in a terminal or an agent is calling them via MCP.
 
-```yaml
-# In minsky.yaml or minsky.json
-workflows:
-  lint:
-    json: "eslint . --format json"
-    fix: "eslint . --fix"
-  test:
-    json: "bun test --reporter json"
-  security:
-    json: "gitleaks detect --format json"
-```
+## Why Minsky?
 
-### 4. Development Maturity Assessment
+### Not a code review bot
 
-Understand and improve your project's automation:
+Tools like CodeRabbit, GitHub Copilot Review, and Greptile operate at PR time — they review code after it is written. Minsky audits the development _environment_: the hooks, gates, and workflows that shape how code gets written in the first place. By the time code reaches a PR, Minsky's quality gates have already run many times.
 
-```bash
-# Assess current workflow maturity
-minsky workflow assess
+### Not a task tracker
 
-# Development Workflow Maturity Assessment
-# Overall Score: 72/100 (Level 3 - DEFINED)
-#
-# ✅ Code Quality        ████████░░  80%
-# ⚠️  Testing            ██████░░░░  60%
-# ❌ Security            ░░░░░░░░░░   0%
+Minsky is the coordination layer that makes your existing tools work as a coherent system. Your linter, test runner, and CI pipeline already exist — Minsky configures them to run at the right moments and surfaces their results in a consistent format. It does not replace them.
 
-# Interactively configure missing workflows
-minsky workflow init
-```
+### Alignment through environment, not instruction
 
-### 5. AI Context Generation
+The core design principle: the same pre-commit hook that blocks a human developer from committing unformatted code blocks an AI agent too. No special AI configuration is needed. The environment enforces the constraints uniformly.
 
-Provide rich context for AI pair programming:
+This is the difference between instruction-based alignment ("tell the AI to write clean code") and environmental alignment ("make unformatted code impossible to commit"). Minsky implements the latter.
 
-```bash
-# Generate context matching Cursor's format
-minsky context generate
+### Self-hosted and provider-agnostic
 
-# Include session and task information
-minsky context generate --session mt#123
-```
+Minsky runs on your infrastructure, in your git repository. It integrates with Anthropic, OpenAI, and Google models via the Vercel AI SDK (`@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google`) — you choose the provider. This contrasts with hosted agent platforms (e.g., Claude Managed Agents) which are cloud-only, single-provider, and designed for async business tasks rather than development workflows.
 
-## Installation
+### Git-native
+
+Sessions are isolated git clones. Changesets are branches. Pull requests are the integration mechanism. There is no proprietary state format — everything lives in git and is inspectable with standard tools.
+
+## Quick Start
+
+### Installation
 
 ```bash
 # Clone repository
@@ -136,20 +79,11 @@ npm install
 npm link
 ```
 
-## Quick Start
-
 ### Initialize a Project
 
 ```bash
-# Interactive setup
+# Interactive setup — configures task backend and git hooks
 minsky init
-
-# This will:
-# 1. Set up task management backend
-# 2. Detect your project type
-# 3. Assess workflow maturity
-# 4. Configure development workflows
-# 5. Set up git hooks
 ```
 
 ### Create and Work on Tasks
@@ -161,85 +95,32 @@ minsky tasks create --title "Add user authentication"
 # Start a session
 minsky session start --task mt#1
 
-# Work in isolated environment
+# Work in the isolated environment
 cd $(minsky session dir mt#1)
 
-# Make changes...
-
-# Create PR when ready
+# Make changes, then create a PR
 minsky session pr create --title "feat: Add user authentication"
 ```
 
-### Manage Workflows
+## Design Philosophy
 
-```bash
-# Run specific workflow
-minsky workflow run lint
+Minsky applies principles from organizational cybernetics — the study of control and communication in complex systems. By creating the right feedback loops and control structures, good practices become the path of least resistance:
 
-# Run with fix
-minsky workflow run lint --fix
+- **Fast feedback loops** (pre-commit hooks) catch issues immediately
+- **Progressive gates** (pre-push, CI/CD) balance thoroughness with productivity
+- **Isolation** (session-based development) prevents conflicts and enables parallel work
 
-# Check what's configured
-minsky workflow list
-```
+The central insight is agent equivalence: the incentive structures that guide human developers guide AI agents equally well. This isn't coincidence — it is design. We do not need to teach AI agents to follow best practices. We create an environment where following best practices is the only way to succeed, the same as for humans.
 
-## Why Minsky?
-
-### For Human Developers
-
-- **Consistency**: Same development environment across all projects
-- **Automation**: Reduce manual quality checks
-- **Visibility**: Understand your project's maturity
-- **Simplicity**: One tool orchestrates all others
-
-### For AI Agents
-
-- **Clear constraints**: Unambiguous quality gates
-- **Structured feedback**: JSON output from all tools
-- **Isolated environments**: Safe experimentation
-- **Consistent context**: Same information humans see
-
-### For Teams
-
-- **Shared standards**: Everyone uses same workflows
-- **Parallel development**: Multiple sessions prevent conflicts
-- **Quality gates**: Automated checks before integration
-- **Transparent process**: Clear workflow visibility
+For the full theoretical background, see [docs/theory-of-operation.md](./docs/theory-of-operation.md).
 
 ## Architecture
 
-Minsky follows a clean architecture with clear separation between:
-
-- **Domain**: Core business logic (tasks, sessions, workflows)
-- **Adapters**: CLI and MCP interfaces
-- **Infrastructure**: Storage backends, git operations
-
-This design ensures the same domain logic works whether accessed via CLI or through the MCP protocol for AI agents.
-
-## Configuration
-
-Minsky uses a flexible configuration system supporting both YAML and JSON:
-
-```yaml
-# minsky.yaml
-tasks:
-  backend: minsky # or: github-issues
-
-workflows:
-  lint:
-    json: "eslint . --format json"
-  test:
-    json: "jest --json"
-
-rules:
-  format: cursor # or: generic
-```
+Minsky follows a clean architecture with domain logic separated from adapters and infrastructure. The same domain operations (task management, session lifecycle, PR creation) work whether accessed via CLI or MCP. See [docs/architecture.md](./docs/architecture.md) for details.
 
 ## Contributing
 
-We welcome contributions! The key is understanding that Minsky isn't trying to reinvent development tools—it's creating the coordination layer that makes existing tools work together effectively.
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+We welcome contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## Documentation
 
@@ -250,10 +131,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT - See [LICENSE](./LICENSE) for details.
+MIT — See [LICENSE](./LICENSE) for details.
 
 ## Acknowledgments
 
-Named after Marvin Minsky, whose "Society of Mind" theory inspired the idea that intelligence emerges from the coordination of simple processes. Just as Minsky proposed that minds are societies of simpler agents, this tool orchestrates simple development tools into intelligent workflows.
+Named after Marvin Minsky, whose "Society of Mind" theory inspired the idea that intelligence emerges from the coordination of simple processes. Just as Minsky proposed that minds are societies of simpler agents, this tool orchestrates development tools into coherent workflows.
 
-The organizational cybernetics principles come from Stafford Beer's Viable System Model and the recognition that organizations (whether of humans or AI agents) need the same control structures to function effectively.
+The organizational cybernetics principles draw from Stafford Beer's Viable System Model: organizations of humans or AI agents need the same control structures to function effectively.

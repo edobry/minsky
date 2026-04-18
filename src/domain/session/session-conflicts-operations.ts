@@ -7,7 +7,6 @@
 
 import { analyzeConflictRegions } from "../git/conflict-analysis-operations";
 import { getCurrentSessionContext } from "../workspace";
-import { getSharedSessionProvider } from "./session-provider-cache";
 import type { SessionProviderInterface } from "./index";
 import { getSessionDirFromParams } from "../session";
 import { getCurrentWorkingDirectory } from "../../utils/process";
@@ -66,7 +65,7 @@ export interface SessionConflictParams {
 export async function scanSessionConflicts(
   params: SessionConflictParams,
   options: SessionConflictScanOptions = {},
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<SessionConflictScanResult> {
   try {
     let sessionPath: string;
@@ -86,7 +85,7 @@ export async function scanSessionConflicts(
     } else {
       // Auto-detect current session from working directory
       const cwd = getCurrentWorkingDirectory();
-      const sessionDB = sessionProvider ?? (await getSharedSessionProvider());
+      const sessionDB = sessionProvider;
       const context = await getCurrentSessionContext(cwd, { sessionDbOverride: sessionDB });
 
       if (!context) {

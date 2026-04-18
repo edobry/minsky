@@ -10,12 +10,14 @@ import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import { type GitServiceInterface } from "../types";
 import { resolveSessionDirectory } from "../../session/resolve-session-directory";
+import type { SessionProviderInterface } from "../../session/index";
 
 /**
  * Common dependencies for git operations
  */
 export interface GitOperationDependencies {
   createGitService: (options?: { baseDir?: string }) => GitServiceInterface;
+  sessionProvider?: SessionProviderInterface;
 }
 
 /**
@@ -64,7 +66,14 @@ export abstract class BaseGitOperation<TParams, TResult> {
       // Resolve session to repo path if session is provided but repo is not
       const baseParams = validParams as BaseGitOperationParams;
       if (baseParams.session && !baseParams.repo) {
-        const workdir = await resolveSessionDirectory(baseParams.session);
+        if (!this.deps.sessionProvider) {
+          const { getSharedSessionProvider } = await import("../../session/session-provider-cache");
+          this.deps.sessionProvider = await getSharedSessionProvider();
+        }
+        const workdir = await resolveSessionDirectory(
+          baseParams.session,
+          this.deps.sessionProvider
+        );
         (validParams as Record<string, unknown>).repo = workdir;
       }
 

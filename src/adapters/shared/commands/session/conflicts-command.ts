@@ -63,7 +63,8 @@ export function createSessionConflictsCommand(getDeps: LazySessionDeps): Command
         files: params.files as string | undefined,
       };
 
-      const result = await scanSessionConflicts(sessionParams, options);
+      const deps = await getDeps();
+      const result = await scanSessionConflicts(sessionParams, options, deps.sessionProvider);
       const formattedOutput = formatSessionConflictResults(result, options.format);
 
       return {
