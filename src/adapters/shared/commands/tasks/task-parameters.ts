@@ -100,6 +100,11 @@ export const taskFilterParams = {
     description: "Group subtasks under their parent tasks in a tree view",
     required: false,
   },
+  showDeps: {
+    schema: z.boolean().default(false),
+    description: "Show dependency status (READY/BLOCKED) for each task",
+    required: false,
+  },
 };
 
 /**

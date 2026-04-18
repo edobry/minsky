@@ -60,6 +60,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__tasks_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-task-spec.ts",
+            "timeout": 5,
+            "statusMessage": "Validating task spec structure..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge|mcp__github__merge_pull_request",
         "hooks": [
           {

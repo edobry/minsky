@@ -283,6 +283,11 @@ export function createStartCommand(): Command {
           }
         }
 
+        // Fire-and-forget background embedding sweep for missing tasks
+        import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
+          .then(({ triggerStartupEmbeddingSweep }) => triggerStartupEmbeddingSweep())
+          .catch(() => {}); // Embedding sweep is best-effort
+
         log.cli("Press Ctrl+C to stop");
 
         // Handle termination signals gracefully when possible

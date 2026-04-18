@@ -43,6 +43,8 @@ export * from "./tasks/deps-rendering";
 export * from "./tasks/deps-visualization-commands";
 export * from "./tasks/edit-commands";
 export * from "./tasks/hierarchical-status-command";
+export * from "./tasks/embeddings-status-command";
+export * from "./tasks/embeddings-repair-command";
 export * from "./tasks/index-embeddings-command";
 export * from "./tasks/migrate-backend-command";
 export * from "./tasks/registry-setup";

@@ -144,4 +144,89 @@ describe("SessionDbAdapter", () => {
     expect(mockPersistenceProvider.getStorage).toHaveBeenCalledTimes(1);
     expect(mockStorage.initialize).toHaveBeenCalledTimes(1);
   });
+
+  test("getStorage() does not cache storage when initialize() fails", async () => {
+    // Make initialize fail on first call, succeed on second
+    const failingStorage = {
+      ...mockStorage,
+      initialize: mock()
+        .mockImplementationOnce(() => Promise.reject(new Error("init failed")))
+        .mockImplementationOnce(() => Promise.resolve()),
+      readState: mockStorage.readState,
+    };
+    const failingProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => failingStorage),
+    } as unknown as PersistenceProvider;
+
+    const failAdapter = new SessionDbAdapter(failingProvider);
+    const getStorage = (failAdapter as unknown as { getStorage: () => Promise<unknown> })
+      .getStorage;
+
+    // First call should throw
+    await expect(getStorage.call(failAdapter)).rejects.toThrow("init failed");
+
+    // Second call should re-attempt initialization (not return stale cache)
+    const storage = await getStorage.call(failAdapter);
+    expect(storage).toBeDefined();
+    expect(failingStorage.initialize).toHaveBeenCalledTimes(2);
+    expect(failingProvider.getStorage).toHaveBeenCalledTimes(2);
+  });
+
+  test("getSession() propagates storage errors instead of returning null", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      getEntity: mock(() => Promise.reject(new Error("connection lost"))),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.getSession("test")).rejects.toThrow("connection lost");
+  });
+
+  test("listSessions() propagates storage errors instead of returning []", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      readState: mock(() => Promise.resolve({ success: false, error: new Error("DB down") })),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.listSessions()).rejects.toThrow("Failed to read session state");
+  });
+
+  test("doesSessionExist() propagates storage errors instead of returning false", async () => {
+    const errorStorage = {
+      ...mockStorage,
+      initialize: mock(() => Promise.resolve()),
+      entityExists: mock(() => Promise.reject(new Error("timeout"))),
+    };
+    const errorProvider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => errorStorage),
+    } as unknown as PersistenceProvider;
+
+    const errorAdapter = new SessionDbAdapter(errorProvider);
+    await expect(errorAdapter.doesSessionExist("test")).rejects.toThrow("timeout");
+  });
+
+  test("getStorage() caches storage after successful initialization", async () => {
+    const getStorage = (adapter as unknown as { getStorage: () => Promise<unknown> }).getStorage;
+
+    // Call twice
+    await getStorage.call(adapter);
+    await getStorage.call(adapter);
+
+    // getStorage on provider should only be called once (cached after first success)
+    expect(mockPersistenceProvider.getStorage).toHaveBeenCalledTimes(1);
+    expect(mockStorage.initialize).toHaveBeenCalledTimes(1);
+  });
 });
