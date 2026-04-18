@@ -12,6 +12,7 @@ import { log } from "./utils/logger";
 import { exit } from "./utils/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "./schemas/error";
+import type { AppContainerInterface } from "./composition/types";
 
 /**
  * Root CLI command
@@ -28,31 +29,20 @@ export const cli = new Command("minsky")
   });
 
 /**
- * Lazy PersistenceService initialization.
- * Deferred from startup to first command execution so the CLI bootstrap
- * (Commander parsing, help display) doesn't pay the DB connection cost.
- */
-let persistenceInitialized = false;
-async function ensurePersistence(): Promise<void> {
-  if (persistenceInitialized) return;
-  const { PersistenceService } = await import("./domain/persistence/service");
-  await PersistenceService.initialize();
-  log.debug("PersistenceService initialized (lazy, on first command)");
-  persistenceInitialized = true;
-}
-
-/**
  * Create the CLI command structure
  */
-export async function createCli(): Promise<Command> {
+export async function createCli(container: AppContainerInterface): Promise<Command> {
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
 
-  // Initialize persistence lazily via preAction hook — only when a command
-  // actually executes, not during registration or help display. Session commands
-  // use LazySessionDeps to defer provider resolution to execution time.
+  // Initialize the container lazily via preAction hook — only when a command
+  // actually executes, not during registration or help display. This defers
+  // the DB connection (~1s) past Commander parsing.
   cli.hook("preAction", async () => {
-    await ensurePersistence();
+    if (!container.has("persistence")) {
+      await container.initialize();
+      log.debug("Container initialized (lazy, on first command)");
+    }
   });
 
   // Register shared commands (session, tasks, git, rules, config, etc.)
@@ -105,15 +95,16 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
-  // Create CLI — persistence is initialized lazily via preAction hook
-  const cliInstance = await createCli();
+  // Create the DI container with real service factories (deferred initialization)
+  const { createCliContainer } = await import("./composition/cli");
+  const container = await createCliContainer();
+
+  // Create CLI — container is initialized lazily via preAction hook
+  const cliInstance = await createCli(container);
   await cliInstance.parseAsync();
 
-  // Clean up PersistenceService on exit (only if it was initialized)
-  if (persistenceInitialized) {
-    const { PersistenceService } = await import("./domain/persistence/service");
-    await PersistenceService.close();
-  }
+  // Clean up container resources on exit (closes DB connections, etc.)
+  await container.close();
 
   // Still need explicit exit until all resource leaks are fixed
   // The improvements to workspace manager help, but there are other sources
