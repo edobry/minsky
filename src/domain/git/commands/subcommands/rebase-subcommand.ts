@@ -4,7 +4,6 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { rebaseFromParams } from "../rebase-command";
-import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import type { SessionProviderInterface } from "../../../session/index";
 import { log } from "../../../../utils/logger";
 import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
@@ -60,12 +59,11 @@ export async function executeRebaseCommand(
     [K in keyof typeof rebaseCommandParams]: z.infer<(typeof rebaseCommandParams)[K]["schema"]>;
   },
   context: CommandExecutionContext,
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<unknown> {
   const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;
 
-  const resolvedSessionProvider = sessionProvider ?? (await getSharedSessionProvider());
   const result = await rebaseFromParams(
     {
       baseBranch,
@@ -76,7 +74,7 @@ export async function executeRebaseCommand(
       autoResolve,
       conflictStrategy,
     },
-    { sessionProvider: resolvedSessionProvider }
+    { sessionProvider }
   );
 
   if (context.debug) {

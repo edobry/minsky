@@ -4,7 +4,6 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { commitChangesFromParams } from "../commit-command";
-import { getSharedSessionProvider } from "../../../session/session-provider-cache";
 import type { SessionProviderInterface } from "../../../session/index";
 import { log } from "../../../../utils/logger";
 import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
@@ -67,11 +66,10 @@ interface CommitCommandContext extends CommandExecutionContext {
  */
 export async function executeCommitCommand(
   context: CommitCommandContext,
-  sessionProvider?: SessionProviderInterface
+  sessionProvider: SessionProviderInterface
 ): Promise<{ commitHash: string; message: string }> {
   const { message, all, amend, noStage, repo, session } = context.parameters;
 
-  const resolvedSessionProvider = sessionProvider ?? (await getSharedSessionProvider());
   const result = await commitChangesFromParams(
     {
       message,
@@ -81,7 +79,7 @@ export async function executeCommitCommand(
       amend,
       noStage,
     },
-    { sessionProvider: resolvedSessionProvider }
+    { sessionProvider }
   );
 
   if (context.debug) {
