@@ -48,14 +48,11 @@ The beauty of this approach is that it's already proven. These are the same orga
 Coordinate work items across different storage systems:
 
 ```bash
-# Markdown files for simple projects
-minsky init --tasks-backend markdown
+# Minsky database (default)
+minsky init --tasks-backend minsky
 
 # GitHub Issues for open source
-minsky init --tasks-backend github
-
-# Database for complex workflows
-minsky init --tasks-backend minsky
+minsky init --tasks-backend github-issues
 ```
 
 ### 2. Session-Based Development
@@ -226,7 +223,7 @@ Minsky uses a flexible configuration system supporting both YAML and JSON:
 ```yaml
 # minsky.yaml
 tasks:
-  backend: markdown # or: github, json-file, minsky
+  backend: minsky # or: github-issues
 
 workflows:
   lint:

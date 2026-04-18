@@ -29,8 +29,8 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ### MCP Integration
 
-- [**MCP README**](../README-MCP.md) - Model Context Protocol server documentation
-- [**MCP Usage**](../README.md#mcp-model-context-protocol-support) - MCP integration and AI agent support
+- [**Shared Command Registry**](./architecture.md#1-shared-command-registry) - How CLI and MCP interfaces share the same command definitions
+- [**MCP Server**](../CONTRIBUTING.md#running-the-mcp-server) - How to start and inspect the MCP server locally
 
 ### Git Workflows
 

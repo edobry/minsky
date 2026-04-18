@@ -1,10 +1,10 @@
 # Multi-Backend Migration Guide
 
-> **Note**: The `markdown` and `json-file` task backends referenced in this guide have been removed. The active task backends are now `minsky` (PostgreSQL, prefix `mt#`) and `github-issues` (prefix `gh#`). Some examples below still reference the old `md#` prefix and should be updated.
+> **Historical document**: This guide was written when the multi-backend task system was introduced (Task #356). The migration it describes is now complete — qualified IDs (`mt#123`, `gh#456`) are the default. Some commands referenced here (`detect-collisions`, `migrate-rollback`) were planned but not fully implemented. Preserved for reference.
 
 ## Overview
 
-This guide helps you migrate from the legacy single-backend task system to the new multi-backend architecture introduced in Task #356.
+This guide describes the migration from the legacy single-backend task system to the multi-backend architecture introduced in Task #356.
 
 **⚠️ Migration is NOT urgent** - the system provides full backward compatibility with automatic migration.
 
