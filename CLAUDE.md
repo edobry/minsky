@@ -40,6 +40,7 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID
 8. All file operations in sessions MUST use absolute paths.
 9. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
 10. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+11. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
 
 ### Session lifecycle: one session, one merge
 
@@ -119,6 +120,7 @@ The `/review-pr` skill requires a **Spec verification** section in every review.
 - **The user decides scope, not the agent.** Never unilaterally decide "this is a good stopping point." If uncertain whether to continue, ask.
 - **Artifact creation is not progress.** Creating tasks, updating specs, writing rules, and process discussion are not substitutes for doing the work. If you can describe exactly what needs to be done, do it.
 - **Before proposing to ship**, check the task spec's success criteria. If items are unmet and actionable, keep working.
+- **Never notice an issue without acting on it.** If you discover a problem, duplication, or architectural concern that's out of scope to fix now, immediately file a task with `mcp__minsky__tasks_create`. Mentioning it in chat is not action — it must become a trackable artifact (task, spec update, or memory). There is no "worth noting for a follow-up" without creating the follow-up.
 
 ## MCP Tools
 

@@ -703,6 +703,41 @@ const configDoctorRegistration = defineCommand({
       });
     }
 
+    // Embedding index coverage
+    try {
+      const { PersistenceService } = await import("../../../domain/persistence/service");
+      if (PersistenceService.isInitialized()) {
+        const provider = PersistenceService.getProvider();
+        if (provider.capabilities.sql) {
+          const rawSql = await provider.getRawSqlConnection?.();
+          if (rawSql) {
+            const sql = rawSql as import("postgres").Sql;
+            const [taskCount] = await sql.unsafe("SELECT count(*) as count FROM tasks");
+            const [embCount] = await sql.unsafe("SELECT count(*) as count FROM tasks_embeddings");
+            const [lastIdx] = await sql.unsafe(
+              "SELECT max(indexed_at) as last_indexed FROM tasks_embeddings"
+            );
+            const total = Number(taskCount?.count ?? 0);
+            const indexed = Number(embCount?.count ?? 0);
+            const lastIndexed = lastIdx?.last_indexed
+              ? new Date(lastIdx.last_indexed as string).toISOString()
+              : "never";
+            const pct = total > 0 ? Math.round((indexed / total) * 100) : 0;
+            diagnostics.push({
+              check: "Embedding Index Coverage",
+              status: pct >= 90 ? "pass" : pct >= 50 ? "warning" : "error",
+              message: `${indexed}/${total} tasks indexed (${pct}%), last indexed: ${lastIndexed}`,
+              ...(pct < 90 && {
+                suggestion: "Run 'minsky tasks index-embeddings' to index missing tasks",
+              }),
+            });
+          }
+        }
+      }
+    } catch {
+      // Index coverage is best-effort — skip if DB not available
+    }
+
     const errors = diagnostics.filter((d) => d.status === "error");
     const warnings = diagnostics.filter((d) => d.status === "warning");
 
