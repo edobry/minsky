@@ -19,6 +19,7 @@ import {
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import { log } from "../../../../utils/logger";
+import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 
 /**
  * Parameters for tasks list command
@@ -382,6 +383,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           log.warn("[tasks.create] No persistence provider; skipping parent");
         }
       }
+
+      // Fire-and-forget embedding indexing for the newly created task
+      autoIndexTaskEmbedding(result.id);
 
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;
