@@ -7,6 +7,7 @@ export interface ClaudeHookInput {
   cwd: string;
   permission_mode?: string;
   hook_event_name: string;
+  agent_id?: string;
 }
 
 export interface ToolHookInput extends ClaudeHookInput {
@@ -16,7 +17,6 @@ export interface ToolHookInput extends ClaudeHookInput {
 }
 
 export interface StopHookInput extends ClaudeHookInput {
-  agent_id?: string;
   reason?: string;
   stop_hook_active?: boolean;
 }

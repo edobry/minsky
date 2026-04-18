@@ -21,7 +21,7 @@ const filePath =
   "";
 
 const sessionId = input.session_id ?? "default";
-const agentId = input.agent_id as string | undefined;
+const agentId = input.agent_id;
 
 // Only run for TypeScript files
 if (!/\.tsx?$/.test(filePath)) {
