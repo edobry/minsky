@@ -86,11 +86,7 @@ describe("Parameter-Based Git Functions with Dependency Injection", () => {
     });
   });
 
-  // Demonstrate the architectural improvement this DI approach provides
   test("should show improved test architecture with DI", () => {
-    // BEFORE: Global spyOn(GitService.prototype, ...) patterns
-    // AFTER: Clean dependency injection with createTestDeps()
-
     expect(domainDeps).toBeDefined();
     expect(domainDeps.gitService).toBeDefined();
     expect(domainDeps.sessionDB).toBeDefined();
