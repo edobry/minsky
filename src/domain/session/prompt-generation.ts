@@ -195,18 +195,12 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     return result;
   }
 
-  const scopeWarning =
-    scope && scope.length > SCOPE_WARNING_THRESHOLD
-      ? `Scope has ${scope.length} files (exceeds ${SCOPE_WARNING_THRESHOLD}). Consider batching into multiple smaller tasks to stay within subagent capacity limits.`
-      : undefined;
-
   const prompt = generateSinglePrompt(params);
 
   if (type === "review") {
     return {
       prompt,
       suggestedModel: "sonnet",
-      scopeWarning,
     };
   }
 
@@ -215,14 +209,12 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
       prompt,
       suggestedModel: "sonnet",
       suggestedSubagentType: "verify-completion",
-      scopeWarning,
     };
   }
 
   const result: GeneratePromptResult = {
     prompt,
     suggestedModel: "sonnet",
-    scopeWarning,
   };
 
   if (type === "refactor") {
