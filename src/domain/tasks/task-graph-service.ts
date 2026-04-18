@@ -59,7 +59,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       await db.insert(taskRelationshipsTable).values({ fromTaskId: fromId, toTaskId: toId, type });
     },
     async deleteEdge(fromId, toId, type) {
-      const res = await db
+      const deleted = await db
         .delete(taskRelationshipsTable)
         .where(
           and(
@@ -67,16 +67,18 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
             eq(taskRelationshipsTable.toTaskId, toId),
             eq(taskRelationshipsTable.type, type)
           )
-        );
-      return (res as { rowCount?: number })?.rowCount ?? 0;
+        )
+        .returning({ id: taskRelationshipsTable.id });
+      return deleted.length;
     },
     async deleteEdgesFrom(fromId, type) {
-      const res = await db
+      const deleted = await db
         .delete(taskRelationshipsTable)
         .where(
           and(eq(taskRelationshipsTable.fromTaskId, fromId), eq(taskRelationshipsTable.type, type))
-        );
-      return (res as { rowCount?: number })?.rowCount ?? 0;
+        )
+        .returning({ id: taskRelationshipsTable.id });
+      return deleted.length;
     },
     async listFrom(taskId, type) {
       const rows = await db
