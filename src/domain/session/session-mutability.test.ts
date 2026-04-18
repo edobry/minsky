@@ -46,9 +46,9 @@ describe("assertSessionMutable", () => {
     );
   });
 
-  test("includes recovery commands in the error message", () => {
+  test("includes subtask guidance in the error message", () => {
     expect(() => assertSessionMutable(mergedRecord(), "do a thing")).toThrow(
-      /minsky session delete test-session/
+      /create a subtask for the next phase/
     );
   });
 
