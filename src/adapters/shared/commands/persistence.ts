@@ -29,7 +29,7 @@ import {
   validatePostgresBackend,
 } from "../../../domain/persistence/validation-operations";
 import { getEffectivePersistenceConfig } from "../../../domain/configuration/persistence-config";
-// getSharedSessionProvider is imported dynamically where needed
+// sessionProvider is obtained from context.container (DI)
 
 /**
  * Parameters for the persistence migrate command
