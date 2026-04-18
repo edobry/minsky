@@ -124,6 +124,10 @@ The `/review-pr` skill requires a **Spec verification** section in every review.
 - **Before proposing to ship**, check the task spec's success criteria. If items are unmet and actionable, keep working.
 - **Never notice an issue without acting on it.** If you discover a problem, duplication, or architectural concern that's out of scope to fix now, immediately file a task with `mcp__minsky__tasks_create`. Mentioning it in chat is not action — it must become a trackable artifact (task, spec update, or memory). There is no "worth noting for a follow-up" without creating the follow-up.
 
+## Task Creation
+
+**Always use the `/create-task` skill when creating tasks.** This ensures every task has a structured spec with required sections (Summary, Success Criteria, Scope, Acceptance Tests, Context). A PostToolUse hook on `tasks_create` blocks creation if specs over 100 chars are missing `## Success Criteria` or `## Acceptance Tests`.
+
 ## MCP Tools
 
 Minsky exposes 80+ MCP tools. Use them for all task and session operations instead of shelling out to the CLI:
