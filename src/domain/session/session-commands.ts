@@ -92,7 +92,10 @@ export interface SessionApproveParams {
 /**
  * Pure session approve domain function
  */
-export async function pureSessionApprove(params: SessionApproveParams): Promise<{
+export async function pureSessionApprove(
+  params: SessionApproveParams,
+  sessionProvider?: import("./types").SessionProviderInterface,
+): Promise<{
   success: boolean;
   message: string;
 }> {
@@ -106,7 +109,7 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
   const { getSharedSessionProvider } = await import("./session-provider-cache.js");
 
   try {
-    const sessionDB = await getSharedSessionProvider();
+    const sessionDB = sessionProvider ?? (await getSharedSessionProvider());
     const _result = await approveSessionPr(
       {
         session: params.session,
@@ -132,13 +135,16 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
  *
  * Note: Always pushes after commit - in session context these operations should be atomic
  */
-export async function sessionCommit(params: {
-  session: string;
-  message: string;
-  all?: boolean;
-  amend?: boolean;
-  noStage?: boolean;
-}): Promise<{
+export async function sessionCommit(
+  params: {
+    session: string;
+    message: string;
+    all?: boolean;
+    amend?: boolean;
+    noStage?: boolean;
+  },
+  sessionProvider?: import("./types").SessionProviderInterface,
+): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
   commitHash: string | null;
@@ -167,7 +173,7 @@ export async function sessionCommit(params: {
   // Enforce merged-PR-freeze invariant
   const { getSharedSessionProvider } = await import("./session-provider-cache.js");
   const { assertSessionMutable } = await import("./session-mutability.js");
-  const sessionDBForFreeze = await getSharedSessionProvider();
+  const sessionDBForFreeze = sessionProvider ?? (await getSharedSessionProvider());
   const sessionRecordForFreeze = await sessionDBForFreeze.getSession(params.session);
   if (sessionRecordForFreeze) {
     assertSessionMutable(sessionRecordForFreeze, "commit changes");
