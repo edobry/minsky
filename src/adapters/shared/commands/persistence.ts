@@ -211,8 +211,9 @@ const persistenceMigrateRegistration = defineCommand({
 
         // Get sessions through SessionProviderInterface
         // PersistenceService should already be initialized at CLI startup
-        const { getSharedSessionProvider } = await import("../../../domain/session/index");
-        const sessionProvider = await getSharedSessionProvider();
+        const sessionProvider = context.container?.has("sessionProvider")
+          ? context.container.get("sessionProvider")
+          : await (await import("../../../domain/session/index")).getSharedSessionProvider();
         const sessions = await sessionProvider.listSessions();
         sourceData = { sessions, baseDir: getMinskyStateDir() };
         sourceCount = sessions.length;
@@ -343,9 +344,10 @@ const persistenceMigrateRegistration = defineCommand({
 
       // Use SessionProviderInterface for data migration
       // PersistenceService should already be initialized at CLI startup
-      const { getSharedSessionProvider } = await import("../../../domain/session/index");
-      const sessionProvider = await getSharedSessionProvider();
-      const sessions = await sessionProvider.listSessions();
+      const sessionProvider2 = context.container?.has("sessionProvider")
+        ? context.container.get("sessionProvider")
+        : await (await import("../../../domain/session/index")).getSharedSessionProvider();
+      const sessions = await sessionProvider2.listSessions();
 
       const sourceState = {
         sessions,
