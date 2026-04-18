@@ -80,8 +80,7 @@ describe("OpenAIEmbeddingService rate limit handling", () => {
 
   it("throws RateLimitError on 429 with retryAfter from Retry-After header", async () => {
     const svc = createService();
-    // Use retry-after: 0 so retries complete instantly; check the error from
-    // the fallback request() which uses the real header values.
+    // Call request() directly to avoid retry service delays that exceed test timeout.
     mockFetchAlways(
       429,
       STATUS_TOO_MANY,
@@ -93,7 +92,7 @@ describe("OpenAIEmbeddingService rate limit handling", () => {
         },
       },
       {
-        "retry-after": "0",
+        "retry-after": "5",
         "x-ratelimit-remaining-requests": "0",
         "x-ratelimit-limit-requests": "60",
       }
@@ -101,7 +100,7 @@ describe("OpenAIEmbeddingService rate limit handling", () => {
 
     let err: unknown = null;
     try {
-      await svc.generateEmbedding("test input");
+      await (svc as any).request(["test input"]);
     } catch (e) {
       err = e;
     }
@@ -110,28 +109,30 @@ describe("OpenAIEmbeddingService rate limit handling", () => {
     const rle = err as RateLimitError;
     expect(rle.remaining).toBe(0);
     expect(rle.limit).toBe(60);
+    expect(rle.retryAfter).toBe(5);
     expect(rle.provider).toBe("openai");
     expect(rle.message).toContain("429");
   });
 
   it("falls back to x-ratelimit-reset-requests when Retry-After is absent", async () => {
     const svc = createService();
+    // Call request() directly to avoid retry service delays.
     mockFetchAlways(
       429,
       STATUS_TOO_MANY,
       { error: { type: "requests", message: MSG_RATE_LIMIT } },
-      { "x-ratelimit-reset-requests": "0" }
+      { "x-ratelimit-reset-requests": "30" }
     );
 
     let err: unknown = null;
     try {
-      await svc.generateEmbedding("test input");
+      await (svc as any).request(["test input"]);
     } catch (e) {
       err = e;
     }
 
     expect(err).toBeInstanceOf(RateLimitError);
-    expect((err as RateLimitError).retryAfter).toBe(0);
+    expect((err as RateLimitError).retryAfter).toBe(30);
   });
 
   it("defaults retryAfter to 60 when no rate-limit headers present", async () => {
