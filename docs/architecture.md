@@ -1,0 +1,430 @@
+# Minsky Architecture Overview
+
+This document describes how Minsky is structured at the system level. It covers the command dispatch
+pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection,
+configuration hierarchy, and repository backend system. For narrower topics, follow the links to the
+referenced ADRs.
+
+---
+
+## Table of Contents
+
+1. [Shared Command Registry](#1-shared-command-registry)
+2. [Domain Architecture](#2-domain-architecture)
+3. [Persistence Architecture](#3-persistence-architecture)
+4. [Session Model](#4-session-model)
+5. [Rules Compilation Pipeline](#5-rules-compilation-pipeline)
+6. [Dependency Injection](#6-dependency-injection)
+7. [Configuration Hierarchy](#7-configuration-hierarchy)
+8. [Repository Backend](#8-repository-backend)
+9. [ADR Index](#9-adr-index)
+
+---
+
+## 1. Shared Command Registry
+
+Minsky exposes the same operations through two interfaces — a CLI (Commander.js) and an MCP server —
+without duplicating business logic. The shared command registry is the mechanism that makes this work.
+
+### How it works
+
+1. **Command definitions** are created with `defineCommand()` and registered into `SharedCommandRegistry`.
+   Each definition carries an `id`, `category`, typed `parameters` (Zod schemas), and an `execute` handler.
+
+2. **CLI Bridge** (`src/adapters/shared/bridges/cli-bridge-modular.ts`) reads the registry and generates
+   Commander.js `Command` objects. Parameters marked `cliHidden: true` are omitted.
+
+3. **MCP Bridge** (`src/adapters/shared/bridges/mcp-bridge.ts`) reads the same registry to dispatch
+   MCP tool calls. Parameters marked `mcpHidden: true` are omitted.
+
+```
+  defineCommand({ id, category, parameters, execute })
+          |
+          v
+  SharedCommandRegistry  (src/adapters/shared/command-registry.ts)
+          |
+    +-----+-----+
+    |           |
+    v           v
+CLI Bridge    MCP Bridge
+(Commander)   (MCP SDK)
+    |           |
+    v           v
+ minsky CLI   mcp__minsky__* tools
+```
+
+### Command categories
+
+Commands are grouped into `CommandCategory` enum values:
+
+```
+CORE  GIT  REPO  TASKS  SESSION  PERSISTENCE  RULES  INIT  CONFIG  DEBUG  AI  TOOLS
+```
+
+### Key types
+
+- `CommandDefinition<T, R>` — typed definition with parameter map `T` and return type `R`
+- `CommandParameterDefinition` — wraps a Zod schema, adds `required`, `defaultValue`, `cliHidden`, `mcpHidden`
+- `CommandExecutionContext` — carries `interface` ("cli" | "mcp"), `workspacePath`, `format`, `debug`
+
+Source: `src/adapters/shared/command-registry.ts`
+
+---
+
+## 2. Domain Architecture
+
+Business logic lives exclusively in `src/domain/`. Adapters (`src/adapters/`) and infrastructure
+(`src/mcp/`, `src/cli.ts`) depend on domain interfaces — never the reverse.
+
+### Directory structure
+
+```
+src/domain/
+├── ai/                  AI integration utilities
+├── changeset/           Changeset creation and management
+├── configuration/       Config loading, merging, validation
+├── context/             Workspace context detection
+├── git/                 Git operations (clone, commit, diff, etc.)
+├── init/                Project initialization
+├── interfaces/          Shared interface contracts (FsLike, etc.)
+├── persistence/         Persistence provider base types
+├── project/             Project metadata reading
+├── repository/          Repository backend abstraction
+├── rules/               Rules CRUD and compilation pipeline
+├── schemas/             Shared Zod schemas (session, task params)
+├── session/             Session lifecycle operations
+├── similarity/          Embedding-based similarity search
+├── storage/             DB schemas and migrations
+├── tasks/               Task CRUD, multi-backend routing
+├── templates/           Template rendering
+├── tools/               Tool indexing (MCP tool embeddings)
+├── utils/               Shared utilities
+└── workspace/           Workspace path resolution
+```
+
+### Subdomains
+
+| Subdomain       | Responsibility                                                             |
+| --------------- | -------------------------------------------------------------------------- |
+| `session`       | Isolated git workspaces tied to tasks; lifecycle from `start` to `approve` |
+| `tasks`         | Task CRUD with pluggable backends (GitHub Issues, Minsky DB)               |
+| `rules`         | Markdown rule files with frontmatter; compilation to AI assistant formats  |
+| `git`           | Low-level git operations shared across domains                             |
+| `configuration` | Hierarchical config loading (defaults → project → user → env)              |
+| `repository`    | PR backend abstraction (GitHub, local)                                     |
+| `persistence`   | PostgreSQL provider with optional pgvector capabilities                    |
+| `changeset`     | Structured change tracking for session diffs                               |
+
+Formal concept definitions: `src/domain/concepts.md`
+
+---
+
+## 3. Persistence Architecture
+
+Minsky uses a capability-based persistence provider pattern. See
+[ADR-002](architecture/adr-002-persistence-provider-architecture.md) for the full rationale.
+
+### Provider hierarchy
+
+```
+BasePersistenceProvider
+        |
+        v
+PostgresPersistenceProvider
+  capabilities: { sql, jsonb, migrations }
+        |
+        v (runtime — only if pgvector is installed)
+PostgresVectorPersistenceProvider
+  capabilities: { ..., vectorStorage: true }
+  + getVectorStorage(dimension): VectorStorage
+```
+
+`PostgresProviderFactory.create()` probes the database at startup and returns the appropriate
+subclass. Callers that need vector operations receive `PostgresVectorPersistenceProvider` and
+get compile-time access to `getVectorStorage()`. Callers that don't need vectors receive the
+base type and cannot accidentally call vector methods.
+
+### DB schemas
+
+Schema files under `src/domain/storage/schemas/` define the Postgres table layouts:
+
+```
+src/domain/storage/schemas/
+├── embeddings-schema-factory.ts   shared factory for embeddings tables
+├── rule-embeddings.ts             rule vector storage schema
+├── session-schema.ts              session records table
+├── task-embeddings.ts             task vector storage schema
+├── task-relationships.ts          task dependency graph table
+└── tool-embeddings.ts             MCP tool vector storage schema
+```
+
+Migrations live in `src/domain/storage/migrations/`.
+
+### Design principles (from ADR-002)
+
+- No DB connection for non-database commands (`minsky --help`, file operations)
+- Tests use fake DI providers — never a real PostgreSQL instance
+- Graceful degradation: commands fall back rather than fail when capabilities are unavailable
+
+---
+
+## 4. Session Model
+
+A session is an isolated git clone of the upstream repository, associated with a task, where
+implementation work happens before a PR is created and merged.
+
+### Core types
+
+```typescript
+interface SessionRecord {
+  session: string; // Unique identifier (UUID-like)
+  repoName: string; // Normalized repo name (e.g., "edobry/minsky")
+  repoUrl: string; // Clone URL
+  createdAt: string; // ISO timestamp
+  taskId?: string; // Plain task ID (e.g., "283", no "#" prefix)
+  backendType?: "local" | "remote" | "github";
+  prState?: {
+    // Performance cache for PR branch status
+    branchName: string;
+    lastChecked: string;
+    createdAt?: string;
+    mergedAt?: string;
+  };
+  pullRequest?: PullRequestInfo;
+  prBranch?: string; // "pr/<session-id>" when a PR branch exists
+  prApproved?: boolean;
+}
+```
+
+Source: `src/domain/session/types.ts`
+
+### Lifecycle
+
+```
+  session start
+      |
+      v
+  [ACTIVE] — git clone into ~/.local/state/minsky/sessions/<UUID>/
+      |
+      v
+  [WORK IN PROGRESS] — developer edits, commits inside session workspace
+      |
+      v
+  session pr create  (rebases on main, creates PR branch)
+      |
+      v
+  [PR OPEN] — GitHub PR exists, CI runs
+      |
+      v
+  session pr approve  (review submitted)
+      |
+      v
+  session pr merge  (branch merged, session frozen)
+      |
+      v
+  [FROZEN] — read-only; write operations refused
+```
+
+### SessionService
+
+`SessionService` (`src/domain/session/session-service.ts`) is a class that holds injected
+`SessionDeps` and delegates each operation to a pure function in a sub-module:
+
+| Method         | Sub-module                        |
+| -------------- | --------------------------------- |
+| `get` / `list` | `session-lifecycle-operations.ts` |
+| `start`        | `start-session-operations.ts`     |
+| `update`       | `session-update-operations.ts`    |
+| `review`       | `session-review-operations.ts`    |
+| `approve`      | `session-approval-operations.ts`  |
+| `delete`       | `session-lifecycle-operations.ts` |
+
+Session records are stored in PostgreSQL via `SessionProviderInterface`.
+
+---
+
+## 5. Rules Compilation Pipeline
+
+Rules are Markdown files with YAML frontmatter. The storage location depends on the configured
+format: `.cursor/rules/` for Cursor format (current default in this project), `.minsky/rules/`
+for Minsky-native format. They can be compiled into the formats expected by different AI coding
+assistants.
+
+### Rule structure
+
+```typescript
+interface Rule {
+  id: string; // filename without extension
+  name?: string; // frontmatter
+  description?: string; // frontmatter
+  globs?: string[]; // file patterns (for context-triggered rules)
+  alwaysApply?: boolean; // included in every compilation
+  tags?: string[]; // categorization
+  content: string; // body (frontmatter stripped)
+  format: "cursor" | "generic" | "minsky";
+  path: string;
+}
+```
+
+### Compilation pipeline
+
+```
+  RuleService.listRules()
+       |
+       v
+  resolveActiveRules()           apply preset/enabled/disabled config
+       |
+       v
+  classifyRuleType()             classify: always-on, glob-triggered, manual
+       |
+       v
+  CompileTarget.compile()        format-specific rendering
+       |
+       +--> agents-md.ts         → AGENTS.md  (Codex / OpenAI Agents)
+       +--> claude-md.ts         → CLAUDE.md  (Claude Code)
+       +--> cursor-rules.ts      → .cursor/rules/*.mdc  (Cursor)
+```
+
+`CompileService` (`src/domain/rules/compile/compile-service.ts`) manages a registry of
+`CompileTarget` implementations and routes `compile(targetId, options)` calls to the correct
+one. Each target applies its own section layout and frontmatter stripping.
+
+Rule selection configuration (presets, explicitly enabled/disabled IDs) is stored in
+`.minsky/config.yaml` under the `rules` key.
+
+---
+
+## 6. Dependency Injection
+
+Domain code never references the DI container directly. It receives typed dependency bundles
+(e.g., `SessionDeps`) assembled by composition roots.
+
+### Container
+
+`AppContainer` (`src/composition/container.ts`) is a lightweight (~100 lines) typed container:
+
+- `register(key, factory, options?)` — registers a factory function; returns `this` for chaining
+- `set(key, instance)` — provides a pre-built instance (used in tests)
+- `get(key)` — retrieves a resolved instance; throws if `initialize()` not called first
+- `initialize()` — resolves all factories in registration order (sequential, supports async)
+- `close()` — disposes services in reverse registration order
+
+Registration order determines dependency resolution. Each factory may call `container.get()`
+to access earlier-registered services.
+
+### Service map
+
+```typescript
+interface AppServices {
+  persistence: BasePersistenceProvider;
+  sessionProvider: SessionProviderInterface;
+  sessionDeps: SessionDeps;
+  gitService: GitServiceInterface;
+  taskService: TaskServiceInterface;
+  workspaceUtils: WorkspaceUtilsInterface;
+  repositoryBackend: { repoUrl; backendType; github? };
+}
+```
+
+Source: `src/composition/types.ts`
+
+### DI pattern for domain code
+
+```
+  AppContainer (composition root)
+       |  register factories
+       v
+  container.initialize()
+       |  resolves in order
+       v
+  container.get("sessionDeps") → SessionDeps
+       |  passed to
+       v
+  new SessionService(deps)     ← domain code sees only SessionDeps
+```
+
+Classes are used for stateful services; pure functions for stateless logic.
+The container is wired in `src/composition/cli.ts` (CLI entry) and `src/mcp/server.ts` (MCP).
+
+---
+
+## 7. Configuration Hierarchy
+
+Configuration is loaded from four sources in ascending priority order:
+
+```
+  1. Defaults         (src/domain/configuration/sources/defaults.ts)    lowest priority
+  2. Project config   (.minsky/config.yaml in the project root)
+  3. User config      (~/.config/minsky/config.yaml)
+  4. Environment vars (MINSKY_* prefix)                                  highest priority
+```
+
+The loader (`src/domain/configuration/loader.ts`) merges these sources, validates the merged
+result against `configurationSchema` (Zod), and returns a `ConfigurationLoadResult` that
+includes per-key source tracking (which source set each value).
+
+### Key configuration sections
+
+```yaml
+repository:
+  backend: github # "github" | "gitlab" | "local"
+  url: https://...
+  github:
+    owner: edobry
+    repo: minsky
+
+tasks:
+  backend: github-issues # or "minsky"
+
+rules:
+  presets: [default]
+  enabled: [rule-id, ...]
+  disabled: [rule-id, ...]
+
+ai:
+  provider: openai
+  model: text-embedding-3-small
+```
+
+Source: `src/domain/configuration/`
+
+---
+
+## 8. Repository Backend
+
+The repository backend determines which API is used for pull requests and code review.
+See [ADR-003](architecture/adr-003-project-level-repository-backend.md) for the full rationale.
+
+### Problem solved
+
+Earlier versions derived the backend from the clone URL at session creation time (SSH vs HTTPS
+patterns). This was fragile across machines and CI environments. ADR-003 moves the decision to
+project-level config, set once at `minsky init`.
+
+### Current backends
+
+| Backend  | Description                                                    |
+| -------- | -------------------------------------------------------------- |
+| `github` | GitHub API via `@octokit/rest`; creates GitHub PRs and reviews |
+| `local`  | Local git operations only; no remote PR API                    |
+
+The active backend is read from `.minsky/config.yaml` (`repository.backend`). All session PR
+operations (create, approve, merge) route through `RepositoryBackendInterface`, which is
+resolved by `getRepositoryBackendFromConfig()` at runtime.
+
+Source: `src/domain/repository/`
+
+---
+
+## 9. ADR Index
+
+| ADR                                                                  | Title                                                                 | Status   |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------- | -------- |
+| [ADR-002](architecture/adr-002-persistence-provider-architecture.md) | Persistence Provider Architecture with Type-Safe Capability Detection | Accepted |
+| [ADR-003](architecture/adr-003-project-level-repository-backend.md)  | Project-Level Repository Backend Configuration                        | Accepted |
+
+Additional architectural context:
+
+- `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
+- `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
+- `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling
