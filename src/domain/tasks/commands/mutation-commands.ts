@@ -6,7 +6,6 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../errors/index";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
@@ -14,7 +13,6 @@ import {
 } from "../taskService";
 import type { Task } from "../types";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
-import { readTextFile } from "../../../utils/fs";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
@@ -198,9 +196,11 @@ export async function createTaskFromParams(
       backend: validParams.backend,
     });
 
-    // Create the task
-    const task = await taskService.createTask(validParams.title, {
+    // Create the task from title and spec content
+    const specContent = validParams.spec || validParams.description || "";
+    const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
       force: validParams.force,
+      tags: validParams.tags,
     });
 
     // Auto-commit functionality was removed - no backend-specific handling needed
@@ -245,18 +245,8 @@ export async function createTaskFromTitleAndSpec(
     backend: validParams.backend, // Let service determine backend via detection/config
   });
 
-  // Handle spec content - either from spec string or specPath file
-  let specContent = validParams.spec || "";
-
-  if (validParams.specPath) {
-    try {
-      specContent = await readTextFile(validParams.specPath);
-    } catch (error) {
-      throw new Error(
-        `Failed to read spec from file ${validParams.specPath}: ${getErrorMessage(error)}`
-      );
-    }
-  }
+  // Handle spec content - from spec string only
+  const specContent = validParams.spec || "";
 
   // Create the task from title and spec
   const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent);

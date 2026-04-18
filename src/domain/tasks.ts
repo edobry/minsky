@@ -159,18 +159,8 @@ export async function updateTaskFromParams(params: Record<string, unknown>) {
 }
 
 export async function createTaskFromParams(params: Record<string, unknown>) {
-  const validParams = taskCreateParamsSchema.parse(params);
-  const workspacePath = process.cwd();
-  log.debug("tasks.create params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-  });
-  log.debug("tasks.create created TaskService", {
-    backend:
-      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
-  });
-  return await taskService.createTask(validParams.specPath || "");
+  // Delegates to createTaskFromTitleAndSpec — specPath concept has been removed
+  return createTaskFromTitleAndSpec(params);
 }
 
 export async function createTaskFromTitleAndSpec(params: Record<string, unknown>) {

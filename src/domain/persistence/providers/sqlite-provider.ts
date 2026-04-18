@@ -56,6 +56,9 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
       return;
     }
 
+    // Track opened DB handle for cleanup on failure
+    let openedDb: Database | null = null;
+
     try {
       if (!this.config.sqlite) {
         throw new Error("SQLite configuration required for sqlite backend");
@@ -73,17 +76,17 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
       }
 
       // Open database with Bun's native SQLite driver
-      this.db = new Database(dbPath);
+      openedDb = new Database(dbPath);
 
       // Create Drizzle instance
-      this.drizzleDb = drizzle(this.db);
+      const drizzleDb = drizzle(openedDb);
 
       // Enable WAL mode for better performance
-      this.db.exec("PRAGMA journal_mode = WAL;");
-      this.db.exec("PRAGMA synchronous = NORMAL;");
-      this.db.exec("PRAGMA cache_size = 1000;");
-      this.db.exec("PRAGMA temp_store = memory;");
-      this.db.exec("PRAGMA busy_timeout = 5000;");
+      openedDb.exec("PRAGMA journal_mode = WAL;");
+      openedDb.exec("PRAGMA synchronous = NORMAL;");
+      openedDb.exec("PRAGMA cache_size = 1000;");
+      openedDb.exec("PRAGMA temp_store = memory;");
+      openedDb.exec("PRAGMA busy_timeout = 5000;");
 
       // Create storage instance
       const storageConfig: SqliteStorageConfig = {
@@ -92,12 +95,28 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
         timeout: 5000,
       };
 
-      this.storage = new SqliteStorage(storageConfig);
-      await this.storage.initialize();
+      const storage = new SqliteStorage(storageConfig);
+      await storage.initialize();
 
+      // All initialization succeeded — now cache
+      this.db = openedDb;
+      this.drizzleDb = drizzleDb;
+      this.storage = storage;
       this.isInitialized = true;
       log.info(`SQLite database initialized: ${dbPath}`);
     } catch (error) {
+      // Clean up opened DB handle to prevent file descriptor leaks
+      if (openedDb) {
+        try {
+          openedDb.close();
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+      this.db = null;
+      this.drizzleDb = null;
+      this.storage = null;
+      this.isInitialized = false;
       log.error(
         "Failed to initialize SQLite provider:",
         error instanceof Error ? error : { error: String(error) }

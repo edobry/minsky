@@ -149,6 +149,13 @@ export class TaskGraphService {
       throw new Error("A task cannot depend on itself");
     }
 
+    // Cycle prevention: if fromId is transitively reachable from toId,
+    // adding fromId→toId would create a cycle
+    const transitiveDeps = await this.getTransitiveDependencies(toId);
+    if (transitiveDeps.has(fromId)) {
+      throw new Error(`Cycle detected: ${toId} already transitively depends on ${fromId}`);
+    }
+
     const exists = await this.repo.findEdge(fromId, toId, "depends");
     if (exists) {
       return { created: false };
@@ -239,6 +246,26 @@ export class TaskGraphService {
       current = parent;
     }
     return ancestors;
+  }
+
+  /**
+   * BFS over "depends" edges from a task, returning all transitive dependencies.
+   * Used for cycle detection before adding a new dependency edge.
+   */
+  async getTransitiveDependencies(taskId: string, maxNodes = 100): Promise<Set<string>> {
+    const visited = new Set<string>();
+    const queue = [taskId];
+    while (queue.length > 0 && visited.size < maxNodes) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const deps = await this.listDependencies(current);
+      for (const dep of deps) {
+        if (!visited.has(dep)) queue.push(dep);
+      }
+    }
+    visited.delete(taskId); // don't include the starting node itself
+    return visited;
   }
 
   // ── Bulk operations (all types by default) ────────────────────────────

@@ -24,7 +24,6 @@ export interface TaskData {
   title: string;
   spec?: string;
   status: TaskStatus;
-  specPath?: string;
   backend?: string;
   /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
   parentTaskId?: string;
@@ -56,7 +55,6 @@ export interface TaskFilter {
   status?: TaskStatus;
   id?: string;
   title?: string | RegExp;
-  hasSpecPath?: boolean;
 }
 
 /**
@@ -84,7 +82,6 @@ export interface TaskBackendConfig {
   name: string;
   workspacePath: string;
   taskFilePath?: string;
-  taskSpecPath?: string;
   gitService?: GitServiceInterface;
   fs?: FsLike;
 }
@@ -117,7 +114,6 @@ export function toTaskData(task: Record<string, unknown>): TaskData {
     title: task["title"] as string,
     spec: task["spec"] as string | undefined,
     status: task["status"] as TaskData["status"],
-    specPath: task["specPath"] as string | undefined,
     worklog: task["worklog"] as TaskData["worklog"],
     mergeInfo: task["mergeInfo"] as TaskData["mergeInfo"],
   };
@@ -134,7 +130,6 @@ export function fromTaskData(taskData: TaskData): Record<string, unknown> {
     title: taskData!.title,
     spec: taskData!.spec,
     status: taskData!.status,
-    specPath: taskData!.specPath,
     worklog: taskData!.worklog,
     mergeInfo: taskData!.mergeInfo,
   };

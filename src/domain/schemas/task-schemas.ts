@@ -50,11 +50,6 @@ export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
 export const TaskSpecContentSchema = z.string().optional();
 
 /**
- * Task spec path schema - used across all interfaces
- */
-export const TaskSpecPathSchema = z.string().optional();
-
-/**
  * Task tag schema - used across all interfaces
  */
 export const TaskTagSchema = z.string().min(1);
@@ -85,7 +80,6 @@ export const TaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
     spec: TaskSpecContentSchema,
-    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -102,7 +96,6 @@ export const TaskUpdateParametersSchema = z
     taskId: TaskIdSchema,
     title: TaskTitleSchema.optional(),
     spec: TaskSpecContentSchema,
-    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,
@@ -179,7 +172,6 @@ export const MultiBackendTaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
     spec: TaskSpecContentSchema,
-    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -197,7 +189,6 @@ export const MultiBackendTaskUpdateParametersSchema = z
     taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
     title: TaskTitleSchema.optional(),
     spec: TaskSpecContentSchema,
-    specPath: TaskSpecPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,

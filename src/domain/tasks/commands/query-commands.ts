@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../errors/index";
+import { getErrorMessage, ValidationError, ResourceNotFoundError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
@@ -13,9 +13,6 @@ import {
   TaskServiceInterface,
 } from "../taskService";
 import type { Task } from "../types";
-import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
-import { readTextFile } from "../../../utils/fs";
-import { join } from "path";
 import { first } from "../../../utils/array-safety";
 import {
   taskListParamsSchema,
@@ -263,62 +260,32 @@ export async function getTaskSpecContentFromParams(
       backend: validParams.backend,
     });
 
-    // Get the task
-    const task = await taskService.getTask(taskId);
-    if (!task) {
-      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
-    }
-
-    // Use the task's spec path directly
-    const specPath = task.specPath;
-
-    if (!specPath) {
-      throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
-    }
-
-    // Read the spec content with workspace-relative path handling
-    let content: string;
-    try {
-      const fullSpecPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
-      content = await readTextFile(fullSpecPath);
-    } catch (error) {
-      throw new ResourceNotFoundError(
-        `Could not read specification file at ${specPath}`,
-        "file",
-        specPath
-      );
-    }
+    // Delegate to service which reads spec content from the backend
+    const result = await taskService.getTaskSpecContent(taskId, validParams.section);
 
     // If a specific section is requested, extract it
-    let sectionContent = content;
-    if (validParams.section) {
-      const lines = content.toString().split("\n");
+    let sectionContent = result.content;
+    if (validParams.section && result.content) {
+      const lines = result.content.toString().split("\n");
       const sectionStart = lines.findIndex((line) =>
         line.toLowerCase().startsWith(`## ${validParams.section!.toLowerCase()}`)
       );
 
-      if (sectionStart === -1) {
-        throw new ResourceNotFoundError(
-          `Section "${validParams.section}" not found in task ${taskId} specification`
-        );
-      }
-
-      // Find the next section or end of file
-      let sectionEnd = lines.length;
-      for (let i = sectionStart + 1; i < lines.length; i++) {
-        if (lines[i]?.startsWith("## ")) {
-          sectionEnd = i;
-          break;
+      if (sectionStart !== -1) {
+        let sectionEnd = lines.length;
+        for (let i = sectionStart + 1; i < lines.length; i++) {
+          if (lines[i]?.startsWith("## ")) {
+            sectionEnd = i;
+            break;
+          }
         }
+        sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
       }
-
-      sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
     }
 
-    // Return the task and content
     return {
-      task,
-      specPath,
+      task: result.task,
+      specPath: result.specPath,
       content: sectionContent,
       section: validParams.section,
     };

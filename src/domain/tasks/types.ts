@@ -53,7 +53,6 @@ export interface Task {
   id: string;
   title: string;
   status: string;
-  specPath?: string;
   backend?: string;
   /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
   parentTaskId?: string;
@@ -85,10 +84,6 @@ export interface TaskBackend {
   getCapabilities(): BackendCapabilities;
 
   // ---- Optional Methods ----
-  // createTask: legacy method for creating from a spec file path; only some backends support it
-  createTask?(specPath: string | unknown, options?: unknown): Promise<Task>;
-  // getTaskSpecPath: returns relative path for a task's spec file; only file-based backends implement it
-  getTaskSpecPath?(taskId: string, title: string): string;
   // getTaskMetadata/setTaskMetadata: rich metadata access; only database-backed backends implement it
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;

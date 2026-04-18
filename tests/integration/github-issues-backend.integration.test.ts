@@ -137,7 +137,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const task = await backend.createTask!(taskSpec);
+        const task = await backend.createTaskFromTitleAndSpec(taskSpec.title, taskSpec.spec || "");
 
         expect(task).toBeDefined();
         expect(task.id).toBeTruthy();
@@ -172,7 +172,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const task = await backend.createTask!(taskSpec);
+        const task = await backend.createTaskFromTitleAndSpec(taskSpec.title, "");
 
         expect(task).toBeDefined();
         expect(task.id).toBeTruthy();
@@ -193,7 +193,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const task = await backend.createTask!(taskSpec);
+        const task = await backend.createTaskFromTitleAndSpec(taskSpec.title, "");
         const issueNumber = parseInt(task.id);
         createdIssueNumbers.push(issueNumber);
 
@@ -224,7 +224,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const task = await backend.createTask!(taskSpec);
+        const task = await backend.createTaskFromTitleAndSpec(taskSpec.title, "");
         const issueNumber = parseInt(task.id);
         createdIssueNumbers.push(issueNumber);
 
@@ -262,7 +262,10 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const createdTask = await backend.createTask!(taskSpec);
+        const createdTask = await backend.createTaskFromTitleAndSpec(
+          taskSpec.title,
+          taskSpec.spec || ""
+        );
         const issueNumber = parseInt(createdTask.id);
         createdIssueNumbers.push(issueNumber);
 
@@ -284,7 +287,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
           status: "TODO" as TaskStatus,
         };
 
-        const createdTask = await backend.createTask!(taskSpec);
+        const createdTask = await backend.createTaskFromTitleAndSpec(taskSpec.title, "");
         const issueNumber = parseInt(createdTask.id);
         createdIssueNumbers.push(issueNumber);
 
@@ -315,7 +318,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
         };
 
         // This should still work with normal network conditions
-        const task = await backend.createTask!(taskSpec);
+        const task = await backend.createTaskFromTitleAndSpec(taskSpec.title, "");
         expect(task).toBeDefined();
 
         if (task.id) {
@@ -342,10 +345,10 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
 
         // Create multiple tasks in succession to test rate limiting handling
         const taskPromises = Array.from({ length: 5 }, (_, i) =>
-          backend.createTask!({
-            title: `${INTEGRATION_CONFIG.testPrefix} Rate Limit Test ${i + 1}`,
-            status: "TODO" as TaskStatus,
-          })
+          backend.createTaskFromTitleAndSpec(
+            `${INTEGRATION_CONFIG.testPrefix} Rate Limit Test ${i + 1}`,
+            ""
+          )
         );
 
         const tasks = await Promise.all(taskPromises);

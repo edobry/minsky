@@ -34,14 +34,12 @@ export const _MOCK_TASKS = {
     title: "Test task",
     status: "TODO",
     description: "A test task",
-    specPath: "process/tasks/TEST_VALUE-test-task.md",
   },
   IN_PROGRESS_TASK: {
     id: "#042",
     title: "Another test task",
     status: "IN-PROGRESS",
     description: "Another test task",
-    specPath: "process/tasks/042-another-test-task.md",
   },
 };
 

@@ -116,20 +116,6 @@ Code block with task-like content:
       expect(markdown).not.toContain("Description line 1");
       expect(markdown).not.toContain("Description line 2");
     });
-
-    test("should use task specPath if available", () => {
-      const tasks: TaskData[] = [
-        {
-          id: "#001",
-          title: "Task with spec",
-          status: TaskStatus.TODO,
-          specPath: "path/to/spec.md",
-        },
-      ];
-
-      const markdown = formatTasksToMarkdown(tasks);
-      expect(markdown).toBe("- [ ] Task with spec [#001](path/to/spec.md)");
-    });
   });
 
   describe("getTaskById", () => {
@@ -300,22 +286,6 @@ Code block with task-like content:
       expect(filtered).toHaveLength(3);
     });
 
-    test("should filter by specPath existence", () => {
-      const tasksWithSpec: TaskData[] = [
-        {
-          id: "#001",
-          title: "Task with spec",
-          status: TaskStatus.TODO,
-          specPath: "path/to/spec.md",
-        },
-        { id: "#002", title: "Task without spec", status: TaskStatus.IN_PROGRESS },
-      ];
-
-      const filtered = filterTasks(tasksWithSpec, { hasSpecPath: true });
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0]?.id).toBe("#001");
-    });
-
     test("should combine multiple filter criteria", () => {
       const combinedTasks: TaskData[] = [
         { id: "#001", title: "First task", status: TaskStatus.TODO },
@@ -325,7 +295,6 @@ Code block with task-like content:
 
       const filtered = filterTasks(combinedTasks, {
         title: /task/,
-        hasSpecPath: false,
         status: TaskStatus.IN_PROGRESS,
       });
 
