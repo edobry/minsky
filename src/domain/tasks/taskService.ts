@@ -19,7 +19,6 @@ export interface TaskServiceInterface {
   getTask(taskId: string): Promise<Task | null>;
   getTaskStatus(taskId: string): Promise<string | undefined>;
   setTaskStatus(taskId: string, status: string): Promise<void>;
-  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
   createTaskFromTitleAndSpec(
     title: string,
     spec: string,

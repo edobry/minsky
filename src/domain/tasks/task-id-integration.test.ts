@@ -11,7 +11,7 @@ import { FakeGitService } from "../git/fake-git-service";
 import { FakeTaskService } from "./fake-task-service";
 import { FakeSessionProvider } from "../session/fake-session-provider";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
-import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+
 import { first, elementAt } from "../../utils/array-safety";
 
 // Import domain functions to test
@@ -41,13 +41,11 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
             id: "md#999",
             title: "Test Qualified Task md#999",
             status: "TODO",
-            specPath: PATH_TEST_PATTERNS.TASK_MD_999,
           },
           {
             id: "gh#888",
             title: "Test GitHub Task gh#888",
             status: "TODO",
-            specPath: "process/tasks/gh#888-test-integration.md",
           },
         ]),
         getTask: mock(async (id: string) => {
@@ -56,7 +54,6 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
               id: "md#999",
               title: "Test Qualified Task md#999",
               status: "TODO",
-              specPath: PATH_TEST_PATTERNS.TASK_MD_999,
             };
           }
           return null;
@@ -96,7 +93,6 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
               title: "Test Qualified Task md#999",
               status: "TODO",
               description: "This is a test task with qualified ID for integration testing.",
-              specPath: PATH_TEST_PATTERNS.TASK_MD_999,
             };
           }
           return null;

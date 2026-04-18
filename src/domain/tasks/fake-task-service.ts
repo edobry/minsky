@@ -62,13 +62,6 @@ export class FakeTaskService implements TaskServiceInterface {
     }
   }
 
-  async createTask(_specPath: string, _options?: CreateTaskOptions): Promise<Task> {
-    const id = `#fake-${this.nextTaskId++}`;
-    const task: Task = { id, title: "Fake Task", status: "TODO" };
-    this.tasks.set(id, task);
-    return task;
-  }
-
   async createTaskFromTitleAndSpec(
     title: string,
     _spec: string,
@@ -94,8 +87,8 @@ export class FakeTaskService implements TaskServiceInterface {
     }
     return {
       task,
-      specPath: `${this.workspacePath}/specs/${taskId}.md`,
-      content: `# ${task.title}\n`,
+      specPath: "",
+      content: task.spec || `# ${task.title}\n`,
       section,
     };
   }

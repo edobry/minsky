@@ -42,14 +42,12 @@ function bridgeToTaskBackend(backend: MultiBackendTaskBackend): TaskBackend {
       };
       return backend.createTask(mockSpec);
     },
-    createTask: (spec) => backend.createTask(spec as TaskSpec),
     deleteTask: async (id) => {
       await backend.deleteTask(id);
       return true;
     },
     getWorkspacePath: () => "/test/workspace",
     getCapabilities: () => capabilities,
-    getTaskSpecPath: (taskId, _title) => backend.getTaskSpecPath(taskId),
   };
 }
 
@@ -108,10 +106,6 @@ export function createMockBackend(name: string, prefix: string): MultiBackendTas
           metadata: {},
         },
       ];
-    }),
-
-    getTaskSpecPath: mock((taskId: string): string => {
-      return `/mock/path/${prefix}/${taskId}.md`;
     }),
 
     supportsFeature: mock((feature: string): boolean => {

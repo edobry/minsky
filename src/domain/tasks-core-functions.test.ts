@@ -67,7 +67,6 @@ describe("interface-agnostic task functions", () => {
           );
         },
         setTaskStatus: () => Promise.resolve(),
-        createTask: () => Promise.resolve(mockTask),
         createTaskFromTitleAndSpec: () => Promise.resolve(mockTask),
         deleteTask: () => Promise.resolve(true),
         getTaskSpecContent: () =>

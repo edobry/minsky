@@ -47,7 +47,7 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
     if (params.json) {
       return this.createSuccessResult(validatedTaskId, "Task specification retrieved", {
         task: specResult.task,
-        specPath: specResult.specPath,
+
         content: specResult.content,
         section: params.section,
       });
