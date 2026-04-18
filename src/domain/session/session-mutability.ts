@@ -2,9 +2,8 @@
  * Session mutability invariants.
  *
  * Per the one-session-one-merge invariant: once a session's PR has been
- * merged, the session is frozen for write operations. Further work on the
- * same task requires a new session on a new branch. This module provides
- * the gate used by every write-path session operation.
+ * merged, the session is frozen for write operations. Further work should
+ * use subtasks — each phase gets its own task, session, and PR.
  */
 
 import { MinskyError } from "../../errors/index";
@@ -16,13 +15,15 @@ import type { SessionRecord } from "./types";
  */
 export function assertSessionMutable(session: SessionRecord, operation: string): void {
   if (session.prState?.mergedAt) {
+    const taskId = session.taskId ?? "<task-id>";
     throw new MinskyError(
       `Cannot ${operation}: session "${session.session}" has a merged PR ` +
         `(merged at ${session.prState.mergedAt}). Per the one-session-one-merge ` +
         `invariant, merged sessions are frozen for write operations.\n\n` +
-        `To continue work on this task, delete this session and start a fresh one:\n` +
-        `  minsky session delete ${session.session}\n` +
-        `  minsky session start --task ${session.taskId ?? "<task-id>"}`
+        `To continue work, create a subtask for the next phase:\n` +
+        `  minsky tasks create --parent ${taskId} --title "Next phase"\n` +
+        `  minsky session start --task <new-subtask-id>\n\n` +
+        `This gives each phase its own task ID, session, and PR.`
     );
   }
 }
