@@ -23,9 +23,8 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ### Task Management
 
-- [**Multi-Backend User Guide**](./multi-backend-user-guide.md) - **NEW**: Complete guide to the multi-backend task system
-- [**Multi-Backend Migration Guide**](./migration-guide.md) - **NEW**: Migrating from legacy to multi-backend system
-- [**Multi-Backend Quick Reference**](./multi-backend-quick-reference.md) - **NEW**: Command reference and cheat sheet
+- [**Multi-Backend User Guide**](./multi-backend-user-guide.md) - Complete guide to the multi-backend task system
+- [**Multi-Backend Quick Reference**](./multi-backend-quick-reference.md) - Command reference and cheat sheet
 
 ### MCP Integration
 
