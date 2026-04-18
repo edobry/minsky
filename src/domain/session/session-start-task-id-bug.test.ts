@@ -22,7 +22,6 @@ describe("Task ID Generation Bug Reproduction", () => {
         title: "Existing high numbered task",
         spec: "This simulates existing task md#371",
         status: TaskStatus.TODO,
-        specPath: "process/tasks/md#371.md",
       },
     ];
 
@@ -44,7 +43,6 @@ describe("Task ID Generation Bug Reproduction", () => {
         title: "Existing high numbered task",
         spec: "This simulates existing task md#371",
         status: TaskStatus.TODO,
-        specPath: "process/tasks/md#371.md",
       },
     ];
 
@@ -65,9 +63,9 @@ describe("Task ID Generation Bug Reproduction", () => {
   it("should show the difference between correct and buggy approaches", () => {
     // Multiple tasks with gaps to make the bug more obvious
     const tasksWithGaps: TaskData[] = [
-      { id: "md#50", title: "Task 50", spec: "", status: TaskStatus.TODO, specPath: "" },
-      { id: "md#100", title: "Task 100", spec: "", status: TaskStatus.TODO, specPath: "" },
-      { id: "md#371", title: "Task 371", spec: "", status: TaskStatus.TODO, specPath: "" },
+      { id: "md#50", title: "Task 50", spec: "", status: TaskStatus.TODO },
+      { id: "md#100", title: "Task 100", spec: "", status: TaskStatus.TODO },
+      { id: "md#371", title: "Task 371", spec: "", status: TaskStatus.TODO },
     ];
 
     const correctNext = getNextTaskId(tasksWithGaps);
@@ -89,20 +87,18 @@ describe("Task ID Generation Bug Reproduction", () => {
   it("should show that getNextTaskId handles qualified IDs correctly", () => {
     // Mix of qualified and unqualified IDs (real-world scenario)
     const mixedTasks: TaskData[] = [
-      { id: "md#300", title: "Task 300", spec: "", status: TaskStatus.TODO, specPath: "" },
+      { id: "md#300", title: "Task 300", spec: "", status: TaskStatus.TODO },
       {
         id: "gh#45",
         title: "GitHub Task 45",
         spec: "",
         status: TaskStatus.TODO,
-        specPath: "",
       },
       {
         id: "md#371",
         title: "Qualified Task 371",
         spec: "",
         status: TaskStatus.TODO,
-        specPath: "",
       },
     ];
 

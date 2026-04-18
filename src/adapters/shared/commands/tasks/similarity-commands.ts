@@ -39,15 +39,13 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
    */
   private async enhanceSearchResults(
     searchResults: Array<{ id: string; score?: number }>,
-    includeDetails: boolean = false,
-    includeSpecPath: boolean = true
+    includeDetails: boolean = false
   ): Promise<
     Array<{
       id: string;
       score?: number;
       title?: string;
       status?: string;
-      specPath?: string;
       spec?: string;
     }>
   > {
@@ -56,7 +54,6 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
       score?: number;
       title?: string;
       status?: string;
-      specPath?: string;
       spec?: string;
     }> = [];
 
@@ -77,7 +74,6 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: includeSpecPath ? task.specPath : undefined,
             // Only include spec if details requested
             spec: includeDetails ? task.spec : undefined,
           });
@@ -113,12 +109,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
-    const includeSpecPath = params.backend !== "minsky";
-    const enhancedResults = await this.enhanceSearchResults(
-      response.results,
-      params.details,
-      includeSpecPath
-    );
+    const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
 
     // Show degraded warning to stderr unless JSON/quiet
     if (response.degraded) {
@@ -164,15 +155,13 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
    */
   private async enhanceSearchResults(
     searchResults: Array<{ id: string; score?: number }>,
-    includeDetails: boolean = false,
-    includeSpecPath: boolean = true
+    includeDetails: boolean = false
   ): Promise<
     Array<{
       id: string;
       score?: number;
       title?: string;
       status?: string;
-      specPath?: string;
       spec?: string;
     }>
   > {
@@ -181,7 +170,6 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       score?: number;
       title?: string;
       status?: string;
-      specPath?: string;
       spec?: string;
     }> = [];
 
@@ -202,7 +190,6 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: includeSpecPath ? task.specPath : undefined,
             // Only include spec if details requested
             spec: includeDetails ? task.spec : undefined,
           });
@@ -310,12 +297,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     }
 
     // Enhance results with task details for better usability
-    const includeSpecPath = params.backend !== "minsky";
-    const enhancedResults = await this.enhanceSearchResults(
-      response.results,
-      params.details,
-      includeSpecPath
-    );
+    const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
 
     // Server-side filtering handles all filtering - no client-side filtering needed
     // This eliminates redundant filtering and improves performance

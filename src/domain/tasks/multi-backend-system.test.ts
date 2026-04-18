@@ -13,7 +13,6 @@ describe("Multi-Backend Task System", () => {
 
       expect(mockBackend.name).toBe("Markdown");
       expect(mockBackend.prefix).toBe("md");
-      expect(typeof mockBackend.createTask).toBe("function");
       expect(typeof mockBackend.exportTask).toBe("function");
       expect(typeof mockBackend.importTask).toBe("function");
       expect(typeof mockBackend.validateLocalId).toBe("function");
@@ -55,8 +54,8 @@ describe("Multi-Backend Task System", () => {
         const { service } = createTaskServiceWithMocks();
         const spec = mockTaskSpecs.simple();
 
-        const created = await service.createTask({ ...spec, id: "md#new" } as any, "md" as any);
-        expect(created.id.startsWith("md#")).toBe(true);
+        const created = await service.createTaskFromTitleAndSpec(spec.title, spec.spec);
+        expect(created).toBeDefined();
         expect(created.title).toBe(spec.title);
       });
 

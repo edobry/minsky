@@ -18,7 +18,6 @@ export interface MultiBackendTaskBackend {
   updateTask(taskId: string, updates: Partial<Task>): Promise<Task>;
   deleteTask(taskId: string): Promise<void>;
   listTasks(filters?: TaskFilters): Promise<Task[]>;
-  getTaskSpecPath(taskId: string): string;
   supportsFeature(feature: string): boolean;
   // New multi-backend methods
   exportTask(taskId: string): Promise<TaskExportData>;
@@ -315,48 +314,6 @@ export class TaskServiceImpl implements TaskService {
     return this.workspacePath;
   }
 
-  // Support both createTask signatures
-  async createTask(
-    specPathOrSpec: string | TaskSpec,
-    optionsOrBackendPrefix?: CreateTaskOptions | string
-  ): Promise<Task> {
-    if (typeof specPathOrSpec === "string") {
-      // TaskServiceInterface signature: createTask(specPath: string, options?: CreateTaskOptions)
-      const specPath = specPathOrSpec;
-      const options = optionsOrBackendPrefix as CreateTaskOptions | undefined;
-
-      // Use default backend for spec path creation
-      const backend = this.defaultBackend;
-      if (!backend) {
-        throw new Error("No backends registered");
-      }
-
-      if (!backend.createTask) {
-        throw new Error(
-          `Backend "${backend.name}" does not support createTask(specPath). Use createTaskFromTitleAndSpec instead.`
-        );
-      }
-      const created = await backend.createTask(specPath, options);
-      return this.qualifyTaskFromBackend(created, backend)!;
-    } else {
-      // Multi-backend signature: createTask(spec: TaskSpec, backendPrefix?: string)
-      const spec = specPathOrSpec;
-      const backendPrefix = optionsOrBackendPrefix as string | undefined;
-
-      const prefix = backendPrefix || this.parsePrefixFromId(spec.id);
-      const backend = this.getBackendByPrefix(prefix) || this.defaultBackend;
-      if (!backend) {
-        throw new Error(`Backend not found for prefix: ${prefix ?? "<none>"}`);
-      }
-
-      if (!backend.createTask) {
-        throw new Error(`Backend ${backend.name} does not support createTask`);
-      }
-      const created = await backend.createTask(spec);
-      return this.qualifyTaskFromBackend(created, backend)!;
-    }
-  }
-
   async createTaskFromTitleAndSpec(
     title: string,
     spec: string,
@@ -406,37 +363,13 @@ export class TaskServiceImpl implements TaskService {
       return await (backend as BackendWithSpecContent).getTaskSpecContent(taskId, section);
     }
 
-    // Fallback: construct spec path and read directly
-    const specPath = task.specPath || "";
-    if (!specPath) {
-      return {
-        task,
-        specPath: "",
-        content: "",
-        section,
-      };
-    }
-
-    try {
-      const { promises: fs } = await import("fs");
-      const { join } = await import("path");
-      const fullPath = join(this.workspacePath, specPath);
-      const content = await fs.readFile(fullPath, "utf-8");
-
-      return {
-        task,
-        specPath,
-        content: content.toString(),
-        section,
-      };
-    } catch (error) {
-      return {
-        task,
-        specPath,
-        content: "",
-        section,
-      };
-    }
+    // Fallback: return empty content — spec is stored in the backend, not on disk
+    return {
+      task,
+      specPath: "",
+      content: task.spec || "",
+      section,
+    };
   }
 
   // ---- Helper Methods ----

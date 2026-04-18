@@ -15,8 +15,7 @@ import { validateGitHubIssues, type GitHubIssue } from "../../schemas/storage";
  */
 export function parseGitHubIssues(
   content: string,
-  statusLabels: Record<string, string>,
-  getTaskSpecPath: (taskId: string, title: string) => string
+  statusLabels: Record<string, string>
 ): TaskData[] {
   try {
     const rawIssues = JSON.parse(content);
@@ -35,9 +34,7 @@ export function parseGitHubIssues(
       `Filtered ${minskyIssues.length} Minsky issues from ${validatedIssues.length} total issues`
     );
 
-    return minskyIssues.map((issue) =>
-      convertIssueToTaskData(issue, statusLabels, getTaskSpecPath)
-    );
+    return minskyIssues.map((issue) => convertIssueToTaskData(issue, statusLabels));
   } catch (error) {
     log.error("Failed to parse GitHub issues data", {
       error: getErrorMessage(error),
@@ -118,8 +115,7 @@ export function formatGitHubTaskSpec(spec: TaskSpecData): string {
  */
 export function convertIssueToTaskData(
   issue: GitHubIssue,
-  statusLabels: Record<string, string>,
-  getTaskSpecPath: (taskId: string, title: string) => string
+  statusLabels: Record<string, string>
 ): TaskData {
   const taskId = extractTaskIdFromIssue(issue);
   const status = getTaskStatusFromIssue(issue, statusLabels);
@@ -135,7 +131,6 @@ export function convertIssueToTaskData(
     title: issue.title,
     spec: issue.body || "",
     status,
-    specPath: getTaskSpecPath(taskId, issue.title),
     tags,
   };
 }

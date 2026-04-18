@@ -120,7 +120,6 @@ export const taskCreateParamsSchema = z
       .string()
       .optional()
       .describe("Description text for the task (DEPRECATED: use spec instead)"),
-    specPath: z.string().optional().describe("Path to file containing task spec"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
@@ -138,11 +137,11 @@ export const taskCreateParamsSchema = z
   .merge(commonCommandOptionsSchema)
   .refine(
     (data) => {
-      // Either spec or specPath must be provided (description is deprecated alias for spec)
-      return data.spec || data.description || data.specPath;
+      // Either spec or description must be provided (description is deprecated alias for spec)
+      return data.spec || data.description;
     },
     {
-      message: "Either --spec or --spec-path must be provided",
+      message: "--spec must be provided",
     }
   );
 
@@ -165,7 +164,6 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task (required)"),
     spec: z.string().optional().describe("Spec text for the task"),
-    specPath: z.string().optional().describe("Path to file containing task spec"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
@@ -179,8 +177,8 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
       ),
   })
   .merge(commonCommandOptionsSchema)
-  .refine((data) => data.spec || data.specPath, {
-    message: "Either 'spec' or 'specPath' must be provided",
+  .refine((data) => data.spec, {
+    message: "'spec' must be provided",
     path: ["spec"],
   });
 

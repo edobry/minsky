@@ -16,7 +16,6 @@ import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../ty
 import type { TaskBackend } from "./types";
 import { log } from "../../utils/logger";
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
-import { getTaskSpecRelativePath } from "./taskIO";
 
 // API operations
 import {
@@ -25,7 +24,6 @@ import {
   syncTasksToGitHub,
   updateIssueStatus,
   updateIssueLabels,
-  createIssueFromSpec,
   createIssueFromTitleAndDescription,
   createIssueFromTitleAndSpec,
   deleteIssue,
@@ -148,9 +146,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   // ---- Pure Operations ----
 
   parseTasks(content: string): TaskData[] {
-    return parseGitHubIssues(content, this.statusLabels, (id, title) =>
-      this.getTaskSpecPath(id, title)
-    );
+    return parseGitHubIssues(content, this.statusLabels);
   }
 
   formatTasks(tasks: TaskData[]): string {
@@ -169,22 +165,6 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
   async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
     return syncTasksToGitHub(this.octokit, this.owner, this.repo, content);
-  }
-
-  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
-    try {
-      log.debug("GitHub backend: spec data managed through issues", { specPath });
-      return { success: true };
-    } catch (error) {
-      log.error("Failed to save task spec data", {
-        specPath,
-        error: getErrorMessage(error as Error),
-      });
-      return {
-        success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
-      };
-    }
   }
 
   // ---- Helper Methods ----
@@ -208,10 +188,6 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     };
   }
 
-  getTaskSpecPath(taskId: string, title: string): string {
-    return getTaskSpecRelativePath(taskId, title, this.workspacePath);
-  }
-
   async fileExists(_path: string): Promise<boolean> {
     return true;
   }
@@ -230,7 +206,6 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         id: taskData.id,
         title: taskData.title,
         status: taskData.status,
-        specPath: taskData.specPath,
         spec: taskData.spec,
         tags: taskData.tags || [],
       }));
@@ -279,21 +254,6 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       throw new Error(`Task ${id} not found`);
     }
     await updateIssueStatus(this.octokit, this.owner, this.repo, id, status, this.statusLabels);
-  }
-
-  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
-    const result = await this.getTaskSpecData(specPath);
-    if (!result.success || !result.content) {
-      throw new Error(`Failed to read task spec: ${specPath}`);
-    }
-    return createIssueFromSpec(
-      this.octokit,
-      this.owner,
-      this.repo,
-      result.content,
-      specPath,
-      this.statusLabels
-    );
   }
 
   async createTaskFromTitleAndDescription(

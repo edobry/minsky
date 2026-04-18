@@ -146,13 +146,11 @@ export const TASK_PARSING_UTILS = {
    * @param line The markdown line to parse
    * @returns Parsed components or null if not a valid task line
    */
-  parseTaskLine(
-    line: string
-  ): { checkbox: string; title: string; id: string; specPath?: string } | null {
+  parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
     if (!match) return null;
 
-    const [, checkbox, title, fullId, specPath] = match;
+    const [, checkbox, title, fullId] = match;
     if (!checkbox || !title || !fullId) return null;
 
     // Use unified task ID system for consistent handling
@@ -174,7 +172,6 @@ export const TASK_PARSING_UTILS = {
       checkbox: checkbox,
       title: title.trim(),
       id: id,
-      specPath: specPath,
     };
   },
 

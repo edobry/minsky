@@ -47,10 +47,7 @@ export function getTasksCustomizations(): {
               description: "Title for the task",
             },
             description: {
-              description: "Description text for the task",
-            },
-            specPath: {
-              description: "Path to file containing task description",
+              description: "Description text for the task (DEPRECATED: use spec)",
             },
           },
         },

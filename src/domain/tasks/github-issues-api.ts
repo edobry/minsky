@@ -234,7 +234,6 @@ export async function createIssueFromSpec(
   owner: string,
   repo: string,
   specContent: string,
-  specPath: string,
   statusLabels: Record<string, string>,
   tags?: string[]
 ): Promise<Task> {
@@ -254,7 +253,6 @@ export async function createIssueFromSpec(
     id: taskId,
     title: spec.title,
     status: "TODO",
-    specPath,
     spec: spec.body || "",
   };
 }

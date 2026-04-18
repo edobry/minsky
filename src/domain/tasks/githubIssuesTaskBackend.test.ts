@@ -4,7 +4,7 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
-import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+
 import { TaskStatus } from "./taskConstants";
 
 // Mock implementations that we can control and verify
@@ -166,7 +166,6 @@ describe("GitHubIssuesTaskBackend", () => {
           title: "Test Task",
           spec: "Test description",
           status: TaskStatus.TODO,
-          specPath: PATH_TEST_PATTERNS.TASK_MD_001,
         },
       ];
 
@@ -221,23 +220,6 @@ This is a test task description.
       expect(_result).toContain("## Description\nTest description");
       expect(_result).toContain("## GitHub Issue");
       expect(_result).toContain("- Issue: #1");
-    });
-  });
-
-  describe("getTaskSpecPath", () => {
-    test("should generate correct spec path", () => {
-      const path = backend.getTaskSpecPath("#001", "Test Task");
-      expect(path).toBe(PATH_TEST_PATTERNS.TASK_MD_001);
-    });
-
-    test("should handle task ID without # prefix", () => {
-      const path = backend.getTaskSpecPath("001", "Test Task");
-      expect(path).toBe(PATH_TEST_PATTERNS.TASK_MD_001);
-    });
-
-    test("should normalize title for filename", () => {
-      const path = backend.getTaskSpecPath("#001", "Test Task With Special Characters!");
-      expect(path).toBe("process/tasks/001-test-task-with-special-characters-.md");
     });
   });
 });

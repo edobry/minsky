@@ -14,7 +14,6 @@ export const taskStateSchema = z.object({
       id: z.string(),
       title: z.string(),
       status: taskStatusSchema,
-      specPath: z.string().optional(),
       description: z.string().optional(),
     })
   ),
