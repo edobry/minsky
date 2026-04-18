@@ -81,7 +81,6 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
   return tasks
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
-      const specPath = task.specPath || "#";
       // Multi-backend ID format: preserve task ID as-is for consistent storage/retrieval
       let displayId: string;
       if (task.id.includes("#")) {
@@ -92,7 +91,7 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
         // This ensures round-trip consistency: store "update-test" → retrieve "update-test"
         displayId = task.id;
       }
-      const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
+      const taskLine = `- [${checkbox}] ${task.title} [${displayId}](#)`;
 
       // Always return only the task line - descriptions should remain in spec files
       return taskLine;
@@ -283,11 +282,6 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
     // Filter by title (regex match)
     if (filter.title && filter.title instanceof RegExp) {
       return filter.title.test(task.title);
-    }
-
-    // Filter by spec path existence
-    if (filter.hasSpecPath !== undefined) {
-      return filter.hasSpecPath ? !!task.specPath : !task.specPath;
     }
 
     return true;

@@ -70,12 +70,6 @@ describe("Session Auto-Task Creation", () => {
       workspacePath: "/test/workspace",
     });
     fakeTaskService.createTaskFromTitleAndSpec = createTaskSpy;
-    fakeTaskService.createTask = () =>
-      Promise.resolve({
-        id: "md#001",
-        title: "Test Task",
-        status: "TODO",
-      });
     fakeTaskService.deleteTask = () => Promise.resolve(true);
     mockTaskService = fakeTaskService;
 

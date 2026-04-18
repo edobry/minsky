@@ -83,7 +83,6 @@ describe("Task Constants and Utilities", () => {
             checkbox: " ",
             title: "Test task",
             id: `#${TEST_VALUE}`,
-            specPath: "path/to/spec.md",
           },
         },
         {
@@ -92,7 +91,6 @@ describe("Task Constants and Utilities", () => {
             checkbox: "x",
             title: "Completed task",
             id: "#456",
-            specPath: "path/to/spec.md",
           },
         },
         {
@@ -101,7 +99,6 @@ describe("Task Constants and Utilities", () => {
             checkbox: "~",
             title: "Blocked task",
             id: "#789",
-            specPath: "path/to/spec.md",
           },
         },
       ];

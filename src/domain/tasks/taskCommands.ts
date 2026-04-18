@@ -16,8 +16,7 @@ import {
 import type { Task } from "./types";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { readTextFile } from "../../utils/fs";
-import { join } from "path";
+
 import { first } from "../../utils/array-safety";
 
 /**
@@ -443,9 +442,11 @@ export async function createTaskFromParams(
       backend: validParams.backend,
     });
 
-    // Create the task
-    const task = await taskService.createTask(validParams.title, {
+    // Create the task from title and spec content
+    const specContent = validParams.spec || validParams.description || "";
+    const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
       force: validParams.force,
+      tags: validParams.tags,
     });
 
     // Auto-commit functionality was removed - no backend-specific handling needed
@@ -491,18 +492,8 @@ export async function createTaskFromTitleAndSpec(
     backend: validParams.backend, // Let service determine backend via detection/config
   });
 
-  // Handle spec content - either from spec string or specPath file
-  let specContent = validParams.spec || "";
-
-  if (validParams.specPath) {
-    try {
-      specContent = await readTextFile(validParams.specPath);
-    } catch (error) {
-      throw new Error(
-        `Failed to read spec from file ${validParams.specPath}: ${getErrorMessage(error)}`
-      );
-    }
-  }
+  // Handle spec content - from spec string only
+  const specContent = validParams.spec || "";
 
   // Create the task from title and spec
   const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent);
@@ -556,62 +547,32 @@ export async function getTaskSpecContentFromParams(
       backend: validParams.backend,
     });
 
-    // Get the task
-    const task = await taskService.getTask(taskId);
-    if (!task) {
-      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
-    }
-
-    // Use the task's spec path directly
-    const specPath = task.specPath;
-
-    if (!specPath) {
-      throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
-    }
-
-    // Read the spec content with workspace-relative path handling
-    let content: string;
-    try {
-      const fullSpecPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
-      content = await readTextFile(fullSpecPath);
-    } catch (error) {
-      throw new ResourceNotFoundError(
-        `Could not read specification file at ${specPath}`,
-        "file",
-        specPath
-      );
-    }
+    // Delegate to service which reads spec content from the backend
+    const result = await taskService.getTaskSpecContent(taskId, validParams.section);
 
     // If a specific section is requested, extract it
-    let sectionContent = content;
-    if (validParams.section) {
-      const lines = content.toString().split("\n");
+    let sectionContent = result.content;
+    if (validParams.section && result.content) {
+      const lines = result.content.toString().split("\n");
       const sectionStart = lines.findIndex((line) =>
         line.toLowerCase().startsWith(`## ${validParams.section!.toLowerCase()}`)
       );
 
-      if (sectionStart === -1) {
-        throw new ResourceNotFoundError(
-          `Section "${validParams.section}" not found in task ${taskId} specification`
-        );
-      }
-
-      // Find the next section or end of file
-      let sectionEnd = lines.length;
-      for (let i = sectionStart + 1; i < lines.length; i++) {
-        if (lines[i]?.startsWith("## ")) {
-          sectionEnd = i;
-          break;
+      if (sectionStart !== -1) {
+        let sectionEnd = lines.length;
+        for (let i = sectionStart + 1; i < lines.length; i++) {
+          if (lines[i]?.startsWith("## ")) {
+            sectionEnd = i;
+            break;
+          }
         }
+        sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
       }
-
-      sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
     }
 
-    // Return the task and content
     return {
-      task,
-      specPath,
+      task: result.task,
+      specPath: result.specPath,
       content: sectionContent,
       section: validParams.section,
     };

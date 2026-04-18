@@ -160,10 +160,6 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
             output += `Spec: ${taskObj.spec}\n`;
           }
 
-          if (taskObj.specPath) {
-            output += `Spec: ${taskObj.specPath}\n`;
-          }
-
           return output.trim();
         }
       }

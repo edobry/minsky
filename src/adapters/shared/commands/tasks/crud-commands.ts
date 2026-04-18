@@ -49,7 +49,6 @@ interface TasksCreateParams extends BaseTaskParams {
   title: string;
   description?: string;
   spec?: string;
-  specPath?: string;
   force?: boolean;
   githubRepo?: string;
   dependsOn?: string | string[];
@@ -290,16 +289,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       // Resolve spec content: prefer params.spec, fall back to deprecated params.description
       const specContent = params.spec || params.description;
 
-      // Validate that either spec or specPath is provided
-      if (!specContent && !params.specPath) {
-        throw new ValidationError("Either --spec or --spec-path must be provided");
-      }
-
-      // Both spec and specPath provided is an error
-      if (specContent && params.specPath) {
-        throw new ValidationError(
-          "Cannot provide both --spec and --spec-path - use one or the other"
-        );
+      // Validate that spec content is provided
+      if (!specContent) {
+        throw new ValidationError("--spec must be provided");
       }
 
       // Normalize tag param to string array for domain layer
@@ -320,7 +312,6 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const result = await createTaskFromTitleAndSpec({
         title: params.title,
         spec: specContent, // spec content (or deprecated description alias)
-        specPath: params.specPath,
         force: params.force ?? false,
         backend: params.backend,
         repo: params.repo,
@@ -398,11 +389,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       let message = `Task ${result.id} created: "${result.title}"`;
       if (!params.json) {
         const { default: chalk } = await import("chalk");
-        if (params.specPath) {
-          message = chalk.green(`✅ Task ${result.id} created successfully with specification`);
-        } else {
-          message = chalk.green(`✅ Task ${result.id} created successfully`);
-        }
+        message = chalk.green(`✅ Task ${result.id} created successfully`);
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.id}`;
         if (tags && tags.length > 0) {
