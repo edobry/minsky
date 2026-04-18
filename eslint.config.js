@@ -204,6 +204,8 @@ export default [
             "**/src/domain/tasks/taskCommands.ts",
             // Utility composition roots
             "**/src/utils/repo.ts",
+            // DI composition roots (the canonical place for singleton resolution)
+            "**/src/composition/**/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
             "**/src/adapters/shared/commands/**/*.ts",
             // CLI command composition roots
