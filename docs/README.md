@@ -12,7 +12,8 @@ This directory contains comprehensive documentation for the Minsky development w
 ## Core Concepts
 
 - [**Domain Concepts**](../src/domain/concepts.md) - Core Minsky concepts (Repository, Session, Workspace)
-- [**Architecture Overview**](../README.md#architecture) - System architecture and design patterns
+- [**Theory of Operation**](./theory-of-operation.md) - How cybernetic theory maps to code modules (VSM, environmental pre-delegation)
+- [**Architecture Overview**](./architecture.md) - System architecture, command registry, persistence, DI
 
 ## Feature Documentation
 

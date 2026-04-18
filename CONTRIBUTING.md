@@ -182,7 +182,7 @@ bun run validate-all   # run all checks (format + lint + typecheck + tests)
 
 ### Custom ESLint rules
 
-The project enforces 11 custom rules under the `custom/` prefix:
+The project enforces 12 custom rules under the `custom/` prefix:
 
 | Rule                            | Level | Purpose                                         |
 | ------------------------------- | ----- | ----------------------------------------------- |
