@@ -64,6 +64,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDepsGraphCommand,
   } = require("./deps-visualization-commands");
   const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
+  const { createTasksDispatchCommand } = require("./dispatch-command");
 
   return [
     createTasksStatusGetCommand(),
@@ -92,5 +93,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     // Routing commands
     createTasksAvailableCommand(getPersistenceProvider),
     createTasksRouteCommand(getPersistenceProvider),
+    // Dispatch (subtask + session + prompt in one call)
+    createTasksDispatchCommand(getPersistenceProvider),
   ];
 }
