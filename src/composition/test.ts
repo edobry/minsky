@@ -11,7 +11,7 @@
  * @see mt#761 spec, "Phase 2: Create composition roots"
  */
 
-import { AppContainer } from "./container";
+import { TsyringeContainer } from "./container";
 import type { AppServices, AppContainerInterface } from "./types";
 
 /**
@@ -20,7 +20,7 @@ import type { AppServices, AppContainerInterface } from "./types";
  * No initialize() call needed — all services are set directly.
  */
 export function createTestContainer(overrides: Partial<AppServices> = {}): AppContainerInterface {
-  const container = new AppContainer();
+  const container = new TsyringeContainer();
 
   // Default fakes — minimal stubs that satisfy the type constraints.
   // Tests override the services they actually care about.

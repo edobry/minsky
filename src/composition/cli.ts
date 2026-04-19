@@ -12,7 +12,7 @@
  * @see mt#761 spec, "Phase 2: Create composition roots and wire CLI"
  */
 
-import { AppContainer } from "./container";
+import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
 
 /**
@@ -20,7 +20,7 @@ import type { AppContainerInterface } from "./types";
  * Does NOT call initialize() — the caller controls when async services start.
  */
 export async function createCliContainer(): Promise<AppContainerInterface> {
-  const container = new AppContainer();
+  const container = new TsyringeContainer();
 
   // --- Infrastructure (async) ---
 

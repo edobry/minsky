@@ -25,6 +25,9 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
 
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist",

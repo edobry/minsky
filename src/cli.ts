@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import "reflect-metadata";
 
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it

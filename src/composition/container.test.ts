@@ -14,8 +14,9 @@
  * - Async factories are properly awaited
  */
 
+import "reflect-metadata";
 import { describe, test, expect } from "bun:test";
-import { AppContainer } from "./container";
+import { TsyringeContainer } from "./container";
 import type { AppServices } from "./types";
 
 // Minimal fakes that satisfy the type constraints
@@ -40,18 +41,18 @@ const fakeGitService = {
   execInRepository: async () => "",
 } as unknown as AppServices["gitService"];
 
-describe("AppContainer", () => {
+describe("TsyringeContainer", () => {
   // --- register() + initialize() + get() ---
 
   test("register + initialize + get: basic sync factory", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.register("persistence", () => fakePersistence);
     await container.initialize();
     expect(container.get("persistence")).toBe(fakePersistence);
   });
 
   test("register + initialize + get: async factory", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.register("persistence", async () => {
       // Simulate async work (DB connection)
       await new Promise((r) => setTimeout(r, 1));
@@ -64,14 +65,14 @@ describe("AppContainer", () => {
   // --- set() ---
 
   test("set: directly provides instance without factory", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.set("persistence", fakePersistence);
     expect(container.get("persistence")).toBe(fakePersistence);
   });
 
   test("set: takes precedence over register (factory not called)", async () => {
     let factoryCalled = false;
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.register("persistence", () => {
       factoryCalled = true;
       return fakePersistence;
@@ -85,12 +86,12 @@ describe("AppContainer", () => {
   // --- get() throws ---
 
   test("get: throws for unregistered service", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     expect(() => container.get("persistence")).toThrow(SERVICE_NOT_AVAILABLE);
   });
 
   test("get: throws for registered but not initialized service", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.register("persistence", () => fakePersistence);
     // initialize() not called
     expect(() => container.get("persistence")).toThrow(SERVICE_NOT_AVAILABLE);
@@ -99,18 +100,18 @@ describe("AppContainer", () => {
   // --- has() ---
 
   test("has: returns false for unregistered service", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     expect(container.has("persistence")).toBe(false);
   });
 
   test("has: returns true after set()", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.set("persistence", fakePersistence);
     expect(container.has("persistence")).toBe(true);
   });
 
   test("has: returns true after initialize()", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.register("persistence", () => fakePersistence);
     expect(container.has("persistence")).toBe(false);
     await container.initialize();
@@ -121,7 +122,7 @@ describe("AppContainer", () => {
 
   test("initialize: resolves factories in registration order", async () => {
     const order: string[] = [];
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     container.register("persistence", () => {
       order.push("persistence");
@@ -143,7 +144,7 @@ describe("AppContainer", () => {
   // --- Dependency resolution via get() ---
 
   test("factories can access previously resolved services", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     container.register("persistence", () => fakePersistence);
     container.register("sessionProvider", (c) => {
@@ -158,7 +159,7 @@ describe("AppContainer", () => {
   });
 
   test("factory throws if dependency not yet resolved (wrong registration order)", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     // Register sessionProvider BEFORE persistence — wrong order
     container.register("sessionProvider", (c) => {
@@ -174,7 +175,7 @@ describe("AppContainer", () => {
 
   test("close: calls registered disposers", async () => {
     let disposed = false;
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     container.register("persistence", () => fakePersistence, {
       dispose: async () => {
@@ -190,7 +191,7 @@ describe("AppContainer", () => {
 
   test("close: disposes in reverse registration order", async () => {
     const order: string[] = [];
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     container.register("persistence", () => fakePersistence, {
       dispose: async () => {
@@ -215,7 +216,7 @@ describe("AppContainer", () => {
   });
 
   test("close: clears all instances", async () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     container.set("persistence", fakePersistence);
     expect(container.has("persistence")).toBe(true);
     await container.close();
@@ -225,7 +226,7 @@ describe("AppContainer", () => {
   // --- Chaining ---
 
   test("register and set return this for chaining", () => {
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
     const result = container
       .register("persistence", () => fakePersistence)
       .set("gitService", fakeGitService);
@@ -236,7 +237,7 @@ describe("AppContainer", () => {
 
   test("re-registering a key updates the factory and moves to end of init order", async () => {
     const order: string[] = [];
-    const container = new AppContainer();
+    const container = new TsyringeContainer();
 
     container.register("persistence", () => {
       order.push("persistence-v1");
