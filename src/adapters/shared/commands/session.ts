@@ -30,6 +30,7 @@ import {
   createSessionPrListCommand,
   createSessionPrGetCommand,
   createSessionPrOpenCommand,
+  createSessionPrChecksCommand,
 } from "./session/workflow-commands";
 import { createSessionConflictsCommand } from "./session/conflicts-command";
 import { createSessionRepairCommand } from "./session/repair-command";
@@ -87,6 +88,7 @@ export async function registerSessionCommands(
     createSessionPrOpenCommand(getDeps),
     createSessionPrApproveCommand(getDeps),
     createSessionPrMergeCommand(getDeps),
+    createSessionPrChecksCommand(getDeps),
 
     // Migration
     createSessionMigrateCommand(getDeps),
