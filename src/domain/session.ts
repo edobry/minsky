@@ -35,6 +35,7 @@ import type {
 import type { GitServiceInterface } from "./git";
 
 import { SessionService, type SessionDeps, createSessionDeps } from "./session/session-service";
+import type { PersistenceProvider } from "./persistence/types";
 
 // Re-export canonical types from sub-modules
 export type { Session, SessionProviderInterface, SessionRecord } from "./session/types";
@@ -73,14 +74,36 @@ import type { SessionProviderInterface } from "./session/types";
 /**
  * Resolves a partial deps object into a full SessionDeps, filling in any
  * missing fields with real implementations.
+ *
+ * In production, all fields are typically provided by the composition root /
+ * container. The fallbacks here exist for direct callers (tests, scripts)
+ * that provide at least sessionProvider.
  */
-async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<SessionDeps> {
-  if (!partial) return createSessionDeps();
+async function resolvePartialDeps(
+  partial?: Partial<SessionDeps> & { persistenceProvider?: PersistenceProvider }
+): Promise<SessionDeps> {
+  if (!partial) {
+    throw new Error(
+      "resolvePartialDeps requires at least a sessionProvider. " +
+        "Use the DI container to obtain fully-wired SessionDeps."
+    );
+  }
+
+  const persistenceProvider = partial.persistenceProvider;
 
   // Create individual defaults lazily — only instantiate what's actually missing.
   // This avoids triggering heavy service initialization (e.g. PersistenceService)
   // when tests provide their own mocks for the fields they care about.
-  const sessionProvider = partial.sessionProvider ?? (await createSessionProvider());
+  const sessionProvider =
+    partial.sessionProvider ??
+    (persistenceProvider
+      ? await createSessionProvider(undefined, persistenceProvider)
+      : (() => {
+          throw new Error(
+            "Cannot create sessionProvider without persistenceProvider. " +
+              "Pass sessionProvider or persistenceProvider in deps."
+          );
+        })());
   return {
     sessionProvider,
     gitService: partial.gitService ?? createGitService(),
@@ -88,14 +111,7 @@ async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<Sessi
       partial.taskService ??
       (await createConfiguredTaskService({
         workspacePath: process.cwd(),
-        persistenceProvider: await (async () => {
-          try {
-            const { defaultInstance } = await import("./persistence/service");
-            return defaultInstance.getProvider();
-          } catch {
-            return undefined;
-          }
-        })(),
+        persistenceProvider,
       })),
     workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(sessionProvider),
     getCurrentSession:
@@ -337,6 +353,7 @@ export async function approveSessionFromParams(
     workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
     createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
+    persistenceProvider?: PersistenceProvider;
     /** @deprecated kept for backward-compat with older tests */
     resolveRepoPath?: (...args: unknown[]) => Promise<string>;
     /** @deprecated Use createRepositoryBackend instead */
@@ -381,6 +398,7 @@ export async function approveSessionFromParams(
       taskService: depsInput?.taskService,
       workspaceUtils: depsInput?.workspaceUtils,
       createRepositoryBackendForSession: depsInput?.createRepositoryBackendForSession,
+      persistenceProvider: depsInput?.persistenceProvider,
     }
   );
 

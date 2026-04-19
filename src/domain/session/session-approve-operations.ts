@@ -23,6 +23,7 @@ import {
   type RepositoryBackend,
   type RepositoryBackendConfig,
 } from "../repository/index";
+import type { PersistenceProvider } from "../persistence/types";
 
 /**
  * Create repository backend from session record's stored configuration
@@ -95,6 +96,7 @@ export async function approveSessionImpl(
     workspaceUtils?: WorkspaceUtilsInterface;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
     createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
+    persistenceProvider?: PersistenceProvider;
   }
 ): Promise<{
   session: string;
@@ -131,14 +133,7 @@ export async function approveSessionImpl(
       ? depsInput.taskService
       : await createConfiguredTaskService({
           workspacePath: params.repo || process.cwd(),
-          persistenceProvider: await (async () => {
-            try {
-              const { defaultInstance } = await import("../persistence/service");
-              return defaultInstance.getProvider();
-            } catch {
-              return undefined;
-            }
-          })(),
+          persistenceProvider: depsInput.persistenceProvider,
         });
 
     try {
@@ -240,14 +235,7 @@ The task exists but has no associated session to approve.
       depsInput.taskService ||
       (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
-        persistenceProvider: await (async () => {
-          try {
-            const { defaultInstance } = await import("../persistence/service");
-            return defaultInstance.getProvider();
-          } catch {
-            return undefined;
-          }
-        })(),
+        persistenceProvider: depsInput.persistenceProvider,
       })),
     workspaceUtils: depsInput.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput.getCurrentSession || getCurrentSession,

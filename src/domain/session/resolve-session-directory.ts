@@ -6,7 +6,6 @@
  * See mt#562 for background on the bugs caused by inconsistent implementations.
  */
 
-import { _setProviderForTesting } from "./session-provider-cache";
 import type { SessionProviderInterface } from "./index";
 import { log } from "../../utils/logger";
 
@@ -38,12 +37,4 @@ export async function resolveSessionDirectory(
   log.debug(`Resolved session "${sessionId}" to path: ${repoPath}`);
 
   return repoPath;
-}
-
-/**
- * Reset the cached provider (for testing purposes).
- * @internal
- */
-export function _resetCachedProvider(): void {
-  _setProviderForTesting(null);
 }

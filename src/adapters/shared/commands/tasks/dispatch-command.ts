@@ -144,15 +144,19 @@ export function createTasksDispatchCommand(
         "../../../../domain/session/resolve-session-directory"
       );
 
-      // Use injected sessionProvider if available, otherwise fall back to cache
+      // Use injected sessionProvider if available, otherwise fall back to container
       let sessionProvider: import("../../../../domain/session/types").SessionProviderInterface;
       if (getSessionProvider) {
         sessionProvider = await getSessionProvider();
       } else {
-        const { getSharedSessionProvider } = await import(
-          "../../../../domain/session/session-provider-cache"
-        );
-        sessionProvider = await getSharedSessionProvider();
+        const { getAppContainer } = await import("../../bridges/cli/command-generator-core");
+        const container = getAppContainer();
+        if (!container?.has("sessionProvider")) {
+          throw new Error(
+            "No sessionProvider available. Pass getSessionProvider or initialize the DI container."
+          );
+        }
+        sessionProvider = container.get("sessionProvider");
       }
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
