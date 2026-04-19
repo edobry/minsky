@@ -27,40 +27,6 @@ export class PostgresVectorStorage implements VectorStorage {
     this.db = db;
   }
 
-  static async fromPersistenceProvider(
-    dimension: number,
-    config: PostgresVectorStorageConfig,
-    persistenceProvider: import("../../persistence/types").PersistenceProvider
-  ): Promise<PostgresVectorStorage> {
-    const provider = persistenceProvider;
-
-    if (!provider.capabilities.sql || !provider.capabilities.vectorStorage) {
-      throw new Error("Current persistence provider does not support SQL or vector storage");
-    }
-
-    const sql = (await provider.getRawSqlConnection?.()) as ReturnType<typeof postgres> | undefined;
-    const db = (await provider.getDatabaseConnection?.()) as PostgresJsDatabase | undefined;
-
-    if (!sql || !db) {
-      throw new Error("Failed to get database connections from persistence provider");
-    }
-
-    const storage = new PostgresVectorStorage(sql, db, dimension, config);
-    await storage.initialize();
-    return storage;
-  }
-
-  /**
-   * @deprecated Use fromPersistenceProvider() instead
-   */
-  static async fromSessionDbConfig(
-    dimension: number,
-    config: PostgresVectorStorageConfig,
-    persistenceProvider: import("../../persistence/types").PersistenceProvider
-  ): Promise<PostgresVectorStorage> {
-    return PostgresVectorStorage.fromPersistenceProvider(dimension, config, persistenceProvider);
-  }
-
   async initialize(): Promise<void> {
     await this.sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
     // Tables are managed by Drizzle migrations. No-op here to avoid drift.

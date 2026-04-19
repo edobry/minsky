@@ -7,6 +7,7 @@ import { createToolsVectorStorageFromConfig } from "../../storage/vector/vector-
 import { getEmbeddingDimension } from "../../ai/embedding-models";
 import { getConfiguration } from "../../configuration";
 import { sharedCommandRegistry } from "../../../adapters/shared/command-registry";
+import { defaultInstance } from "../../persistence/service";
 
 export interface ToolSimilarityCoreOptions {
   disableEmbeddings?: boolean;
@@ -21,7 +22,10 @@ export async function createToolSimilarityCore(options: ToolSimilarityCoreOption
   if (!options.disableEmbeddings) {
     try {
       const embedding = await createEmbeddingServiceFromConfig();
-      const storage = await createToolsVectorStorageFromConfig(dimension);
+      const storage = await createToolsVectorStorageFromConfig(
+        dimension,
+        defaultInstance.getProvider()
+      );
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
     } catch {
       embeddings = null; // Treat embeddings as unavailable when misconfigured in tests

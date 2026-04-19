@@ -2,7 +2,7 @@
  * Vector Storage Factory
  *
  * Creates vector storage instances using the persistence provider.
- * Updated to use dependency injection pattern with PersistenceProvider.
+ * Uses dependency injection pattern with PersistenceProvider (required).
  */
 
 import type { VectorStorage } from "./types";
@@ -15,16 +15,9 @@ import { log } from "../../../utils/logger";
  */
 export async function createVectorStorageFromConfig(
   dimension: number,
-  persistenceProvider?: PersistenceProvider
+  persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
-  // Resolve provider: use injected or fall back to PersistenceService (composition boundary)
-  let provider: PersistenceProvider;
-  if (persistenceProvider) {
-    provider = persistenceProvider;
-  } else {
-    const { defaultInstance: persistenceService } = await import("../../persistence/service");
-    provider = persistenceService.getProvider();
-  }
+  const provider = persistenceProvider;
 
   // Check if provider supports vector storage
   if (!provider.capabilities.vectorStorage) {
@@ -49,7 +42,7 @@ export async function createVectorStorageFromConfig(
  */
 export async function createRulesVectorStorageFromConfig(
   dimension: number,
-  persistenceProvider?: PersistenceProvider
+  persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
   // For now, use the same implementation as tasks
   // In the future, this could create a separate vector storage instance
@@ -63,7 +56,7 @@ export async function createRulesVectorStorageFromConfig(
  */
 export async function createToolsVectorStorageFromConfig(
   dimension: number,
-  persistenceProvider?: PersistenceProvider
+  persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
   // For now, use the same implementation as tasks
   // In the future, this could create a separate vector storage instance
