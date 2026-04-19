@@ -11,7 +11,7 @@ import { z } from "zod";
  * Validation configuration
  */
 export const validationConfigSchema = z
-  .object({
+  .strictObject({
     // Whether to use strict validation (reject unknown fields)
     strictMode: z.boolean().default(false),
 
@@ -24,7 +24,6 @@ export const validationConfigSchema = z
     // Whether to include the validation error code in warnings
     includeCodeInWarnings: z.boolean().default(false),
   })
-  .strict()
   .default({
     strictMode: false,
     warnOnUnknown: true,

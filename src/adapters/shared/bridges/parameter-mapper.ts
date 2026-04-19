@@ -197,26 +197,29 @@ function addTypeHandlingToOption(
  * Try to determine the Zod schema type for appropriate option handling
  */
 function getZodSchemaType(schema: z.ZodType): string | undefined {
+  // Use Zod v4 .type property for schema type identification
+  const schemaType = (schema as { type?: string }).type;
+
   // Handle primitive types
-  if (schema instanceof z.ZodString) return "string";
-  if (schema instanceof z.ZodNumber) return "number";
-  if (schema instanceof z.ZodBoolean) return "boolean";
+  if (schemaType === "string") return "string";
+  if (schemaType === "number") return "number";
+  if (schemaType === "boolean") return "boolean";
 
   // Handle arrays
-  if (schema instanceof z.ZodArray) return "array";
+  if (schemaType === "array") return "array";
 
   // Handle optional types and nullable types (unwrap and check inner type)
-  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-    return getZodSchemaType(schema.unwrap() as z.ZodType);
+  if (schemaType === "optional" || schemaType === "nullable") {
+    return getZodSchemaType((schema as z.ZodOptional | z.ZodNullable).unwrap() as z.ZodType);
   }
 
-  // Handle default types (access inner type differently)
-  if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType(schema._def.innerType as z.ZodType);
+  // Handle default types (unwrap and check inner type)
+  if (schemaType === "default") {
+    return getZodSchemaType((schema as z.ZodDefault).removeDefault() as z.ZodType);
   }
 
   // Handle enums
-  if (schema instanceof z.ZodEnum) return "string";
+  if (schemaType === "enum") return "string";
 
   // Default to string for other types
   return "string";

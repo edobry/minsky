@@ -73,10 +73,14 @@ export function createOptionFlag(name: string, shortFlag?: string): string {
  * @returns Formatted flag string with value placeholder
  */
 export function addValuePlaceholder(flag: string, schema: z.ZodType): string {
+  // Use Zod v4 .type property for schema type identification
+  const schemaType = (schema as { type?: string }).type;
+
   // Determine if the parameter takes a value
   const isBooleanType =
-    schema instanceof z.ZodBoolean ||
-    (schema instanceof z.ZodOptional && schema.unwrap() instanceof z.ZodBoolean);
+    schemaType === "boolean" ||
+    (schemaType === "optional" &&
+      ((schema as z.ZodOptional).unwrap() as { type?: string }).type === "boolean");
 
   // Boolean options don't need a value placeholder
   if (isBooleanType) {
@@ -86,15 +90,15 @@ export function addValuePlaceholder(flag: string, schema: z.ZodType): string {
   // Determine the placeholder text based on schema type
   let placeholder = "value";
 
-  if (schema instanceof z.ZodString) {
+  if (schemaType === "string") {
     placeholder = "string";
-  } else if (schema instanceof z.ZodNumber) {
+  } else if (schemaType === "number") {
     placeholder = "number";
-  } else if (schema instanceof z.ZodEnum) {
+  } else if (schemaType === "enum") {
     placeholder = "enum";
-  } else if (schema instanceof z.ZodOptional) {
+  } else if (schemaType === "optional") {
     // Recurse to check the inner type
-    return addValuePlaceholder(flag, schema.unwrap() as z.ZodType);
+    return addValuePlaceholder(flag, (schema as z.ZodOptional).unwrap() as z.ZodType);
   }
 
   return `${flag} <${placeholder}>`;
@@ -121,8 +125,11 @@ export function getSchemaDescription(
     (schema as { description?: string }).description!.length > 0
   ) {
     description = schema.description;
-  } else if (schema instanceof z.ZodOptional && "description" in schema.unwrap()) {
-    const innerDesc = (schema.unwrap() as { description?: string }).description;
+  } else if (
+    (schema as { type?: string }).type === "optional" &&
+    "description" in (schema as z.ZodOptional).unwrap()
+  ) {
+    const innerDesc = ((schema as z.ZodOptional).unwrap() as { description?: string }).description;
     if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }

@@ -28,7 +28,7 @@ import {
  * Task status schema - used across all interfaces
  * Uses the TaskStatus enum for type safety and consistency
  */
-export const TaskStatusSchema = z.nativeEnum(TaskStatus);
+export const TaskStatusSchema = z.enum(TaskStatus);
 
 /**
  * Task priority schema - used across all interfaces

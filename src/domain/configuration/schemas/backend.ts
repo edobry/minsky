@@ -23,35 +23,30 @@ export const backendSchema = enumSchemas.backendType.optional();
 /**
  * GitHub Issues backend-specific configuration
  */
-export const githubIssuesBackendConfigSchema = z
-  .object({
-    owner: baseSchemas.organizationName.optional(),
-    repo: baseSchemas.repositoryName.optional(),
-  })
-  .strict();
+export const githubIssuesBackendConfigSchema = z.strictObject({
+  owner: baseSchemas.organizationName.optional(),
+  repo: baseSchemas.repositoryName.optional(),
+});
 
 /**
  * Combined backend-specific configurations
  */
 export const backendConfigSchema = z
-  .object({
+  .strictObject({
     "github-issues": githubIssuesBackendConfigSchema.optional(),
   })
-  .strict()
   .default({});
 
 /**
  * Complete backend configuration combining all backend-related settings
  */
-export const backendFullConfigSchema = z
-  .object({
-    // Main backend selection
-    backend: backendSchema,
+export const backendFullConfigSchema = z.strictObject({
+  // Main backend selection
+  backend: backendSchema,
 
-    // Backend-specific configurations
-    backendConfig: backendConfigSchema,
-  })
-  .strict();
+  // Backend-specific configurations
+  backendConfig: backendConfigSchema,
+});
 
 /**
  * Repository GitHub-specific configuration
@@ -67,13 +62,11 @@ export const repositoryGitHubConfigSchema = z.object({
  * Stores the project-level repository backend type and associated settings,
  * detected once at `minsky init` and stored in .minsky/config.yaml.
  */
-export const repositoryConfigSchema = z
-  .object({
-    backend: enumSchemas.repoBackendType.optional(),
-    url: z.string().optional(),
-    github: repositoryGitHubConfigSchema.optional(),
-  })
-  .passthrough();
+export const repositoryConfigSchema = z.looseObject({
+  backend: enumSchemas.repoBackendType.optional(),
+  url: z.string().optional(),
+  github: repositoryGitHubConfigSchema.optional(),
+});
 
 // Type exports
 export type Backend = z.infer<typeof backendSchema>;
