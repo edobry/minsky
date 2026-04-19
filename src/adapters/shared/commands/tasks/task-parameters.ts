@@ -296,6 +296,11 @@ export const tasksGetParams = {
     description: "Include task specification content in the response",
     required: false,
   },
+  includeSubtasks: {
+    schema: z.boolean().default(false),
+    description: "Include subtask summary in the response",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 /**

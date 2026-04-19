@@ -42,6 +42,7 @@ interface TasksListParams extends BaseTaskParams {
 interface TasksGetParams extends BaseTaskParams {
   taskId: string;
   includeSpec?: boolean;
+  includeSubtasks?: boolean;
 }
 
 /**
@@ -305,7 +306,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       });
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
-      // Enrich with subtask summary if this task has children
+      // Enrich with subtask summary if requested and this task has children
       let subtaskSummary:
         | {
             total: number;
@@ -314,7 +315,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
           }
         | undefined;
 
-      if (this.getPersistenceProvider) {
+      if (params.includeSubtasks && this.getPersistenceProvider) {
         try {
           const persistence = this.getPersistenceProvider();
           const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;

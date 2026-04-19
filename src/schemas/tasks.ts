@@ -69,6 +69,7 @@ export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
     .boolean()
     .optional()
     .describe("Include task specification content in the response"),
+  includeSubtasks: z.boolean().optional().describe("Include subtask summary in the response"),
 });
 
 /**
