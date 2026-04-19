@@ -193,3 +193,23 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 - Shared command registry: commands defined once, adapted to CLI and MCP
 - Capability-based persistence providers (ADR-002)
 - Multi-backend tasks: GitHub Issues, Minsky DB
+- Dependency injection via tsyringe (see below)
+
+### Dependency Injection
+
+The codebase uses [tsyringe](https://github.com/microsoft/tsyringe) for constructor-based dependency injection. All stateful services are classes with `@injectable()` decorators; stateless logic remains plain functions.
+
+**Container**: `src/composition/container.ts` — `TsyringeContainer` wraps tsyringe's `DependencyContainer`, implementing `AppContainerInterface` with async lifecycle support (`initialize()`/`close()`).
+
+**Composition roots**: `src/composition/cli.ts` (production, deferred init via preAction hook), `src/composition/test.ts` (fakes via `set()`).
+
+**Tokens**: `src/composition/tokens.ts` — string tokens for 7 core services (`persistence`, `sessionProvider`, `sessionDeps`, `gitService`, `taskService`, `workspaceUtils`, `repositoryBackend`).
+
+**Polyfill**: `import "reflect-metadata"` must appear before any decorated class is loaded — it's at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (test preload).
+
+**Writing new services**:
+
+- Stateful service → class with `@injectable()` and constructor injection
+- Add `@inject("tokenName")` to constructor params that correspond to registered tokens
+- Stateless logic → plain functions (no decorator needed)
+- Domain code receives dependencies via typed interfaces, never via the container directly
