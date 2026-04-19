@@ -50,9 +50,11 @@ For each file changed, understand:
 - If behavior looks changed, read the surrounding code to understand the full context.
 - Classify each finding with evidence:
   - **Blocking** — verified real issue introduced by this PR, with file:line evidence
-  - **Non-blocking** — real concern but low risk or stylistic
+  - **Non-blocking** — real concern but low risk or stylistic, AND genuinely out of scope or requiring separate investigation
   - **Pre-existing** — real issue but not introduced by this PR (note for follow-up)
   - **False positive** — concern was disproven by reading the source (do not include in review)
+
+**Decision gate for non-blocking findings:** If a finding is (a) in-scope for the current task AND (b) the fix is known and actionable, it is **BLOCKING**, not non-blocking. "Non-blocking" means the issue is genuinely out of scope, requires separate investigation, or is a stylistic preference — not "I know the fix but want to defer it." In-scope actionable work must be fixed before merge.
 
 Only include verified findings in the GitHub review. Drop false positives entirely rather than padding the review.
 

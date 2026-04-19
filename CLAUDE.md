@@ -149,6 +149,7 @@ The `/review-pr` skill requires a **Spec verification** section in every review.
 - **Artifact creation is not progress.** Creating tasks, updating specs, writing rules, and process discussion are not substitutes for doing the work. If you can describe exactly what needs to be done, do it.
 - **Before proposing to ship**, check the task spec's success criteria. If items are unmet and actionable, keep working.
 - **Never notice an issue without acting on it.** If you discover a problem, duplication, or architectural concern that's out of scope to fix now, immediately file a task with `mcp__minsky__tasks_create`. Mentioning it in chat is not action — it must become a trackable artifact (task, spec update, or memory). There is no "worth noting for a follow-up" without creating the follow-up.
+- **Process corrections require structural fixes, not memories.** When corrected on a process failure, invoke `/retrospective` to analyze the root cause and produce durable fixes (hooks, skill updates, CLAUDE.md changes). Saving a memory is not enforcement — memories are behavioral guidance that can be ignored. Hooks and skill steps are structural and cannot be bypassed.
 
 ## Task Creation
 

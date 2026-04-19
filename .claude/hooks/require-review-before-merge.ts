@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-// PreToolUse hook: block session_pr_merge if no review exists on the PR
-// or if the review lacks a spec verification section.
-// Ensures code review AND spec verification are complete before merging.
+// PreToolUse hook: block session_pr_merge if no review exists on the PR,
+// the review lacks a spec verification section, or the review is stale
+// (covers an older commit than PR HEAD).
+// Ensures code review, spec verification, AND review freshness before merging.
 
 import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
@@ -13,7 +14,7 @@ if (!task) process.exit(0);
 
 const branch = `task/${task.replace("#", "-")}`;
 
-// Get PR number for this branch
+// Get PR number and head SHA for this branch
 const prResult = execSync([
   "gh",
   "pr",
@@ -23,23 +24,26 @@ const prResult = execSync([
   "--head",
   branch,
   "--json",
-  "number",
+  "number,headRefOid",
   "--jq",
-  ".[0].number",
+  ".[0] | [.number, .headRefOid] | @tsv",
 ]);
-const pr = prResult.stdout.trim();
+const prParts = prResult.stdout.trim().split("\t");
+const pr = prParts[0];
+const headSha = prParts[1];
 if (!pr) process.exit(0);
 
+// Get all reviews
+const reviewsJson = execSync(["gh", "api", `repos/edobry/minsky/pulls/${pr}/reviews`]);
+let reviews: Array<{ body: string; commit_id: string; submitted_at: string }>;
+try {
+  reviews = JSON.parse(reviewsJson.stdout.trim());
+} catch {
+  reviews = [];
+}
+
 // Check that at least one review exists
-const reviewsResult = execSync([
-  "gh",
-  "api",
-  `repos/edobry/minsky/pulls/${pr}/reviews`,
-  "--jq",
-  "length",
-]);
-const reviews = reviewsResult.stdout.trim();
-if (reviews === "0" || !reviews) {
+if (reviews.length === 0) {
   writeOutput({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
@@ -51,15 +55,8 @@ if (reviews === "0" || !reviews) {
 }
 
 // Check that at least one review contains spec verification
-const hasSpecResult = execSync([
-  "gh",
-  "api",
-  `repos/edobry/minsky/pulls/${pr}/reviews`,
-  "--jq",
-  '[.[].body] | any(test("Spec verification|spec verification|SPEC VERIFICATION"))',
-]);
-const hasSpec = hasSpecResult.stdout.trim();
-if (hasSpec !== "true") {
+const hasSpec = reviews.some((r) => r.body && /spec verification/i.test(r.body));
+if (!hasSpec) {
   writeOutput({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
@@ -68,4 +65,24 @@ if (hasSpec !== "true") {
     },
   });
   process.exit(0);
+}
+
+// Check that the most recent review with spec verification covers the current HEAD
+if (headSha) {
+  const specReviews = reviews
+    .filter((r) => r.body && /spec verification/i.test(r.body))
+    .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
+  const latestReview = specReviews[0];
+  if (latestReview && latestReview.commit_id !== headSha) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          `Review on PR #${pr} is stale — covers commit ${latestReview.commit_id.slice(0, 7)} ` +
+          `but PR HEAD is ${headSha.slice(0, 7)}. Re-run /review-pr to review the latest changes.`,
+      },
+    });
+    process.exit(0);
+  }
 }
