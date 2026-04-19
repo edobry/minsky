@@ -317,6 +317,19 @@ export const sessionMigrateBackendCommandParams = {
 };
 
 /**
+ * Session migrate (ID format) command parameters
+ */
+export const sessionMigrateCommandParams = {
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without modifying anything",
+    required: false,
+    defaultValue: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session inspect command parameters
  */
 export const sessionInspectCommandParams = {

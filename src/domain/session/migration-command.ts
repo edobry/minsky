@@ -6,6 +6,9 @@ import {
   type MultiBackendSessionRecord,
 } from "./multi-backend-integration";
 import { isUuidSessionId, generateSessionId } from "../tasks/task-id";
+import { existsSync, renameSync } from "node:fs";
+import { getSessionsDir } from "../../utils/paths";
+import { join } from "node:path";
 
 /**
  * Migration command options
@@ -357,16 +360,45 @@ export class SessionMigrationService {
     // Step 5: Process sessions
     const results = await this.processBatch(filteredSessions, batchSize, onProgress);
 
-    // Step 6: Apply changes to database (if not dry run)
+    // Step 6: Apply changes to database and filesystem (if not dry run)
     if (!dryRun) {
+      const sessionsDir = getSessionsDir();
+
       for (const result of results) {
         if (result.success && result.migrated) {
           try {
-            await this.sessionDB.updateSession(result.original.session, result.migrated);
+            if (result.changes.sessionIdChanged) {
+              // Primary key changed — can't use updateSession (it strips the session field).
+              // Use create-new + rename-directory + delete-old pattern instead.
+              const oldId = result.original.session;
+              const newId = result.migrated.session;
+              const oldDir = join(sessionsDir, oldId);
+              const newDir = join(sessionsDir, newId);
+
+              // Rename filesystem directory first (fail-safe: if this fails, DB is untouched)
+              if (existsSync(oldDir)) {
+                if (existsSync(newDir)) {
+                  result.success = false;
+                  result.error = `Target directory already exists: ${newDir}`;
+                  continue;
+                }
+                renameSync(oldDir, newDir);
+                log.debug(`Renamed directory: ${oldId} → ${newId}`);
+              }
+
+              // Create new DB record with the UUID
+              await this.sessionDB.addSession(result.migrated as SessionRecord);
+              // Delete old DB record
+              await this.sessionDB.deleteSession(oldId);
+              log.debug(`Migrated DB record: ${oldId} → ${newId}`);
+            } else {
+              // No ID change — safe to use updateSession for other field updates
+              await this.sessionDB.updateSession(result.original.session, result.migrated);
+            }
           } catch (error) {
-            // Mark this result as failed if database update fails
+            // Mark this result as failed if database/filesystem update fails
             result.success = false;
-            result.error = `Database update failed: ${error instanceof Error ? error.message : String(error)}`;
+            result.error = `Migration failed: ${error instanceof Error ? error.message : String(error)}`;
           }
         }
       }

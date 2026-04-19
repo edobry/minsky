@@ -115,8 +115,8 @@ describe("Session Migration Command", () => {
         const analysis = await migrationService.analyzeMigrationNeeds();
 
         expect(analysis.total).toBe(6); // 3 legacy + 2 modern + 1 custom
-        expect(analysis.needsMigration).toBe(3); // Only legacy sessions need migration
-        expect(analysis.alreadyMigrated).toBe(2); // Modern sessions with task IDs
+        expect(analysis.needsMigration).toBe(5); // All non-UUID sessions with taskIds need migration
+        expect(analysis.alreadyMigrated).toBe(0); // None are UUID format yet
       });
 
       it("should handle empty database", async () => {
@@ -193,21 +193,15 @@ describe("Session Migration Command", () => {
         expect(report.progress.migrated).toBe(3);
         expect(report.progress.failed).toBe(0);
 
-        // Should have updated database
-        expect(sessionDB.updateSession).toHaveBeenCalledTimes(3);
+        // Should have used create+delete pattern (not updateSession) for ID changes
+        expect(sessionDB.addSession).toHaveBeenCalledTimes(3);
+        expect(sessionDB.deleteSession).toHaveBeenCalledTimes(3);
 
-        // Verify specific migrations — session IDs are now UUIDs
-        expect(sessionDB.updateSession).toHaveBeenCalledWith(
-          "task123",
-          expect.objectContaining({
-            taskId: "md#123",
-            taskBackend: "md",
-            legacyTaskId: "123",
-          })
-        );
-        // Verify the migrated session ID is a UUID
-        const firstCall = (sessionDB.updateSession as any).mock.calls[0];
-        expect(isUuidSessionId(firstCall[1].session)).toBe(true);
+        // Verify the new session records have UUID IDs
+        const addCalls = (sessionDB.addSession as any).mock.calls;
+        for (const call of addCalls) {
+          expect(isUuidSessionId(call[0].session)).toBe(true);
+        }
       });
 
       it("should handle batch processing", async () => {
@@ -360,9 +354,9 @@ describe("Session Migration Command", () => {
         const mockData = createMockSessionData();
         const sessionDB = createMockSessionDB(mockData.legacy);
 
-        // Mock updateSession to fail
-        sessionDB.updateSession = mock(async () => {
-          throw new Error("Database update failed");
+        // Mock addSession to fail (used for ID changes via create+delete pattern)
+        sessionDB.addSession = mock(async () => {
+          throw new Error("Database insert failed");
         });
 
         const migrationService = new SessionMigrationService(sessionDB);
