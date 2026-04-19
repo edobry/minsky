@@ -30,16 +30,9 @@ export class PostgresVectorStorage implements VectorStorage {
   static async fromPersistenceProvider(
     dimension: number,
     config: PostgresVectorStorageConfig,
-    persistenceProvider?: import("../../persistence/types").PersistenceProvider
+    persistenceProvider: import("../../persistence/types").PersistenceProvider
   ): Promise<PostgresVectorStorage> {
-    // Use injected provider or fall back to PersistenceService singleton
-    let provider: import("../../persistence/types").PersistenceProvider;
-    if (persistenceProvider) {
-      provider = persistenceProvider;
-    } else {
-      const { PersistenceService } = await import("../../persistence/service");
-      provider = PersistenceService.getProvider();
-    }
+    const provider = persistenceProvider;
 
     if (!provider.capabilities.sql || !provider.capabilities.vectorStorage) {
       throw new Error("Current persistence provider does not support SQL or vector storage");
@@ -62,21 +55,10 @@ export class PostgresVectorStorage implements VectorStorage {
    */
   static async fromSessionDbConfig(
     dimension: number,
-    config: PostgresVectorStorageConfig
+    config: PostgresVectorStorageConfig,
+    persistenceProvider: import("../../persistence/types").PersistenceProvider
   ): Promise<PostgresVectorStorage> {
-    return PostgresVectorStorage.fromPersistenceProvider(dimension, config);
-  }
-
-  // Convenience for task embeddings
-  static async forTasksEmbeddingsFromConfig(dimension: number): Promise<PostgresVectorStorage> {
-    return PostgresVectorStorage.fromPersistenceProvider(dimension, {
-      tableName: "tasks_embeddings",
-      idColumn: "task_id",
-      embeddingColumn: "vector",
-      // dimension column was dropped in migration 0009
-      lastIndexedAtColumn: "indexed_at",
-      contentHashColumn: "content_hash",
-    });
+    return PostgresVectorStorage.fromPersistenceProvider(dimension, config, persistenceProvider);
   }
 
   async initialize(): Promise<void> {

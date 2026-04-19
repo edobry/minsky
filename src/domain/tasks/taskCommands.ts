@@ -19,14 +19,16 @@ import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { first } from "../../utils/array-safety";
 
 /**
- * Module-level wrapper that lazily creates a sessionProvider for bare resolveRepoPath calls.
- * This is a composition boundary — domain functions above should receive deps injected.
+ * Module-level wrapper for resolveRepoPath.
+ * sessionProvider is required — callers must inject it or use the container.
  */
 async function resolveRepoPath(
   options: { repo?: string; session?: string },
   sessionProvider?: SessionProviderInterface
 ): Promise<string> {
   if (!sessionProvider) {
+    // Fallback for callers that don't yet inject sessionProvider.
+    // This path should be eliminated as DI migration progresses.
     const { getSharedSessionProvider } = await import("../session/session-provider-cache");
     sessionProvider = await getSharedSessionProvider();
   }

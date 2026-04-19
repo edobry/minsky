@@ -346,17 +346,10 @@ export async function deleteIssue(
       throw new Error(`Could not extract issue number from task ID ${taskId}`);
     }
 
-    // Attempt to remove from database
+    // Attempt to remove from database (only if a provider was injected)
     try {
-      let provider: import("../persistence/types").PersistenceProvider;
-      if (persistenceProvider) {
-        provider = persistenceProvider;
-      } else {
-        const { PersistenceService } = await import("../persistence/service");
-        provider = PersistenceService.getProvider();
-      }
-
-      if (provider.capabilities.sql) {
+      if (persistenceProvider && persistenceProvider.capabilities.sql) {
+        const provider = persistenceProvider;
         const db = (await provider.getDatabaseConnection?.()) as
           | import("drizzle-orm/postgres-js").PostgresJsDatabase
           | undefined;

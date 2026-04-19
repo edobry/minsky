@@ -17,7 +17,7 @@ export async function createVectorStorageFromConfig(
   dimension: number,
   persistenceProvider?: PersistenceProvider
 ): Promise<VectorStorage> {
-  // Use injected provider or fall back to PersistenceService singleton
+  // Resolve provider: use injected or fall back to PersistenceService (composition boundary)
   let provider: PersistenceProvider;
   if (persistenceProvider) {
     provider = persistenceProvider;

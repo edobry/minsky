@@ -706,11 +706,10 @@ const configDoctorRegistration = defineCommand({
     // Embedding index coverage
     try {
       const provider = ctx.container?.has("persistence")
-        ? ctx.container.get("persistence")
-        : (() => {
-            const { PersistenceService } = require("../../../domain/persistence/service");
-            return PersistenceService.isInitialized() ? PersistenceService.getProvider() : null;
-          })();
+        ? (ctx.container.get(
+            "persistence"
+          ) as import("../../../domain/persistence/types").PersistenceProvider)
+        : null;
       if (provider) {
         if (provider.capabilities.sql) {
           const rawSql = await provider.getRawSqlConnection?.();

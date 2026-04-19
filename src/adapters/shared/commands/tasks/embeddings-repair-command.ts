@@ -25,15 +25,16 @@ export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepa
   readonly parameters = embeddingsRepairParams;
 
   async execute(params: EmbeddingsRepairParams, ctx: CommandExecutionContext) {
-    const { PersistenceService } = await import("../../../../domain/persistence/service");
-    if (!PersistenceService.isInitialized()) {
+    if (!ctx.container?.has("persistence")) {
       return this.formatResult(
-        { success: false, message: "Persistence not initialized" },
+        { success: false, message: "Persistence not initialized (no container)" },
         params.json || ctx.format === "json"
       );
     }
 
-    const provider = PersistenceService.getProvider();
+    const provider = ctx.container.get(
+      "persistence"
+    ) as import("../../../../domain/persistence/types").PersistenceProvider;
     if (!provider.capabilities.sql) {
       return this.formatResult(
         { success: false, message: "SQL not supported by current provider" },
