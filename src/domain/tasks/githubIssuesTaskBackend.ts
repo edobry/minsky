@@ -230,7 +230,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
   async getTask(id: string): Promise<Task | null> {
     try {
-      const tasks = await this.listTasks();
+      const tasks = await this.listTasks({ all: true });
       return tasks.find((task) => task.id === id) || null;
     } catch (error) {
       log.error("Failed to get task", { id, error: getErrorMessage(error) });
