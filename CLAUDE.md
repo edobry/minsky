@@ -134,6 +134,14 @@ Task specs may be stale — written in a prior conversation when the codebase wa
 3. If items are already done or no longer applicable, update the spec before starting work
 4. This prevents wasted effort on stale targets and ensures subagents get accurate instructions
 
+### Mid-task: Persist investigation findings
+
+After completing any investigation, audit, or research phase for a task, persist findings to the task spec **before** presenting them in chat. Chat is volatile — session termination loses all findings. The spec is the durable artifact.
+
+1. Update the task spec with findings (`tasks_edit` with `specContent`) — include file paths, line numbers, and rationale
+2. Mark completed criteria (e.g., `[x] Audit completed`)
+3. Then present a summary to the user in chat
+
 ### Spec verification gates merge
 
 The `/review-pr` skill requires a **Spec verification** section in every review. The pre-merge hook (`require-review-before-merge.ts`) blocks merges if the review lacks this section. This ensures:
