@@ -243,7 +243,6 @@ export async function createTaskFromTitleAndSpec(
   const taskService = await createTaskService({
     workspacePath,
     backend: validParams.backend, // Let service determine backend via detection/config
-    persistenceProvider: undefined,
   });
 
   // Handle spec content - from spec string only
