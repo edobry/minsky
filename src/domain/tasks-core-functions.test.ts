@@ -69,6 +69,7 @@ describe("interface-agnostic task functions", () => {
         setTaskStatus: () => Promise.resolve(),
         createTaskFromTitleAndSpec: () => Promise.resolve(mockTask),
         deleteTask: () => Promise.resolve(true),
+        getTasks: (ids: string[]) => Promise.resolve(ids.map(() => mockTask)),
         getTaskSpecContent: () =>
           Promise.resolve({ task: mockTask, specPath: "/mock/spec.md", content: "" }),
         listBackends: () => [{ name: "minsky", prefix: "mt" }],

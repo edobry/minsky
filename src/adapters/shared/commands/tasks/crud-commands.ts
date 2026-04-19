@@ -324,29 +324,42 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
           const childIds = await service.listChildren(validatedTaskId);
 
           if (childIds.length > 0) {
+            const { createConfiguredTaskService } = await import(
+              "../../../../domain/tasks/taskService"
+            );
+            const { resolveRepoPath } = await import(
+              "../../../../domain/tasks/commands/shared-helpers"
+            );
+            const taskBaseParams = this.createTaskParams(params);
+            const workspacePath = await resolveRepoPath({
+              session: taskBaseParams.session as string | undefined,
+              repo: taskBaseParams.repo as string | undefined,
+            });
+            const childTaskService = await createConfiguredTaskService({
+              workspacePath,
+              backend: taskBaseParams.backend as string | undefined,
+              persistenceProvider: persistence,
+            });
+            const childTasks = await childTaskService.getTasks(childIds);
+
+            // Build a map for quick lookup; unresolved IDs fall back to "(unknown)"
+            const childTaskMap = new Map(childTasks.map((t) => [t.id, t]));
+
             const remaining: Array<{ id: string; title: string; status: string }> = [];
             let doneCount = 0;
             for (const childId of childIds) {
-              try {
-                const childTask = await getTaskFromParams(
-                  {
-                    ...this.createTaskParams(params),
-                    taskId: childId,
-                  },
-                  { persistenceProvider: this.getPersistenceProvider?.() }
-                );
-                if (childTask) {
-                  if (childTask.status === "DONE" || childTask.status === "CLOSED") {
-                    doneCount++;
-                  } else {
-                    remaining.push({
-                      id: childTask.id,
-                      title: childTask.title,
-                      status: childTask.status,
-                    });
-                  }
+              const childTask = childTaskMap.get(childId);
+              if (childTask) {
+                if (childTask.status === "DONE" || childTask.status === "CLOSED") {
+                  doneCount++;
+                } else {
+                  remaining.push({
+                    id: childTask.id,
+                    title: childTask.title,
+                    status: childTask.status,
+                  });
                 }
-              } catch {
+              } else {
                 remaining.push({ id: childId, title: "(unknown)", status: "UNKNOWN" });
               }
             }
