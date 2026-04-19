@@ -5,6 +5,7 @@
  * with proper hierarchical precedence and validation.
  */
 
+import { z } from "zod";
 import type { Configuration, PartialConfiguration, ConfigurationValidationResult } from "./schemas";
 import { configurationSchema } from "./schemas";
 import { getDefaultConfiguration, defaultsSourceMetadata } from "./sources/defaults";
@@ -414,17 +415,14 @@ export class ConfigurationLoader {
   /**
    * Extract readable validation errors from Zod error
    */
-  private extractValidationErrors(error: {
-    errors?: Array<{ path?: (string | number)[]; message?: string }>;
-    message?: string;
-  }): string[] {
-    if (!error.errors || !Array.isArray(error.errors)) {
+  private extractValidationErrors(error: z.ZodError): string[] {
+    if (!error.issues || !Array.isArray(error.issues)) {
       return [error.message || String(error)];
     }
 
-    return error.errors.map((err) => {
-      const path = err.path && err.path.length > 0 ? err.path.join(".") : "root";
-      return `${path}: ${err.message}`;
+    return error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "root";
+      return `${path}: ${issue.message}`;
     });
   }
 
