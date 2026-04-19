@@ -138,7 +138,7 @@ export const BaseErrorResponseSchema = z.object({
   success: z.literal(false),
   error: z.string(),
   errorCode: z.string().optional(),
-  details: z.record(z.any()).optional(),
+  details: z.record(z.string(), z.any()).optional(),
   timestamp: z.string().datetime().optional(),
 });
 
@@ -191,7 +191,7 @@ export const BaseSortingSchema = z.object({
 /**
  * Complete listing parameters combining pagination and sorting
  */
-export const BaseListingParametersSchema = BasePaginationSchema.merge(BaseSortingSchema);
+export const BaseListingParametersSchema = BasePaginationSchema.extend(BaseSortingSchema.shape);
 
 // ========================
 // COMMON RESPONSE BUILDERS

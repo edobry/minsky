@@ -35,22 +35,22 @@ const TaskIdentifierSchema = z.object({
 /**
  * Schema for task edit operations
  */
-const TaskEditSchema = TaskIdentifierSchema.merge(
+const TaskEditSchema = TaskIdentifierSchema.extend(
   z.object({
     instructions: z.string().describe("Instructions describing the edit to make"),
     content: z.string().describe("The edit content with '// ... existing code ...' markers"),
     dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
-  })
+  }).shape
 );
 
 /**
  * Schema for task search and replace operations
  */
-const TaskSearchReplaceSchema = TaskIdentifierSchema.merge(
+const TaskSearchReplaceSchema = TaskIdentifierSchema.extend(
   z.object({
     search: z.string().describe("Text to search for (must be unique in the task spec)"),
     replace: z.string().describe("Text to replace with"),
-  })
+  }).shape
 );
 
 // ========================

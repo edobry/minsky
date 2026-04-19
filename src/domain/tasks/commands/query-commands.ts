@@ -209,7 +209,7 @@ export async function getTaskStatusFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task status",
-        error.format(),
+        z.treeifyError(error),
         error
       );
     }
@@ -293,7 +293,7 @@ export async function getTaskSpecContentFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",
-        error.format(),
+        z.treeifyError(error),
         error
       );
     }

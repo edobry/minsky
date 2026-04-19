@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { getErrorMessage } from "../errors/index";
@@ -58,30 +57,22 @@ export class CommandMapper {
    * @param zodSchema The Zod schema to convert
    * @returns JSON Schema object
    */
-  public zodToJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
+  public zodToJsonSchema(zodSchema: z.ZodType): Record<string, unknown> {
     try {
-      const jsonSchema = zodToJsonSchema(zodSchema, {
-        name: "ToolParameters",
-        $refStrategy: "none", // Inline all definitions
+      const jsonSchema = z.toJSONSchema(zodSchema, {
+        unrepresentable: "any",
+        reused: "inline",
       }) as Record<string, unknown>;
 
-      // If the schema has a $ref, extract the actual definition
-      // This happens when zod-to-json-schema creates a wrapper with definitions
-      let flatSchema: Record<string, unknown> = jsonSchema;
-      const definitions = jsonSchema["definitions"] as Record<string, unknown> | undefined;
-      if (jsonSchema["$ref"] && definitions) {
-        const refKey = String(jsonSchema["$ref"]).replace("#/definitions/", "");
-        flatSchema = (definitions[refKey] as Record<string, unknown>) ?? jsonSchema;
-      }
-
       log.debug("Converted Zod to JSON Schema", {
-        zodType: zodSchema._def?.typeName,
-        originalSchema: jsonSchema,
-        flatSchema,
-        hasRef: !!jsonSchema["$ref"],
+        zodType:
+          "_zod" in zodSchema
+            ? (zodSchema._zod as { def?: { type?: string } }).def?.type
+            : undefined,
+        jsonSchema,
       });
 
-      return flatSchema;
+      return jsonSchema;
     } catch (error) {
       log.warn("Failed to convert Zod schema to JSON Schema, using fallback", {
         error: getErrorMessage(error),
@@ -103,7 +94,7 @@ export class CommandMapper {
   addCommand(command: {
     name: string;
     description: string;
-    parameters?: z.ZodTypeAny;
+    parameters?: z.ZodType;
     handler: (
       args: Record<string, unknown>,
       context?: ProjectContext

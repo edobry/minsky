@@ -44,11 +44,11 @@ describe("Session Diff and Status Tools", () => {
 
     test("should accept sessionId, optional path, and optional staged parameters", () => {
       const schema = registeredTools["session.diff"]?.schema as {
-        _def?: { shape?: () => Record<string, unknown> };
+        _def?: { shape?: Record<string, unknown> };
       };
       expect(schema).toBeDefined();
       // Verify zod schema has expected shape
-      const shape = schema?._def?.shape?.();
+      const shape = schema?._def?.shape;
       expect(shape).toBeDefined();
       expect(shape?.["sessionId"]).toBeDefined();
       expect(shape?.["path"]).toBeDefined();
@@ -71,10 +71,10 @@ describe("Session Diff and Status Tools", () => {
 
     test("should accept sessionId parameter", () => {
       const schema = registeredTools["session.status"]?.schema as {
-        _def?: { shape?: () => Record<string, unknown> };
+        _def?: { shape?: Record<string, unknown> };
       };
       expect(schema).toBeDefined();
-      const shape = schema?._def?.shape?.();
+      const shape = schema?._def?.shape;
       expect(shape).toBeDefined();
       expect(shape?.["sessionId"]).toBeDefined();
     });

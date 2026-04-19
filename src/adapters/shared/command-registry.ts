@@ -58,7 +58,8 @@ export interface CommandExecutionContext {
 /**
  * Represents a command parameter with type information and metadata
  */
-export interface CommandParameterDefinition<T extends z.ZodTypeAny = z.ZodTypeAny> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface CommandParameterDefinition<T extends z.ZodType = z.ZodType<any>> {
   /** Parameter schema used for validation */
   schema: T;
   /** Human-readable description */

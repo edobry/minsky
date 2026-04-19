@@ -86,7 +86,7 @@ export const TaskCreateParametersSchema = z
     dueDate: TaskDueDateSchema,
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Task update parameters
@@ -103,7 +103,7 @@ export const TaskUpdateParametersSchema = z
     dueDate: TaskDueDateSchema,
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Task deletion parameters
@@ -113,7 +113,7 @@ export const TaskDeleteParametersSchema = z
     taskId: TaskIdSchema,
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Task retrieval parameters
@@ -122,8 +122,8 @@ export const TaskGetParametersSchema = z
   .object({
     taskId: TaskIdSchema,
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 /**
  * Task listing parameters
@@ -136,9 +136,9 @@ export const TaskListParametersSchema = z
     tags: TaskTagsSchema,
     all: z.boolean().default(false),
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema)
-  .merge(BaseListingParametersSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape)
+  .extend(BaseListingParametersSchema.shape);
 
 /**
  * Task status update parameters
@@ -148,7 +148,7 @@ export const TaskStatusUpdateParametersSchema = z
     taskId: TaskIdSchema,
     status: TaskStatusSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Task specification retrieval parameters
@@ -158,8 +158,8 @@ export const TaskSpecParametersSchema = z
     taskId: TaskIdSchema,
     section: z.string().optional(),
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 // ========================
 // MULTI-BACKEND TASK PARAMETERS
@@ -179,7 +179,7 @@ export const MultiBackendTaskCreateParametersSchema = z
     force: ForceSchema,
     backend: BackendIdSchema.optional(), // Optional backend selection
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Multi-backend task update parameters
@@ -196,7 +196,7 @@ export const MultiBackendTaskUpdateParametersSchema = z
     dueDate: TaskDueDateSchema,
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Multi-backend task deletion parameters
@@ -206,7 +206,7 @@ export const MultiBackendTaskDeleteParametersSchema = z
     taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Multi-backend task retrieval parameters
@@ -215,8 +215,8 @@ export const MultiBackendTaskGetParametersSchema = z
   .object({
     taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 /**
  * Multi-backend task listing parameters
@@ -230,9 +230,9 @@ export const MultiBackendTaskListParametersSchema = z
     backend: BackendIdSchema.optional(), // Filter by specific backend
     backends: z.array(BackendIdSchema).optional(), // Filter by multiple backends
   })
-  .merge(BaseListingParametersSchema)
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseListingParametersSchema.shape)
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 /**
  * Cross-backend task search parameters
@@ -244,9 +244,9 @@ export const CrossBackendTaskSearchParametersSchema = z
     status: TaskStatusSchema.optional(),
     priority: TaskPrioritySchema.optional(),
   })
-  .merge(BaseListingParametersSchema)
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseListingParametersSchema.shape)
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 /**
  * Task migration parameters
@@ -257,8 +257,8 @@ export const TaskMigrationParametersSchema = z
     targetBackend: BackendIdSchema,
     force: ForceSchema,
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 // ========================
 // TASK RESPONSE SCHEMAS

@@ -16,7 +16,7 @@ type JsonSchema = {
 /**
  * Convert a Zod schema to JSON Schema format like Cursor uses
  */
-function zodToJsonSchema(zodSchema: z.ZodTypeAny): JsonSchema {
+function zodToJsonSchema(zodSchema: z.ZodType): JsonSchema {
   if (zodSchema instanceof z.ZodString) {
     return { type: "string" };
   } else if (zodSchema instanceof z.ZodNumber) {
@@ -26,21 +26,21 @@ function zodToJsonSchema(zodSchema: z.ZodTypeAny): JsonSchema {
   } else if (zodSchema instanceof z.ZodArray) {
     return {
       type: "array",
-      items: zodToJsonSchema(zodSchema._def.type),
+      items: zodToJsonSchema(zodSchema._def.element as z.ZodType),
     };
   } else if (zodSchema instanceof z.ZodEnum) {
     return {
       type: "string",
-      enum: zodSchema._def.values,
+      enum: zodSchema.options as string[],
     };
   } else if (zodSchema instanceof z.ZodUnion) {
-    const types = zodSchema._def.options.map((option: z.ZodTypeAny) => zodToJsonSchema(option));
+    const types = (zodSchema._def.options as z.ZodType[]).map((option) => zodToJsonSchema(option));
     // If it's a simple union of types, just use the first type for simplicity
     return types[0] || { type: "string" };
   } else if (zodSchema instanceof z.ZodOptional) {
-    return zodToJsonSchema(zodSchema._def.innerType);
+    return zodToJsonSchema(zodSchema.unwrap() as z.ZodType);
   } else if (zodSchema instanceof z.ZodDefault) {
-    return zodToJsonSchema(zodSchema._def.innerType);
+    return zodToJsonSchema(zodSchema._def.innerType as z.ZodType);
   } else {
     // Default to string for unknown types
     return { type: "string" };

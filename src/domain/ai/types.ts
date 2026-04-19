@@ -5,7 +5,7 @@
  * Built on top of Vercel AI SDK for provider abstraction.
  */
 
-import type { ZodTypeAny } from "zod";
+import type { ZodType } from "zod";
 
 // Provider configuration
 export interface AIProviderConfig {
@@ -100,7 +100,7 @@ export interface AICompletionService {
 
 export interface AIObjectGenerationRequest {
   messages?: Array<{ role: string; content: string }>;
-  schema: ZodTypeAny;
+  schema: ZodType;
   model?: string;
   temperature?: number;
   provider?: string;

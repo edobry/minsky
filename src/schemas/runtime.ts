@@ -23,7 +23,7 @@ export const bunRuntimeSchema = z.object({
 export const processSchema = z.object({
   argv: z.array(z.string()).describe("Command line arguments"),
   env: z.record(z.string(), z.string().optional()).describe("Environment variables"),
-  cwd: z.function().returns(z.string()).describe("Current working directory function"),
+  cwd: z.function({ output: z.string() }).describe("Current working directory function"),
   pid: z.number().describe("Process ID"),
   platform: z.string().describe("Operating system platform"),
   version: z.string().describe("Node.js version"),
@@ -34,13 +34,13 @@ export const processSchema = z.object({
  * File system stats schema for fs.statSync results
  */
 export const fileStatsSchema = z.object({
-  isFile: z.function().returns(z.boolean()),
-  isDirectory: z.function().returns(z.boolean()),
-  isBlockDevice: z.function().returns(z.boolean()),
-  isCharacterDevice: z.function().returns(z.boolean()),
-  isSymbolicLink: z.function().returns(z.boolean()),
-  isFIFO: z.function().returns(z.boolean()),
-  isSocket: z.function().returns(z.boolean()),
+  isFile: z.function({ output: z.boolean() }),
+  isDirectory: z.function({ output: z.boolean() }),
+  isBlockDevice: z.function({ output: z.boolean() }),
+  isCharacterDevice: z.function({ output: z.boolean() }),
+  isSymbolicLink: z.function({ output: z.boolean() }),
+  isFIFO: z.function({ output: z.boolean() }),
+  isSocket: z.function({ output: z.boolean() }),
   dev: z.number(),
   ino: z.number(),
   mode: z.number(),
@@ -97,8 +97,11 @@ export const commandDefinitionSchema = z.object({
  * Command registry schema
  */
 export const commandRegistrySchema = z.object({
-  getCommand: z.function().args(z.string()).returns(commandDefinitionSchema.optional()),
-  getAllCommands: z.function().returns(z.array(commandDefinitionSchema)).optional(),
+  getCommand: z.function({
+    input: z.tuple([z.string()]),
+    output: commandDefinitionSchema.optional(),
+  }),
+  getAllCommands: z.function({ output: z.array(commandDefinitionSchema) }).optional(),
 });
 
 /**
@@ -367,7 +370,7 @@ export function validateCommandDefinition(def: unknown): CommandDefinition {
         typeof obj.parameters === "object" && obj.parameters !== null
           ? (obj.parameters as Record<
               string,
-              { required?: boolean; description?: string; schema?: unknown; defaultValue?: unknown }
+              { schema: unknown; required?: boolean; description?: string; defaultValue?: unknown }
             >)
           : {},
     };

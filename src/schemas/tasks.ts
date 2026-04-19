@@ -83,7 +83,7 @@ export const taskStatusGetParamsSchema = z
       .optional()
       .describe("Specify task backend (available: github-issues, minsky)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .extend(commonCommandOptionsSchema.shape);
 
 /**
  * Type for task status get parameters
@@ -102,7 +102,7 @@ export const taskStatusSetParamsSchema = z
       .optional()
       .describe("Specify task backend (available: github-issues, minsky)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .extend(commonCommandOptionsSchema.shape);
 
 /**
  * Type for task status set parameters
@@ -134,7 +134,7 @@ export const taskCreateParamsSchema = z
       .optional()
       .describe("Tags/labels for thematic batching (e.g., ['di-cleanup', 'test-quality'])"),
   })
-  .merge(commonCommandOptionsSchema)
+  .extend(commonCommandOptionsSchema.shape)
   .refine(
     (data) => {
       // Either spec or description must be provided (description is deprecated alias for spec)
@@ -176,7 +176,7 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
         "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
       ),
   })
-  .merge(commonCommandOptionsSchema)
+  .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.spec, {
     message: "'spec' must be provided",
     path: ["spec"],
@@ -197,7 +197,7 @@ export const taskSpecContentParamsSchema = z
       .optional()
       .describe("Specify task backend (available: github-issues, minsky)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .extend(commonCommandOptionsSchema.shape);
 
 /**
  * Type for task spec content parameters
@@ -216,7 +216,7 @@ export const taskDeleteParamsSchema = z
       .optional()
       .describe("Specify task backend (available: github-issues, minsky)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .extend(commonCommandOptionsSchema.shape);
 
 /**
  * Type for task delete parameters

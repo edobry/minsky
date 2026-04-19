@@ -62,7 +62,8 @@ export const rulesConfigSchema = z
     enabled: z.array(z.string()).default([]),
     disabled: z.array(z.string()).default([]),
   })
-  .default({});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  .default(() => ({}) as any);
 
 export type RulesTargetConfig = z.infer<typeof rulesTargetSchema>;
 export type RulesConfig = z.infer<typeof rulesConfigSchema>;

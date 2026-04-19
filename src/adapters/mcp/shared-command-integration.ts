@@ -20,13 +20,13 @@ import { z } from "zod";
  */
 function convertParametersToZodSchema(
   parameters: CommandParameterMap
-): z.ZodObject<Record<string, z.ZodTypeAny>> {
+): z.ZodObject<Record<string, z.ZodType>> {
   // If no parameters, return empty object schema
   if (!parameters || Object.keys(parameters).length === 0) {
     return z.object({});
   }
 
-  const shape: Record<string, z.ZodTypeAny> = {};
+  const shape: Record<string, z.ZodType> = {};
 
   for (const [key, param] of Object.entries(parameters)) {
     // Skip the json parameter in MCP context since MCP always returns JSON
@@ -55,7 +55,8 @@ function convertParametersToZodSchema(
     parameterCount: Object.keys(parameters).length,
     parameterKeys: Object.keys(parameters),
     shapeKeys: Object.keys(shape),
-    zodSchema: zodSchema._def,
+    zodSchemaType:
+      "_zod" in zodSchema ? (zodSchema._zod as { def?: { type?: string } }).def?.type : undefined,
   });
 
   return zodSchema;

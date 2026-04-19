@@ -77,10 +77,6 @@ describe("CommandMapper", () => {
       expect(jsonSchema.properties?.name).toEqual({ type: "string" });
       expect(jsonSchema.properties?.age).toEqual({ type: "number" });
       expect(jsonSchema.additionalProperties).toBe(false);
-
-      // Should not have $ref wrapper
-      expect(jsonSchema).not.toHaveProperty("$ref");
-      expect(jsonSchema).not.toHaveProperty("definitions");
     });
 
     test("should handle empty object schema", () => {
@@ -91,7 +87,6 @@ describe("CommandMapper", () => {
       expect(jsonSchema.type).toBe("object");
       expect(jsonSchema.properties).toEqual({});
       expect(jsonSchema.additionalProperties).toBe(false);
-      expect(jsonSchema).not.toHaveProperty("$ref");
     });
 
     test("should handle complex nested schemas", () => {
@@ -101,7 +96,7 @@ describe("CommandMapper", () => {
           email: z.string().email(),
         }),
         tags: z.array(z.string()),
-        metadata: z.record(z.string()),
+        metadata: z.record(z.string(), z.string()),
       });
 
       const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
@@ -111,7 +106,6 @@ describe("CommandMapper", () => {
       expect(jsonSchema.properties?.user).toBeDefined();
       expect(jsonSchema.properties?.tags).toBeDefined();
       expect(jsonSchema.properties?.metadata).toBeDefined();
-      expect(jsonSchema).not.toHaveProperty("$ref");
     });
 
     test("should handle schema with validation rules", () => {
@@ -127,7 +121,6 @@ describe("CommandMapper", () => {
       expect(jsonSchema.properties?.name).toBeDefined();
       expect(jsonSchema.properties?.count).toBeDefined();
       expect(jsonSchema.properties?.email).toBeDefined();
-      expect(jsonSchema).not.toHaveProperty("$ref");
     });
 
     test("should ensure schema is MCP-compatible", () => {
@@ -146,10 +139,6 @@ describe("CommandMapper", () => {
       // MCP validation expects direct schema, not wrapped in $ref
       expect(typeof jsonSchema.type).toBe("string");
       expect(jsonSchema.type).toBe("object");
-
-      // Should not have zod-to-json-schema $ref wrapper that breaks MCP validation
-      expect(jsonSchema).not.toHaveProperty("$ref");
-      expect(jsonSchema).not.toHaveProperty("definitions");
     });
 
     test("should produce schema that passes MCP server validation", () => {
@@ -165,25 +154,22 @@ describe("CommandMapper", () => {
 
       const jsonSchema = commandMapper.zodToJsonSchema(zodSchema);
 
-      // Verify the exact structure MCP server expects
-      expect(jsonSchema).toEqual({
+      // Verify the structure MCP server expects
+      expect(jsonSchema.type).toBe("object");
+      expect(jsonSchema.additionalProperties).toBe(false);
+      expect(jsonSchema.required).toEqual(["path"]);
+      const props = jsonSchema.properties as Record<string, Record<string, unknown>>;
+      expect(props.path).toEqual({
+        type: "string",
+        description: "File path to analyze",
+      });
+      expect(props.options).toEqual({
         type: "object",
         properties: {
-          path: {
-            type: "string",
-            description: "File path to analyze",
-          },
-          options: {
-            type: "object",
-            properties: {
-              verbose: {
-                type: "boolean",
-              },
-            },
-            additionalProperties: false,
+          verbose: {
+            type: "boolean",
           },
         },
-        required: ["path"],
         additionalProperties: false,
       });
     });

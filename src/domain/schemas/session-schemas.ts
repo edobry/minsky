@@ -72,8 +72,8 @@ export const SessionStartParametersSchema = z
     noStatusUpdate: z.boolean().default(false),
     quiet: QuietSchema,
   })
-  .merge(BaseBackendParametersSchema)
-  .merge(BaseExecutionContextSchema);
+  .extend(BaseBackendParametersSchema.shape)
+  .extend(BaseExecutionContextSchema.shape);
 
 /**
  * Session retrieval parameters
@@ -85,14 +85,14 @@ export const SessionGetParametersSchema = z
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session listing parameters
  */
-export const SessionListParametersSchema = BaseBackendParametersSchema.merge(
-  BaseExecutionContextSchema
-).merge(BaseListingParametersSchema);
+export const SessionListParametersSchema = BaseBackendParametersSchema.extend(
+  BaseExecutionContextSchema.shape
+).extend(BaseListingParametersSchema.shape);
 
 /**
  * Session deletion parameters
@@ -105,7 +105,7 @@ export const SessionDeleteParametersSchema = z
     force: ForceSchema,
     json: z.boolean().optional(),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session update parameters
@@ -126,7 +126,7 @@ export const SessionUpdateParametersSchema = z
     skipConflictCheck: z.boolean().default(false),
     skipIfAlreadyMerged: z.boolean().default(false),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session directory parameters
@@ -138,7 +138,7 @@ export const SessionDirectoryParametersSchema = z
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session PR creation parameters
@@ -160,7 +160,7 @@ export const SessionPRParametersSchema = z
     autoResolveDeleteConflicts: z.boolean().default(false),
     draft: z.boolean().default(false),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session approval parameters
@@ -173,7 +173,7 @@ export const SessionApproveParametersSchema = z
     task: TaskIdSchema.optional(),
     noStash: z.boolean().default(false),
   })
-  .merge(BaseBackendParametersSchema);
+  .extend(BaseBackendParametersSchema.shape);
 
 /**
  * Session commit parameters

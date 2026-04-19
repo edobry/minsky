@@ -47,7 +47,7 @@ export const commandParameterDefinitionSchema = z.object({
 /**
  * Schema for command parameter map
  */
-export const commandParameterMapSchema = z.record(commandParameterDefinitionSchema);
+export const commandParameterMapSchema = z.record(z.string(), commandParameterDefinitionSchema);
 
 /**
  * Schema for command definition

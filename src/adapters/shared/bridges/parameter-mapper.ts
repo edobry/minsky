@@ -196,7 +196,7 @@ function addTypeHandlingToOption(
 /**
  * Try to determine the Zod schema type for appropriate option handling
  */
-function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
+function getZodSchemaType(schema: z.ZodType): string | undefined {
   // Handle primitive types
   if (schema instanceof z.ZodString) return "string";
   if (schema instanceof z.ZodNumber) return "number";
@@ -207,12 +207,12 @@ function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
 
   // Handle optional types and nullable types (unwrap and check inner type)
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-    return getZodSchemaType(schema.unwrap());
+    return getZodSchemaType(schema.unwrap() as z.ZodType);
   }
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType(schema._def.innerType);
+    return getZodSchemaType(schema._def.innerType as z.ZodType);
   }
 
   // Handle enums

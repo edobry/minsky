@@ -65,6 +65,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   } = require("./deps-visualization-commands");
   const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
   const { createTasksDispatchCommand } = require("./dispatch-command");
+  const { createTasksOrchestrateCommand } = require("./orchestrate-command");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider),
@@ -94,9 +95,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksAvailableCommand(getPersistenceProvider),
     createTasksRouteCommand(getPersistenceProvider),
     // Dispatch (subtask + session + prompt in one call)
-    createTasksDispatchCommand(
-      getPersistenceProvider,
-      container?.has("sessionProvider") ? async () => container!.get("sessionProvider") : undefined
-    ),
+    createTasksDispatchCommand(getPersistenceProvider),
+    // Orchestrate (find dispatchable subtasks for a parent)
+    createTasksOrchestrateCommand(getPersistenceProvider),
   ];
 }
