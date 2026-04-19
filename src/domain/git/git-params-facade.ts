@@ -4,7 +4,8 @@
  * Interface-agnostic delegation functions that wrap modularGitCommandsManager methods.
  * Extracted from git.ts to reduce file size while preserving the public API.
  */
-import { modularGitCommandsManager } from "./git-commands-modular";
+import { modularGitCommandsManager, createModularGitCommandsManager } from "./git-commands-modular";
+import type { GitOperationDependencies } from "./operations/base-git-operation";
 import type { PreparePrResult } from "./prepare-pr-operations";
 import type { MergePrResult } from "./merge-pr-operations";
 import type { CloneResult } from "./clone-operations";
@@ -31,15 +32,19 @@ export async function createPullRequestFromParams(params: {
  * Interface-agnostic function to commit changes
  * MODULARIZED: Delegates to modular operation
  */
-export async function commitChangesFromParams(params: {
-  message: string;
-  session?: string;
-  repo?: string;
-  all?: boolean;
-  amend?: boolean;
-  noStage?: boolean;
-}): Promise<{ commitHash: string; message: string }> {
-  return await modularGitCommandsManager.commitChangesFromParams(params);
+export async function commitChangesFromParams(
+  params: {
+    message: string;
+    session?: string;
+    repo?: string;
+    all?: boolean;
+    amend?: boolean;
+    noStage?: boolean;
+  },
+  deps?: GitOperationDependencies
+): Promise<{ commitHash: string; message: string }> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.commitChangesFromParams(params);
 }
 
 /**
@@ -101,15 +106,18 @@ export async function branchFromParams(params: {
  * Interface-agnostic function to push changes to a remote repository
  * MODULARIZED: Delegates to modular operation
  */
-export async function pushFromParams(params: {
-  session?: string;
-  repo?: string;
-  remote?: string;
-  force?: boolean;
-  debug?: boolean;
-}): Promise<PushResult> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.pushFromParams(params);
+export async function pushFromParams(
+  params: {
+    session?: string;
+    repo?: string;
+    remote?: string;
+    force?: boolean;
+    debug?: boolean;
+  },
+  deps?: GitOperationDependencies
+): Promise<PushResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.pushFromParams(params);
 }
 
 /**
