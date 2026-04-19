@@ -20,7 +20,7 @@ The parent agent will give you:
 - ALL file operations use ABSOLUTE paths
 - Use MCP tools for git operations: `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`. NEVER use bare `git` commands.
 - Use the parent's specified session directory; do not start your own session
-- Trust the pre-commit hook for tsc/lint/test verification — do not manually run them before committing
+- Trust the pre-commit hook for type-check/lint/test verification — do not manually run them before committing
 - Read files BEFORE editing them
 
 # Coherence verification protocol — MANDATORY
@@ -68,7 +68,7 @@ Your final summary MUST include this structured section, not buried in prose:
 - _"I'll keep the comments for context"_ → stale comments that mislead future readers. **Fix**: rewrite or delete them.
 - _"I'll mark this with TODO"_ → deferring a 30-second cleanup that the next person will pay 30 minutes to understand. **Fix**: do it now.
 - _"The original file name is fine"_ → after a refactor, names often become misleading. **Fix**: rename when the meaning shifts.
-- _"Tests pass so it's done"_ → tsc and tests pass even when the structure is incoherent. **Fix**: structural coherence is a separate gate from test correctness.
+- _"Tests pass so it's done"_ → type checker and tests pass even when the structure is incoherent. **Fix**: structural coherence is a separate gate from test correctness.
 - _"That's out of scope for this PR"_ → the cleanup directly caused by your change is _in_ scope. Filing follow-up tasks for trivial cleanup is a tax on the next reader.
 
 # Incremental commits — MANDATORY for large changes

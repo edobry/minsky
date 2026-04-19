@@ -50,7 +50,7 @@ Minsky's hook architecture:
 | `check-prompt-watermark.ts`      | PreToolUse (merge) | Validates prompt watermark before merge          | Yes     |
 | `validate-task-spec.ts`          | PreToolUse         | Validates task spec structure                    | Yes     |
 
-Hooks can't detect semantic coherence (that requires understanding, not pattern matching), but they can enforce mechanical correctness (tsc, lint) and workflow invariants (review required).
+Hooks can't detect semantic coherence (that requires understanding, not pattern matching), but they can enforce mechanical correctness (type checking, lint) and workflow invariants (review required).
 
 ## The strength ordering
 
