@@ -5,6 +5,7 @@ import { createToolsVectorStorageFromConfig } from "../storage/vector/vector-sto
 import { getConfiguration } from "../configuration";
 import { getEmbeddingDimension } from "../ai/embedding-models";
 import { sharedCommandRegistry, type SharedCommand } from "../../adapters/shared/command-registry";
+import { defaultInstance } from "../persistence/service";
 
 const log = createLogger();
 
@@ -37,7 +38,10 @@ export class ToolEmbeddingService {
       ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
       "text-embedding-3-small";
     const dimension = getEmbeddingDimension(model, 1536);
-    const storage = await createToolsVectorStorageFromConfig(dimension);
+    const storage = await createToolsVectorStorageFromConfig(
+      dimension,
+      defaultInstance.getProvider()
+    );
 
     // Extract tool content for embedding
     const content = this.extractToolContent(tool);
@@ -137,7 +141,10 @@ export class ToolEmbeddingService {
         ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
         "text-embedding-3-small";
       const dimension = getEmbeddingDimension(model, 1536);
-      const storage = await createToolsVectorStorageFromConfig(dimension);
+      const storage = await createToolsVectorStorageFromConfig(
+        dimension,
+        defaultInstance.getProvider()
+      );
 
       if (typeof storage.getMetadata === "function") {
         return await storage.getMetadata(toolId);

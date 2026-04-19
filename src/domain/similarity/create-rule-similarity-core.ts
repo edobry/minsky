@@ -6,6 +6,7 @@ import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factor
 import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-storage-factory";
 import { RuleService } from "../rules";
 import { getConfiguration } from "../configuration";
+import { defaultInstance } from "../persistence/service";
 
 export interface RuleSimilarityCoreOptions {
   disableEmbeddings?: boolean;
@@ -23,7 +24,10 @@ export async function createRuleSimilarityCore(
   if (!options.disableEmbeddings) {
     try {
       const embedding = await createEmbeddingServiceFromConfig();
-      const storage = await createRulesVectorStorageFromConfig(dimension);
+      const storage = await createRulesVectorStorageFromConfig(
+        dimension,
+        defaultInstance.getProvider()
+      );
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
     } catch {
       embeddings = null;
