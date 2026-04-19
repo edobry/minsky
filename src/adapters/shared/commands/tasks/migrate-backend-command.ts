@@ -557,14 +557,26 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       return { passed: [], failed: [] };
     }
 
+    let persistenceProvider;
+    try {
+      const { defaultInstance: persistenceService } = await import(
+        "../../../../domain/persistence/service"
+      );
+      persistenceProvider = persistenceService.getProvider();
+    } catch {
+      // Persistence not available
+    }
+
     const sourceService = await createConfiguredTaskService({
       backend: sourceBackend,
       workspacePath,
+      persistenceProvider,
     });
 
     const targetService = await createConfiguredTaskService({
       backend: targetBackend,
       workspacePath,
+      persistenceProvider,
     });
 
     const passed: ValidationDetail[] = [];

@@ -89,6 +89,7 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
 
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
+        persistenceProvider: provider,
       });
 
       // Track whether we have dependency data available
@@ -250,6 +251,7 @@ export function createTasksRouteCommand(getPersistenceProvider: () => Persistenc
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
+        persistenceProvider: provider,
       });
       const routingService = new TaskRoutingService(graphService, taskService);
 

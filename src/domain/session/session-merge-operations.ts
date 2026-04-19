@@ -180,6 +180,14 @@ export async function mergeSessionPr(
     deps?.taskService ||
     (await createConfiguredTaskService({
       workspacePath: originalRepoPath,
+      persistenceProvider: await (async () => {
+        try {
+          const { defaultInstance } = await import("../persistence/service");
+          return defaultInstance.getProvider();
+        } catch {
+          return undefined;
+        }
+      })(),
     }));
   const gitService = deps?.gitService || createGitService();
 

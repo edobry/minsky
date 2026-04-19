@@ -107,7 +107,10 @@ async function createServices(getPersistenceProvider: () => PersistenceProvider)
   const persistence = getPersistenceProvider();
   const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
   const graphService = new TaskGraphService(db);
-  const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
+  const taskService = await createConfiguredTaskService({
+    workspacePath: process.cwd(),
+    persistenceProvider: getPersistenceProvider(),
+  });
   return { graphService, taskService };
 }
 

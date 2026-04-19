@@ -202,6 +202,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
           ? await resolveRepoPath({ repo: params.repo }, { sessionProvider: sessionDB })
           : await resolveMainWorkspacePath(sessionDB),
         backend: params.backend,
+        persistenceProvider: this.getPersistenceProvider?.(),
       });
 
       // Access internal multi-backend methods via a typed extension interface

@@ -85,7 +85,18 @@ async function resolvePartialDeps(partial?: Partial<SessionDeps>): Promise<Sessi
     sessionProvider,
     gitService: partial.gitService ?? createGitService(),
     taskService:
-      partial.taskService ?? (await createConfiguredTaskService({ workspacePath: process.cwd() })),
+      partial.taskService ??
+      (await createConfiguredTaskService({
+        workspacePath: process.cwd(),
+        persistenceProvider: await (async () => {
+          try {
+            const { defaultInstance } = await import("./persistence/service");
+            return defaultInstance.getProvider();
+          } catch {
+            return undefined;
+          }
+        })(),
+      })),
     workspaceUtils: partial.workspaceUtils ?? createWorkspaceUtils(sessionProvider),
     getCurrentSession:
       partial.getCurrentSession ??

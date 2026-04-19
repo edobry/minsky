@@ -61,8 +61,17 @@ export function createSpecCommand(): Command {
         force: false,
       };
 
-      // Call the domain function
-      const result = await getTaskSpecContentFromParams(params);
+      // Call the domain function with persistence for minsky backend support
+      let deps;
+      try {
+        const { defaultInstance: persistenceService } = await import(
+          "../../../domain/persistence/service"
+        );
+        deps = { persistenceProvider: persistenceService.getProvider() };
+      } catch {
+        // Persistence not available — minsky backend will be skipped
+      }
+      const result = await getTaskSpecContentFromParams(params, deps);
 
       // Format and display the result
       if (options.json) {
