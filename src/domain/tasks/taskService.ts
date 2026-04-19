@@ -39,6 +39,7 @@ export interface TaskServiceInterface {
 export interface TaskServiceOptions {
   workspacePath: string;
   backend?: string;
+  persistenceProvider?: import("../persistence/types").PersistenceProvider;
 }
 
 // ---- Factory Functions ----
@@ -167,14 +168,18 @@ export async function createConfiguredTaskService(options: {
           });
         }
       } else {
-        log.debug("Skipping minsky backend - persistence provider unavailable");
+        log.warn(
+          "Skipping minsky backend — no persistence provider injected. " +
+            "mt# tasks will be unavailable."
+        );
       }
 
       // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')
+      let configuredBackend: string | undefined;
       try {
         const { getConfiguration } = await import("../configuration");
         const config = getConfiguration();
-        const configuredBackend = config.tasks.backend; // Config system handles default fallback
+        configuredBackend = config.tasks.backend; // Config system handles default fallback
         if (configuredBackend) {
           service.setDefaultBackend?.(configuredBackend);
         }
@@ -184,7 +189,25 @@ export async function createConfiguredTaskService(options: {
           error: getErrorMessage(error),
         });
         // Fallback to 'minsky' if config system fails
+        configuredBackend = TaskBackend.MINSKY;
         service.setDefaultBackend?.(TaskBackend.MINSKY);
+      }
+
+      // Verify the configured default backend was actually registered.
+      // If not, the service will silently fail on every operation — fail loudly instead.
+      const registeredBackends = service.listBackends?.() ?? [];
+      if (
+        configuredBackend &&
+        registeredBackends.length > 0 &&
+        !registeredBackends.some((b) => b.name === configuredBackend)
+      ) {
+        const registered = registeredBackends.map((b) => b.name).join(", ");
+        log.warn(
+          `Configured default backend '${configuredBackend}' was not registered ` +
+            `(registered: ${registered || "none"}). ` +
+            `Tasks with '${configuredBackend === TaskBackend.MINSKY ? "mt" : configuredBackend}#' prefix will fail. ` +
+            `Ensure persistenceProvider is injected when creating the task service.`
+        );
       }
     } catch (error) {
       log.warn("Failed to register some backends", { error: getErrorMessage(error) });

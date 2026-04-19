@@ -247,13 +247,25 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       options;
 
     // Create source and target task services using injectable factory
+    let persistenceProvider;
+    try {
+      const { defaultInstance: persistenceService } = await import(
+        "../../../../domain/persistence/service"
+      );
+      persistenceProvider = persistenceService.getProvider();
+    } catch {
+      // Persistence not available
+    }
+
     const sourceService = await this.createTaskServiceFactory({
       workspacePath,
       backend: sourceBackend,
+      persistenceProvider,
     });
     const targetService = await this.createTaskServiceFactory({
       workspacePath,
       backend: targetBackend,
+      persistenceProvider,
     });
 
     // Get all tasks from source backend
