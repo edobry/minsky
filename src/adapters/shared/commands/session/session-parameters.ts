@@ -575,6 +575,39 @@ export const sessionPrOpenCommandParams = {
 };
 
 /**
+ * Session PR Checks command parameters
+ * Gets CI check-run status for a session's pull request
+ */
+export const sessionPrChecksCommandParams = {
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  wait: {
+    schema: z.boolean(),
+    description: "Wait for all checks to complete before returning",
+    required: false,
+    defaultValue: false,
+  },
+  timeoutSeconds: {
+    schema: z.number(),
+    description: "Maximum seconds to wait when --wait is enabled (default: 600)",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number(),
+    description: "Polling interval in seconds when --wait is enabled (default: 30)",
+    required: false,
+    defaultValue: 30,
+  },
+};
+
+/**
  * Session repair command parameters
  * Repairs various session state issues
  */
