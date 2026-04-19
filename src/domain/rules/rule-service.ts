@@ -1,7 +1,6 @@
 /**
  * RuleService
  *
- * The original RuleService class extracted from the parent rules.ts file.
  * Handles CRUD operations for rule files with frontmatter metadata.
  */
 import { promises as nodeFsPromises } from "fs";

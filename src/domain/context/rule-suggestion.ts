@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import type { AICompletionService } from "../ai/types";
-import type { RulesService } from "../rules/rules-service-modular";
+import type { RuleService } from "../rules";
 import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfig } from "./types";
 import { RuleSuggestionError } from "./types";
 import { log } from "../../utils/logger";
@@ -25,7 +25,7 @@ interface QueryAnalysis {
 export class DefaultRuleSuggestionService {
   constructor(
     private aiService: AICompletionService,
-    private rulesService: RulesService,
+    private rulesService: RuleService,
     private config: RuleSuggestionConfig = {}
   ) {}
 
