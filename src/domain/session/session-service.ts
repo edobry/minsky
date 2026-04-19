@@ -25,6 +25,7 @@ import {
   deleteSessionImpl,
   getSessionDirImpl,
   inspectSessionImpl,
+  cleanupSessionImpl,
   type DeleteSessionResult,
 } from "./session-lifecycle-operations";
 import { startSessionImpl } from "./start-session-operations";
@@ -33,6 +34,17 @@ import { sessionReviewImpl } from "./session-review-operations";
 import type { SessionReviewParams, SessionReviewResult } from "./session-review-operations";
 import { approveSessionPr } from "./session-approval-operations";
 import type { ApprovalInfo } from "../repository/approval-types";
+import { sessionCommit } from "./session-commands";
+import { sessionPrImpl } from "./session-pr-operations";
+import type { SessionPrDependencies } from "./session-pr-operations";
+import { mergeSessionPr } from "./session-merge-operations";
+import type { SessionMergeParams, SessionMergeResult } from "./session-merge-operations";
+import { scanSessionConflicts } from "./session-conflicts-operations";
+import type {
+  SessionConflictParams,
+  SessionConflictScanOptions,
+  SessionConflictScanResult,
+} from "./session-conflicts-operations";
 
 import type { Session } from "./types";
 import type {
@@ -44,6 +56,7 @@ import type {
   SessionUpdateParams,
 } from "../../schemas/session";
 import type { SessionStartParameters, SessionUpdateParameters } from "../schemas";
+import type { SessionPRParameters } from "../schemas";
 
 /**
  * The superset of all dependencies needed by any session operation.
@@ -242,6 +255,92 @@ export class SessionService {
       approvalInfo: result.approvalInfo,
       wasAlreadyApproved: result.wasAlreadyApproved,
     };
+  }
+
+  /**
+   * Commit and push changes within a session workspace.
+   */
+  async commit(params: {
+    session: string;
+    message: string;
+    all?: boolean;
+    amend?: boolean;
+    noStage?: boolean;
+  }): Promise<{
+    success: boolean;
+    nothingToCommit?: boolean;
+    commitHash: string | null;
+    shortHash?: string;
+    subject?: string;
+    branch?: string;
+    authorName?: string;
+    authorEmail?: string;
+    timestamp?: string;
+    message: string;
+    filesChanged?: number;
+    insertions?: number;
+    deletions?: number;
+    files?: Array<{ path: string; status: string }>;
+    pushed: boolean;
+  }> {
+    return sessionCommit(params, this.deps.sessionProvider);
+  }
+
+  /**
+   * Create a pull request for a session.
+   */
+  async createPr(
+    params: SessionPRParameters,
+    options?: { interface?: "cli" | "mcp"; workingDirectory?: string }
+  ): Promise<{
+    prBranch: string;
+    baseBranch: string;
+    title?: string;
+    body?: string;
+    url?: string;
+  }> {
+    const deps: SessionPrDependencies = {
+      sessionDB: this.deps.sessionProvider,
+      gitService: this.deps.gitService,
+    };
+    return sessionPrImpl(params, deps, options);
+  }
+
+  /**
+   * Merge an approved session pull request.
+   */
+  async mergePr(params: SessionMergeParams): Promise<SessionMergeResult> {
+    return mergeSessionPr(params, {
+      sessionDB: this.deps.sessionProvider,
+      taskService: this.deps.taskService,
+      gitService: this.deps.gitService,
+    });
+  }
+
+  /**
+   * Scan a session workspace for git conflict markers.
+   */
+  async scanConflicts(
+    params: SessionConflictParams,
+    options?: SessionConflictScanOptions
+  ): Promise<SessionConflictScanResult> {
+    return scanSessionConflicts(params, options ?? {}, this.deps.sessionProvider);
+  }
+
+  /**
+   * Clean up a session — removes workspace directories and database record.
+   */
+  async cleanup(params: {
+    sessionId: string;
+    taskId?: string;
+    force?: boolean;
+    dryRun?: boolean;
+  }): Promise<{
+    sessionDeleted: boolean;
+    directoriesRemoved: string[];
+    errors: string[];
+  }> {
+    return cleanupSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
 }
 
