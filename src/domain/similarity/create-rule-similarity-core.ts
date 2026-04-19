@@ -7,21 +7,11 @@ import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-sto
 import { RuleService } from "../rules";
 import { getConfiguration } from "../configuration";
 import type { PersistenceProvider } from "../persistence/types";
+import { resolveProvider } from "../persistence/service";
 
 export interface RuleSimilarityCoreOptions {
   disableEmbeddings?: boolean;
   persistenceProvider?: PersistenceProvider;
-}
-
-/**
- * Resolve a PersistenceProvider, falling back to the default instance lazily.
- */
-async function resolvePersistenceProvider(
-  provider?: PersistenceProvider
-): Promise<PersistenceProvider> {
-  if (provider) return provider;
-  const { defaultInstance } = await import("../persistence/service");
-  return defaultInstance.getProvider();
 }
 
 export async function createRuleSimilarityCore(
@@ -35,7 +25,7 @@ export async function createRuleSimilarityCore(
   let embeddings: EmbeddingsSimilarityBackend | null = null;
   if (!options.disableEmbeddings) {
     try {
-      const resolvedProvider = await resolvePersistenceProvider(options.persistenceProvider);
+      const resolvedProvider = resolveProvider(options.persistenceProvider);
       const embedding = await createEmbeddingServiceFromConfig();
       const storage = await createRulesVectorStorageFromConfig(dimension, resolvedProvider);
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);

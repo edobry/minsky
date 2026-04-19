@@ -165,22 +165,10 @@ export class ToolSimilarityService {
 /**
  * Create a configured ToolSimilarityService instance
  */
-/**
- * Resolve a PersistenceProvider, falling back to the default instance lazily.
- * Callers with container access should always pass the provider explicitly.
- */
-async function resolvePersistenceProvider(
-  provider?: PersistenceProvider
-): Promise<PersistenceProvider> {
-  if (provider) return provider;
-  const { defaultInstance } = await import("../../persistence/service");
-  return defaultInstance.getProvider();
-}
-
 export async function createToolSimilarityService(
   config: ToolSimilarityServiceConfig = {},
   persistenceProvider?: PersistenceProvider
 ): Promise<ToolSimilarityService> {
-  const resolved = await resolvePersistenceProvider(persistenceProvider);
-  return new ToolSimilarityService(resolved, config);
+  const { resolveProvider } = await import("../../persistence/service");
+  return new ToolSimilarityService(resolveProvider(persistenceProvider), config);
 }

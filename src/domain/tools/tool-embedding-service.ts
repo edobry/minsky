@@ -158,24 +158,13 @@ export class ToolEmbeddingService {
 }
 
 /**
- * Create a configured ToolEmbeddingService instance
+ * Create a configured ToolEmbeddingService instance.
+ * When persistenceProvider is omitted, falls back to the default instance.
  */
-/**
- * Resolve a PersistenceProvider, falling back to the default instance lazily.
- * Callers with container access should always pass the provider explicitly.
- */
-async function resolvePersistenceProvider(
-  provider?: PersistenceProvider
-): Promise<PersistenceProvider> {
-  if (provider) return provider;
-  const { defaultInstance } = await import("../persistence/service");
-  return defaultInstance.getProvider();
-}
-
 export async function createToolEmbeddingService(
   config: ToolEmbeddingServiceConfig = {},
   persistenceProvider?: PersistenceProvider
 ): Promise<ToolEmbeddingService> {
-  const resolved = await resolvePersistenceProvider(persistenceProvider);
-  return new ToolEmbeddingService(resolved, config);
+  const { resolveProvider } = await import("../persistence/service");
+  return new ToolEmbeddingService(resolveProvider(persistenceProvider), config);
 }
