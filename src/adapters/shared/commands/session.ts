@@ -17,6 +17,7 @@ import {
   createSessionDeleteCommand,
   createSessionUpdateCommand,
   createSessionMigrateBackendCommand,
+  createSessionMigrateCommand,
 } from "./session/management-commands";
 import {
   createSessionCommitCommand,
@@ -86,6 +87,9 @@ export async function registerSessionCommands(
     createSessionPrOpenCommand(getDeps),
     createSessionPrApproveCommand(getDeps),
     createSessionPrMergeCommand(getDeps),
+
+    // Migration
+    createSessionMigrateCommand(getDeps),
 
     // Utility
     createSessionConflictsCommand(getDeps),

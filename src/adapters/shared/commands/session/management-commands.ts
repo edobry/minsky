@@ -9,6 +9,7 @@ import {
   sessionDeleteCommandParams,
   sessionUpdateCommandParams,
   sessionMigrateBackendCommandParams,
+  sessionMigrateCommandParams,
 } from "./session-parameters";
 
 export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -269,5 +270,50 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
         };
       }
     ),
+  };
+}
+
+/**
+ * Session Migrate Command
+ *
+ * Migrates legacy session IDs (task-mt#XXX, task-md#XXX, etc.) to UUID format.
+ * Renames both DB records and filesystem directories.
+ */
+export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDefinition {
+  return {
+    id: "session.migrate",
+    category: CommandCategory.SESSION,
+    name: "migrate",
+    description: "Migrate legacy session IDs to UUID format",
+    parameters: sessionMigrateCommandParams,
+    execute: withErrorLogging("session.migrate", async (params: Record<string, unknown>) => {
+      const deps = await getDeps();
+      const { SessionMigrationService } = await import(
+        "../../../../domain/session/migration-command"
+      );
+
+      const service = new SessionMigrationService(deps.sessionProvider);
+
+      const dryRun = (params.dryRun as boolean) ?? false;
+      const report = await service.migrate({ dryRun, backup: false });
+
+      return {
+        success: true,
+        dryRun,
+        total: report.progress.total,
+        needsMigration: report.progress.needsMigration,
+        migrated: report.progress.migrated,
+        failed: report.progress.failed,
+        results: report.results.map((r) => ({
+          oldId: r.original.session,
+          newId: r.migrated?.session ?? r.original.session,
+          taskId: r.original.taskId,
+          sessionIdChanged: r.changes.sessionIdChanged,
+          success: r.success,
+          ...(r.error ? { error: r.error } : {}),
+        })),
+        executionTime: `${report.executionTime}ms`,
+      };
+    }),
   };
 }

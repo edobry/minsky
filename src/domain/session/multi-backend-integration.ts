@@ -195,13 +195,7 @@ export class SessionBackwardCompatibility {
       return false;
     }
 
-    // Qualified IDs should match the legacy session naming convention
-    if (isQualifiedTaskId(sessionRecord.taskId)) {
-      const expectedSessionId = taskIdToSessionId(sessionRecord.taskId);
-      return sessionRecord.session !== expectedSessionId;
-    }
-
-    // Legacy/unqualified task IDs always need migration
+    // Any non-UUID session ID with a task ID needs migration to UUID format
     return true;
   }
 }
