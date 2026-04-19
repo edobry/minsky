@@ -176,7 +176,7 @@ Run the formatter and linter:
 bun run format:check   # check formatting (Prettier)
 bun run format:all     # format and auto-fix lint issues
 bun run lint           # ESLint only
-bun run typecheck      # tsc --noEmit
+bun run typecheck      # tsgo --noEmit
 bun run validate-all   # run all checks (format + lint + typecheck + tests)
 ```
 
@@ -207,7 +207,7 @@ quality gates in order from fastest to slowest:
 1. **Code formatting** — Prettier via lint-staged (staged files only, ~1s)
 2. **Console usage validation** — catches bare `console.log` in non-test code (~1s)
 3. **Variable naming check** — underscore prefix mismatch detection (~1s)
-4. **TypeScript type checking** — `tsc --noEmit` (~5s)
+4. **TypeScript type checking** — `tsgo --noEmit` (~1.5s)
 5. **ESLint** — full lint with zero-error gate (~5–10s)
 6. **Secret scanning** — gitleaks (~2–3s)
 7. **Unit tests** — full test suite (~15–30s)

@@ -3,7 +3,7 @@
 //
 // Two responsibilities:
 //   1. Track which project root was edited (state file for Stop/SubagentStop hooks)
-//   2. Run incremental tsc in that root, show smart-filtered errors as context
+//   2. Run incremental tsgo in that root, show smart-filtered errors as context
 //
 // Does NOT block — Stop/SubagentStop hooks enforce correctness at turn end.
 
@@ -28,7 +28,7 @@ if (!/\.tsx?$/.test(filePath)) {
   process.exit(0);
 }
 
-// Determine the right project root to run tsc from.
+// Determine the right project root to run tsgo from.
 // If the file is in a Minsky session dir, use that session's root.
 // Otherwise, use the main project dir.
 const sessionsDir = `${os.homedir()}/.local/state/minsky/sessions/`;
@@ -55,7 +55,7 @@ const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cw
 
 if (result.exitCode !== 0) {
   const output = result.stdout || result.stderr;
-  // Compute relative path from project root for matching tsc output
+  // Compute relative path from project root for matching tsgo output
   const relPath = filePath.startsWith(`${projectRoot}/`)
     ? filePath.slice(projectRoot.length + 1)
     : filePath;

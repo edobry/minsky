@@ -310,7 +310,7 @@ export const ErrorContextComponent: ContextComponent = {
         content += `4. **Fix import errors** - ${errorInputs.errorsByCategory["import-error"].length} module resolution issues\n`;
       }
 
-      content += `5. **Run type checker**: Use \`tsc --noEmit\` for full error detection\n`;
+      content += `5. **Run type checker**: Run the project's type checker (e.g. \`bun run typecheck\`) for full error detection\n`;
       content += `6. **Run linter**: Use \`eslint --fix\` for automated fixes\n`;
     }
 
