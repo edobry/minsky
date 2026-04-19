@@ -1,8 +1,11 @@
 /**
  * Persistence Service
  *
- * Singleton service for managing persistence provider lifecycle.
- * Combines factory and singleton patterns for production use and testing flexibility.
+ * Injectable service for managing persistence provider lifecycle.
+ * Created by the DI container in composition roots — domain code
+ * receives it via constructor injection or typed deps interfaces.
+ *
+ * @see mt#814 — converted from static singleton to injectable instance
  */
 
 import {
@@ -17,49 +20,42 @@ import { log } from "../../utils/logger";
 import type { VectorStorage } from "../storage/vector/types";
 
 /**
- * Persistence service singleton
+ * Persistence service — injectable instance.
+ *
+ * Manages the lifecycle of a PersistenceProvider (database connection).
+ * Created once per application context (CLI, MCP, test) via the DI container.
  */
 export class PersistenceService {
-  private static provider: PersistenceProvider | null = null;
-  private static initPromise: Promise<void> | null = null;
+  private provider: PersistenceProvider | null = null;
+  private initPromise: Promise<void> | null = null;
 
   /**
-   * Initialize the persistence service with configuration
+   * Initialize the persistence service with configuration.
+   * Safe to call multiple times — concurrent calls are coalesced.
    */
-  static async initialize(config?: PersistenceConfig): Promise<void> {
-    // Prevent concurrent initialization
-    if (PersistenceService.initPromise) {
-      return PersistenceService.initPromise;
+  async initialize(config?: PersistenceConfig): Promise<void> {
+    if (this.initPromise) {
+      return this.initPromise;
     }
 
-    PersistenceService.initPromise = PersistenceService.performInitialization(config);
+    this.initPromise = this.performInitialization(config);
 
     try {
-      await PersistenceService.initPromise;
+      await this.initPromise;
     } finally {
-      PersistenceService.initPromise = null;
+      this.initPromise = null;
     }
   }
 
-  /**
-   * Perform actual initialization
-   */
-  private static async performInitialization(config?: PersistenceConfig): Promise<void> {
+  private async performInitialization(config?: PersistenceConfig): Promise<void> {
     try {
-      // Use provided config or load from configuration
       const persistenceConfig = config || PersistenceService.loadConfiguration();
-
-      // Create provider using factory (now async for runtime capability detection)
       const provider = await PersistenceProviderFactory.create(persistenceConfig);
-
-      // Initialize before caching — if init fails, provider stays null so
-      // isInitialized() returns false and getProvider() throws correctly
       await provider.initialize();
-
-      PersistenceService.provider = provider;
+      this.provider = provider;
       log.info("PersistenceService initialized successfully");
     } catch (error) {
-      PersistenceService.provider = null;
+      this.provider = null;
       log.error(
         "Failed to initialize PersistenceService:",
         error instanceof Error ? error : { error: String(error) }
@@ -69,53 +65,44 @@ export class PersistenceService {
   }
 
   /**
-   * Load configuration from runtime config
+   * Load configuration from runtime config.
+   * Static because it doesn't depend on instance state.
    */
   private static loadConfiguration(): PersistenceConfig {
     const runtimeConfig = getConfiguration();
-
-    // Check for persistence config structure
     if (runtimeConfig.persistence) {
       return runtimeConfig.persistence;
     }
-
     throw new Error(
       "No persistence configuration found. Please configure 'persistence:' in your configuration."
     );
   }
 
   /**
-   * Get the persistence provider instance
+   * Get the persistence provider instance.
+   * Throws if not initialized.
    */
-  static getProvider(): PersistenceProvider {
-    if (!PersistenceService.provider) {
-      throw new Error(
-        "PersistenceService not initialized. Call PersistenceService.initialize() first."
-      );
+  getProvider(): PersistenceProvider {
+    if (!this.provider) {
+      throw new Error("PersistenceService not initialized. Call initialize() first.");
     }
-    return PersistenceService.provider;
+    return this.provider;
   }
 
   /**
-   * Get vector storage directly - type-safe approach using interface checking
-   * This eliminates runtime capability checking by using TypeScript type guards
+   * Get vector storage — type-safe approach using interface checking.
    */
-  static getVectorStorage(dimension: number): VectorStorage {
-    const provider = PersistenceService.getProvider();
+  getVectorStorage(dimension: number): VectorStorage {
+    const provider = this.getProvider();
 
-    // Type guard: check if provider implements VectorCapablePersistenceProvider
-    if (!PersistenceService.isVectorCapable(provider)) {
+    if (!this.isVectorCapable(provider)) {
       throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
     }
 
-    // TypeScript now knows provider has getVectorStorage method
     return provider.getVectorStorage(dimension);
   }
 
-  /**
-   * Type guard to check if provider supports vector storage
-   */
-  private static isVectorCapable(
+  private isVectorCapable(
     provider: PersistenceProvider
   ): provider is VectorCapablePersistenceProvider {
     return (
@@ -126,41 +113,33 @@ export class PersistenceService {
   }
 
   /**
-   * Check if service is initialized
+   * Check if service is initialized.
    */
-  static isInitialized(): boolean {
-    return PersistenceService.provider !== null;
+  isInitialized(): boolean {
+    return this.provider !== null;
   }
 
   /**
-   * Close the persistence service
+   * Close the persistence service and release resources.
    */
-  static async close(): Promise<void> {
-    if (PersistenceService.provider) {
-      await PersistenceService.provider.close();
-      PersistenceService.provider = null;
+  async close(): Promise<void> {
+    if (this.provider) {
+      await this.provider.close();
+      this.provider = null;
     }
-  }
-
-  /**
-   * Reset the service (alias for close, mainly for testing)
-   */
-  static async reset(): Promise<void> {
-    return PersistenceService.close();
-  }
-
-  /**
-   * Set a mock provider for testing
-   */
-  static setMockProvider(provider: PersistenceProvider): void {
-    PersistenceService.provider = provider;
   }
 }
 
 /**
- * Convenience function to get persistence provider
- * Assumes service is already initialized at application startup
+ * Convenience function to get persistence provider from the default instance.
+ * @deprecated Use container.get("persistence") instead.
  */
 export function getPersistenceProvider(): PersistenceProvider {
-  return PersistenceService.getProvider();
+  return defaultInstance.getProvider();
 }
+
+/**
+ * Default instance — used during migration period while callers
+ * transition to container-based injection. Will be removed in Phase E.
+ */
+export const defaultInstance = new PersistenceService();

@@ -328,11 +328,13 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   const embedding = await createEmbeddingServiceFromConfig();
 
-  // Use PersistenceService (should already be initialized at application startup)
-  const { PersistenceService } = await import("../../../../domain/persistence/service");
+  // Use the default PersistenceService instance (initialized at application startup)
+  const { defaultInstance: persistenceService } = await import(
+    "../../../../domain/persistence/service"
+  );
 
-  // Get vector storage directly - throws if provider doesn't support it (now synchronous!)
-  const vectorStorage = PersistenceService.getVectorStorage(dimension);
+  // Get vector storage directly - throws if provider doesn't support it
+  const vectorStorage = persistenceService.getVectorStorage(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");

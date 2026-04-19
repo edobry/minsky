@@ -22,8 +22,8 @@ export async function createVectorStorageFromConfig(
   if (persistenceProvider) {
     provider = persistenceProvider;
   } else {
-    const { PersistenceService } = await import("../../persistence/service");
-    provider = PersistenceService.getProvider();
+    const { defaultInstance: persistenceService } = await import("../../persistence/service");
+    provider = persistenceService.getProvider();
   }
 
   // Check if provider supports vector storage
