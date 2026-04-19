@@ -41,6 +41,7 @@ interface TasksListParams extends BaseTaskParams {
  */
 interface TasksGetParams extends BaseTaskParams {
   taskId: string;
+  includeSpec?: boolean;
 }
 
 /**
@@ -361,6 +362,20 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         extras.subtasks = subtaskSummary;
       }
 
+      // Optionally fetch spec content
+      if (params.includeSpec) {
+        const { getTaskSpecContentFromParams } = await import("../../../../domain/tasks");
+        try {
+          const specResult = await getTaskSpecContentFromParams(
+            { ...this.createTaskParams(params), taskId: validatedTaskId },
+            { persistenceProvider: this.getPersistenceProvider?.() }
+          );
+          extras.spec = specResult.content;
+        } catch {
+          extras.spec = "";
+        }
+      }
+
       let message = `Task ${validatedTaskId} retrieved`;
       if (subtaskSummary) {
         message += `\n\nSubtasks: ${subtaskSummary.done} of ${subtaskSummary.total} done`;
@@ -370,6 +385,9 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
             message += `\n  ${sub.id}: ${sub.title} [${sub.status}]`;
           }
         }
+      }
+      if (params.includeSpec && extras.spec !== undefined) {
+        message += extras.spec ? `\n\nSpec:\n${extras.spec}` : `\n\nSpec: (not found)`;
       }
 
       const result = this.formatResult(

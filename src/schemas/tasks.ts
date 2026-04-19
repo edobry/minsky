@@ -65,6 +65,10 @@ export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
     .string()
     .optional()
     .describe("Specify task backend (available: github-issues, minsky)"),
+  includeSpec: z
+    .boolean()
+    .optional()
+    .describe("Include task specification content in the response"),
 });
 
 /**
