@@ -25,6 +25,7 @@ export interface TaskServiceInterface {
     options?: CreateTaskOptions
   ): Promise<Task>;
   deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean>;
+  getTasks(ids: string[]): Promise<Task[]>;
   getTaskSpecContent(
     taskId: string,
     section?: string

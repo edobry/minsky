@@ -226,6 +226,53 @@ export class TaskServiceImpl implements TaskService {
     return (final || (await backend.getTask(taskId))) as Task;
   }
 
+  async getTasks(ids: string[]): Promise<Task[]> {
+    if (ids.length === 0) return [];
+
+    // Partition IDs by backend prefix
+    const byBackend = new Map<TaskBackend, string[]>();
+    const unrouted: string[] = [];
+
+    for (const id of ids) {
+      const backend = this.getBackendByPrefix(this.parsePrefixFromId(id));
+      if (backend) {
+        const existing = byBackend.get(backend) ?? [];
+        existing.push(id);
+        byBackend.set(backend, existing);
+      } else {
+        unrouted.push(id);
+      }
+    }
+
+    const results: Task[] = [];
+
+    // Fetch from each backend, using batch getTasks if available, otherwise sequential
+    for (const [backend, backendIds] of byBackend) {
+      if (typeof backend.getTasks === "function") {
+        const tasks = await backend.getTasks(backendIds);
+        results.push(...tasks.map((t) => this.qualifyTaskFromBackend(t, backend)!));
+      } else {
+        for (const id of backendIds) {
+          const t = await backend.getTask(id);
+          if (t) results.push(this.qualifyTaskFromBackend(t, backend)!);
+        }
+      }
+    }
+
+    // Unrouted IDs: search all backends sequentially
+    for (const id of unrouted) {
+      for (const b of this.backends) {
+        const t = await b.getTask(id);
+        if (t) {
+          results.push(this.qualifyTaskFromBackend(t, b)!);
+          break;
+        }
+      }
+    }
+
+    return results;
+  }
+
   async deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean> {
     const prefix = this.parsePrefixFromId(taskId);
     const backend = this.getBackendByPrefix(prefix);

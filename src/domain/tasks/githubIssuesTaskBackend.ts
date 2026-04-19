@@ -238,6 +238,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     }
   }
 
+  async getTasks(ids: string[]): Promise<Task[]> {
+    if (ids.length === 0) return [];
+    const results = await Promise.all(ids.map((id) => this.getTask(id)));
+    return results.filter((task): task is Task => task !== null);
+  }
+
   async getTaskStatus(id: string): Promise<string | undefined> {
     try {
       const task = await this.getTask(id);
