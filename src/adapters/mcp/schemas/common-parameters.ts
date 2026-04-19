@@ -242,49 +242,53 @@ export const GrepSearchSchema = z.object({
  * Base schema for all session file operations
  * Combines session identifier and file path
  */
-export const SessionFileOperationSchema = SessionIdentifierSchema.merge(FilePathSchema);
+export const SessionFileOperationSchema = SessionIdentifierSchema.extend(FilePathSchema.shape);
 
 /**
  * Schema for session file read operations
  * Includes line range support and explanation
  */
-export const SessionFileReadSchema =
-  SessionFileOperationSchema.merge(LineRangeSchema).merge(ExplanationSchema);
+export const SessionFileReadSchema = SessionFileOperationSchema.extend(
+  LineRangeSchema.shape
+).extend(ExplanationSchema.shape);
 
 /**
  * Schema for session file write operations
  * Includes content and directory creation options
  */
-export const SessionFileWriteSchema =
-  SessionFileOperationSchema.merge(FileContentSchema).merge(CreateDirectoriesSchema);
+export const SessionFileWriteSchema = SessionFileOperationSchema.extend(
+  FileContentSchema.shape
+).extend(CreateDirectoriesSchema.shape);
 
 /**
  * Schema for session file edit operations
  * Includes edit instructions, directory creation options, and dry-run support
  */
-export const SessionFileEditSchema = SessionFileOperationSchema.merge(EditInstructionsSchema)
-  .merge(CreateDirectoriesSchema)
-  .merge(DryRunSchema);
+export const SessionFileEditSchema = SessionFileOperationSchema.extend(EditInstructionsSchema.shape)
+  .extend(CreateDirectoriesSchema.shape)
+  .extend(DryRunSchema.shape);
 
 /**
  * Schema for session search and replace operations
  * Includes search/replace parameters
  */
-export const SessionSearchReplaceSchema = SessionFileOperationSchema.merge(SearchReplaceSchema);
+export const SessionSearchReplaceSchema = SessionFileOperationSchema.extend(
+  SearchReplaceSchema.shape
+);
 
 /**
  * Schema for session directory listing operations
  * Includes optional directory path and hidden files option
  */
-export const SessionDirectoryListSchema = SessionIdentifierSchema.merge(
-  OptionalDirectoryPathSchema
-).merge(ShowHiddenFilesSchema);
+export const SessionDirectoryListSchema = SessionIdentifierSchema.extend(
+  OptionalDirectoryPathSchema.shape
+).extend(ShowHiddenFilesSchema.shape);
 
 /**
  * Schema for session grep search operations
  * Includes session identifier and grep parameters
  */
-export const SessionGrepSearchSchema = SessionIdentifierSchema.merge(GrepSearchSchema);
+export const SessionGrepSearchSchema = SessionIdentifierSchema.extend(GrepSearchSchema.shape);
 
 /**
  * Schema for session file existence check
@@ -301,35 +305,35 @@ export const SessionFileDeleteSchema = SessionFileOperationSchema;
 /**
  * Schema for session file movement/rename operations
  */
-export const SessionFileMoveSchema = SessionIdentifierSchema.merge(
+export const SessionFileMoveSchema = SessionIdentifierSchema.extend(
   z.object({
     sourcePath: z.string().describe("Current file path within the session workspace"),
     targetPath: z.string().describe("New file path within the session workspace"),
     overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-  })
-).merge(CreateDirectoriesSchema);
+  }).shape
+).extend(CreateDirectoriesSchema.shape);
 
 /**
  * Schema for session file rename operations
  */
-export const SessionFileRenameSchema = SessionFileOperationSchema.merge(
+export const SessionFileRenameSchema = SessionFileOperationSchema.extend(
   z.object({
     newName: z.string().describe("New filename (not full path)"),
     overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-  })
+  }).shape
 );
 
 /**
  * Schema for session directory creation
  */
-export const SessionDirectoryCreateSchema = SessionFileOperationSchema.merge(
+export const SessionDirectoryCreateSchema = SessionFileOperationSchema.extend(
   z.object({
     recursive: z
       .boolean()
       .optional()
       .default(true)
       .describe("Create parent directories if they don't exist"),
-  })
+  }).shape
 );
 
 // ========================
