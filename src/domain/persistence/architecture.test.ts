@@ -7,6 +7,7 @@
  * 2. Error swallowing: catch blocks returning defaults instead of propagating
  * 3. DI bypass: commands importing *FromParams instead of using getDeps()
  */
+import "reflect-metadata";
 import { describe, test, expect, beforeAll } from "bun:test";
 
 // Source file paths — single source of truth for all test references
@@ -158,18 +159,17 @@ describe("DI bypass prevention", () => {
 
 describe("Provider reuse (runtime)", () => {
   test("container returns the same sessionDeps instance on consecutive get() calls", async () => {
-    const { AppContainer } = await import("../../composition/container");
-    const container = new AppContainer();
+    const { TsyringeContainer } = await import("../../composition/container");
+    const container = new TsyringeContainer();
 
-    // Inject a mock sessionDeps via the internal instances map to bypass type checking
-    const instancesMap = (container as unknown as { instances: Map<string, unknown> }).instances;
-    const mockDeps = { sessionProvider: { id: "singleton-test" } };
-    instancesMap.set("sessionDeps", mockDeps);
+    // Inject a mock sessionDeps via set() — tests use the public API
+    const mockDeps = { sessionProvider: { id: "singleton-test" } } as any;
+    container.set("sessionDeps", mockDeps);
 
     // Verify the container returns the same reference on consecutive calls —
     // this is the invariant getDeps() relies on for provider reuse
-    const result1 = instancesMap.get("sessionDeps");
-    const result2 = instancesMap.get("sessionDeps");
+    const result1 = container.get("sessionDeps");
+    const result2 = container.get("sessionDeps");
     expect(result1).toBe(result2);
     expect(result1).toBe(mockDeps);
   });

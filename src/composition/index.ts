@@ -7,7 +7,8 @@
  * Domain code should NEVER import from this module.
  */
 
-export { AppContainer } from "./container";
+export { TsyringeContainer } from "./container";
+export { TOKENS } from "./tokens";
 export { createCliContainer } from "./cli";
 export { createTestContainer } from "./test";
 export type {
