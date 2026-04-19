@@ -5,6 +5,7 @@
  * PersistenceProvider system for unified database access.
  */
 
+import { injectable, inject } from "tsyringe";
 import type { SessionProviderInterface, SessionRecord } from "./types";
 import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
 
@@ -22,10 +23,11 @@ import { getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
+@injectable()
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
 
-  constructor(private readonly persistence: PersistenceProvider) {}
+  constructor(@inject("persistence") private readonly persistence: PersistenceProvider) {}
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     log.debug("Getting storage from persistence provider");

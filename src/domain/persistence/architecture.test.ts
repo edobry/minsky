@@ -7,7 +7,6 @@
  * 2. Error swallowing: catch blocks returning defaults instead of propagating
  * 3. DI bypass: commands importing *FromParams instead of using getDeps()
  */
-import "reflect-metadata";
 import { describe, test, expect, beforeAll } from "bun:test";
 
 // Source file paths — single source of truth for all test references

@@ -14,7 +14,6 @@
  * - Async factories are properly awaited
  */
 
-import "reflect-metadata";
 import { describe, test, expect } from "bun:test";
 import { TsyringeContainer } from "./container";
 import type { AppServices } from "./types";

@@ -3,6 +3,7 @@
  *
  * Handles CRUD operations for rule files with frontmatter metadata.
  */
+import { injectable } from "tsyringe";
 import { promises as nodeFsPromises } from "fs";
 import { HTTP_OK } from "../../utils/constants";
 import { join } from "path";
@@ -23,6 +24,7 @@ import type {
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 
+@injectable()
 export class RuleService {
   private workspacePath: string;
   private fs: Pick<
