@@ -169,8 +169,7 @@ export async function searchRulesEnhanced(
 
   const results = await service.searchByText(query, limit, threshold);
 
-  const { ModularRulesService } = await import("../rules-service-modular");
-  const rulesService = new ModularRulesService(options.workspacePath);
+  const rulesService = new RuleService(options.workspacePath);
 
   const enhancedResults: EnhancedRuleSearchResult[] = [];
   for (const result of results) {

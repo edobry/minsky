@@ -6,7 +6,7 @@
 
 import { Command } from "commander";
 import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
-import { ModularRulesService } from "../../domain/rules/rules-service-modular";
+import { RuleService } from "../../domain/rules";
 import { getConfiguration } from "../../domain/configuration";
 import type { RuleSuggestionRequest, RuleSuggestionResponse } from "../../domain/context/types";
 import { log } from "../../utils/logger";
@@ -76,7 +76,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
 
   // Initialize services
   const config = getConfiguration();
-  const rulesService = new ModularRulesService(workspacePath);
+  const rulesService = new RuleService(workspacePath);
 
   // Choose embeddings-first path unless disabled
   const useEmbeddings = options.noEmbeddings !== true;

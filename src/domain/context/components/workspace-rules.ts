@@ -2,6 +2,7 @@ import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput
 import type { Rule } from "../../rules/types";
 import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enhanced";
 import { createRuleSimilarityService } from "../../rules/rule-similarity-service";
+import { RuleService } from "../../rules";
 import { log } from "../../../utils/logger";
 
 /**
@@ -23,10 +24,9 @@ export const WorkspaceRulesComponent: ContextComponent = {
 
   async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
     // Get the rules service for dynamic rule discovery
-    const { ModularRulesService } = require("../../rules/rules-service-modular");
 
     try {
-      const rulesService = new ModularRulesService(context.workspacePath || process.cwd());
+      const rulesService = new RuleService(context.workspacePath || process.cwd());
       const allRules = await rulesService.listRules();
 
       // Check if we should use enhanced filtering

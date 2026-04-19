@@ -4,7 +4,7 @@ import { LexicalSimilarityBackend } from "./backends/lexical-backend";
 import { getEmbeddingDimension } from "../ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
 import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-storage-factory";
-import { ModularRulesService } from "../rules/rules-service-modular";
+import { RuleService } from "../rules";
 import { getConfiguration } from "../configuration";
 
 export interface RuleSimilarityCoreOptions {
@@ -31,7 +31,7 @@ export async function createRuleSimilarityCore(
   }
 
   // Build lexical resolvers from rules service
-  const rulesService = new ModularRulesService(workspacePath);
+  const rulesService = new RuleService(workspacePath);
   const lexical = new LexicalSimilarityBackend({
     getById: async (id: string) => {
       try {
