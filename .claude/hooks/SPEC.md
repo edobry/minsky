@@ -49,8 +49,8 @@ All hooks share types and a sync exec helper from `types.ts`. They are self-cont
 3. Exits silently if file is not `.ts` or `.tsx`
 4. **Session-aware root detection**: if file path starts with `$HOME/.local/state/minsky/sessions/`, extracts session root; otherwise uses `$CLAUDE_PROJECT_DIR`
 5. **State tracking**: appends `project_root` to `/tmp/claude-typecheck-roots-${session_id}-${agent_id}.txt` (or `-main.txt` if no agent_id)
-6. Runs `bunx tsc --incremental` in the project root
-7. On tsc failure, filters errors into two categories:
+6. Runs `bunx @typescript/native-preview --noEmit` (tsgo) in the project root
+7. On tsgo failure, filters errors into two categories:
    - **File errors**: lines starting with `${relative_path}(` — errors in the edited file
    - **Cascade errors**: remaining errors in other files
 8. Outputs structured JSON with error preview (first 10 lines of file errors) and cascade count
@@ -103,7 +103,7 @@ Handles both **Stop** and **SubagentStop** events. Determines which state file t
 4. For each root:
    - Skips if directory doesn't exist
    - Skips if no `tsconfig.json`
-   - Runs `bunx tsc` (full, no `--incremental`) and captures output
+   - Runs `bunx @typescript/native-preview --noEmit` (tsgo, full check) and captures output
    - Counts errors matching `): error TS`
    - Collects errors with `=== ${root} ===` header
 5. If any root failed: outputs JSON with first 60 lines of errors + total count, exits 2
@@ -178,7 +178,7 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 2. **JSON output schema**: `hookSpecificOutput` structure must match exactly — Claude Code parses it
 3. **State file paths**: `/tmp/claude-typecheck-roots-${session_id}-${agent_id|main}.txt` — edit writes, stop reads+deletes
 4. **Session root detection**: `$HOME/.local/state/minsky/sessions/<uuid>/` prefix check
-5. **tsc modes**: `--incremental` for edit (fast feedback), full for stop (correctness gate)
+5. **tsgo**: `--noEmit` for both edit and stop; edit checks single root (fast feedback), stop checks all tracked roots (correctness gate)
 6. **Error filtering**: edit hook separates file-local vs cascade errors; stop hook aggregates all
 7. **Review gate**: checks both review existence AND spec verification in review body
 8. **Post-merge pull**: ff-only, warns only if src/ changed

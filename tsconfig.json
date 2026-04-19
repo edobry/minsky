@@ -33,7 +33,8 @@
     "resolveJsonModule": true,
     "rootDir": ".",
     "typeRoots": ["./node_modules/@types", "./types"],
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "types": ["bun"]
   },
   "include": ["src", "types", "tests", ".eslintrc.cjs", ".prettierrc.cjs"],
   "exclude": [

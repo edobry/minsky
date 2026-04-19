@@ -42,8 +42,8 @@ for (const root of roots) {
   if (!existsSync(root)) continue;
   if (!existsSync(`${root}/tsconfig.json`)) continue;
 
-  // Run full tsc (NO --incremental — correctness gate)
-  const result = execSync(["bunx", "tsc"], { cwd: root });
+  // Run full tsgo (native TypeScript compiler, NO --incremental — correctness gate)
+  const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cwd: root });
   if (result.exitCode !== 0) {
     const output = result.stdout || result.stderr;
     const count = output.split("\n").filter((line) => line.includes("): error TS")).length;

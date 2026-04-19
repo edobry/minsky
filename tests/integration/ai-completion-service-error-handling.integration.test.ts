@@ -1,3 +1,5 @@
+import { beforeEach } from "bun:test";
+
 beforeEach(() => {
   console.log("🔄 Setting up enhanced error handling test environment");
 
