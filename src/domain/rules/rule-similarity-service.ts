@@ -135,16 +135,15 @@ export async function createRuleSimilarityService(
 ): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
 
-  // Use injected provider or fall back to PersistenceService singleton
   let provider: PersistenceProvider;
   if (persistenceProvider) {
     provider = persistenceProvider;
   } else {
-    const { PersistenceService } = await import("../persistence/service");
-    provider = PersistenceService.getProvider();
+    // Callers that don't have a provider available use the stub path
+    // via createWithWorkspacePath(). This fallback will be removed once
+    // all callers are fully migrated to DI.
+    return RuleSimilarityService.createWithWorkspacePath(workspacePath);
   }
 
-  const service = new RuleSimilarityService(provider, workspacePath);
-
-  return service;
+  return new RuleSimilarityService(provider, workspacePath);
 }

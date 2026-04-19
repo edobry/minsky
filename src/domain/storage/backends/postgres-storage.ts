@@ -63,21 +63,19 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
-   * Initialize connections using injected PersistenceProvider or PersistenceService fallback
+   * Initialize connections using the injected PersistenceProvider
    */
   private async ensureConnection(): Promise<void> {
     if (this.drizzle && this.sql) {
       return; // Already initialized
     }
 
-    // Use injected provider or fall back to PersistenceService singleton
-    let provider: PersistenceProvider;
-    if (this.persistenceProvider) {
-      provider = this.persistenceProvider;
-    } else {
-      const { PersistenceService } = await import("../../persistence/service");
-      provider = PersistenceService.getProvider();
+    if (!this.persistenceProvider) {
+      throw new Error(
+        "PostgresStorage requires a PersistenceProvider to be injected via constructor"
+      );
     }
+    const provider: PersistenceProvider = this.persistenceProvider;
 
     const capabilities = provider.getCapabilities();
     if (!capabilities.sql) {

@@ -1,17 +1,17 @@
 import { Command } from "commander";
-import { PersistenceService } from "../../../domain/persistence/service";
 import {
   createTasksAvailableCommand,
   createTasksRouteCommand,
 } from "../../shared/commands/tasks/routing-commands";
 import { log } from "../../../utils/logger";
 import { handleCliError } from "../utils/error-handler";
+import { getAppContainer } from "../../shared/bridges/cli/command-generator-core";
 
 export function createRoutingCommand(): Command {
   const routingCommand = new Command("routing");
   routingCommand.description("Task routing and availability commands");
 
-  const getPersistenceProvider = () => PersistenceService.getProvider();
+  const getPersistenceProvider = () => getAppContainer()!.get("persistence");
 
   // Add "available" subcommand
   const availableCommand = createTasksAvailableCommand(getPersistenceProvider);

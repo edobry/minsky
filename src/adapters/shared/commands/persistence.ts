@@ -406,7 +406,7 @@ const persistenceCheckRegistration = defineCommand({
   name: "check",
   description: "Check database integrity and detect issues",
   parameters: persistenceCheckCommandParams,
-  async execute(params, _context) {
+  async execute(params, context) {
     const { file, backend, fix, report } = params;
 
     try {
@@ -458,7 +458,10 @@ const persistenceCheckRegistration = defineCommand({
       if (targetBackend === "sqlite") {
         validationResult = await validateSqliteBackend(file);
       } else if (targetBackend === "postgres") {
-        validationResult = await validatePostgresBackend();
+        const persistenceProvider = context.container?.has("persistence")
+          ? context.container.get("persistence")
+          : undefined;
+        validationResult = await validatePostgresBackend(persistenceProvider);
       } else {
         const { getAvailableBackendsString } = await import("../../../domain/tasks/taskConstants");
         throw new Error(

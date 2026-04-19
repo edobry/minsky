@@ -1,15 +1,15 @@
 # Claude Code Hooks: Behavioral Specification
 
-Derived from working Bash implementations on 2026-04-15.
-
 ## System Overview
 
-Seven bash scripts forming two subsystems:
+Six TypeScript hooks (in `.claude/hooks/`) forming two subsystems:
 
-1. **Typecheck subsystem** (4 scripts, shared state): informational feedback on edit, blocking gate on stop
-2. **Workflow subsystem** (3 scripts, independent): review gate, auto-pull, remote bootstrap
+1. **Typecheck subsystem** (3 files, shared state): informational feedback on edit, blocking gate on stop
+2. **Workflow subsystem** (3 files, independent): review gate, auto-pull, remote bootstrap
 
-## Hook 1: `session-start.sh`
+All hooks share types and a sync exec helper from `types.ts`. They are self-contained — no imports from `src/` — so they work even when the main codebase has type errors.
+
+## `session-start.ts`
 
 ### Interface
 
@@ -17,19 +17,13 @@ Seven bash scripts forming two subsystems:
 - **Input**: None used from stdin
 - **Env vars**: `CLAUDE_CODE_REMOTE`, `CLAUDE_PROJECT_DIR`
 - **Output**: None (side effects only)
-- **Exit code**: 0 always (pipefail may cause non-zero on install failure)
+- **Exit code**: 0
 
 ### Behavior
 
 1. Guard: exits immediately if `CLAUDE_CODE_REMOTE` is not `"true"` (local sessions skip entirely)
 2. If `node_modules/` or `node_modules/winston/` is missing, runs `bun install`
 3. If `gitleaks` is not in PATH, downloads v8.21.2 linux_x64 binary from GitHub releases to `/usr/local/bin/gitleaks`
-
-### Side effects
-
-- May create/update `node_modules/`
-- May write `/usr/local/bin/gitleaks`
-- May write `/tmp/gitleaks.tar.gz` (cleaned up)
 
 ### Edge cases
 
@@ -38,26 +32,26 @@ Seven bash scripts forming two subsystems:
 
 ---
 
-## Hook 2: `typecheck-on-edit.sh`
+## `typecheck-on-edit.ts`
 
 ### Interface
 
 - **Event**: PostToolUse (Write, Edit, session_write_file, session_edit_file, session_search_replace)
-- **Input (stdin JSON)**: `tool_input.file_path`, `tool_input.path`, `tool_response.filePath`, `session_id`, `agent_id`
+- **Input (stdin JSON)**: `tool_input.file_path`, `tool_input.path`, `tool_result.filePath`, `session_id`, `agent_id`
 - **Output (stdout JSON)**: `hookSpecificOutput` with `additionalContext` on type errors
 - **Exit code**: Always 0 (informational only, never blocks)
 - **Timeout**: 30s
 
 ### Behavior
 
-1. Reads entire stdin into variable, extracts fields via jq
-2. Extracts file path from `tool_input.file_path`, falling back to `tool_input.path`, then `tool_response.filePath`
+1. Reads stdin JSON via `Bun.stdin.json()`
+2. Extracts file path from `tool_input.file_path`, falling back to `tool_input.path`, then `tool_result.filePath`
 3. Exits silently if file is not `.ts` or `.tsx`
 4. **Session-aware root detection**: if file path starts with `$HOME/.local/state/minsky/sessions/`, extracts session root; otherwise uses `$CLAUDE_PROJECT_DIR`
 5. **State tracking**: appends `project_root` to `/tmp/claude-typecheck-roots-${session_id}-${agent_id}.txt` (or `-main.txt` if no agent_id)
 6. Runs `bunx tsc --incremental` in the project root
 7. On tsc failure, filters errors into two categories:
-   - **File errors**: lines matching `^${relative_path}(` -- errors in the edited file
+   - **File errors**: lines starting with `${relative_path}(` — errors in the edited file
    - **Cascade errors**: remaining errors in other files
 8. Outputs structured JSON with error preview (first 10 lines of file errors) and cascade count
 
@@ -89,64 +83,31 @@ Seven bash scripts forming two subsystems:
 
 ---
 
-## Hook 3: `typecheck-on-stop.sh`
+## `typecheck-on-stop.ts`
+
+Handles both **Stop** and **SubagentStop** events. Determines which state file to read based on `agent_id` from the input JSON.
 
 ### Interface
 
-- **Event**: Stop
-- **Input (stdin JSON)**: `session_id`
-- **Output**: Delegated to `typecheck-tracked-roots.sh`
-- **Exit code**: Delegated (0 or 2)
-- **Timeout**: 60s
-
-### Behavior
-
-1. Extracts `session_id` from stdin
-2. Constructs state file path: `/tmp/claude-typecheck-roots-${session_id}-main.txt`
-3. Pipes stdin to `typecheck-tracked-roots.sh` with args `<state_file> "Stop"`
-
----
-
-## Hook 4: `typecheck-on-subagent-stop.sh`
-
-### Interface
-
-- **Event**: SubagentStop
-- **Input (stdin JSON)**: `session_id`, `agent_id`
-- **Output**: Delegated to `typecheck-tracked-roots.sh`
-- **Exit code**: Delegated (0 or 2)
-- **Timeout**: 60s
-
-### Behavior
-
-1. Extracts `session_id` and `agent_id` from stdin
-2. Constructs state file path: `/tmp/claude-typecheck-roots-${session_id}-${agent_id}.txt` (falls back to `-main` if no agent_id)
-3. Pipes stdin to `typecheck-tracked-roots.sh` with args `<state_file> "<event>"`
-
----
-
-## Hook 5: `typecheck-tracked-roots.sh` (shared logic)
-
-### Interface
-
-- **Called by**: Hooks 3 and 4 (not directly by Claude Code)
-- **Args**: `$1` = state file path, `$2` = hook event name ("Stop" or "SubagentStop")
-- **Input (stdin JSON)**: `cwd`
+- **Event**: Stop, SubagentStop
+- **Input (stdin JSON)**: `session_id`, `agent_id`, `hook_event_name`, `cwd`
 - **Output (stdout JSON)**: `hookSpecificOutput` with error details on failure
-- **Exit code**: 0 (pass) or 2 (fail -- forces Claude to continue)
+- **Exit code**: 0 (pass) or 2 (fail — forces Claude to continue)
+- **Timeout**: 60s
 
 ### Behavior
 
-1. Reads unique project roots from state file (`sort -u`)
-2. Falls back to `cwd` from stdin, then `CLAUDE_PROJECT_DIR` if no state file
-3. For each root:
+1. Reads stdin JSON, determines state file path from `session_id` and `agent_id`
+2. Reads unique project roots from state file (deduplication via `Set`)
+3. Falls back to `cwd` then `CLAUDE_PROJECT_DIR` if no state file
+4. For each root:
    - Skips if directory doesn't exist
    - Skips if no `tsconfig.json`
-   - Runs `bunx tsc` (full, no --incremental) and captures output
+   - Runs `bunx tsc` (full, no `--incremental`) and captures output
    - Counts errors matching `): error TS`
-   - Prepends `=== $root ===` header to errors
-4. If any root failed: outputs JSON with first 60 lines of errors + total count, exits 2
-5. If all passed: deletes state file, exits 0
+   - Collects errors with `=== ${root} ===` header
+5. If any root failed: outputs JSON with first 60 lines of errors + total count, exits 2
+6. If all passed: deletes state file, exits 0
 
 ### Output format (on failure)
 
@@ -161,11 +122,11 @@ Seven bash scripts forming two subsystems:
 
 ### Critical: exit 2 semantics
 
-Exit code 2 is a **blocking error** in Claude Code -- stderr is fed back to Claude as context, and the agent is forced to continue. This is the correctness gate.
+Exit code 2 is a **blocking error** in Claude Code — the agent is forced to continue and fix the errors. This is the correctness gate.
 
 ---
 
-## Hook 6: `require-review-before-merge.sh`
+## `require-review-before-merge.ts`
 
 ### Interface
 
@@ -177,47 +138,21 @@ Exit code 2 is a **blocking error** in Claude Code -- stderr is fed back to Clau
 
 ### Behavior
 
-1. Extracts `task` from `tool_input` -- exits silently if empty
-2. Constructs branch name: `task/${task with '#' replaced by '-'}`
-3. Looks up PR number: `gh pr list --repo edobry/minsky --head "$branch" --json number`
+1. Extracts `task` from `tool_input` — exits silently if empty
+2. Constructs branch name: `task/${task.replace("#", "-")}`
+3. Looks up PR number via `gh pr list`
 4. Exits silently if no PR found
-5. Checks review count: `gh api repos/edobry/minsky/pulls/$pr/reviews --jq 'length'`
-6. If 0 reviews: outputs deny with message referencing PR number
-7. Checks spec verification: `gh api ... --jq '[.[].body] | any(test("Spec verification|spec verification|SPEC VERIFICATION"))'`
-8. If no spec verification in any review: outputs deny with message
-
-### Output format (deny -- no review)
-
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "No review on PR #N. Use /review-pr to submit a review before merging."
-  }
-}
-```
-
-### Output format (deny -- no spec verification)
-
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "Review on PR #N lacks spec verification section. Use /review-pr to post a review that includes spec verification before merging."
-  }
-}
-```
+5. Checks review count via `gh api` — deny if 0
+6. Checks spec verification in review bodies — deny if absent
 
 ### Dependencies
 
-- `gh` CLI (GitHub CLI) -- must be authenticated
+- `gh` CLI (GitHub CLI) — must be authenticated
 - Hardcodes repo: `edobry/minsky`
 
 ---
 
-## Hook 7: `post-merge-pull.sh`
+## `post-merge-pull.ts`
 
 ### Interface
 
@@ -225,7 +160,7 @@ Exit code 2 is a **blocking error** in Claude Code -- stderr is fed back to Clau
 - **Input**: None used from stdin
 - **Env vars**: `CLAUDE_PROJECT_DIR`
 - **Output (stdout)**: Plain text warning if MCP server source changed
-- **Exit code**: Always 0 (pipefail, but git errors are `|| true`)
+- **Exit code**: Always 0
 - **Timeout**: 20s
 
 ### Behavior
@@ -235,31 +170,15 @@ Exit code 2 is a **blocking error** in Claude Code -- stderr is fed back to Clau
 3. Records HEAD after pull
 4. If HEAD changed AND `src/` files were modified in the diff: prints warning about stale MCP server
 
-### Output format (on src/ change)
-
-```
-(warning emoji)  Minsky source code updated by this merge.
-   The running MCP server is using stale code.
-   Run: /mcp then reconnect minsky
-```
-
 ---
 
-## Behavioral Contract (MUST NOT change)
+## Behavioral Contract
 
 1. **Exit codes**: edit hook always 0; stop hooks 0 or 2; review hook always 0; merge hook always 0
-2. **JSON output schema**: `hookSpecificOutput` structure must match exactly -- Claude Code parses it
-3. **State file paths**: `/tmp/claude-typecheck-roots-${session_id}-${agent_id|main}.txt` -- edit writes, stop reads+deletes
+2. **JSON output schema**: `hookSpecificOutput` structure must match exactly — Claude Code parses it
+3. **State file paths**: `/tmp/claude-typecheck-roots-${session_id}-${agent_id|main}.txt` — edit writes, stop reads+deletes
 4. **Session root detection**: `$HOME/.local/state/minsky/sessions/<uuid>/` prefix check
 5. **tsc modes**: `--incremental` for edit (fast feedback), full for stop (correctness gate)
 6. **Error filtering**: edit hook separates file-local vs cascade errors; stop hook aggregates all
 7. **Review gate**: checks both review existence AND spec verification in review body
 8. **Post-merge pull**: ff-only, warns only if src/ changed
-
-## Consolidation for TypeScript Port
-
-Hooks 3, 4, and 5 consolidate into a single `typecheck-on-stop.ts`:
-
-- Input JSON contains `hook_event_name` and `agent_id` -- sufficient to determine state file path
-- Shared logic (tracked roots iteration, tsc invocation, error aggregation) becomes internal functions
-- Both Stop and SubagentStop settings.json entries point to the same file
