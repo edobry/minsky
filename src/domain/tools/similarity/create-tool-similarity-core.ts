@@ -7,10 +7,12 @@ import { createToolsVectorStorageFromConfig } from "../../storage/vector/vector-
 import { getEmbeddingDimension } from "../../ai/embedding-models";
 import { getConfiguration } from "../../configuration";
 import { sharedCommandRegistry } from "../../../adapters/shared/command-registry";
-import { defaultInstance } from "../../persistence/service";
+import type { PersistenceProvider } from "../../persistence/types";
+import { resolveProvider } from "../../persistence/service";
 
 export interface ToolSimilarityCoreOptions {
   disableEmbeddings?: boolean;
+  persistenceProvider?: PersistenceProvider;
 }
 
 export async function createToolSimilarityCore(options: ToolSimilarityCoreOptions = {}) {
@@ -21,11 +23,9 @@ export async function createToolSimilarityCore(options: ToolSimilarityCoreOption
   let embeddings: EmbeddingsSimilarityBackend | null = null;
   if (!options.disableEmbeddings) {
     try {
+      const resolvedProvider = resolveProvider(options.persistenceProvider);
       const embedding = await createEmbeddingServiceFromConfig();
-      const storage = await createToolsVectorStorageFromConfig(
-        dimension,
-        defaultInstance.getProvider()
-      );
+      const storage = await createToolsVectorStorageFromConfig(dimension, resolvedProvider);
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
     } catch {
       embeddings = null; // Treat embeddings as unavailable when misconfigured in tests

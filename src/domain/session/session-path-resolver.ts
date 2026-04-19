@@ -227,6 +227,7 @@ export class SessionPathResolver {
     if (!provider) {
       // Lazy fallback for callers that don't have DI context (e.g. MCP handlers).
       // Callers with DI should pass sessionProvider to the constructor.
+      // Uses dynamic import to avoid module-level singleton dependency.
       const { getSharedSessionProvider } = await import("./session-provider-cache");
       provider = await getSharedSessionProvider();
       this.sessionProvider = provider;

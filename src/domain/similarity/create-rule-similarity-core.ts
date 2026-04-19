@@ -6,10 +6,12 @@ import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factor
 import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-storage-factory";
 import { RuleService } from "../rules";
 import { getConfiguration } from "../configuration";
-import { defaultInstance } from "../persistence/service";
+import type { PersistenceProvider } from "../persistence/types";
+import { resolveProvider } from "../persistence/service";
 
 export interface RuleSimilarityCoreOptions {
   disableEmbeddings?: boolean;
+  persistenceProvider?: PersistenceProvider;
 }
 
 export async function createRuleSimilarityCore(
@@ -23,11 +25,9 @@ export async function createRuleSimilarityCore(
   let embeddings: EmbeddingsSimilarityBackend | null = null;
   if (!options.disableEmbeddings) {
     try {
+      const resolvedProvider = resolveProvider(options.persistenceProvider);
       const embedding = await createEmbeddingServiceFromConfig();
-      const storage = await createRulesVectorStorageFromConfig(
-        dimension,
-        defaultInstance.getProvider()
-      );
+      const storage = await createRulesVectorStorageFromConfig(dimension, resolvedProvider);
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
     } catch {
       embeddings = null;

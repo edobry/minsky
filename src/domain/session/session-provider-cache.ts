@@ -12,6 +12,11 @@ import { createSessionProvider, type SessionProviderInterface } from "./session-
 
 let _cachedProvider: SessionProviderInterface | null = null;
 
+/**
+ * @deprecated Use container.get("sessionProvider") instead.
+ * This lazy singleton survives only for callers that have not yet migrated
+ * to container-based DI. Will be removed once all reach-ins are eliminated.
+ */
 export async function getSharedSessionProvider(): Promise<SessionProviderInterface> {
   if (!_cachedProvider) {
     _cachedProvider = await createSessionProvider();

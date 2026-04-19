@@ -5,7 +5,7 @@ import { createToolsVectorStorageFromConfig } from "../storage/vector/vector-sto
 import { getConfiguration } from "../configuration";
 import { getEmbeddingDimension } from "../ai/embedding-models";
 import { sharedCommandRegistry, type SharedCommand } from "../../adapters/shared/command-registry";
-import { defaultInstance } from "../persistence/service";
+import type { PersistenceProvider } from "../persistence/types";
 
 const log = createLogger();
 
@@ -18,7 +18,10 @@ export interface ToolEmbeddingServiceConfig {
  * Follows patterns from RuleSimilarityService (mt#445)
  */
 export class ToolEmbeddingService {
-  constructor(private readonly config: ToolEmbeddingServiceConfig = {}) {}
+  constructor(
+    private readonly persistenceProvider: PersistenceProvider,
+    private readonly config: ToolEmbeddingServiceConfig = {}
+  ) {}
 
   /**
    * Index a tool for embedding-based search
@@ -38,10 +41,7 @@ export class ToolEmbeddingService {
       ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
       "text-embedding-3-small";
     const dimension = getEmbeddingDimension(model, 1536);
-    const storage = await createToolsVectorStorageFromConfig(
-      dimension,
-      defaultInstance.getProvider()
-    );
+    const storage = await createToolsVectorStorageFromConfig(dimension, this.persistenceProvider);
 
     // Extract tool content for embedding
     const content = this.extractToolContent(tool);
@@ -141,10 +141,7 @@ export class ToolEmbeddingService {
         ((cfg?.["embeddings"] as Record<string, unknown> | undefined)?.["model"] as string) ||
         "text-embedding-3-small";
       const dimension = getEmbeddingDimension(model, 1536);
-      const storage = await createToolsVectorStorageFromConfig(
-        dimension,
-        defaultInstance.getProvider()
-      );
+      const storage = await createToolsVectorStorageFromConfig(dimension, this.persistenceProvider);
 
       if (typeof storage.getMetadata === "function") {
         return await storage.getMetadata(toolId);
@@ -161,10 +158,13 @@ export class ToolEmbeddingService {
 }
 
 /**
- * Create a configured ToolEmbeddingService instance
+ * Create a configured ToolEmbeddingService instance.
+ * When persistenceProvider is omitted, falls back to the default instance.
  */
 export async function createToolEmbeddingService(
-  config: ToolEmbeddingServiceConfig = {}
+  config: ToolEmbeddingServiceConfig = {},
+  persistenceProvider?: PersistenceProvider
 ): Promise<ToolEmbeddingService> {
-  return new ToolEmbeddingService(config);
+  const { resolveProvider } = await import("../persistence/service");
+  return new ToolEmbeddingService(resolveProvider(persistenceProvider), config);
 }

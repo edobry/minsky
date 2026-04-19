@@ -5,7 +5,6 @@
  */
 
 import { resolveRepoPath as resolveRepoPathBase } from "../../repo-utils";
-import { getSharedSessionProvider } from "../../session/session-provider-cache";
 import type { SessionProviderInterface } from "../../session/index";
 
 // Re-export task status constants and schemas for callers that import from taskCommands
@@ -13,14 +12,20 @@ export { TASK_STATUS } from "../taskConstants";
 export type { TaskStatus } from "../taskConstants";
 
 /**
- * Module-level wrapper that lazily creates a sessionProvider for bare resolveRepoPath calls.
- * This is a composition boundary — domain functions above should receive deps injected.
+ * Module-level wrapper that resolves a repo path using a session provider.
+ * Callers should pass the sessionProvider explicitly. When omitted, falls back
+ * to the shared session provider cache (transitional — will be removed once
+ * all callers are migrated to DI).
  */
 export async function resolveRepoPath(
   options: { repo?: string; session?: string },
   sessionProvider?: SessionProviderInterface
 ): Promise<string> {
-  const provider = sessionProvider ?? (await getSharedSessionProvider());
+  let provider = sessionProvider;
+  if (!provider) {
+    const { getSharedSessionProvider } = await import("../../session/session-provider-cache");
+    provider = await getSharedSessionProvider();
+  }
   return resolveRepoPathBase(options, { sessionProvider: provider });
 }
 

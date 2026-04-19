@@ -4,6 +4,7 @@ import {
   type SharedCommand,
 } from "../../../adapters/shared/command-registry";
 import { createLogger } from "../../../utils/logger";
+import type { PersistenceProvider } from "../../persistence/types";
 
 const log = createLogger();
 
@@ -35,7 +36,10 @@ export interface RelevantTool {
  * Follows patterns from TaskSimilarityService and RuleSimilarityService
  */
 export class ToolSimilarityService {
-  constructor(private readonly config: ToolSimilarityServiceConfig = {}) {}
+  constructor(
+    private readonly persistenceProvider: PersistenceProvider,
+    private readonly config: ToolSimilarityServiceConfig = {}
+  ) {}
 
   /**
    * Find tools similar to a given tool using embeddings
@@ -61,7 +65,7 @@ export class ToolSimilarityService {
       .filter(Boolean)
       .join(" ");
 
-    const core = await createToolSimilarityCore();
+    const core = await createToolSimilarityCore({ persistenceProvider: this.persistenceProvider });
     const response = await core.search({ queryText: toolContent, limit });
 
     // Filter out the original tool from results
@@ -74,7 +78,7 @@ export class ToolSimilarityService {
    * Search tools by natural language query using embeddings and fallback mechanisms
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
-    const core = await createToolSimilarityCore();
+    const core = await createToolSimilarityCore({ persistenceProvider: this.persistenceProvider });
     const response = await core.search({ queryText: query, limit });
 
     return response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
@@ -85,7 +89,7 @@ export class ToolSimilarityService {
    * Primary interface for context-aware tool filtering
    */
   async findRelevantTools(request: ToolSearchRequest): Promise<RelevantTool[]> {
-    const core = await createToolSimilarityCore();
+    const core = await createToolSimilarityCore({ persistenceProvider: this.persistenceProvider });
     const response = await core.search({
       queryText: request.query,
       limit: request.limit || 20,
@@ -128,7 +132,7 @@ export class ToolSimilarityService {
    * Useful for debugging and understanding which backend was used
    */
   async getLastUsedBackend(): Promise<string | null> {
-    const core = await createToolSimilarityCore();
+    const core = await createToolSimilarityCore({ persistenceProvider: this.persistenceProvider });
     return core.getLastUsedBackend();
   }
 
@@ -162,7 +166,9 @@ export class ToolSimilarityService {
  * Create a configured ToolSimilarityService instance
  */
 export async function createToolSimilarityService(
-  config: ToolSimilarityServiceConfig = {}
+  config: ToolSimilarityServiceConfig = {},
+  persistenceProvider?: PersistenceProvider
 ): Promise<ToolSimilarityService> {
-  return new ToolSimilarityService(config);
+  const { resolveProvider } = await import("../../persistence/service");
+  return new ToolSimilarityService(resolveProvider(persistenceProvider), config);
 }
