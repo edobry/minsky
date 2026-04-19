@@ -178,7 +178,7 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 2. **JSON output schema**: `hookSpecificOutput` structure must match exactly — Claude Code parses it
 3. **State file paths**: `/tmp/claude-typecheck-roots-${session_id}-${agent_id|main}.txt` — edit writes, stop reads+deletes
 4. **Session root detection**: `$HOME/.local/state/minsky/sessions/<uuid>/` prefix check
-5. **tsgo modes**: `--noEmit` for edit (fast feedback), `--noEmit` full for stop (correctness gate)
+5. **tsgo**: `--noEmit` for both edit and stop; edit checks single root (fast feedback), stop checks all tracked roots (correctness gate)
 6. **Error filtering**: edit hook separates file-local vs cascade errors; stop hook aggregates all
 7. **Review gate**: checks both review existence AND spec verification in review body
 8. **Post-merge pull**: ff-only, warns only if src/ changed

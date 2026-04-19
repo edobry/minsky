@@ -144,7 +144,7 @@ export function registerValidateCommands(): void {
       execute: async (params): Promise<TypecheckResult> => {
         const workspacePath = (params.workspace as string | undefined) ?? process.cwd();
 
-        const proc = Bun.spawn(["bunx", "tsc", "--noEmit"], {
+        const proc = Bun.spawn(["bunx", "@typescript/native-preview", "--noEmit"], {
           cwd: workspacePath,
           stdout: "pipe",
           stderr: "pipe",
@@ -155,7 +155,7 @@ export function registerValidateCommands(): void {
         await new Response(proc.stderr).text();
         await proc.exited;
 
-        // Parse tsc output lines matching: file(line,col): error TSxxxx: message
+        // Parse tsgo output lines matching: file(line,col): error TSxxxx: message
         const errorPattern = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.+)$/;
         const errors: TypecheckError[] = [];
 

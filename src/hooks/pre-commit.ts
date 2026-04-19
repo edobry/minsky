@@ -367,7 +367,7 @@ export class PreCommitHook {
     log.cli("🔎 Running TypeScript type check...");
 
     try {
-      await execAsync("bunx tsc --noEmit", {
+      await execAsync("bunx @typescript/native-preview --noEmit", {
         cwd: this.projectRoot,
         timeout: 60000,
       });
