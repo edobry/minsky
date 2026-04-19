@@ -218,7 +218,10 @@ describe("LocalGitChangesetAdapterFactory", () => {
   });
 
   test("creates adapter instance", async () => {
-    const adapter = await factory.createAdapter("/test/repo");
+    const adapter = await factory.createAdapter("/test/repo", {
+      repositoryUrl: "/test/repo",
+      deps: mockDeps as unknown as Record<string, unknown>,
+    });
 
     expect(adapter).toBeInstanceOf(LocalGitChangesetAdapter);
     expect(adapter.platform).toBe("local-git");

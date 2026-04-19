@@ -89,12 +89,29 @@ export {
   rebaseFromParams,
 } from "./git/git-params-facade";
 
+/**
+ * Dependencies that can be injected into GitService at construction time.
+ */
+export interface GitServiceDeps {
+  baseDir?: string;
+  sessionProvider?: SessionProviderInterface;
+}
+
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
   private sessionDb: SessionProviderInterface | null = null;
 
-  constructor(baseDir?: string) {
-    this.baseDir = baseDir || getMinskyStateDir();
+  constructor(baseDirOrDeps?: string | GitServiceDeps | null) {
+    if (typeof baseDirOrDeps === "string") {
+      this.baseDir = baseDirOrDeps || getMinskyStateDir();
+    } else if (baseDirOrDeps != null) {
+      this.baseDir = baseDirOrDeps.baseDir || getMinskyStateDir();
+      if (baseDirOrDeps.sessionProvider) {
+        this.sessionDb = baseDirOrDeps.sessionProvider;
+      }
+    } else {
+      this.baseDir = getMinskyStateDir();
+    }
   }
 
   private async getSessionDb(): Promise<SessionProviderInterface> {
@@ -386,6 +403,6 @@ export class GitService implements GitServiceInterface {
 /**
  * Creates a default GitService implementation
  */
-export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
-  return new GitService(options?.baseDir);
+export function createGitService(options?: GitServiceDeps): GitServiceInterface {
+  return new GitService(options);
 }

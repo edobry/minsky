@@ -57,9 +57,9 @@ export async function createCliContainer(): Promise<AppContainerInterface> {
 
   // --- Domain services ---
 
-  container.register("gitService", async () => {
+  container.register("gitService", async (c) => {
     const { createGitService } = await import("../domain/git/git-service-factory");
-    return createGitService();
+    return createGitService({ sessionProvider: c.get("sessionProvider") });
   });
 
   container.register("taskService", async (c) => {
