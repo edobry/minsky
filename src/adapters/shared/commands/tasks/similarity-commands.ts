@@ -3,6 +3,7 @@ import type { CommandExecutionContext } from "../../command-registry";
 import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -33,6 +34,10 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
   readonly parameters = tasksSimilarParams;
+
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
 
   /**
    * Enhance search results with task details for better CLI output
@@ -65,6 +70,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
         );
         const taskService = await createConfiguredTaskService({
           workspacePath: process.cwd(),
+          persistenceProvider: this.getPersistenceProvider?.(),
         });
         const task = await taskService.getTask(result.id);
 
@@ -150,6 +156,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly description = "Search for tasks similar to a natural language query";
   readonly parameters = tasksSearchParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   /**
    * Enhance search results with task details for better CLI output
    */
@@ -181,6 +191,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         );
         const taskService = await createConfiguredTaskService({
           workspacePath: process.cwd(),
+          persistenceProvider: this.getPersistenceProvider?.(),
         });
         const task = await taskService.getTask(result.id);
 
@@ -338,7 +349,10 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-  const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
+  const taskService = await createConfiguredTaskService({
+    workspacePath: process.cwd(),
+    persistenceProvider: persistenceService.getProvider(),
+  });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
