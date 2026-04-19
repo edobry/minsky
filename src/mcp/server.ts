@@ -113,6 +113,11 @@ export class MinskyMCPServer {
   // For HTTP transport: map sessionId to transport for multiple clients
   private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
 
+  // Graceful shutdown tracking
+  private inFlightRequests = new Map<number, number>();
+  private draining = false;
+  private nextRequestId = 0;
+
   /**
    * Create a new MinskyMCPServer
    * @param options Configuration options for the server
@@ -260,42 +265,53 @@ export class MinskyMCPServer {
 
     // Call tool
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const tool = this.tools.get(request.params.name);
-      if (!tool) {
-        throw new Error(`Tool '${request.params.name}' not found`);
+      if (this.draining) {
+        throw new Error("Server is shutting down");
       }
 
+      const trackingId = this.nextRequestId++;
+      this.inFlightRequests.set(trackingId, Date.now());
+
       try {
-        const result = await tool.handler(request.params.arguments || {});
-
-        // Convert result to proper MCP tool response format
-        let responseText: string;
-
-        if (typeof result === "string") {
-          responseText = result;
-        } else if (Array.isArray(result)) {
-          responseText = JSON.stringify(result, null, 2);
-        } else if (typeof result === "object" && result !== null) {
-          responseText = JSON.stringify(result, null, 2);
-        } else {
-          responseText = String(result);
+        const tool = this.tools.get(request.params.name);
+        if (!tool) {
+          throw new Error(`Tool '${request.params.name}' not found`);
         }
 
-        // Return MCP-compliant tool response
-        return {
-          content: [
-            {
-              type: "text",
-              text: responseText + (this.stalenessDetector.getStaleWarning() ?? ""),
-            },
-          ],
-        };
-      } catch (error) {
-        log.error("Tool execution failed", {
-          tool: request.params.name,
-          error: getErrorMessage(error),
-        });
-        throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+        try {
+          const result = await tool.handler(request.params.arguments || {});
+
+          // Convert result to proper MCP tool response format
+          let responseText: string;
+
+          if (typeof result === "string") {
+            responseText = result;
+          } else if (Array.isArray(result)) {
+            responseText = JSON.stringify(result, null, 2);
+          } else if (typeof result === "object" && result !== null) {
+            responseText = JSON.stringify(result, null, 2);
+          } else {
+            responseText = String(result);
+          }
+
+          // Return MCP-compliant tool response
+          return {
+            content: [
+              {
+                type: "text",
+                text: responseText + (this.stalenessDetector.getStaleWarning() ?? ""),
+              },
+            ],
+          };
+        } catch (error) {
+          log.error("Tool execution failed", {
+            tool: request.params.name,
+            error: getErrorMessage(error),
+          });
+          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+        }
+      } finally {
+        this.inFlightRequests.delete(trackingId);
       }
     });
 
@@ -461,6 +477,49 @@ export class MinskyMCPServer {
       log.error("Error closing MCP server", { error: getErrorMessage(error) });
       throw error;
     }
+  }
+
+  /**
+   * Gracefully drain in-flight requests and then close the server.
+   * New tool calls are rejected while draining. Waits up to 5 seconds for
+   * all in-flight requests to complete before closing.
+   */
+  async drain(): Promise<void> {
+    this.draining = true;
+    const count = this.inFlightRequests.size;
+    log.debug("MCP Server draining", { inFlightCount: count });
+
+    const POLL_INTERVAL_MS = 100;
+    const TIMEOUT_MS = 5000;
+    const start = Date.now();
+
+    await new Promise<void>((resolve) => {
+      const poll = () => {
+        if (this.inFlightRequests.size === 0) {
+          log.debug("MCP Server drain complete — all requests finished");
+          resolve();
+          return;
+        }
+        if (Date.now() - start >= TIMEOUT_MS) {
+          log.warn("MCP Server drain timed out", {
+            remainingRequests: this.inFlightRequests.size,
+          });
+          resolve();
+          return;
+        }
+        setTimeout(poll, POLL_INTERVAL_MS);
+      };
+      poll();
+    });
+
+    await this.close();
+  }
+
+  /**
+   * Return the number of currently in-flight tool call requests.
+   */
+  getInFlightCount(): number {
+    return this.inFlightRequests.size;
   }
 
   /**
