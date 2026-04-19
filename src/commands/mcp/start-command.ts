@@ -299,20 +299,22 @@ export function createStartCommand(): Command {
 
         log.cli("Press Ctrl+C to stop");
 
-        // Handle termination signals gracefully when possible
-        const _cleanup = async () => {
+        // Handle termination signals gracefully
+        const cleanup = async () => {
           log.cli("\nStopping Minsky MCP Server...");
           try {
-            await server.close();
+            await server.drain();
           } catch (error) {
             log.warn("Error during server cleanup", {
               error: getErrorMessage(error),
             });
           }
-          exit(0);
+          process.exit(0);
         };
 
-        // Note: Signal handlers removed due to Bun/TypeScript compatibility issues
+        const proc = process as Record<string, unknown>;
+        (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
+        (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {});
