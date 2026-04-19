@@ -8,6 +8,7 @@ import { type CommandExecutionContext } from "../../command-registry";
 import { getTaskSpecContentFromParams } from "../../../../domain/tasks";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksSpecParams } from "./task-parameters";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
  * Parameters for tasks spec command
@@ -26,6 +27,10 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
   readonly description = "Get task specification content";
   readonly parameters = tasksSpecParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksSpecParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.spec execution");
 
@@ -34,11 +39,14 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Get task specification
-    const specResult = await getTaskSpecContentFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-      section: params.section,
-    });
+    const specResult = await getTaskSpecContentFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+        section: params.section,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     this.debug("Task specification retrieved successfully");
 
@@ -61,4 +69,6 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
 /**
  * Factory function for creating command instance
  */
-export const createTasksSpecCommand = (): TasksSpecCommand => new TasksSpecCommand();
+export const createTasksSpecCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksSpecCommand => new TasksSpecCommand(getPersistenceProvider);

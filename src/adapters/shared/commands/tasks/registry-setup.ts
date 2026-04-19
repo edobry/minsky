@@ -67,13 +67,13 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   const { createTasksDispatchCommand } = require("./dispatch-command");
 
   return [
-    createTasksStatusGetCommand(),
-    createTasksStatusSetCommand(),
-    createTasksSpecCommand(),
+    createTasksStatusGetCommand(getPersistenceProvider),
+    createTasksStatusSetCommand(getPersistenceProvider),
+    createTasksSpecCommand(getPersistenceProvider),
     createTasksListCommand(getPersistenceProvider),
     createTasksGetCommand(getPersistenceProvider),
     createTasksCreateCommand(getPersistenceProvider),
-    createTasksEditCommand(),
+    createTasksEditCommand(getPersistenceProvider),
     createTasksDeleteCommand(getPersistenceProvider),
     new TasksSimilarCommand(),
     new TasksSearchCommand(),

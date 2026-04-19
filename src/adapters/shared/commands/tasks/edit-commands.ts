@@ -11,6 +11,7 @@ import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams } from "../../../../domain/tasks";
 import type { Task } from "../../../../domain/tasks/types";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import { promises as fs } from "fs";
 import { readTextFile } from "../../../../utils/fs";
 import { spawn } from "child_process";
@@ -46,6 +47,10 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   readonly description =
     "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
+
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
 
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
@@ -100,10 +105,13 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     // Verify the task exists and get current data
     this.debug("Verifying task exists");
 
-    const currentTask = await getTaskFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
+    const currentTask = await getTaskFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     if (!currentTask) {
       throw new ResourceNotFoundError(
@@ -469,6 +477,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
 /**
  * Factory function for creating the edit command
  */
-export function createTasksEditCommand(): TasksEditCommand {
-  return new TasksEditCommand();
+export function createTasksEditCommand(
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksEditCommand {
+  return new TasksEditCommand(getPersistenceProvider);
 }

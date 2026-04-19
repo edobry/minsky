@@ -12,6 +12,7 @@ import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
  * Parameters for tasks status get command
@@ -37,6 +38,10 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
   readonly description = "Get the status of a task";
   readonly parameters = tasksStatusGetParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksStatusGetParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.get execution");
 
@@ -45,10 +50,13 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Get task status
-    const status = await getTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
+    const status = await getTaskStatusFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     this.debug("Task status retrieved successfully");
 
@@ -70,6 +78,10 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
   readonly description = "Set the status of a task";
   readonly parameters = tasksStatusSetParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksStatusSetParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.set execution");
 
@@ -79,10 +91,13 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
     // Verify the task exists before prompting for status and get current status
     this.debug("Getting previous status");
-    const previousStatus = await getTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
+    const previousStatus = await getTaskStatusFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
     this.debug("Previous status retrieved successfully");
 
     let status = params.status;
@@ -107,11 +122,14 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
     // Set the task status
     this.debug("Setting task status");
-    const result = await setTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-      status,
-    });
+    const result = await setTaskStatusFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+        status,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
     this.debug("Task status set successfully");
@@ -170,6 +188,10 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 /**
  * Factory functions for creating command instances
  */
-export const createTasksStatusGetCommand = (): TasksStatusGetCommand => new TasksStatusGetCommand();
+export const createTasksStatusGetCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksStatusGetCommand => new TasksStatusGetCommand(getPersistenceProvider);
 
-export const createTasksStatusSetCommand = (): TasksStatusSetCommand => new TasksStatusSetCommand();
+export const createTasksStatusSetCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider);
