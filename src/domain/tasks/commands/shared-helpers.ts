@@ -13,20 +13,28 @@ export type { TaskStatus } from "../taskConstants";
 
 /**
  * Module-level wrapper that resolves a repo path using a session provider.
- * Callers should pass the sessionProvider explicitly. When omitted, falls back
- * to the shared session provider cache (transitional — will be removed once
- * all callers are migrated to DI).
+ *
+ * When `options.session` is set, `sessionProvider` is required to resolve
+ * the session to a repo path. When `options.session` is not set, the
+ * provider is unused and may be omitted.
  */
 export async function resolveRepoPath(
   options: { repo?: string; session?: string },
   sessionProvider?: SessionProviderInterface
 ): Promise<string> {
-  let provider = sessionProvider;
-  if (!provider) {
-    const { getSharedSessionProvider } = await import("../../session/session-provider-cache");
-    provider = await getSharedSessionProvider();
+  if (options.session && !sessionProvider) {
+    throw new Error(
+      "sessionProvider is required when resolving a repo path from a session. " +
+        "Pass sessionProvider from the DI container."
+    );
   }
-  return resolveRepoPathBase(options, { sessionProvider: provider });
+  if (!sessionProvider) {
+    // No session in options and no provider — resolve without session lookup.
+    // When repo is specified, use it directly. Otherwise fall back to cwd.
+    if (options.repo) return options.repo;
+    return process.cwd();
+  }
+  return resolveRepoPathBase(options, { sessionProvider });
 }
 
 /**

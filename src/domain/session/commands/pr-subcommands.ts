@@ -10,3 +10,4 @@ export { sessionPrEdit } from "./pr-edit-subcommand";
 export { sessionPrList } from "./pr-list-subcommand";
 export { sessionPrGet } from "./pr-get-subcommand";
 export { sessionPrOpen } from "./pr-open-subcommand";
+export { sessionPrChecks } from "./pr-checks-subcommand";

@@ -21,11 +21,13 @@ import {
 } from "../repository/index";
 import type { SessionRecord } from "./types";
 import { assertSessionMutable } from "./session-mutability";
+import type { PersistenceProvider } from "../persistence/types";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
   createRepositoryBackend?: (sessionRecord: string) => Promise<RepositoryBackend>;
+  persistenceProvider?: PersistenceProvider;
 }
 
 /**
@@ -361,14 +363,7 @@ Please provide a title for your pull request:
         try {
           const taskService = await createConfiguredTaskService({
             workspacePath: process.cwd(),
-            persistenceProvider: await (async () => {
-              try {
-                const { defaultInstance } = await import("../persistence/service");
-                return defaultInstance.getProvider();
-              } catch {
-                return undefined;
-              }
-            })(),
+            persistenceProvider: deps.persistenceProvider,
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);

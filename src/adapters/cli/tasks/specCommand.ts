@@ -64,12 +64,13 @@ export function createSpecCommand(): Command {
       // Call the domain function with persistence for minsky backend support
       let deps;
       try {
-        const { defaultInstance: persistenceService } = await import(
-          "../../../domain/persistence/service"
-        );
-        deps = { persistenceProvider: persistenceService.getProvider() };
+        const { getAppContainer } = await import("../../shared/bridges/cli/command-generator-core");
+        const container = getAppContainer();
+        if (container?.has("persistence")) {
+          deps = { persistenceProvider: container.get("persistence") };
+        }
       } catch {
-        // Persistence not available — minsky backend will be skipped
+        // Container not available — minsky backend will be skipped
       }
       const result = await getTaskSpecContentFromParams(params, deps);
 

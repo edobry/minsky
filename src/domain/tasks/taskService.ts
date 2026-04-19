@@ -39,7 +39,7 @@ export interface TaskServiceInterface {
 export interface TaskServiceOptions {
   workspacePath: string;
   backend?: string;
-  persistenceProvider?: import("../persistence/types").PersistenceProvider;
+  persistenceProvider?: import("../persistence/types").BasePersistenceProvider;
 }
 
 // ---- Factory Functions ----
@@ -47,7 +47,7 @@ export interface TaskServiceOptions {
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
-  persistenceProvider?: import("../persistence/types").PersistenceProvider;
+  persistenceProvider?: import("../persistence/types").BasePersistenceProvider;
 }): Promise<TaskServiceInterface> {
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
@@ -115,9 +115,7 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getDatabaseConnection return type varies across provider implementations (PostgreSQL vs SQLite)
-      const persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null =
-        options.persistenceProvider ?? null;
+      const persistenceProvider = options.persistenceProvider ?? null;
       if (persistenceProvider) {
         log.debug("Using injected persistence provider for multi-backend mode");
       } else {
@@ -147,9 +145,13 @@ export async function createConfiguredTaskService(options: {
       }
 
       // Add minsky backend (mt# prefix) - only if persistence provider is available
-      if (persistenceProvider) {
+      if (
+        persistenceProvider &&
+        "getDatabaseConnection" in persistenceProvider &&
+        typeof persistenceProvider.getDatabaseConnection === "function"
+      ) {
         try {
-          const db = await persistenceProvider.getDatabaseConnection?.();
+          const db = await persistenceProvider.getDatabaseConnection();
           if (db) {
             const minskyBackend = createMinskyTaskBackend({
               name: TaskBackend.MINSKY,

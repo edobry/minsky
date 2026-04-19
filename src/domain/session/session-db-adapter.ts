@@ -305,30 +305,33 @@ export interface CreateSessionProviderDeps {
 }
 
 /**
- * Creates a default SessionProvider implementation
- * This factory function provides a consistent way to get a session provider with optional customization
+ * Creates a default SessionProvider implementation.
+ *
+ * Accepts either a `CreateSessionProviderDeps` object (legacy) or a raw
+ * `PersistenceProvider` directly. Callers with container access should
+ * pass the persistence provider explicitly.
  */
 export async function createSessionProvider(
   _options?: {
     dbPath?: string;
     useNewBackend?: boolean;
   },
-  deps?: CreateSessionProviderDeps
+  deps?: CreateSessionProviderDeps | PersistenceProvider
 ): Promise<SessionProviderInterface> {
   if (!deps) {
-    // Lazy fallback: import defaultInstance only when no deps provided.
-    // Callers with container access should always pass deps explicitly.
-    // This fallback exists for transitional callers and will be removed
-    // once all callers are migrated to container-based DI.
-    const { defaultInstance } = await import("../persistence/service");
-    deps = { persistenceService: defaultInstance };
+    throw new Error(
+      "createSessionProvider requires a persistence dependency. " +
+        "Pass a PersistenceProvider or CreateSessionProviderDeps object."
+    );
   }
-  log.debug("Creating session provider with auto-repair support");
 
-  // Get PersistenceProvider from PersistenceService (should already be initialized at application startup)
-  log.debug(`PersistenceService initialized: ${deps.persistenceService.isInitialized()}`);
-  log.debug("Getting provider from PersistenceService...");
-  const provider = deps.persistenceService.getProvider();
+  // Normalize: accept either a raw PersistenceProvider or the legacy deps wrapper
+  const provider: PersistenceProvider =
+    typeof (deps as CreateSessionProviderDeps).persistenceService === "object"
+      ? (deps as CreateSessionProviderDeps).persistenceService.getProvider()
+      : (deps as PersistenceProvider);
+
+  log.debug("Creating session provider with auto-repair support");
   log.debug("Got provider, creating SessionDbAdapter...");
   const baseProvider = new SessionDbAdapter(provider);
 

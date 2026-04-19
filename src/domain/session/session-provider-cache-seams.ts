@@ -10,7 +10,7 @@
  */
 
 import type { SessionProviderInterface } from "./types";
-import { _setProviderForTesting } from "./session-provider-cache";
+import { _cache } from "./session-provider-cache";
 
 /**
  * @internal Test-only: inject a custom session provider into the shared cache.
@@ -18,7 +18,7 @@ import { _setProviderForTesting } from "./session-provider-cache";
  * tests. Always pair with `resetSharedSessionProvider()` in `afterEach`.
  */
 export function setSharedSessionProvider(provider: SessionProviderInterface): void {
-  _setProviderForTesting(provider);
+  _cache.provider = provider;
 }
 
 /**
@@ -26,5 +26,5 @@ export function setSharedSessionProvider(provider: SessionProviderInterface): vo
  * to prevent state leakage between tests.
  */
 export function resetSharedSessionProvider(): void {
-  _setProviderForTesting(null);
+  _cache.provider = null;
 }

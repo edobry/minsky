@@ -29,7 +29,7 @@ export {
 } from "./session-db";
 
 // Export canonical session directory resolution utility
-export { resolveSessionDirectory, _resetCachedProvider } from "./resolve-session-directory";
+export { resolveSessionDirectory } from "./resolve-session-directory";
 
 // Export shared session provider cache
 export { getSharedSessionProvider } from "./session-provider-cache";
