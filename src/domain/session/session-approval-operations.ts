@@ -110,6 +110,7 @@ export interface SessionApprovalDependencies {
   taskService?: TaskServiceInterface;
   workspaceUtils?: WorkspaceUtilsInterface;
   resolveRepoPath?: (path: string) => string;
+  persistenceProvider?: import("../persistence/types").BasePersistenceProvider;
   /** @deprecated Use createRepositoryBackend instead */
   createRepositoryBackendForSession?: (...args: unknown[]) => Promise<RepositoryBackend>;
 }

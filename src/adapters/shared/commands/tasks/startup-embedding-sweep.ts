@@ -1,25 +1,34 @@
 import { log } from "../../../../utils/logger";
+import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
 
 const STARTUP_SWEEP_LIMIT = 50;
 const STARTUP_SWEEP_CONCURRENCY = 2;
 
-export async function triggerStartupEmbeddingSweep(): Promise<void> {
+/**
+ * Triggers a background embedding sweep for tasks missing embeddings.
+ *
+ * @param persistenceProvider - The persistence provider from the DI container.
+ *   Required — callers must pass it from the container.
+ */
+export async function triggerStartupEmbeddingSweep(
+  persistenceProvider?: BasePersistenceProvider
+): Promise<void> {
   // Check config gate
   const { getConfiguration } = await import("../../../../domain/configuration");
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
-  // Check if persistence supports SQL — use PersistenceService since this
-  // runs at startup outside a command execution context (no container available)
-  const { defaultInstance: persistenceService } = await import(
-    "../../../../domain/persistence/service"
-  );
-  if (!persistenceService.isInitialized()) return;
-  const provider = persistenceService.getProvider();
-  if (!provider.capabilities.sql) return;
+  if (!persistenceProvider) return;
+  if (!persistenceProvider.capabilities.sql) return;
 
   // Find tasks missing embeddings
-  const sql = await provider.getRawSqlConnection?.();
+  // Check for SQL capability at runtime via interface checking
+  const getRawSql =
+    "getRawSqlConnection" in persistenceProvider &&
+    typeof persistenceProvider.getRawSqlConnection === "function"
+      ? persistenceProvider.getRawSqlConnection
+      : undefined;
+  const sql = getRawSql ? await getRawSql.call(persistenceProvider) : undefined;
   if (!sql) return;
   const missing = await (sql as import("postgres").Sql).unsafe(
     `SELECT t.id FROM tasks t LEFT JOIN tasks_embeddings te` +
@@ -32,7 +41,7 @@ export async function triggerStartupEmbeddingSweep(): Promise<void> {
 
   // Index them with low concurrency
   const { createTaskSimilarityService } = await import("./similarity-commands");
-  const service = await createTaskSimilarityService();
+  const service = await createTaskSimilarityService(persistenceProvider);
 
   let indexed = 0;
   let failed = 0;

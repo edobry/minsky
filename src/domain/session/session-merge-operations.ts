@@ -28,6 +28,7 @@ import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
+import type { PersistenceProvider } from "../persistence/types";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -107,6 +108,7 @@ export interface SessionMergeDependencies {
   taskService?: TaskServiceInterface;
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
+  persistenceProvider?: PersistenceProvider;
 }
 
 /**
@@ -180,14 +182,7 @@ export async function mergeSessionPr(
     deps?.taskService ||
     (await createConfiguredTaskService({
       workspacePath: originalRepoPath,
-      persistenceProvider: await (async () => {
-        try {
-          const { defaultInstance } = await import("../persistence/service");
-          return defaultInstance.getProvider();
-        } catch {
-          return undefined;
-        }
-      })(),
+      persistenceProvider: deps?.persistenceProvider,
     }));
   const gitService = deps?.gitService || createGitService();
 

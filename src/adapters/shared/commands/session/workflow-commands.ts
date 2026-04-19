@@ -75,29 +75,35 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     name: "approve",
     description: "Approve a session pull request",
     parameters: sessionApproveCommandParams,
-    execute: withErrorLogging("session.approve", async (params: Record<string, unknown>) => {
-      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
-      const { approveSessionFromParams } = await import("../../../../domain/session");
-      const deps = await getDeps();
+    execute: withErrorLogging(
+      "session.approve",
+      async (params: Record<string, unknown>, context) => {
+        // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
+        const { approveSessionFromParams } = await import("../../../../domain/session");
+        const deps = await getDeps();
 
-      const result = await approveSessionFromParams(
-        {
-          session: params.name as string | undefined,
-          task: params.task as string | undefined,
-          repo: params.repo as string | undefined,
-          json: params.json as boolean | undefined,
-        },
-        {
-          sessionDB: deps.sessionProvider,
-          gitService: deps.gitService,
-          taskService: deps.taskService,
-          workspaceUtils: deps.workspaceUtils,
-          getCurrentSession: deps.getCurrentSession,
-        }
-      );
+        const result = await approveSessionFromParams(
+          {
+            session: params.name as string | undefined,
+            task: params.task as string | undefined,
+            repo: params.repo as string | undefined,
+            json: params.json as boolean | undefined,
+          },
+          {
+            sessionDB: deps.sessionProvider,
+            gitService: deps.gitService,
+            taskService: deps.taskService,
+            workspaceUtils: deps.workspaceUtils,
+            getCurrentSession: deps.getCurrentSession,
+            persistenceProvider: context.container?.has("persistence")
+              ? context.container.get("persistence")
+              : undefined,
+          }
+        );
 
-      return { success: true, result };
-    }),
+        return { success: true, result };
+      }
+    ),
   };
 }
 
@@ -328,31 +334,38 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     name: "approve",
     description: "Approve a session pull request (does not merge)",
     parameters: sessionApproveCommandParams,
-    execute: withErrorLogging("session.pr.approve", async (params: Record<string, unknown>) => {
-      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
-      const { approveSessionFromParams } = await import("../../../../domain/session");
-      const deps = await getDeps();
+    execute: withErrorLogging(
+      "session.pr.approve",
+      async (params: Record<string, unknown>, context) => {
+        // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
+        const { approveSessionFromParams } = await import("../../../../domain/session");
+        const deps = await getDeps();
 
-      const result = await approveSessionFromParams(
-        {
-          session: params.name as string | undefined,
-          task: params.task as string | undefined,
-          repo: params.repo as string | undefined,
-          json: params.json as boolean | undefined,
-          reviewComment:
-            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
-        },
-        {
-          sessionDB: deps.sessionProvider,
-          gitService: deps.gitService,
-          taskService: deps.taskService,
-          workspaceUtils: deps.workspaceUtils,
-          getCurrentSession: deps.getCurrentSession,
-        }
-      );
+        const result = await approveSessionFromParams(
+          {
+            session: params.name as string | undefined,
+            task: params.task as string | undefined,
+            repo: params.repo as string | undefined,
+            json: params.json as boolean | undefined,
+            reviewComment:
+              (params.comment as string | undefined) ||
+              (params.reviewComment as string | undefined),
+          },
+          {
+            sessionDB: deps.sessionProvider,
+            gitService: deps.gitService,
+            taskService: deps.taskService,
+            workspaceUtils: deps.workspaceUtils,
+            getCurrentSession: deps.getCurrentSession,
+            persistenceProvider: context.container?.has("persistence")
+              ? context.container.get("persistence")
+              : undefined,
+          }
+        );
 
-      return { success: true, result };
-    }),
+        return { success: true, result };
+      }
+    ),
   };
 }
 
@@ -363,26 +376,34 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
     name: "merge",
     description: "Merge an approved session pull request",
     parameters: sessionApproveCommandParams, // Reuse same params
-    execute: withErrorLogging("session.pr.merge", async (params: Record<string, unknown>) => {
-      const deps = await getDeps();
-      const { mergeSessionPr } = await import(
-        "../../../../domain/session/session-merge-operations"
-      );
+    execute: withErrorLogging(
+      "session.pr.merge",
+      async (params: Record<string, unknown>, context) => {
+        const deps = await getDeps();
+        const { mergeSessionPr } = await import(
+          "../../../../domain/session/session-merge-operations"
+        );
 
-      const shouldCleanup = params.skipCleanup !== true;
+        const shouldCleanup = params.skipCleanup !== true;
 
-      const result = await mergeSessionPr(
-        {
-          session: params.name as string | undefined,
-          task: params.task as string | undefined,
-          repo: params.repo as string | undefined,
-          json: params.json as boolean | undefined,
-          cleanupSession: shouldCleanup,
-        },
-        { sessionDB: deps.sessionProvider }
-      );
+        const result = await mergeSessionPr(
+          {
+            session: params.name as string | undefined,
+            task: params.task as string | undefined,
+            repo: params.repo as string | undefined,
+            json: params.json as boolean | undefined,
+            cleanupSession: shouldCleanup,
+          },
+          {
+            sessionDB: deps.sessionProvider,
+            persistenceProvider: context.container?.has("persistence")
+              ? context.container.get("persistence")
+              : undefined,
+          }
+        );
 
-      return { success: true, result, printed: true };
-    }),
+        return { success: true, result, printed: true };
+      }
+    ),
   };
 }

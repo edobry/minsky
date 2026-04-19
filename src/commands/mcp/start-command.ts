@@ -284,8 +284,17 @@ export function createStartCommand(): Command {
         }
 
         // Fire-and-forget background embedding sweep for missing tasks
-        import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
-          .then(({ triggerStartupEmbeddingSweep }) => triggerStartupEmbeddingSweep())
+        Promise.all([
+          import("../../adapters/shared/commands/tasks/startup-embedding-sweep"),
+          import("../../adapters/shared/bridges/cli/command-generator-core"),
+        ])
+          .then(([{ triggerStartupEmbeddingSweep }, { getAppContainer }]) => {
+            const container = getAppContainer();
+            const persistence = container?.has("persistence")
+              ? container.get("persistence")
+              : undefined;
+            return triggerStartupEmbeddingSweep(persistence);
+          })
           .catch(() => {}); // Embedding sweep is best-effort
 
         log.cli("Press Ctrl+C to stop");

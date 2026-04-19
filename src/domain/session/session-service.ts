@@ -45,6 +45,7 @@ import type {
   SessionConflictScanOptions,
   SessionConflictScanResult,
 } from "./session-conflicts-operations";
+import type { PersistenceProvider } from "../persistence/types";
 
 import type { Session } from "./types";
 import type {
@@ -79,24 +80,31 @@ export interface SessionDeps {
 
 /**
  * Creates all real-implementation dependencies for the SessionService.
+ *
+ * @param sessionProvider - Pre-built session provider. If omitted,
+ *   `persistenceProvider` is required to create one.
+ * @param persistenceProvider - Used for creating sessionProvider (if not
+ *   provided) and taskService. In production, obtained from the DI container.
  */
 export async function createSessionDeps(
-  sessionProvider?: SessionProviderInterface
+  sessionProvider?: SessionProviderInterface,
+  persistenceProvider?: PersistenceProvider
 ): Promise<SessionDeps> {
-  const provider = sessionProvider ?? (await createSessionProvider());
+  const provider =
+    sessionProvider ??
+    (persistenceProvider
+      ? await createSessionProvider(undefined, persistenceProvider)
+      : (() => {
+          throw new Error(
+            "createSessionDeps requires either sessionProvider or persistenceProvider."
+          );
+        })());
   return {
     sessionProvider: provider,
     gitService: createGitService(),
     taskService: await createConfiguredTaskService({
       workspacePath: process.cwd(),
-      persistenceProvider: await (async () => {
-        try {
-          const { defaultInstance } = await import("../persistence/service");
-          return defaultInstance.getProvider();
-        } catch {
-          return undefined;
-        }
-      })(),
+      persistenceProvider,
     }),
     workspaceUtils: createWorkspaceUtils(provider),
     // getCurrentSession returns string | undefined; wrap to match string | null contract

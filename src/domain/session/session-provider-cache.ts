@@ -1,34 +1,36 @@
 /**
  * Shared session provider cache — canonical lazy singleton.
  *
- * Used by non-class command handlers and as the default provider source
- * for the session command class hierarchy.
- *
- * Note: test-facing API for injecting/resetting the cached provider lives
- * in `./session-provider-cache-seams.ts`. Production code MUST NOT import
- * from that module.
+ * @deprecated All production code should use container.get("sessionProvider")
+ * instead. This module survives only for test seams and will be removed once
+ * all reach-ins are eliminated.
  */
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import type { PersistenceProvider } from "../persistence/types";
 
-let _cachedProvider: SessionProviderInterface | null = null;
+/**
+ * @internal Mutable cache holder exported for test seams only.
+ * Production code MUST NOT access this directly — use getSharedSessionProvider()
+ * or preferably container.get("sessionProvider").
+ */
+export const _cache: { provider: SessionProviderInterface | null } = { provider: null };
 
 /**
  * @deprecated Use container.get("sessionProvider") instead.
  * This lazy singleton survives only for callers that have not yet migrated
  * to container-based DI. Will be removed once all reach-ins are eliminated.
  */
-export async function getSharedSessionProvider(): Promise<SessionProviderInterface> {
-  if (!_cachedProvider) {
-    _cachedProvider = await createSessionProvider();
+export async function getSharedSessionProvider(
+  persistenceProvider?: PersistenceProvider
+): Promise<SessionProviderInterface> {
+  if (!_cache.provider) {
+    if (!persistenceProvider) {
+      throw new Error(
+        "getSharedSessionProvider requires a persistenceProvider argument. " +
+          "Use container.get('sessionProvider') instead."
+      );
+    }
+    _cache.provider = await createSessionProvider(undefined, persistenceProvider);
   }
-  return _cachedProvider;
-}
-
-/**
- * @internal Test-only: low-level helper used by `session-provider-cache-seams.ts`
- * to inject or reset the cached provider. Production code MUST NOT call this.
- * Direct use from production would defeat the singleton semantics.
- */
-export function _setProviderForTesting(provider: SessionProviderInterface | null): void {
-  _cachedProvider = provider;
+  return _cache.provider;
 }

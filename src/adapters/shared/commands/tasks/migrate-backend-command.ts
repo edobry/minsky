@@ -152,6 +152,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       filterStatus: p.filterStatus,
       updateIds: p.updateIds,
       sessionProvider: context.container?.get("sessionProvider"),
+      persistenceProvider: context.container?.has("persistence")
+        ? context.container.get("persistence")
+        : undefined,
     });
 
     // Perform post-migration validation if not dry run
@@ -167,6 +170,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         workspacePath,
         migratedTasks: result.details.filter((d) => d.status === "migrated"),
         updateIds: p.updateIds,
+        persistenceProvider: context.container?.has("persistence")
+          ? context.container.get("persistence")
+          : undefined,
       });
 
       if (validationResult.failed.length > 0) {
@@ -243,20 +249,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     filterStatus?: string;
     updateIds: boolean;
     sessionProvider?: SessionProviderInterface;
+    persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider;
   }): Promise<MigrationResult> {
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
     // Create source and target task services using injectable factory
-    let persistenceProvider;
-    try {
-      const { defaultInstance: persistenceService } = await import(
-        "../../../../domain/persistence/service"
-      );
-      persistenceProvider = persistenceService.getProvider();
-    } catch {
-      // Persistence not available
-    }
+    const persistenceProvider = options.persistenceProvider;
 
     const sourceService = await this.createTaskServiceFactory({
       workspacePath,
@@ -563,6 +562,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     workspacePath: string;
     migratedTasks: MigrationDetail[];
     updateIds: boolean;
+    persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider;
   }): Promise<ValidationResult> {
     const { sourceBackend, targetBackend, workspacePath, migratedTasks, updateIds } = params;
 
@@ -570,15 +570,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       return { passed: [], failed: [] };
     }
 
-    let persistenceProvider;
-    try {
-      const { defaultInstance: persistenceService } = await import(
-        "../../../../domain/persistence/service"
-      );
-      persistenceProvider = persistenceService.getProvider();
-    } catch {
-      // Persistence not available
-    }
+    const persistenceProvider = params.persistenceProvider;
 
     const sourceService = await createConfiguredTaskService({
       backend: sourceBackend,

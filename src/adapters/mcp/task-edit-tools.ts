@@ -69,8 +69,12 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
  */
 function getTaskDeps(): TaskServiceDeps {
   try {
-    const { defaultInstance: persistenceService } = require("../../domain/persistence/service");
-    return { persistenceProvider: persistenceService.getProvider() };
+    const { getAppContainer } = require("../shared/bridges/cli/command-generator-core");
+    const container = getAppContainer();
+    if (container?.has("persistence")) {
+      return { persistenceProvider: container.get("persistence") };
+    }
+    return {};
   } catch {
     return {};
   }

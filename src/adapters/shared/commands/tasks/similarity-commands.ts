@@ -341,19 +341,48 @@ export async function createTaskSimilarityService(
 
   const embedding = await createEmbeddingServiceFromConfig();
 
-  // Resolve vector storage via PersistenceService.
+  // Resolve the persistence provider.
   // When an explicit provider is available (from DI container), use it directly.
-  // Otherwise fall back to the default instance (lazy dynamic import).
-  const { defaultInstance: persistenceService } = await import(
-    "../../../../domain/persistence/service"
-  );
-  const vectorStorage = persistenceService.getVectorStorage(dimension);
+  // Otherwise, try the app container.
+  let resolvedProvider = persistenceProvider;
+  if (!resolvedProvider) {
+    try {
+      const { getAppContainer } = await import("../../bridges/cli/command-generator-core");
+      const container = getAppContainer();
+      if (container?.has("persistence")) {
+        resolvedProvider = container.get("persistence");
+      }
+    } catch {
+      // Container not available
+    }
+  }
+
+  if (!resolvedProvider) {
+    throw new Error(
+      "createTaskSimilarityService requires a persistence provider. " +
+        "Pass it explicitly or ensure the DI container is initialized."
+    );
+  }
+
+  // Check vector capability
+  if (
+    !resolvedProvider.capabilities.vectorStorage ||
+    !("getVectorStorage" in resolvedProvider) ||
+    typeof (resolvedProvider as Record<string, unknown>).getVectorStorage !== "function"
+  ) {
+    throw new Error(
+      `Persistence provider ${resolvedProvider.constructor.name} does not support vector storage`
+    );
+  }
+  const vectorStorage = (
+    resolvedProvider as import("../../../../domain/persistence/types").VectorCapablePersistenceProvider
+  ).getVectorStorage(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
   const taskService = await createConfiguredTaskService({
     workspacePath: process.cwd(),
-    persistenceProvider: persistenceService.getProvider(),
+    persistenceProvider: resolvedProvider,
   });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
