@@ -38,82 +38,70 @@ const detectAndWarnUnknownFields = (
 /**
  * Individual AI provider configuration
  */
-export const aiProviderConfigSchema = z
-  .object({
-    // API key for the provider
-    apiKey: baseSchemas.optionalNonEmptyString,
+export const aiProviderConfigSchema = z.object({
+  // API key for the provider
+  apiKey: baseSchemas.optionalNonEmptyString,
 
-    // Path to file containing the API key
-    apiKeyFile: baseSchemas.optionalNonEmptyString,
+  // Path to file containing the API key
+  apiKeyFile: baseSchemas.optionalNonEmptyString,
 
-    // Whether this provider is enabled
-    enabled: z.boolean().default(true),
+  // Whether this provider is enabled
+  enabled: z.boolean().default(true),
 
-    // Default model to use for this provider
-    model: baseSchemas.modelName.optional(),
+  // Default model to use for this provider
+  model: baseSchemas.modelName.optional(),
 
-    // Available models for this provider
-    models: z.array(baseSchemas.modelName).default([]),
+  // Available models for this provider
+  models: z.array(baseSchemas.modelName).default([]),
 
-    // Base URL for the API (for custom endpoints)
-    baseUrl: baseSchemas.url.optional(),
+  // Base URL for the API (for custom endpoints)
+  baseUrl: baseSchemas.url.optional(),
 
-    // Maximum tokens for requests
-    maxTokens: baseSchemas.maxTokens.optional(),
+  // Maximum tokens for requests
+  maxTokens: baseSchemas.maxTokens.optional(),
 
-    // Temperature setting (0-2)
-    temperature: baseSchemas.temperature.optional(),
+  // Temperature setting (0-2)
+  temperature: baseSchemas.temperature.optional(),
 
-    // Custom headers for API requests
-    headers: z.record(z.string(), z.string()).optional(),
-  })
-  .strip();
+  // Custom headers for API requests
+  headers: z.record(z.string(), z.string()).optional(),
+});
 
 /**
  * OpenAI-specific configuration
  */
-export const openaiConfigSchema = aiProviderConfigSchema
-  .extend({
-    // OpenAI-specific organization ID
-    organization: baseSchemas.optionalNonEmptyString,
-  })
-  .strip();
+export const openaiConfigSchema = aiProviderConfigSchema.extend({
+  // OpenAI-specific organization ID
+  organization: baseSchemas.optionalNonEmptyString,
+});
 
 /**
  * Anthropic-specific configuration
  */
-export const anthropicConfigSchema = aiProviderConfigSchema
-  .extend({
-    // Anthropic-specific settings can be added here
-  })
-  .strip();
+export const anthropicConfigSchema = aiProviderConfigSchema.extend({
+  // Anthropic-specific settings can be added here
+});
 
 /**
  * Google-specific configuration
  */
-export const googleConfigSchema = aiProviderConfigSchema
-  .extend({
-    // Google-specific settings can be added here
-  })
-  .strip();
+export const googleConfigSchema = aiProviderConfigSchema.extend({
+  // Google-specific settings can be added here
+});
 
 /**
  * Cohere-specific configuration
  */
-export const cohereConfigSchema = aiProviderConfigSchema
-  .extend({
-    // Cohere-specific settings can be added here
-  })
-  .strip();
+export const cohereConfigSchema = aiProviderConfigSchema.extend({
+  // Cohere-specific settings can be added here
+});
 
 /**
  * Mistral-specific configuration
  */
-export const mistralConfigSchema = aiProviderConfigSchema
-  .extend({
-    // Mistral-specific settings can be added here
-  })
-  .strip();
+export const mistralConfigSchema = aiProviderConfigSchema.extend({
+  // Mistral-specific settings can be added here
+});
 
 /**
  * Morph-specific configuration
@@ -126,7 +114,7 @@ export const morphConfigSchema = aiProviderConfigSchema
     // Base URL defaults to Morph API
     baseUrl: z.string().default("https://api.morphllm.com/v1"),
   })
-  .strict();
+  .strict(); // Keep .strict() — chained after .extend(), can't use z.strictObject()
 
 /**
  * All AI providers configuration with unknown field detection
@@ -143,20 +131,19 @@ const baseAiProvidersSchema = z.object({
 export const aiProvidersConfigSchema = z
   .unknown()
   .transform((data) => detectAndWarnUnknownFields(data, baseAiProvidersSchema, "ai.providers"))
-  .pipe(baseAiProvidersSchema.strip());
+  .pipe(baseAiProvidersSchema);
 
 /**
  * Complete AI configuration
  */
 export const aiConfigSchema = z
-  .object({
+  .looseObject({
     // Default provider to use when no specific provider is requested
     defaultProvider: enumSchemas.aiProvider.optional(),
 
     // Provider-specific configurations
     providers: aiProvidersConfigSchema.default({}),
   })
-  .passthrough() // Changed from .strict() to .passthrough() to allow unknown fields
   .default({
     providers: {},
   });

@@ -155,37 +155,31 @@ export const credentialSourceSchema = z.enum(["env", "file", "keychain", "manual
   error: "Credential source must be one of: env, file, keychain, manual",
 });
 
-export const credentialConfigSchema = z
-  .object({
-    source: credentialSourceSchema,
-    token: baseSchemas.optionalNonEmptyString,
-    tokenFile: baseSchemas.optionalNonEmptyString,
-    apiKey: baseSchemas.optionalNonEmptyString,
-    apiKeyFile: baseSchemas.optionalNonEmptyString,
-  })
-  .strict();
+export const credentialConfigSchema = z.strictObject({
+  source: credentialSourceSchema,
+  token: baseSchemas.optionalNonEmptyString,
+  tokenFile: baseSchemas.optionalNonEmptyString,
+  apiKey: baseSchemas.optionalNonEmptyString,
+  apiKeyFile: baseSchemas.optionalNonEmptyString,
+});
 
 /**
  * File configuration schema for loading from YAML/JSON files
  */
-export const fileConfigSchema = z
-  .object({
-    path: baseSchemas.filePath,
-    required: z.boolean().default(false),
-    format: z.enum(["yaml", "json", "auto"]).default("auto"),
-  })
-  .strict();
+export const fileConfigSchema = z.strictObject({
+  path: baseSchemas.filePath,
+  required: z.boolean().default(false),
+  format: z.enum(["yaml", "json", "auto"]).default("auto"),
+});
 
 /**
  * Environment variable mapping schema
  */
-export const envVarMappingSchema = z
-  .object({
-    name: baseSchemas.envVarName,
-    path: z.string().min(1, "Configuration path cannot be empty"),
-    transform: z.enum(["string", "number", "boolean", "json"]).default("string"),
-  })
-  .strict();
+export const envVarMappingSchema = z.strictObject({
+  name: baseSchemas.envVarName,
+  path: z.string().min(1, "Configuration path cannot be empty"),
+  transform: z.enum(["string", "number", "boolean", "json"]).default("string"),
+});
 
 export type CredentialConfig = z.infer<typeof credentialConfigSchema>;
 export type FileConfig = z.infer<typeof fileConfigSchema>;

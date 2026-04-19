@@ -12,21 +12,20 @@ import { baseSchemas } from "./base";
  * GitHub authentication token configuration
  */
 export const githubTokenSchema = z
-  .object({
+  .strictObject({
     // Direct token value (for environment variable or direct configuration)
     token: baseSchemas.optionalNonEmptyString,
 
     // Path to file containing the token
     tokenFile: baseSchemas.optionalNonEmptyString,
   })
-  .strict()
   .optional();
 
 /**
  * GitHub organization/repository configuration
  */
 export const githubRepoConfigSchema = z
-  .object({
+  .strictObject({
     // GitHub organization or user name
     organization: baseSchemas.organizationName.optional(),
 
@@ -36,14 +35,13 @@ export const githubRepoConfigSchema = z
     // Base URL for GitHub API (for GitHub Enterprise)
     baseUrl: baseSchemas.url.optional(),
   })
-  .strict()
   .optional();
 
 /**
  * Complete GitHub configuration
  */
 export const githubConfigSchema = z
-  .object({
+  .strictObject({
     // Authentication token (from environment variable or file)
     token: baseSchemas.optionalNonEmptyString,
 
@@ -59,7 +57,6 @@ export const githubConfigSchema = z
     // GitHub API base URL (for GitHub Enterprise)
     baseUrl: baseSchemas.url.optional(),
   })
-  .strict()
   .default({});
 
 // Type exports

@@ -12,7 +12,7 @@ import { enumSchemas } from "./base";
  * Logger configuration
  */
 export const loggerConfigSchema = z
-  .object({
+  .strictObject({
     // Logging mode: HUMAN (readable), STRUCTURED (JSON), or auto (detect based on environment)
     mode: enumSchemas.loggerMode.default("auto"),
 
@@ -40,7 +40,6 @@ export const loggerConfigSchema = z
     // Number of log files to keep during rotation
     maxFiles: z.number().min(1).max(20).default(5),
   })
-  .strict()
   .default({
     mode: "auto",
     level: "info",

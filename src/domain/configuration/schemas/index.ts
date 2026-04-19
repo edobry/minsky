@@ -37,42 +37,40 @@ import { rulesConfigSchema, type RulesConfig } from "./rules";
  * This is the root schema that defines the entire configuration structure
  * for the Minsky application, combining all domain-specific configurations.
  */
-export const configurationSchema = z
-  .object({
-    // Note: Deprecated root 'backend' property removed - use tasks.backend instead
-    backendConfig: backendConfigSchema,
+export const configurationSchema = z.looseObject({
+  // Note: Deprecated root 'backend' property removed - use tasks.backend instead
+  backendConfig: backendConfigSchema,
 
-    // Modern persistence configuration
-    persistence: persistenceConfigSchema.optional(),
+  // Modern persistence configuration
+  persistence: persistenceConfigSchema.optional(),
 
-    // GitHub integration configuration
-    github: githubConfigSchema,
+  // GitHub integration configuration
+  github: githubConfigSchema,
 
-    // AI providers configuration
-    ai: aiConfigSchema,
+  // AI providers configuration
+  ai: aiConfigSchema,
 
-    // Embeddings configuration
-    embeddings: embeddingsConfigSchema,
+  // Embeddings configuration
+  embeddings: embeddingsConfigSchema,
 
-    // Logging configuration
-    logger: loggerConfigSchema,
+  // Logging configuration
+  logger: loggerConfigSchema,
 
-    // Validation configuration
-    validation: validationConfigSchema,
+  // Validation configuration
+  validation: validationConfigSchema,
 
-    // Tasks configuration
-    tasks: tasksConfigSchema,
+  // Tasks configuration
+  tasks: tasksConfigSchema,
 
-    // Workspace configuration
-    workspace: workspaceConfigSchema,
+  // Workspace configuration
+  workspace: workspaceConfigSchema,
 
-    // Rules configuration
-    rules: rulesConfigSchema,
+  // Rules configuration
+  rules: rulesConfigSchema,
 
-    // Repository backend configuration (project-level, set during minsky init)
-    repository: repositoryConfigSchema.optional(),
-  })
-  .passthrough(); // Use passthrough instead of strict to allow extra properties
+  // Repository backend configuration (project-level, set during minsky init)
+  repository: repositoryConfigSchema.optional(),
+}); // looseObject allows extra properties (equivalent to passthrough)
 
 /**
  * Configuration type inferred from the schema
