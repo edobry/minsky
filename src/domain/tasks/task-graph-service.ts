@@ -234,14 +234,30 @@ export class TaskGraphService {
 
   /**
    * Walk up the parent chain from a task, returning all ancestors.
-   * Used for cycle prevention. Stops at root (no parent) or max depth.
+   * Uses batched edge lookups to minimize DB round-trips.
+   * Stops at root (no parent) or max depth.
    */
   async getAncestors(taskId: string, maxDepth = 10): Promise<string[]> {
     const ancestors: string[] = [];
     let current = taskId;
+    // Prefetch all parent edges for the starting task in one query
+    let parentEdges = await this.repo.getRelationshipsForTasks([current], "parent");
+    const edgeMap = new Map<string, string>();
+    for (const edge of parentEdges) {
+      edgeMap.set(edge.fromTaskId, edge.toTaskId);
+    }
+
     for (let i = 0; i < maxDepth; i++) {
-      const parent = await this.getParent(current);
-      if (parent === null) break;
+      let parent = edgeMap.get(current);
+      if (parent === undefined) {
+        // Not in cache — fetch this node's parent edges (handles walking beyond prefetch)
+        parentEdges = await this.repo.getRelationshipsForTasks([current], "parent");
+        for (const edge of parentEdges) {
+          edgeMap.set(edge.fromTaskId, edge.toTaskId);
+        }
+        parent = edgeMap.get(current);
+      }
+      if (parent === undefined) break;
       ancestors.push(parent);
       current = parent;
     }
@@ -250,20 +266,33 @@ export class TaskGraphService {
 
   /**
    * BFS over "depends" edges from a task, returning all transitive dependencies.
+   * Uses batched edge lookups per BFS frontier to minimize DB round-trips.
    * Used for cycle detection before adding a new dependency edge.
    */
   async getTransitiveDependencies(taskId: string, maxNodes = 100): Promise<Set<string>> {
     const visited = new Set<string>();
-    const queue = [taskId];
-    while (queue.length > 0 && visited.size < maxNodes) {
-      const current = queue.shift()!;
-      if (visited.has(current)) continue;
-      visited.add(current);
-      const deps = await this.listDependencies(current);
-      for (const dep of deps) {
-        if (!visited.has(dep)) queue.push(dep);
+    let frontier = [taskId];
+
+    while (frontier.length > 0 && visited.size < maxNodes) {
+      // Batch-fetch all "depends" edges for the entire frontier
+      const edges = await this.repo.getRelationshipsForTasks(frontier, "depends");
+
+      // Mark frontier as visited
+      for (const node of frontier) {
+        visited.add(node);
       }
+
+      // Collect next frontier from discovered edges
+      const nextFrontier: string[] = [];
+      for (const edge of edges) {
+        // "depends" edges: fromTaskId depends on toTaskId
+        if (visited.has(edge.fromTaskId) && !visited.has(edge.toTaskId)) {
+          nextFrontier.push(edge.toTaskId);
+        }
+      }
+      frontier = nextFrontier;
     }
+
     visited.delete(taskId); // don't include the starting node itself
     return visited;
   }

@@ -101,7 +101,9 @@
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",
     "postgres": "^3.4.8",
+    "reflect-metadata": "^0.2.2",
     "tiktoken": "^1.0.22",
+    "tsyringe": "^4.10.0",
     "winston": "^3.17.0",
     "yaml": "^2.8.0",
     "zod": "^4.3.6"

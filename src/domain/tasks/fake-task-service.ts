@@ -51,6 +51,10 @@ export class FakeTaskService implements TaskServiceInterface {
     return this.tasks.get(taskId) ?? null;
   }
 
+  async getTasks(ids: string[]): Promise<Task[]> {
+    return ids.map((id) => this.tasks.get(id)).filter((t): t is Task => t !== undefined);
+  }
+
   async getTaskStatus(taskId: string): Promise<string | undefined> {
     return this.tasks.get(taskId)?.status;
   }

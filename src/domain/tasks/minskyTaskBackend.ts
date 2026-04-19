@@ -1,4 +1,4 @@
-import { eq, not, and, like, type SQL } from "drizzle-orm";
+import { eq, not, and, like, inArray, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 // Remove configuration import - dependencies should be injected
@@ -67,6 +67,12 @@ export class MinskyTaskBackend implements TaskBackend {
     }
 
     return this.mapDbRowToTask(rows[0]);
+  }
+
+  async getTasks(ids: string[]): Promise<Task[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.select().from(tasksTable).where(inArray(tasksTable.id, ids));
+    return rows.map((row) => this.mapDbRowToTask(row));
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {

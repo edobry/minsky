@@ -84,6 +84,8 @@ export interface TaskBackend {
   getCapabilities(): BackendCapabilities;
 
   // ---- Optional Methods ----
+  // getTasks: batch-fetch multiple tasks by ID; backends that support it avoid N+1 queries
+  getTasks?(ids: string[]): Promise<Task[]>;
   // getTaskMetadata/setTaskMetadata: rich metadata access; only database-backed backends implement it
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
