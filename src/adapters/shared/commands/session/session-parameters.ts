@@ -587,6 +587,7 @@ export const sessionPrChecksCommandParams = {
   name: commonSessionParams.name,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
   wait: {
     schema: z.boolean(),
     description: "Wait for all checks to complete before returning",
