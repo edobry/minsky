@@ -39,8 +39,8 @@ const tasksAvailableParams = {
     required: false,
   },
   minReadiness: {
-    schema: z.number().min(0).max(1).default(1.0),
-    description: "Minimum readiness score (0.0-1.0) - use 1.0 for truly available tasks only",
+    schema: z.number().min(0).max(1).default(0.5),
+    description: "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks",
     required: false,
   },
 } satisfies CommandParameterMap;
@@ -153,7 +153,7 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
         }));
       }
 
-      // Filter by readiness score (default 1.0 = only truly available tasks)
+      // Filter by readiness score (default 0.5 = shows partially-ready tasks)
       const readyTasks = availableTasks.filter(
         (task) => task.readinessScore >= params.minReadiness
       );
