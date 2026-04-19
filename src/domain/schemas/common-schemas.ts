@@ -138,7 +138,7 @@ export const BaseErrorResponseSchema = z.object({
   success: z.literal(false),
   error: z.string(),
   errorCode: z.string().optional(),
-  details: z.record(z.any()).optional(),
+  details: z.record(z.string(), z.any()).optional(),
   timestamp: z.string().datetime().optional(),
 });
 

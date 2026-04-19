@@ -122,7 +122,7 @@ export const configurationValidation = {
    * Validate a partial configuration (for overrides)
    */
   validatePartial: (config: unknown): { success: boolean; error?: z.ZodError } => {
-    const partialSchema = configurationSchema.deepPartial();
+    const partialSchema = configurationSchema.partial();
     const result = partialSchema.safeParse(config);
 
     return {

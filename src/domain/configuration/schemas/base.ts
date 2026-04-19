@@ -72,38 +72,32 @@ export const baseSchemas = {
 export const enumSchemas = {
   // Log levels
   logLevel: z.enum(["debug", "info", "warn", "error"], {
-    errorMap: () => ({ message: "Log level must be one of: debug, info, warn, error" }),
+    error: "Log level must be one of: debug, info, warn, error",
   }),
 
   // Logger modes
   loggerMode: z.enum(["HUMAN", "STRUCTURED", "auto"], {
-    errorMap: () => ({ message: "Logger mode must be one of: HUMAN, STRUCTURED, auto" }),
+    error: "Logger mode must be one of: HUMAN, STRUCTURED, auto",
   }),
 
   // Backend types
   backendType: z.enum(Object.values(TaskBackend) as [string, ...string[]], {
-    errorMap: () => ({
-      message: `Backend must be one of: ${Object.values(TaskBackend).join(", ")}`,
-    }),
+    error: `Backend must be one of: ${Object.values(TaskBackend).join(", ")}`,
   }),
 
   // SessionDB backends
   sessionDbBackend: z.enum(["sqlite", "postgres"], {
-    errorMap: () => ({ message: "SessionDB backend must be one of: sqlite, postgres" }),
+    error: "SessionDB backend must be one of: sqlite, postgres",
   }),
 
   // AI providers
   aiProvider: z.enum(["openai", "anthropic", "google", "cohere", "mistral", "morph"], {
-    errorMap: () => ({
-      message: "AI provider must be one of: openai, anthropic, google, cohere, mistral, morph",
-    }),
+    error: "AI provider must be one of: openai, anthropic, google, cohere, mistral, morph",
   }),
 
   // Repository backend types (distinct from task backendType)
   repoBackendType: z.enum(["github", "gitlab", "local"], {
-    errorMap: () => ({
-      message: "Repository backend must be one of: github, gitlab, local",
-    }),
+    error: "Repository backend must be one of: github, gitlab, local",
   }),
 } as const;
 
@@ -114,23 +108,24 @@ export const schemaUtils = {
   /**
    * Create an optional schema that accepts undefined or the provided schema
    */
-  optional: <T extends z.ZodTypeAny>(schema: T) => schema.optional(),
+  optional: <T extends z.ZodType>(schema: T) => schema.optional(),
 
   /**
    * Create a schema with a default value
    */
-  withDefault: <T extends z.ZodTypeAny, D>(schema: T, defaultValue: D) =>
-    schema.default(defaultValue),
+  withDefault: <T extends z.ZodType>(schema: T, defaultValue: z.input<T>) =>
+    schema.default(defaultValue as never),
 
   /**
-   * Create a deeply partial version of an object schema (for configuration overrides)
+   * Create a deeply partial version of an object schema (for configuration overrides).
+   * In Zod v4, deepPartial was removed. We use .partial() as a shallow alternative.
    */
-  deepPartial: (schema: z.ZodObject<z.ZodRawShape>) => schema.deepPartial(),
+  deepPartial: (schema: z.ZodObject<z.ZodRawShape>) => schema.partial(),
 
   /**
    * Create a schema that validates environment variable format and converts to the target type
    */
-  fromEnvVar: <T extends z.ZodTypeAny>(schema: T, envVarName: string) =>
+  fromEnvVar: <T extends z.ZodType>(schema: T, envVarName: string) =>
     z
       .string()
       .optional()
@@ -157,7 +152,7 @@ export const schemaUtils = {
  * Credential configuration schema (used across multiple domains)
  */
 export const credentialSourceSchema = z.enum(["env", "file", "keychain", "manual"], {
-  errorMap: () => ({ message: "Credential source must be one of: env, file, keychain, manual" }),
+  error: "Credential source must be one of: env, file, keychain, manual",
 });
 
 export const credentialConfigSchema = z
@@ -200,9 +195,9 @@ export type EnvVarMapping = z.infer<typeof envVarMappingSchema>;
  * Re-export commonly used types for convenience
  */
 export type {
-  ZodSchema,
   ZodType,
-  ZodTypeAny,
+  ZodType as ZodSchema,
+  ZodType as ZodTypeAny,
   ZodObject,
   ZodEnum,
   ZodString,

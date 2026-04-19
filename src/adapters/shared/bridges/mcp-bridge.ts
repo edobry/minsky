@@ -113,7 +113,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
     // Use the handler function if available, otherwise throw error
     if (validatedCommandDef.handler) {
-      const result = await validatedCommandDef.handler(parsedParams, context);
+      const result = await (validatedCommandDef.handler as Function)(parsedParams, context);
       return {
         success: true,
         result,

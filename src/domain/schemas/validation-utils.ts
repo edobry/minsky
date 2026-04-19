@@ -4,7 +4,7 @@
  * Validation utilities that work consistently across CLI, MCP, and API interfaces.
  * Provides standardized validation patterns and error handling.
  */
-import { ZodError, ZodSchema } from "zod";
+import { z, ZodError, type ZodType } from "zod";
 import { createErrorResponse, BaseErrorResponse } from "./common-schemas";
 
 // ========================
@@ -42,7 +42,7 @@ export type ValidationResult<T> = ValidationSuccess<T> | ValidationError;
  * Validates data against a Zod schema and returns a standardized result
  */
 export function validateSchema<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T>,
   data: unknown,
   context?: string
 ): ValidationResult<T> {
@@ -58,7 +58,7 @@ export function validateSchema<T>(
         success: false,
         error: formatZodError(error, context),
         details: {
-          zodError: error.format(),
+          zodError: z.treeifyError(error),
           context,
         },
         fieldErrors: extractFieldErrors(error),
@@ -76,7 +76,7 @@ export function validateSchema<T>(
 /**
  * Validates data against a Zod schema with safe parsing (returns undefined on error)
  */
-export function safeValidateSchema<T>(schema: ZodSchema<T>, data: unknown): T | undefined {
+export function safeValidateSchema<T>(schema: ZodType<T>, data: unknown): T | undefined {
   const result = schema.safeParse(data);
   return result.success ? result.data : undefined;
 }
@@ -89,7 +89,7 @@ export function safeValidateSchema<T>(schema: ZodSchema<T>, data: unknown): T | 
  * Validates parameters for any interface operation
  */
 export function validateOperationParameters<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T>,
   parameters: unknown,
   operation: string
 ): ValidationResult<T> {
@@ -100,7 +100,7 @@ export function validateOperationParameters<T>(
  * Validates and transforms CLI arguments to typed parameters
  */
 export function validateCliArguments<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T>,
   args: Record<string, unknown>,
   command: string
 ): ValidationResult<T> {
@@ -113,7 +113,7 @@ export function validateCliArguments<T>(
  * Validates MCP tool arguments
  */
 export function validateMcpArguments<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T>,
   args: unknown,
   toolName: string
 ): ValidationResult<T> {
@@ -124,7 +124,7 @@ export function validateMcpArguments<T>(
  * Validates API request body
  */
 export function validateApiRequest<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T>,
   body: unknown,
   endpoint: string
 ): ValidationResult<T> {
@@ -141,8 +141,8 @@ export function validateApiRequest<T>(
 export function formatZodError(error: ZodError, context?: string): string {
   const contextPrefix = context ? `${context}: ` : "";
 
-  if (error.errors.length === 1) {
-    const issue = error.errors[0];
+  if (error.issues.length === 1) {
+    const issue = error.issues[0];
     if (!issue) {
       return `${contextPrefix}Unknown validation error`;
     }
@@ -150,7 +150,7 @@ export function formatZodError(error: ZodError, context?: string): string {
     return `${contextPrefix}${issue.message}${path}`;
   }
 
-  const errorList = error.errors
+  const errorList = error.issues
     .filter((issue) => issue !== undefined)
     .map((issue) => {
       const path = issue.path.length > 0 ? ` at '${issue.path.join(".")}'` : "";
@@ -167,7 +167,7 @@ export function formatZodError(error: ZodError, context?: string): string {
 export function extractFieldErrors(error: ZodError): Record<string, string[]> {
   const fieldErrors: Record<string, string[]> = {};
 
-  for (const issue of error.errors) {
+  for (const issue of error.issues) {
     const path = issue.path.join(".");
     const key = path || "_root";
 

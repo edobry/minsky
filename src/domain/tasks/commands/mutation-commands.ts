@@ -82,7 +82,7 @@ export async function setTaskStatusFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for setting task status",
-        error.format(),
+        z.treeifyError(error),
         error
       );
     }
@@ -153,7 +153,11 @@ export async function updateTaskFromParams(
     return updatedTask;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for updating task", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for updating task",
+        z.treeifyError(error),
+        error
+      );
     }
     throw error;
   }
@@ -208,7 +212,11 @@ export async function createTaskFromParams(
     return task;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for creating task", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for creating task",
+        z.treeifyError(error),
+        error
+      );
     }
     throw error;
   }
@@ -312,7 +320,11 @@ export async function deleteTaskFromParams(
     };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for deleting task", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for deleting task",
+        z.treeifyError(error),
+        error
+      );
     }
     throw error;
   }
