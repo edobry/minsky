@@ -7,15 +7,13 @@
 // Consolidates: typecheck-on-stop.sh, typecheck-on-subagent-stop.sh, typecheck-tracked-roots.sh
 
 import { existsSync, readFileSync, unlinkSync } from "fs";
-import { readInput, writeOutput, execSync } from "./types";
+import { readInput, execSync } from "./types";
 import type { StopHookInput } from "./types";
 
 const input = await readInput<StopHookInput>();
 
 const sessionId = input.session_id ?? "default";
 const agentId = input.agent_id;
-const hookEventName = input.hook_event_name ?? "Stop";
-
 // Determine state file: keyed by session_id and (if subagent) agent_id
 const stateFile = agentId
   ? `/tmp/claude-typecheck-roots-${sessionId}-${agentId}.txt`
@@ -59,12 +57,12 @@ for (const root of roots) {
 
 if (failedRoots.length > 0) {
   const preview = allErrors.split("\n").slice(0, 60).join("\n");
-  writeOutput({
-    hookSpecificOutput: {
-      hookEventName,
-      additionalContext: `TypeScript errors must be fixed before completing:\n${preview}\n\nTotal: ${totalCount} error(s). Fix all type errors before returning.`,
-    },
-  });
+  // Stop hooks use decision/reason schema, NOT hookSpecificOutput
+  const output = {
+    decision: "block",
+    reason: `TypeScript errors must be fixed before completing:\n${preview}\n\nTotal: ${totalCount} error(s). Fix all type errors before returning.`,
+  };
+  process.stdout.write(JSON.stringify(output));
   process.exit(2);
 }
 
