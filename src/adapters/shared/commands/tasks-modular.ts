@@ -38,7 +38,7 @@ export class ModularTasksCommandManager {
           name: command.name,
           description: command.description,
           parameters: command.parameters,
-          execute: command.execute,
+          execute: (params, ctx) => command.execute(params, ctx),
         });
       }
 
