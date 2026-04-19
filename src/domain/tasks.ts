@@ -243,35 +243,14 @@ export async function getTaskSpecContentFromParams(
   const workspacePath = process.cwd();
   log.debug("tasks.spec params", { backend: validParams.backend });
 
-  // Determine backend (prefer CLI param, else config)
-  let backend = validParams.backend;
-  if (!backend) {
-    try {
-      const { ConfigurationLoader } = await import("./configuration/loader");
-      const configLoader = new ConfigurationLoader();
-      const configResult = await configLoader.load();
-      if (configResult.config.tasks?.backend) {
-        backend = configResult.config.tasks.backend;
-        log.debug("tasks.spec backend from configuration", { backend });
-      } else if (configResult.config.backend) {
-        // Fallback to deprecated root backend property for backward compatibility
-        backend = configResult.config.backend as string;
-        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
-          backend,
-        });
-      }
-    } catch (error) {
-      log.debug("tasks.spec failed to load configuration", { error });
-    }
-  }
-
   const taskService = await createConfiguredTaskService({
     workspacePath,
-    backend,
+    backend: validParams.backend,
     persistenceProvider: deps?.persistenceProvider,
   });
   log.debug("tasks.spec created TaskService", {
-    backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
+    backend:
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   return await taskService.getTaskSpecContent(validParams.taskId);
 }
