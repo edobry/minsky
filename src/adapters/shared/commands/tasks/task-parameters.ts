@@ -291,6 +291,11 @@ export const tasksGetParams = {
   ...taskIdParam,
   ...taskContextParams,
   ...outputFormatParams,
+  includeSpec: {
+    schema: z.boolean().default(false),
+    description: "Include task specification content in the response",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 /**
