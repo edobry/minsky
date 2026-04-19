@@ -50,8 +50,8 @@ const stateFile = agentId
 
 appendFileSync(stateFile, `${projectRoot}\n`);
 
-// Run tsc with --incremental for fast feedback
-const result = execSync(["bunx", "tsc", "--incremental"], { cwd: projectRoot });
+// Run tsgo (native TypeScript compiler) with --noEmit for fast feedback
+const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cwd: projectRoot });
 
 if (result.exitCode !== 0) {
   const output = result.stdout || result.stderr;

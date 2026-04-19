@@ -4,6 +4,7 @@
  * prevents the "status is not defined" error from recurring.
  */
 
+import { describe, test, expect } from "bun:test";
 import { TASK_PARSING_UTILS, TaskStatus } from "./tasks/taskConstants";
 
 describe("Task Status Bug Regression Tests", () => {
