@@ -181,13 +181,16 @@ export async function sessionCommit(
     // Commit changes using session-scoped git command
     let commitResult!: { commitHash: string; message: string };
     try {
-      commitResult = await commitChangesFromParams({
-        message: params.message,
-        session: params.session, // Always use session context
-        all: params.all,
-        amend: params.amend,
-        noStage: params.noStage,
-      });
+      commitResult = await commitChangesFromParams(
+        {
+          message: params.message,
+          session: params.session, // Always use session context
+          all: params.all,
+          amend: params.amend,
+          noStage: params.noStage,
+        },
+        { createGitService, sessionProvider }
+      );
     } catch (commitErr: unknown) {
       // Handle "nothing to commit" gracefully — not an error condition
       if (commitErr instanceof NothingToCommitError) {
@@ -204,9 +207,12 @@ export async function sessionCommit(
     }
 
     // Always push changes in session context - commit and push should be atomic
-    const pushResult = await pushFromParams({
-      session: params.session, // Always use session context
-    });
+    const pushResult = await pushFromParams(
+      {
+        session: params.session, // Always use session context
+      },
+      { createGitService, sessionProvider }
+    );
 
     // Collect commit metadata and changed files
     const gitService = createGitService();
