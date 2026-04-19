@@ -178,39 +178,39 @@ export const BaseDirectoryOperationSchema = z.object({
 /**
  * File read operation schema
  */
-export const FileReadSchema = BaseFileOperationSchema.merge(LineRangeSchema).merge(
-  z.object({ explanation: ExplanationSchema })
+export const FileReadSchema = BaseFileOperationSchema.extend(LineRangeSchema.shape).extend(
+  z.object({ explanation: ExplanationSchema }).shape
 );
 
 /**
  * File write operation schema
  */
-export const FileWriteSchema = BaseFileOperationSchema.merge(
+export const FileWriteSchema = BaseFileOperationSchema.extend(
   z.object({
     content: FileContentSchema,
     createDirs: CreateDirectoriesSchema,
-  })
+  }).shape
 );
 
 /**
  * File edit operation schema
  */
-export const FileEditSchema = BaseFileOperationSchema.merge(
+export const FileEditSchema = BaseFileOperationSchema.extend(
   z.object({
     instructions: EditInstructionsSchema,
     content: EditContentSchema,
     createDirs: CreateDirectoriesSchema,
-  })
+  }).shape
 );
 
 /**
  * File search/replace operation schema
  */
-export const FileSearchReplaceSchema = BaseFileOperationSchema.merge(
+export const FileSearchReplaceSchema = BaseFileOperationSchema.extend(
   z.object({
     search: SearchTextSchema,
     replace: ReplacementTextSchema,
-  })
+  }).shape
 );
 
 /**
@@ -237,20 +237,20 @@ export const FileMoveSchema = z.object({
 /**
  * File rename operation schema
  */
-export const FileRenameSchema = BaseFileOperationSchema.merge(
+export const FileRenameSchema = BaseFileOperationSchema.extend(
   z.object({
     newName: NewFilenameSchema,
     overwrite: OverwriteSchema,
-  })
+  }).shape
 );
 
 /**
  * Directory listing schema
  */
-export const DirectoryListSchema = BaseDirectoryOperationSchema.merge(
+export const DirectoryListSchema = BaseDirectoryOperationSchema.extend(
   z.object({
     showHidden: ShowHiddenSchema,
-  })
+  }).shape
 );
 
 /**
@@ -308,7 +308,7 @@ export const BaseFileResponseSchema = z.object({
  * File operation response schema
  */
 export const FileOperationResponseSchema = z.union([
-  BaseSuccessResponseSchema.merge(BaseFileResponseSchema).extend({
+  BaseSuccessResponseSchema.extend(BaseFileResponseSchema.shape).extend({
     bytesWritten: z.number().optional(),
     created: z.boolean().optional(),
     edited: z.boolean().optional(),
@@ -343,7 +343,7 @@ export const FileOperationResponseSchema = z.union([
  * File read response schema
  */
 export const FileReadResponseSchema = z.union([
-  BaseSuccessResponseSchema.merge(BaseFileResponseSchema).extend({
+  BaseSuccessResponseSchema.extend(BaseFileResponseSchema.shape).extend({
     content: FileContentSchema,
     totalLines: z.number().optional(),
     linesRead: z
@@ -387,7 +387,7 @@ export const DirectoryListResponseSchema = z.union([
  * File existence response schema
  */
 export const FileExistsResponseSchema = z.union([
-  BaseSuccessResponseSchema.merge(BaseFileResponseSchema).extend({
+  BaseSuccessResponseSchema.extend(BaseFileResponseSchema.shape).extend({
     exists: z.boolean(),
     isFile: z.boolean().optional(),
     isDirectory: z.boolean().optional(),
