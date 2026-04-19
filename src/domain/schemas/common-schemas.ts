@@ -191,7 +191,7 @@ export const BaseSortingSchema = z.object({
 /**
  * Complete listing parameters combining pagination and sorting
  */
-export const BaseListingParametersSchema = BasePaginationSchema.merge(BaseSortingSchema);
+export const BaseListingParametersSchema = BasePaginationSchema.extend(BaseSortingSchema.shape);
 
 // ========================
 // COMMON RESPONSE BUILDERS
