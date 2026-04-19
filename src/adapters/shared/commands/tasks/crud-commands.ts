@@ -97,14 +97,17 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     }
 
     // List tasks with filters
-    let tasks = await listTasksFromParams({
-      ...this.createTaskParams(params),
-      all: params.all,
-      status: params.status,
-      filter: params.filter,
-      limit: params.limit,
-      tags,
-    });
+    let tasks = await listTasksFromParams(
+      {
+        ...this.createTaskParams(params),
+        all: params.all,
+        status: params.status,
+        filter: params.filter,
+        limit: params.limit,
+        tags,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
     try {
@@ -296,7 +299,9 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       };
       this.debug("Created task params", { taskParams });
 
-      const task = await getTaskFromParams(taskParams);
+      const task = await getTaskFromParams(taskParams, {
+        persistenceProvider: this.getPersistenceProvider?.(),
+      });
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
       // Enrich with subtask summary if this task has children
@@ -321,10 +326,13 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
             let doneCount = 0;
             for (const childId of childIds) {
               try {
-                const childTask = await getTaskFromParams({
-                  ...this.createTaskParams(params),
-                  taskId: childId,
-                });
+                const childTask = await getTaskFromParams(
+                  {
+                    ...this.createTaskParams(params),
+                    taskId: childId,
+                  },
+                  { persistenceProvider: this.getPersistenceProvider?.() }
+                );
                 if (childTask) {
                   if (childTask.status === "DONE" || childTask.status === "CLOSED") {
                     doneCount++;
@@ -426,17 +434,20 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 
       // Create the task using the same function as main branch
       const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
-      const result = await createTaskFromTitleAndSpec({
-        title: params.title,
-        spec: specContent, // spec content (or deprecated description alias)
-        force: params.force ?? false,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-        githubRepo: params.githubRepo,
-        tags,
-      });
+      const result = await createTaskFromTitleAndSpec(
+        {
+          title: params.title,
+          spec: specContent, // spec content (or deprecated description alias)
+          force: params.force ?? false,
+          backend: params.backend,
+          repo: params.repo,
+          workspace: params.workspace,
+          session: params.session,
+          githubRepo: params.githubRepo,
+          tags,
+        },
+        { persistenceProvider: this.getPersistenceProvider?.() }
+      );
 
       this.debug("Task created successfully");
 
@@ -589,11 +600,14 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
 
     // Delete the task
     const { deleteTaskFromParams } = await import("../../../../domain/tasks");
-    const result = await deleteTaskFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-      force: params.force ?? false,
-    });
+    const result = await deleteTaskFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId: validatedTaskId,
+        force: params.force ?? false,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     // Clean up parent-child edges for the deleted task (D7: orphan children)
     if (result.success && this.getPersistenceProvider) {
@@ -639,10 +653,13 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   private async confirmDeletion(taskId: string, params: TasksDeleteParams): Promise<void> {
     // Get task details for confirmation
     const { getTaskFromParams } = await import("../../../../domain/tasks");
-    const task = await getTaskFromParams({
-      ...this.createTaskParams(params),
-      taskId,
-    });
+    const task = await getTaskFromParams(
+      {
+        ...this.createTaskParams(params),
+        taskId,
+      },
+      { persistenceProvider: this.getPersistenceProvider?.() }
+    );
 
     // Guard against null task to avoid accessing properties on null
     if (!task) {

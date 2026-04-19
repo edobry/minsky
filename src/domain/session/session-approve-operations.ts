@@ -131,6 +131,14 @@ export async function approveSessionImpl(
       ? depsInput.taskService
       : await createConfiguredTaskService({
           workspacePath: params.repo || process.cwd(),
+          persistenceProvider: await (async () => {
+            try {
+              const { defaultInstance } = await import("../persistence/service");
+              return defaultInstance.getProvider();
+            } catch {
+              return undefined;
+            }
+          })(),
         });
 
     try {
@@ -232,6 +240,14 @@ The task exists but has no associated session to approve.
       depsInput.taskService ||
       (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
+        persistenceProvider: await (async () => {
+          try {
+            const { defaultInstance } = await import("../persistence/service");
+            return defaultInstance.getProvider();
+          } catch {
+            return undefined;
+          }
+        })(),
       })),
     workspaceUtils: depsInput.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput.getCurrentSession || getCurrentSession,

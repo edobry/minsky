@@ -361,6 +361,14 @@ Please provide a title for your pull request:
         try {
           const taskService = await createConfiguredTaskService({
             workspacePath: process.cwd(),
+            persistenceProvider: await (async () => {
+              try {
+                const { defaultInstance } = await import("../persistence/service");
+                return defaultInstance.getProvider();
+              } catch {
+                return undefined;
+              }
+            })(),
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);

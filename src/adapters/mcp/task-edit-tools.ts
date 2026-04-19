@@ -7,7 +7,11 @@
  */
 import { z } from "zod";
 import { CommandMapper } from "../../mcp/command-mapper";
-import { getTaskSpecContentFromParams, updateTaskFromParams } from "../../domain/tasks";
+import {
+  getTaskSpecContentFromParams,
+  updateTaskFromParams,
+  type TaskServiceDeps,
+} from "../../domain/tasks";
 import { log } from "../../utils/logger";
 import { applyEditPattern } from "../../domain/ai/edit-pattern-service";
 import { countOccurrences } from "./session-edit-tools";
@@ -63,6 +67,15 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
 /**
  * Registers task-aware editing tools with the MCP command mapper
  */
+function getTaskDeps(): TaskServiceDeps {
+  try {
+    const { defaultInstance: persistenceService } = require("../../domain/persistence/service");
+    return { persistenceProvider: persistenceService.getProvider() };
+  } catch {
+    return {};
+  }
+}
+
 export function registerTaskEditTools(commandMapper: CommandMapper): void {
   // Task edit file tool - works like session.edit_file but for task specs
   commandMapper.addCommand({
@@ -101,13 +114,16 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         let specExists = false;
 
         try {
-          const specResult = await getTaskSpecContentFromParams({
-            taskId: typedArgs.taskId,
-            repo: typedArgs.repo,
-            workspace: typedArgs.workspace,
-            session: typedArgs.session,
-            backend: typedArgs.backend,
-          });
+          const specResult = await getTaskSpecContentFromParams(
+            {
+              taskId: typedArgs.taskId,
+              repo: typedArgs.repo,
+              workspace: typedArgs.workspace,
+              session: typedArgs.session,
+              backend: typedArgs.backend,
+            },
+            getTaskDeps()
+          );
           if (specResult?.content) {
             originalContent = specResult.content;
             specExists = true;
@@ -160,14 +176,17 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         }
 
         // Apply the changes by updating the task
-        await updateTaskFromParams({
-          taskId: typedArgs.taskId,
-          spec: finalContent,
-          repo: typedArgs.repo,
-          workspace: typedArgs.workspace,
-          session: typedArgs.session,
-          backend: typedArgs.backend,
-        });
+        await updateTaskFromParams(
+          {
+            taskId: typedArgs.taskId,
+            spec: finalContent,
+            repo: typedArgs.repo,
+            workspace: typedArgs.workspace,
+            session: typedArgs.session,
+            backend: typedArgs.backend,
+          },
+          getTaskDeps()
+        );
 
         // Fire-and-forget embedding re-index after spec update
         autoIndexTaskEmbedding(typedArgs.taskId);
@@ -215,13 +234,16 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         log.debug("Starting task search_replace operation", { taskId: typedArgs.taskId });
 
         // Load current task spec content
-        const specResult = await getTaskSpecContentFromParams({
-          taskId: typedArgs.taskId,
-          repo: typedArgs.repo,
-          workspace: typedArgs.workspace,
-          session: typedArgs.session,
-          backend: typedArgs.backend,
-        });
+        const specResult = await getTaskSpecContentFromParams(
+          {
+            taskId: typedArgs.taskId,
+            repo: typedArgs.repo,
+            workspace: typedArgs.workspace,
+            session: typedArgs.session,
+            backend: typedArgs.backend,
+          },
+          getTaskDeps()
+        );
 
         if (!specResult?.content) {
           throw new Error(`Task ${typedArgs.taskId} has no specification content to search in`);
@@ -248,14 +270,17 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         const newContent = content.replace(typedArgs.search, typedArgs.replace);
 
         // Apply the changes by updating the task
-        await updateTaskFromParams({
-          taskId: typedArgs.taskId,
-          spec: newContent,
-          repo: typedArgs.repo,
-          workspace: typedArgs.workspace,
-          session: typedArgs.session,
-          backend: typedArgs.backend,
-        });
+        await updateTaskFromParams(
+          {
+            taskId: typedArgs.taskId,
+            spec: newContent,
+            repo: typedArgs.repo,
+            workspace: typedArgs.workspace,
+            session: typedArgs.session,
+            backend: typedArgs.backend,
+          },
+          getTaskDeps()
+        );
 
         // Fire-and-forget embedding re-index after spec update
         autoIndexTaskEmbedding(typedArgs.taskId);

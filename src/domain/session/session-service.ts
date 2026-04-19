@@ -87,7 +87,17 @@ export async function createSessionDeps(
   return {
     sessionProvider: provider,
     gitService: createGitService(),
-    taskService: await createConfiguredTaskService({ workspacePath: process.cwd() }),
+    taskService: await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      persistenceProvider: await (async () => {
+        try {
+          const { defaultInstance } = await import("../persistence/service");
+          return defaultInstance.getProvider();
+        } catch {
+          return undefined;
+        }
+      })(),
+    }),
     workspaceUtils: createWorkspaceUtils(provider),
     // getCurrentSession returns string | undefined; wrap to match string | null contract
     getCurrentSession: async (repoPath: string) => {

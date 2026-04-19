@@ -19,6 +19,13 @@ import {
   taskStatusGetParamsSchema,
   taskSpecContentParamsSchema,
 } from "../schemas/tasks";
+import type { PersistenceProvider } from "./persistence/types";
+
+// ---- Dependency injection types ----
+
+export interface TaskServiceDeps {
+  persistenceProvider?: PersistenceProvider;
+}
 
 // ---- Re-exports from sub-modules ----
 
@@ -36,7 +43,7 @@ export type { TaskStatus } from "./tasks/taskConstants";
 
 // ---- Command functions (parameter-validated wrappers) ----
 
-export async function listTasksFromParams(params: Record<string, unknown>) {
+export async function listTasksFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
   const validParams = taskListParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.list params", { backend: validParams.backend });
@@ -53,6 +60,7 @@ export async function listTasksFromParams(params: Record<string, unknown>) {
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
 
   log.debug("tasks.list created TaskService", {
@@ -71,7 +79,7 @@ export async function listTasksFromParams(params: Record<string, unknown>) {
   return tasks;
 }
 
-export async function getTaskFromParams(params: Record<string, unknown>) {
+export async function getTaskFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
   const validParams = taskGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.get params", { backend: validParams.backend });
@@ -87,6 +95,7 @@ export async function getTaskFromParams(params: Record<string, unknown>) {
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
 
   log.debug("tasks.get created TaskService", {
@@ -102,13 +111,17 @@ export async function getTaskFromParams(params: Record<string, unknown>) {
   return task;
 }
 
-export async function getTaskStatusFromParams(params: Record<string, unknown>) {
+export async function getTaskStatusFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.get params", { backend: validParams.backend });
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: validParams.backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
   log.debug("tasks.status.get created TaskService", {
     backend:
@@ -117,13 +130,17 @@ export async function getTaskStatusFromParams(params: Record<string, unknown>) {
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
-export async function setTaskStatusFromParams(params: Record<string, unknown>) {
+export async function setTaskStatusFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: validParams.backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
   log.debug("tasks.status.set created TaskService", {
     backend:
@@ -133,12 +150,16 @@ export async function setTaskStatusFromParams(params: Record<string, unknown>) {
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 
-export async function updateTaskFromParams(params: Record<string, unknown>) {
+export async function updateTaskFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   const workspacePath = process.cwd();
   log.debug("tasks.update params", { backend: params.backend });
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: params.backend as string | undefined,
+    persistenceProvider: deps?.persistenceProvider,
   });
   log.debug("tasks.update created TaskService", {
     backend:
@@ -158,12 +179,18 @@ export async function updateTaskFromParams(params: Record<string, unknown>) {
   return updatedTask;
 }
 
-export async function createTaskFromParams(params: Record<string, unknown>) {
+export async function createTaskFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   // Delegates to createTaskFromTitleAndSpec — specPath concept has been removed
-  return createTaskFromTitleAndSpec(params);
+  return createTaskFromTitleAndSpec(params, deps);
 }
 
-export async function createTaskFromTitleAndSpec(params: Record<string, unknown>) {
+export async function createTaskFromTitleAndSpec(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   // Parse using the existing schema (which may still use "description")
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
@@ -172,6 +199,7 @@ export async function createTaskFromTitleAndSpec(params: Record<string, unknown>
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: validParams.backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
 
   log.debug("tasks.createTitleSpec created TaskService", {
@@ -187,13 +215,17 @@ export async function createTaskFromTitleAndSpec(params: Record<string, unknown>
   });
 }
 
-export async function deleteTaskFromParams(params: Record<string, unknown>) {
+export async function deleteTaskFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.delete params", { backend: validParams.backend });
   const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: validParams.backend,
+    persistenceProvider: deps?.persistenceProvider,
   });
   log.debug("tasks.delete created TaskService", {
     backend:
@@ -203,7 +235,10 @@ export async function deleteTaskFromParams(params: Record<string, unknown>) {
   return { success, taskId: validParams.taskId };
 }
 
-export async function getTaskSpecContentFromParams(params: Record<string, unknown>) {
+export async function getTaskSpecContentFromParams(
+  params: Record<string, unknown>,
+  deps?: TaskServiceDeps
+) {
   const validParams = taskSpecContentParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.spec params", { backend: validParams.backend });
@@ -230,7 +265,11 @@ export async function getTaskSpecContentFromParams(params: Record<string, unknow
     }
   }
 
-  const taskService = await createConfiguredTaskService({ workspacePath, backend });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend,
+    persistenceProvider: deps?.persistenceProvider,
+  });
   log.debug("tasks.spec created TaskService", {
     backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
