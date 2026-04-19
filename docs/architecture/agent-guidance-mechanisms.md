@@ -43,10 +43,12 @@ Minsky's hook architecture:
 
 | Hook                             | Event              | Purpose                                          | Blocks? |
 | -------------------------------- | ------------------ | ------------------------------------------------ | ------- |
-| `typecheck-on-edit.sh`           | PostToolUse        | Informational type checking with smart filtering | No      |
-| `typecheck-on-stop.sh`           | Stop               | Full type check before returning to user         | Yes     |
-| `typecheck-on-subagent-stop.sh`  | SubagentStop       | Full type check before subagent returns          | Yes     |
-| `require-review-before-merge.sh` | PreToolUse (merge) | Blocks merging without a posted review           | Yes     |
+| `typecheck-on-edit.ts`           | PostToolUse        | Informational type checking with smart filtering | No      |
+| `typecheck-on-stop.ts`           | Stop               | Full type check before returning to user         | Yes     |
+| `typecheck-on-stop.ts`           | SubagentStop       | Full type check before subagent returns          | Yes     |
+| `require-review-before-merge.ts` | PreToolUse (merge) | Blocks merging without a posted review           | Yes     |
+| `check-prompt-watermark.ts`      | PreToolUse (merge) | Validates prompt watermark before merge          | Yes     |
+| `validate-task-spec.ts`          | PreToolUse         | Validates task spec structure                    | Yes     |
 
 Hooks can't detect semantic coherence (that requires understanding, not pattern matching), but they can enforce mechanical correctness (tsc, lint) and workflow invariants (review required).
 

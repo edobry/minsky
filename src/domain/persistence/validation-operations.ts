@@ -129,14 +129,16 @@ export async function validatePostgresBackend(persistenceProvider?: PersistenceP
       `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
     );
 
-    // Use injected provider or fall back to PersistenceService singleton
-    let provider: PersistenceProvider;
-    if (persistenceProvider) {
-      provider = persistenceProvider;
-    } else {
-      const { PersistenceService } = await import("./service");
-      provider = PersistenceService.getProvider();
+    if (!persistenceProvider) {
+      issues.push("No persistence provider injected for PostgreSQL validation");
+      return {
+        success: false,
+        details: "PostgreSQL validation requires a persistence provider",
+        issues,
+        suggestions: ["Ensure persistence provider is passed to validatePostgresBackend()"],
+      };
     }
+    const provider: PersistenceProvider = persistenceProvider;
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {

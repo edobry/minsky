@@ -136,7 +136,7 @@ Task specs may be stale — written in a prior conversation when the codebase wa
 
 ### Spec verification gates merge
 
-The `/review-pr` skill requires a **Spec verification** section in every review. The pre-merge hook (`require-review-before-merge.sh`) blocks merges if the review lacks this section. This ensures:
+The `/review-pr` skill requires a **Spec verification** section in every review. The pre-merge hook (`require-review-before-merge.ts`) blocks merges if the review lacks this section. This ensures:
 
 - Every spec criterion is checked before merge
 - Scope reductions are caught and documented
