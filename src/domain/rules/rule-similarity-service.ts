@@ -58,7 +58,9 @@ export class RuleSimilarityService {
    * Search rules by natural language query using embeddings
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
-    const core = await createRuleSimilarityCore(this.workspacePath);
+    const core = await createRuleSimilarityCore(this.workspacePath, {
+      persistenceProvider: this.persistence,
+    });
     const response = await core.search({ queryText: query, limit });
     // Map to SearchResult shape (id/score compatible)
     return response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
@@ -69,7 +71,9 @@ export class RuleSimilarityService {
    * Returns true if the rule was indexed, false if skipped (up-to-date)
    */
   async indexRule(ruleId: string): Promise<boolean> {
-    const core = await createRuleSimilarityCore(this.workspacePath);
+    const core = await createRuleSimilarityCore(this.workspacePath, {
+      persistenceProvider: this.persistence,
+    });
 
     // Get the embeddings backend from the core using typed accessor
     const rawEmbeddingsBackend = core.getBackend("embeddings");

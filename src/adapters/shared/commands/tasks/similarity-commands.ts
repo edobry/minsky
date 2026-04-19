@@ -321,19 +321,21 @@ import { createEmbeddingServiceFromConfig } from "../../../../domain/ai/embeddin
 import { getConfiguration } from "../../../../domain/configuration";
 import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
-export async function createTaskSimilarityService(): Promise<TaskSimilarityService> {
+export async function createTaskSimilarityService(
+  persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider
+): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
   const model = cfg.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
 
-  // Use the default PersistenceService instance (initialized at application startup)
+  // Resolve vector storage via PersistenceService.
+  // When an explicit provider is available (from DI container), use it directly.
+  // Otherwise fall back to the default instance (lazy dynamic import).
   const { defaultInstance: persistenceService } = await import(
     "../../../../domain/persistence/service"
   );
-
-  // Get vector storage directly - throws if provider doesn't support it
   const vectorStorage = persistenceService.getVectorStorage(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles

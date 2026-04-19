@@ -4,6 +4,7 @@ import { ToolSimilarityService } from "./tool-similarity-service";
 // Ensure embeddings path does not short-circuit core behavior in test
 import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embeddings-backend";
 import { first } from "../../../utils/array-safety";
+import { FakePersistenceProvider } from "../../persistence/fake-persistence-provider";
 
 describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)", () => {
   beforeAll(async () => {
@@ -24,7 +25,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("searchByText returns top-k ordered results via core", async () => {
-    const service = new ToolSimilarityService();
+    const service = new ToolSimilarityService(new FakePersistenceProvider());
     const results = await service.searchByText("commit changes", 3);
     expect(Array.isArray(results)).toBe(true);
     // Ensure results have proper shape - commands are registry-dependent
@@ -35,7 +36,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("findRelevantTools returns enriched results with tool metadata", async () => {
-    const service = new ToolSimilarityService();
+    const service = new ToolSimilarityService(new FakePersistenceProvider());
     const results = await service.findRelevantTools({
       query: "debug failing tests",
       limit: 2,
@@ -54,7 +55,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("similarToTool finds tools similar to given tool ID", async () => {
-    const service = new ToolSimilarityService();
+    const service = new ToolSimilarityService(new FakePersistenceProvider());
 
     // Find a tool ID to use for similarity
     const searchResults = await service.searchByText("task", 1);
@@ -76,7 +77,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("respects category filtering in findRelevantTools", async () => {
-    const service = new ToolSimilarityService();
+    const service = new ToolSimilarityService(new FakePersistenceProvider());
     const results = await service.findRelevantTools({
       query: "debug test",
       categories: ["TASKS" as any], // Restrict to TASKS category only
@@ -90,7 +91,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("respects threshold filtering in findRelevantTools", async () => {
-    const service = new ToolSimilarityService();
+    const service = new ToolSimilarityService(new FakePersistenceProvider());
 
     const highThresholdResults = await service.findRelevantTools({
       query: "task management",

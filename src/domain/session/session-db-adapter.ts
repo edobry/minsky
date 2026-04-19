@@ -11,7 +11,6 @@ import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provi
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
 import type { PersistenceProvider } from "../persistence/types";
-import { defaultInstance } from "../persistence/service";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
@@ -305,10 +304,6 @@ export interface CreateSessionProviderDeps {
   };
 }
 
-const defaultCreateSessionProviderDeps: CreateSessionProviderDeps = {
-  persistenceService: defaultInstance,
-};
-
 /**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
@@ -318,8 +313,16 @@ export async function createSessionProvider(
     dbPath?: string;
     useNewBackend?: boolean;
   },
-  deps: CreateSessionProviderDeps = defaultCreateSessionProviderDeps
+  deps?: CreateSessionProviderDeps
 ): Promise<SessionProviderInterface> {
+  if (!deps) {
+    // Lazy fallback: import defaultInstance only when no deps provided.
+    // Callers with container access should always pass deps explicitly.
+    // This fallback exists for transitional callers and will be removed
+    // once all callers are migrated to container-based DI.
+    const { defaultInstance } = await import("../persistence/service");
+    deps = { persistenceService: defaultInstance };
+  }
   log.debug("Creating session provider with auto-repair support");
 
   // Get PersistenceProvider from PersistenceService (should already be initialized at application startup)

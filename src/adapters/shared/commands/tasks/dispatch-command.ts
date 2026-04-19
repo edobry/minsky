@@ -58,7 +58,12 @@ interface DispatchParams {
   description?: string;
 }
 
-export function createTasksDispatchCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksDispatchCommand(
+  getPersistenceProvider: () => PersistenceProvider,
+  getSessionProvider?: () => Promise<
+    import("../../../../domain/session/types").SessionProviderInterface
+  >
+) {
   return {
     id: "tasks.dispatch",
     name: "dispatch",
@@ -138,11 +143,17 @@ export function createTasksDispatchCommand(getPersistenceProvider: () => Persist
       const { resolveSessionDirectory } = await import(
         "../../../../domain/session/resolve-session-directory"
       );
-      const { getSharedSessionProvider } = await import(
-        "../../../../domain/session/session-provider-cache"
-      );
 
-      const sessionProvider = await getSharedSessionProvider();
+      // Use injected sessionProvider if available, otherwise fall back to cache
+      let sessionProvider: import("../../../../domain/session/types").SessionProviderInterface;
+      if (getSessionProvider) {
+        sessionProvider = await getSessionProvider();
+      } else {
+        const { getSharedSessionProvider } = await import(
+          "../../../../domain/session/session-provider-cache"
+        );
+        sessionProvider = await getSharedSessionProvider();
+      }
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 

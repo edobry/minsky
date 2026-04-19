@@ -94,6 +94,9 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksAvailableCommand(getPersistenceProvider),
     createTasksRouteCommand(getPersistenceProvider),
     // Dispatch (subtask + session + prompt in one call)
-    createTasksDispatchCommand(getPersistenceProvider),
+    createTasksDispatchCommand(
+      getPersistenceProvider,
+      container?.has("sessionProvider") ? async () => container!.get("sessionProvider") : undefined
+    ),
   ];
 }
