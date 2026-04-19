@@ -20,17 +20,53 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { PostgresStorage } from "./postgres-storage";
+import type { PersistenceProvider } from "../../persistence/types";
+
+// Minimal mock provider that simulates a connection failure
+function makeFailingProvider(): PersistenceProvider {
+  return {
+    capabilities: {
+      sql: true,
+      transactions: false,
+      jsonb: false,
+      vectorStorage: false,
+      migrations: false,
+    },
+    getCapabilities: () => ({
+      sql: true,
+      transactions: false,
+      jsonb: false,
+      vectorStorage: false,
+      migrations: false,
+    }),
+    getStorage: () => {
+      throw new Error("not implemented");
+    },
+    initialize: async () => {},
+    close: async () => {},
+    getConnectionInfo: () => "mock-failing",
+    getDatabaseConnection: async () => {
+      throw new Error("simulated connection failure");
+    },
+    getRawSqlConnection: async () => {
+      throw new Error("simulated connection failure");
+    },
+  } as unknown as PersistenceProvider;
+}
 
 // We test through the public API with a mock that simulates connection failures
 describe("PostgresStorage error propagation (mt#722)", () => {
   let storage: PostgresStorage;
 
   beforeEach(() => {
-    storage = new PostgresStorage({
-      connectionString: "postgresql://x:x@invalid:0/x",
-      maxConnections: 1,
-      connectTimeout: 1,
-    });
+    storage = new PostgresStorage(
+      {
+        connectionString: "postgresql://x:x@invalid:0/x",
+        maxConnections: 1,
+        connectTimeout: 1,
+      },
+      makeFailingProvider()
+    );
   });
 
   describe("getEntity", () => {

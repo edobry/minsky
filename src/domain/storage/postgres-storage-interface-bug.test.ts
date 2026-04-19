@@ -7,6 +7,7 @@
  * - This caused all session lookups by name to fail
  */
 import { describe, test, expect, mock } from "bun:test";
+import type { PersistenceProvider } from "../persistence/types";
 
 describe("PostgresStorage Interface Completeness", () => {
   test("PostgresStorage must implement both getEntity() and get() methods", async () => {
@@ -20,7 +21,31 @@ describe("PostgresStorage Interface Completeness", () => {
       connectTimeout: 30,
     };
 
-    const storage = new PostgresStorage(mockConfig); // Mock sql connection
+    // Minimal mock provider — never actually used (test only checks method existence)
+    const mockProvider = {
+      capabilities: {
+        sql: true,
+        transactions: false,
+        jsonb: false,
+        vectorStorage: false,
+        migrations: false,
+      },
+      getCapabilities: () => mockProvider.capabilities,
+      getStorage: () => {
+        throw new Error("not implemented");
+      },
+      initialize: async () => {},
+      close: async () => {},
+      getConnectionInfo: () => "mock",
+      getDatabaseConnection: async () => {
+        throw new Error("no connection");
+      },
+      getRawSqlConnection: async () => {
+        throw new Error("no connection");
+      },
+    } as unknown as PersistenceProvider;
+
+    const storage = new PostgresStorage(mockConfig, mockProvider);
 
     // Verify both methods exist on the interface
     expect(typeof storage.getEntity).toBe("function");
