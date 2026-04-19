@@ -17,33 +17,40 @@ type JsonSchema = {
  * Convert a Zod schema to JSON Schema format like Cursor uses
  */
 function zodToJsonSchema(zodSchema: z.ZodType): JsonSchema {
-  if (zodSchema instanceof z.ZodString) {
-    return { type: "string" };
-  } else if (zodSchema instanceof z.ZodNumber) {
-    return { type: "number" };
-  } else if (zodSchema instanceof z.ZodBoolean) {
-    return { type: "boolean" };
-  } else if (zodSchema instanceof z.ZodArray) {
-    return {
-      type: "array",
-      items: zodToJsonSchema(zodSchema._def.element as z.ZodType),
-    };
-  } else if (zodSchema instanceof z.ZodEnum) {
-    return {
-      type: "string",
-      enum: zodSchema.options as string[],
-    };
-  } else if (zodSchema instanceof z.ZodUnion) {
-    const types = (zodSchema._def.options as z.ZodType[]).map((option) => zodToJsonSchema(option));
-    // If it's a simple union of types, just use the first type for simplicity
-    return types[0] || { type: "string" };
-  } else if (zodSchema instanceof z.ZodOptional) {
-    return zodToJsonSchema(zodSchema.unwrap() as z.ZodType);
-  } else if (zodSchema instanceof z.ZodDefault) {
-    return zodToJsonSchema(zodSchema._def.innerType as z.ZodType);
-  } else {
-    // Default to string for unknown types
-    return { type: "string" };
+  // Use Zod v4 .type property for schema type identification
+  const schemaType = (zodSchema as { type?: string }).type;
+
+  switch (schemaType) {
+    case "string":
+      return { type: "string" };
+    case "number":
+      return { type: "number" };
+    case "boolean":
+      return { type: "boolean" };
+    case "array":
+      return {
+        type: "array",
+        items: zodToJsonSchema((zodSchema as z.ZodArray).element as z.ZodType),
+      };
+    case "enum":
+      return {
+        type: "string",
+        enum: (zodSchema as z.ZodEnum).options as string[],
+      };
+    case "union": {
+      const types = ((zodSchema as z.ZodUnion).options as z.ZodType[]).map((option) =>
+        zodToJsonSchema(option)
+      );
+      // If it's a simple union of types, just use the first type for simplicity
+      return types[0] || { type: "string" };
+    }
+    case "optional":
+      return zodToJsonSchema((zodSchema as z.ZodOptional).unwrap() as z.ZodType);
+    case "default":
+      return zodToJsonSchema((zodSchema as z.ZodDefault).removeDefault() as z.ZodType);
+    default:
+      // Default to string for unknown types
+      return { type: "string" };
   }
 }
 
