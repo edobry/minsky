@@ -24,6 +24,8 @@ Subagents have limited tool-call budgets and context windows. They cannot detect
 - **Scope subagent work to fit within capacity.** A subagent touching 15+ files is at risk. For large refactors, split into waves of 8–12 files each.
 - **Instruct subagents to commit incrementally**, not in one final commit. The refactor subagent already has this in its system prompt.
 - **If a subagent returns incomplete work** (changes applied but not committed/PR'd), check the session's `git diff` and `git status`, then finish the commit/PR from the main agent.
+- **For multi-phase work, use subtasks.** If a subagent completes Phase 1 and there's remaining work, create a subtask for the next phase (`tasks_create` with `parent: "<task-id>"`). Each subtask gets its own session and PR. Do NOT reuse the same session or do delete-restart.
+- **Pre-decompose large tasks** before farming them out. If a task clearly has multiple phases, create subtasks upfront and dispatch each to its own subagent with its own session.
 - **For cascading changes** (where editing one file forces changes in its callers), the blast radius is unpredictable. Err on the side of smaller scope and let the cascade determine one wave's natural boundary.
 
 ### Subagent Prompt Generation
@@ -32,10 +34,11 @@ Subagents have limited tool-call budgets and context windows. They cannot detect
 
 **Workflow:**
 
-1. Start a session: `mcp__minsky__session_start`
-2. Generate the prompt: `mcp__minsky__session_generate_prompt` with `task`, `type`, and `instructions`
-3. Dispatch: pass the returned `prompt` string to the Agent tool, using `suggestedModel` and `suggestedSubagentType` from the result
-4. Review and merge as normal
+1. **Assess scope**: If the task has multiple phases, create subtasks first (`tasks_create` with `parent`). Each subtask gets its own session.
+2. Start a session: `mcp__minsky__session_start` (for the task or subtask)
+3. Generate the prompt: `mcp__minsky__session_generate_prompt` with `task`, `type`, and `instructions`
+4. Dispatch: pass the returned `prompt` string to the Agent tool, using `suggestedModel` and `suggestedSubagentType` from the result
+5. Review and merge as normal
 
 **Prompt types:**
 

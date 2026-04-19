@@ -21,9 +21,11 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
     description: "List all sessions",
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
-      const { listSessionsFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      let sessions = await listSessionsFromParams({
+      let sessions = await service.list({
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
       });
@@ -57,9 +59,11 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
     execute: withErrorLogging("session.get", async (params: Record<string, unknown>) => {
-      const { getSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      const session = await getSessionFromParams({
+      const session = await service.get({
         name: params.name as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
@@ -105,21 +109,32 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         );
       }
 
+      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring startSessionImpl backward-compat shims
       const { startSessionFromParams } = await import("../../../../domain/session");
+      const deps = await getDeps();
 
-      const session = await startSessionFromParams({
-        name: params.name as string | undefined,
-        task: params.task as string | undefined,
-        description: params.description as string | undefined,
-        branch: params.branch as string | undefined,
-        repo: params.repo as string | undefined,
-        session: params.session as string | undefined,
-        json: (params.json as boolean | undefined) ?? false,
-        quiet: (params.quiet as boolean | undefined) ?? false,
-        noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
-        skipInstall: (params.skipInstall as boolean | undefined) ?? false,
-        packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
-      });
+      const session = await startSessionFromParams(
+        {
+          name: params.name as string | undefined,
+          task: params.task as string | undefined,
+          description: params.description as string | undefined,
+          branch: params.branch as string | undefined,
+          repo: params.repo as string | undefined,
+          session: params.session as string | undefined,
+          json: (params.json as boolean | undefined) ?? false,
+          quiet: (params.quiet as boolean | undefined) ?? false,
+          noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
+          skipInstall: (params.skipInstall as boolean | undefined) ?? false,
+          packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+        },
+        {
+          sessionDB: deps.sessionProvider,
+          gitService: deps.gitService,
+          taskService: deps.taskService,
+          workspaceUtils: deps.workspaceUtils,
+          getRepositoryBackend: deps.getRepositoryBackend,
+        }
+      );
 
       return {
         success: true,
@@ -139,11 +154,11 @@ export function createSessionDirCommand(getDeps: LazySessionDeps): CommandDefini
     description: "Get the directory of a session",
     parameters: sessionDirCommandParams,
     execute: withErrorLogging("session.dir", async (params: Record<string, unknown>) => {
-      const { getSessionDirFromParams } = await import(
-        "../../../../domain/session/commands/dir-command"
-      );
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      const directory = await getSessionDirFromParams({
+      const directory = await service.getDir({
         name: params.name as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,

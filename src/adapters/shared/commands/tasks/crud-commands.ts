@@ -272,6 +272,10 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   readonly description = "Get details of a specific task";
   readonly parameters = tasksGetParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+    super();
+  }
+
   async execute(params: TasksGetParams, ctx: CommandExecutionContext) {
     const startTime = Date.now();
     this.debug("Starting tasks.get execution", { params, context: ctx });
@@ -295,10 +299,73 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       const task = await getTaskFromParams(taskParams);
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
+      // Enrich with subtask summary if this task has children
+      let subtaskSummary:
+        | {
+            total: number;
+            done: number;
+            remaining: Array<{ id: string; title: string; status: string }>;
+          }
+        | undefined;
+
+      if (this.getPersistenceProvider) {
+        try {
+          const persistence = this.getPersistenceProvider();
+          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+          const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+          const service = new TaskGraphService(db);
+          const childIds = await service.listChildren(validatedTaskId);
+
+          if (childIds.length > 0) {
+            const remaining: Array<{ id: string; title: string; status: string }> = [];
+            let doneCount = 0;
+            for (const childId of childIds) {
+              try {
+                const childTask = await getTaskFromParams({
+                  ...this.createTaskParams(params),
+                  taskId: childId,
+                });
+                if (childTask) {
+                  if (childTask.status === "DONE" || childTask.status === "CLOSED") {
+                    doneCount++;
+                  } else {
+                    remaining.push({
+                      id: childTask.id,
+                      title: childTask.title,
+                      status: childTask.status,
+                    });
+                  }
+                }
+              } catch {
+                remaining.push({ id: childId, title: "(unknown)", status: "UNKNOWN" });
+              }
+            }
+            subtaskSummary = { total: childIds.length, done: doneCount, remaining };
+          }
+        } catch {
+          // Graph service unavailable, skip subtask enrichment
+        }
+      }
+
+      // Build result with optional subtask info
+      const extras: Record<string, unknown> = { task };
+      if (subtaskSummary) {
+        extras.subtasks = subtaskSummary;
+      }
+
+      let message = `Task ${validatedTaskId} retrieved`;
+      if (subtaskSummary) {
+        message += `\n\nSubtasks: ${subtaskSummary.done} of ${subtaskSummary.total} done`;
+        if (subtaskSummary.remaining.length > 0) {
+          message += `\nRemaining:`;
+          for (const sub of subtaskSummary.remaining) {
+            message += `\n  ${sub.id}: ${sub.title} [${sub.status}]`;
+          }
+        }
+      }
+
       const result = this.formatResult(
-        this.createSuccessResult(validatedTaskId, `Task ${validatedTaskId} retrieved`, {
-          task,
-        }),
+        this.createSuccessResult(validatedTaskId, message, extras),
         params.json
       );
 
@@ -602,7 +669,9 @@ export const createTasksListCommand = (
   getPersistenceProvider?: () => PersistenceProvider
 ): TasksListCommand => new TasksListCommand(getPersistenceProvider);
 
-export const createTasksGetCommand = (): TasksGetCommand => new TasksGetCommand();
+export const createTasksGetCommand = (
+  getPersistenceProvider?: () => PersistenceProvider
+): TasksGetCommand => new TasksGetCommand(getPersistenceProvider);
 
 export const createTasksCreateCommand = (
   getPersistenceProvider?: () => PersistenceProvider

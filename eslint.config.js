@@ -16,6 +16,7 @@ import noCliExecutionInTests from "./eslint-rules/no-cli-execution-in-tests.js";
 import noMagicStringDuplication from "./eslint-rules/no-magic-string-duplication.js";
 import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js";
 import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
+import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
 
 export default [
   js.configs.recommended,
@@ -108,6 +109,7 @@ export default [
           "no-magic-string-duplication": noMagicStringDuplication,
           "no-unwaited-async-factory": noUnwaitedAsyncFactory,
           "no-singleton-reach-in": noSingletonReachIn,
+          "no-from-params-in-adapters": noFromParamsInAdapters,
         },
       },
     },
@@ -166,6 +168,9 @@ export default [
         },
       ], // Prevent unwaited async factory calls that silently assign Promises
 
+      // === DI ENFORCEMENT ===
+      "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
+
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [
         "warn",
@@ -200,6 +205,7 @@ export default [
             // Session domain (command orchestration and provider resolution)
             "**/src/domain/tasks/operations/base-task-operation.ts",
             "**/src/domain/tasks/taskCommands.ts",
+            "**/src/domain/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
