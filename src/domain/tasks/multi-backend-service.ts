@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import type {
   Task,
   TaskBackend,
@@ -77,6 +78,7 @@ export interface TaskService extends TaskServiceInterface {
 }
 
 // Complete implementation that supports both single-backend and multi-backend operations
+@injectable()
 export class TaskServiceImpl implements TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly workspacePath: string;

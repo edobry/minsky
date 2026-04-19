@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { execAsync } from "../utils/exec";
@@ -412,6 +413,7 @@ export async function getWorkspaceSession(
   }
 }
 
+@injectable()
 export class WorkspaceUtils {
   constructor(
     private execAsyncFn: typeof execAsync,

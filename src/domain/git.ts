@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { normalizeRepoName } from "./repo-utils";
@@ -97,6 +98,7 @@ export interface GitServiceDeps {
   sessionProvider?: SessionProviderInterface;
 }
 
+@injectable()
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
   private sessionDb: SessionProviderInterface | null = null;

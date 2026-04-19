@@ -5,6 +5,7 @@
  * across different VCS platforms using the adapter pattern.
  */
 
+import { injectable } from "tsyringe";
 import type {
   Changeset,
   ChangesetListOptions,
@@ -28,6 +29,7 @@ import { log } from "../../utils/logger";
  * Main changeset service that provides unified access to changesets
  * across different VCS platforms
  */
+@injectable()
 export class ChangesetService {
   private adapters = new Map<ChangesetPlatform, ChangesetAdapter>();
   private factories = new Map<ChangesetPlatform, ChangesetAdapterFactory>();

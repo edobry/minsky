@@ -8,6 +8,7 @@
  * manual wiring.
  */
 
+import { injectable, inject } from "tsyringe";
 import { createGitService } from "../git";
 import type { GitServiceInterface } from "../git/types";
 import { createWorkspaceUtils, getCurrentSession } from "../workspace";
@@ -133,8 +134,9 @@ export interface ApproveResult {
  * Holds a set of injected dependencies and delegates each operation to the
  * corresponding impl function in the session sub-modules.
  */
+@injectable()
 export class SessionService {
-  constructor(private deps: SessionDeps) {}
+  constructor(@inject("sessionDeps") private deps: SessionDeps) {}
 
   /**
    * Get a session by name, task ID, or repo path.

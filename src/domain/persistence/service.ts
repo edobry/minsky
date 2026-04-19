@@ -8,6 +8,7 @@
  * @see mt#814 — converted from static singleton to injectable instance
  */
 
+import { injectable } from "tsyringe";
 import {
   PersistenceProvider,
   VectorCapablePersistenceProvider,
@@ -25,6 +26,7 @@ import type { VectorStorage } from "../storage/vector/types";
  * Manages the lifecycle of a PersistenceProvider (database connection).
  * Created once per application context (CLI, MCP, test) via the DI container.
  */
+@injectable()
 export class PersistenceService {
   private provider: PersistenceProvider | null = null;
   private initPromise: Promise<void> | null = null;
