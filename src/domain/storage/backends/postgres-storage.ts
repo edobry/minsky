@@ -55,9 +55,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private sql: ReturnType<typeof postgres> | null = null;
   private drizzle: ReturnType<typeof drizzle> | null = null;
   private readonly connectionString: string;
-  private readonly persistenceProvider?: PersistenceProvider;
+  private readonly persistenceProvider: PersistenceProvider;
 
-  constructor(config: PostgresStorageConfig, persistenceProvider?: PersistenceProvider) {
+  constructor(config: PostgresStorageConfig, persistenceProvider: PersistenceProvider) {
     this.connectionString = config.connectionString;
     this.persistenceProvider = persistenceProvider;
   }
@@ -70,11 +70,6 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return; // Already initialized
     }
 
-    if (!this.persistenceProvider) {
-      throw new Error(
-        "PostgresStorage requires a PersistenceProvider to be injected via constructor"
-      );
-    }
     const provider: PersistenceProvider = this.persistenceProvider;
 
     const capabilities = provider.getCapabilities();
@@ -442,13 +437,4 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     this.sql = null;
     this.drizzle = null;
   }
-}
-
-/**
- * Create a new PostgreSQL storage instance
- */
-export function createPostgresStorage(
-  config: PostgresStorageConfig
-): DatabaseStorage<SessionRecord, SessionDbState> {
-  return new PostgresStorage(config);
 }

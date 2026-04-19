@@ -5,6 +5,7 @@
  * Extracted from git.ts to support modular architecture.
  */
 import { type GitServiceInterface } from "./types";
+import type { GitServiceDeps } from "../git";
 
 /**
  * Creates a default GitService implementation
@@ -13,7 +14,7 @@ import { type GitServiceInterface } from "./types";
  * @param options Optional configuration options for the git service
  * @returns A GitServiceInterface implementation
  */
-export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
+export function createGitService(options?: GitServiceDeps): GitServiceInterface {
   // Use lazy static import to avoid circular dependency and hanging during MCP startup
   try {
     const { GitService } = require("../git");
@@ -22,7 +23,7 @@ export function createGitService(options?: { baseDir?: string }): GitServiceInte
       throw new Error("GitService class not found - check git.ts exports");
     }
 
-    return new GitService(options?.baseDir);
+    return new GitService(options);
   } catch (error) {
     // If require fails during MCP startup, provide a minimal fallback
     throw new Error(

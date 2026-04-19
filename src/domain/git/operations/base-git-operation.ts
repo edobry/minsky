@@ -67,8 +67,9 @@ export abstract class BaseGitOperation<TParams, TResult> {
       const baseParams = validParams as BaseGitOperationParams;
       if (baseParams.session && !baseParams.repo) {
         if (!this.deps.sessionProvider) {
-          const { getSharedSessionProvider } = await import("../../session/session-provider-cache");
-          this.deps.sessionProvider = await getSharedSessionProvider();
+          throw new Error(
+            `sessionProvider is required to resolve session '${baseParams.session}' but was not provided to ${this.getOperationName()}`
+          );
         }
         const workdir = await resolveSessionDirectory(
           baseParams.session,
