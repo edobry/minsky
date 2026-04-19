@@ -1,14 +1,14 @@
 import { Command } from "commander";
-import { PersistenceService } from "../../../domain/persistence/service";
 import { createTasksAvailableCommand } from "../../shared/commands/tasks/routing-commands";
 import { log } from "../../../utils/logger";
 import { handleCliError } from "../utils/error-handler";
+import { getAppContainer } from "../../shared/bridges/cli/command-generator-core";
 
 /**
  * Create the tasks available command
  */
 export function createAvailableCommand(): Command {
-  const availableCommand = createTasksAvailableCommand(() => PersistenceService.getProvider());
+  const availableCommand = createTasksAvailableCommand(() => getAppContainer()!.get("persistence"));
   const command = new Command("available");
 
   command

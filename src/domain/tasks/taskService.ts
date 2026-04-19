@@ -77,16 +77,11 @@ export async function createConfiguredTaskService(options: {
 
       case TaskBackend.MINSKY: {
         try {
-          // Use injected provider or fall back to PersistenceService singleton
-          let persistence: import("../persistence/types").SqlCapablePersistenceProvider;
-          if (options.persistenceProvider) {
-            persistence =
-              options.persistenceProvider as import("../persistence/types").SqlCapablePersistenceProvider;
-          } else {
-            const { PersistenceService } = await import("../persistence/service");
-            persistence =
-              PersistenceService.getProvider() as import("../persistence/types").SqlCapablePersistenceProvider;
+          if (!options.persistenceProvider) {
+            throw new Error("Minsky backend requires a persistenceProvider to be injected");
           }
+          const persistence =
+            options.persistenceProvider as import("../persistence/types").SqlCapablePersistenceProvider;
           const db = await persistence.getDatabaseConnection?.();
           if (!db) {
             throw new Error(
@@ -119,25 +114,15 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
-      // Use injected provider or fall back to PersistenceService singleton
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getDatabaseConnection return type varies across provider implementations (PostgreSQL vs SQLite)
-      let persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null = null;
-      if (options.persistenceProvider) {
-        persistenceProvider = options.persistenceProvider;
+      const persistenceProvider: { getDatabaseConnection?: () => Promise<any> } | null =
+        options.persistenceProvider ?? null;
+      if (persistenceProvider) {
         log.debug("Using injected persistence provider for multi-backend mode");
       } else {
-        try {
-          const { PersistenceService } = await import("../persistence/service");
-          persistenceProvider = PersistenceService.getProvider();
-          log.debug("PersistenceService available for multi-backend mode");
-        } catch (error) {
-          log.warn(
-            "PersistenceService not available - persistence-dependent backends will be unavailable",
-            {
-              error: getErrorMessage(error),
-            }
-          );
-        }
+        log.warn(
+          "No persistence provider injected - persistence-dependent backends will be unavailable"
+        );
       }
 
       // Add GitHub backend (gh# prefix) - requires GitHub configuration

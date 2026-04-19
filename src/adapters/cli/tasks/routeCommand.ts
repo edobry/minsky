@@ -1,14 +1,14 @@
 import { Command } from "commander";
-import { PersistenceService } from "../../../domain/persistence/service";
 import { createTasksRouteCommand } from "../../shared/commands/tasks/routing-commands";
 import { log } from "../../../utils/logger";
 import { handleCliError } from "../utils/error-handler";
+import { getAppContainer } from "../../shared/bridges/cli/command-generator-core";
 
 /**
  * Create the tasks route command
  */
 export function createRouteCommand(): Command {
-  const routeCommand = createTasksRouteCommand(() => PersistenceService.getProvider());
+  const routeCommand = createTasksRouteCommand(() => getAppContainer()!.get("persistence"));
   const command = new Command("route");
 
   command

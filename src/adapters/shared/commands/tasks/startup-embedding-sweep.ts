@@ -9,7 +9,8 @@ export async function triggerStartupEmbeddingSweep(): Promise<void> {
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
-  // Check if persistence supports SQL
+  // Check if persistence supports SQL — use PersistenceService since this
+  // runs at startup outside a command execution context (no container available)
   const { PersistenceService } = await import("../../../../domain/persistence/service");
   if (!PersistenceService.isInitialized()) return;
   const provider = PersistenceService.getProvider();
