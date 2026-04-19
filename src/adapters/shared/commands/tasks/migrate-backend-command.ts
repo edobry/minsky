@@ -218,9 +218,10 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         migrated: result.migrated,
         skipped: result.skipped,
         errors: result.errors,
-        validated: validationResult?.passed.length || 0,
-        validationFailed: validationResult?.failed.length || 0,
+        validated: validationResult?.passed?.length ?? 0,
+        validationFailed: validationResult?.failed?.length ?? 0,
       },
+      errorDetails: result.details?.filter((d: MigrationDetail) => d.error) ?? [],
     };
   }
 
