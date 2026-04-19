@@ -27,7 +27,6 @@ import type { ApprovalInfo } from "./repository/approval-types";
 
 import type {
   SessionGetParams,
-  SessionListParams,
   SessionStartParams,
   SessionDeleteParams,
   SessionDirParams,
@@ -110,19 +109,6 @@ export async function getSessionFromParams(
     await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
   );
   return service.get(params);
-}
-
-/**
- * Lists all sessions.
- */
-export async function listSessionsFromParams(
-  params: SessionListParams,
-  depsInput?: { sessionDB?: SessionProviderInterface }
-): Promise<import("./session/types").Session[]> {
-  const service = new SessionService(
-    await resolvePartialDeps({ sessionProvider: depsInput?.sessionDB })
-  );
-  return service.list(params);
 }
 
 /**
@@ -283,16 +269,6 @@ export async function updateSessionFromParams(
 }
 
 /**
- * Inspects current session based on workspace location.
- */
-export async function inspectSessionFromParams(params: {
-  json?: boolean;
-}): Promise<import("./session/types").Session | null> {
-  const service = new SessionService(await resolvePartialDeps());
-  return service.inspect(params);
-}
-
-/**
  * Reviews a session PR.
  * Delegates to SessionService.review().
  */
@@ -407,11 +383,9 @@ export async function approveSessionFromParams(
 }
 
 // Shorter alias exports for adapters
-export { listSessionsFromParams as sessionList };
 export { getSessionFromParams as sessionGet };
 export { startSessionFromParams as sessionStart };
 export { deleteSessionFromParams as sessionDelete };
 export { getSessionDirFromParams as sessionDir };
 export { updateSessionFromParams as sessionUpdate };
 export { approveSessionFromParams as sessionApprove };
-export { inspectSessionFromParams as sessionInspect };

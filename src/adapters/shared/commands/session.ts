@@ -42,7 +42,7 @@ import { sharedCommandRegistry, type CommandDefinition } from "../command-regist
  * command registry.
  */
 export async function registerSessionCommands(
-  partialDeps?: Partial<SessionCommandDependencies>,
+  _partialDeps?: Partial<SessionCommandDependencies>,
   container?: AppContainerInterface
 ): Promise<void> {
   // Lazy resolver: defers persistence initialization and domain module loading
@@ -50,18 +50,12 @@ export async function registerSessionCommands(
   let cachedDeps: SessionCommandDependencies | null = null;
   const getDeps: LazySessionDeps = async () => {
     if (cachedDeps) return cachedDeps;
-    // Prefer container-provided sessionDeps if available (mt#761 DI migration).
-    // Falls back to singleton for backward compatibility during migration.
-    if (container?.has("sessionDeps")) {
-      cachedDeps = container.get("sessionDeps");
-      return cachedDeps;
+    if (!container?.has("sessionDeps")) {
+      throw new Error(
+        "DI container missing 'sessionDeps'. Ensure container.initialize() was called before command execution."
+      );
     }
-    const { getSharedSessionProvider } = await import(
-      "../../../domain/session/session-provider-cache"
-    );
-    const { createSessionDeps } = await import("../../../domain/session/session-service");
-    const sessionProvider = partialDeps?.sessionProvider ?? (await getSharedSessionProvider());
-    cachedDeps = await createSessionDeps(sessionProvider);
+    cachedDeps = container.get("sessionDeps");
     return cachedDeps;
   };
 
