@@ -11,7 +11,7 @@ import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provi
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
 import type { PersistenceProvider } from "../persistence/types";
-import { PersistenceService } from "../persistence/service";
+import { defaultInstance } from "../persistence/service";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
@@ -306,7 +306,7 @@ export interface CreateSessionProviderDeps {
 }
 
 const defaultCreateSessionProviderDeps: CreateSessionProviderDeps = {
-  persistenceService: PersistenceService,
+  persistenceService: defaultInstance,
 };
 
 /**

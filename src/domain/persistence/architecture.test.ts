@@ -58,19 +58,19 @@ describe("Cache-before-init detection", () => {
     const source = getSource(PATHS.persistenceService);
 
     const method = source.match(
-      /private static async performInitialization[\s\S]*?throw error;\s*\}/
+      /private async performInitialization[\s\S]*?throw error;\s*\}/
     )?.[0];
     expect(method).toBeDefined();
 
     const initIdx = method!.indexOf("await provider.initialize()");
-    const assignIdx = method!.indexOf("PersistenceService.provider = provider");
+    const assignIdx = method!.indexOf("this.provider = provider");
     expect(initIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(initIdx);
 
     // Verify: catch block nulls provider
     const catchBlock = method!.match(/catch[\s\S]*?throw error/)?.[0];
-    expect(catchBlock).toContain("PersistenceService.provider = null");
+    expect(catchBlock).toContain("this.provider = null");
   });
 
   test("PostgresPersistenceProvider.initialize() assigns fields only after SELECT 1 verification", () => {

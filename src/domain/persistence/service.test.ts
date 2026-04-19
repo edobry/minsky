@@ -7,31 +7,15 @@
  * - getProvider() throws
  * - retry re-attempts initialization
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { PersistenceService } from "./service";
 
 const FAKE_CONNECTION_STRING = "postgresql://fake";
 const DB_UNAVAILABLE = "DB unavailable";
 
-// Save original state so we can restore it
-let originalProvider: unknown;
-
-beforeEach(async () => {
-  // Capture the current provider state
-  originalProvider = (PersistenceService as unknown as { provider: unknown }).provider;
-  // Reset to clean state
-  await PersistenceService.reset();
-});
-
-afterEach(async () => {
-  // Restore original state so we don't affect other tests
-  await PersistenceService.reset();
-  (PersistenceService as unknown as { provider: unknown }).provider = originalProvider;
-});
-
-describe("PersistenceService cache-before-init", () => {
+describe("PersistenceService (instance)", () => {
   test("isInitialized() returns false after failed initialization", async () => {
-    // Mock the factory to return a provider whose initialize() throws
+    const service = new PersistenceService();
     const { PersistenceProviderFactory } = await import("./factory");
     const origCreate = PersistenceProviderFactory.create;
 
@@ -44,19 +28,20 @@ describe("PersistenceService cache-before-init", () => {
 
     try {
       await expect(
-        PersistenceService.initialize({
+        service.initialize({
           backend: "postgres",
           postgres: { connectionString: FAKE_CONNECTION_STRING },
         })
       ).rejects.toThrow(DB_UNAVAILABLE);
 
-      expect(PersistenceService.isInitialized()).toBe(false);
+      expect(service.isInitialized()).toBe(false);
     } finally {
       PersistenceProviderFactory.create = origCreate;
     }
   });
 
   test("getProvider() throws after failed initialization", async () => {
+    const service = new PersistenceService();
     const { PersistenceProviderFactory } = await import("./factory");
     const origCreate = PersistenceProviderFactory.create;
 
@@ -69,19 +54,20 @@ describe("PersistenceService cache-before-init", () => {
 
     try {
       await expect(
-        PersistenceService.initialize({
+        service.initialize({
           backend: "postgres",
           postgres: { connectionString: FAKE_CONNECTION_STRING },
         })
       ).rejects.toThrow();
 
-      expect(() => PersistenceService.getProvider()).toThrow("PersistenceService not initialized");
+      expect(() => service.getProvider()).toThrow("not initialized");
     } finally {
       PersistenceProviderFactory.create = origCreate;
     }
   });
 
   test("initialization can be retried after failure", async () => {
+    const service = new PersistenceService();
     const { PersistenceProviderFactory } = await import("./factory");
     const origCreate = PersistenceProviderFactory.create;
 
@@ -107,22 +93,22 @@ describe("PersistenceService cache-before-init", () => {
     try {
       // First attempt fails
       await expect(
-        PersistenceService.initialize({
+        service.initialize({
           backend: "postgres",
           postgres: { connectionString: FAKE_CONNECTION_STRING },
         })
       ).rejects.toThrow();
 
-      expect(PersistenceService.isInitialized()).toBe(false);
+      expect(service.isInitialized()).toBe(false);
 
       // Second attempt succeeds
-      await PersistenceService.initialize({
+      await service.initialize({
         backend: "postgres",
         postgres: { connectionString: FAKE_CONNECTION_STRING },
       });
 
-      expect(PersistenceService.isInitialized()).toBe(true);
-      expect(PersistenceService.getProvider()).toBeDefined();
+      expect(service.isInitialized()).toBe(true);
+      expect(service.getProvider()).toBeDefined();
     } finally {
       PersistenceProviderFactory.create = origCreate;
     }

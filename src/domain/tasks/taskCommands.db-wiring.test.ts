@@ -4,11 +4,12 @@ import { listTasksFromParams } from "./taskCommands";
 describe("DB wiring for minsky backend", () => {
   beforeAll(async () => {
     // Set up mock persistence provider before any tests run
-    const { PersistenceService } = await import("../persistence/service");
+    const { defaultInstance: persistenceService } = await import("../persistence/service");
     const { FakePersistenceProvider } = await import("../persistence/fake-persistence-provider");
 
     const fakeProvider = new FakePersistenceProvider();
-    PersistenceService.setMockProvider(fakeProvider);
+    // Set provider directly on the default instance for testing
+    (persistenceService as any).provider = fakeProvider;
 
     // Initialize configuration for persistence tests
     const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
