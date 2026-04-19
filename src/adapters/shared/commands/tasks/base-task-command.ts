@@ -160,6 +160,26 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
             output += `Spec: ${taskObj.spec}\n`;
           }
 
+          // Display subtask summary if present
+          if (
+            taskResult.subtasks &&
+            typeof taskResult.subtasks === "object" &&
+            taskResult.subtasks !== null
+          ) {
+            const subtasks = taskResult.subtasks as {
+              total: number;
+              done: number;
+              remaining: Array<{ id: string; title: string; status: string }>;
+            };
+            output += `\nSubtasks: ${subtasks.done} of ${subtasks.total} done\n`;
+            if (subtasks.remaining.length > 0) {
+              output += `Remaining:\n`;
+              for (const sub of subtasks.remaining) {
+                output += `  ${sub.id}: ${sub.title} [${sub.status}]\n`;
+              }
+            }
+          }
+
           return output.trim();
         }
       }
