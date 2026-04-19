@@ -1,12 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { preparePrFromParams } from "./git/git-commands-modular";
 import { preparePrImpl } from "./git/prepare-pr-operations";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
-import {
-  setSharedSessionProvider,
-  resetSharedSessionProvider,
-} from "./session/session-provider-cache-seams";
 import type { GitServiceInterface } from "./git/types";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 
@@ -71,13 +67,8 @@ describe("Session PR Command Branch Behavior", () => {
       repoPath: WORKDIR,
       sessionWorkdir: WORKDIR,
     });
-    setSharedSessionProvider(fakeSessionProvider);
 
     fakeGitService = buildFakeGitService(fakeSessionProvider);
-  });
-
-  afterEach(() => {
-    resetSharedSessionProvider();
   });
 
   test("should never switch user to PR branch (recovery path: PR branch already exists)", async () => {
@@ -88,7 +79,7 @@ describe("Session PR Command Branch Behavior", () => {
         body: "Test body",
         baseBranch: "main",
       },
-      { createGitService: () => fakeGitService }
+      { createGitService: () => fakeGitService, sessionProvider: fakeSessionProvider }
     );
 
     const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
@@ -145,7 +136,7 @@ describe("Session PR Command Branch Behavior", () => {
         body: "Test body",
         baseBranch: "main",
       },
-      { createGitService: () => fakeGitService }
+      { createGitService: () => fakeGitService, sessionProvider: fakeSessionProvider }
     );
 
     const gitCommands = fakeGitService.recordedCommands.map((entry) => entry.command);
@@ -197,7 +188,7 @@ describe("Session PR Command Branch Behavior", () => {
           body: "Test body",
           baseBranch: "main",
         },
-        { createGitService: () => fakeGitService }
+        { createGitService: () => fakeGitService, sessionProvider: fakeSessionProvider }
       )
     ).rejects.toThrow(/Failed to switch back to session branch/i);
 
