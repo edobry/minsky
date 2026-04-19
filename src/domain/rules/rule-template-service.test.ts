@@ -69,13 +69,13 @@ describe("RuleTemplateService", () => {
           schema: {
             type: "string",
             enum: ["TODO", "IN_PROGRESS", "DONE"],
-          } as unknown as import("zod").ZodTypeAny,
+          } as unknown as import("zod").ZodType,
           description: "Filter by task status",
           required: false,
           defaultValue: undefined,
         },
         all: {
-          schema: { type: "boolean" } as unknown as import("zod").ZodTypeAny,
+          schema: { type: "boolean" } as unknown as import("zod").ZodType,
           description: "Include all tasks (including completed)",
           required: false,
           defaultValue: false,

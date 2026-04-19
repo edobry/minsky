@@ -72,11 +72,11 @@ export function createOptionFlag(name: string, shortFlag?: string): string {
  * @param schema Zod schema for the parameter
  * @returns Formatted flag string with value placeholder
  */
-export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string {
+export function addValuePlaceholder(flag: string, schema: z.ZodType): string {
   // Determine if the parameter takes a value
   const isBooleanType =
     schema instanceof z.ZodBoolean ||
-    (schema instanceof z.ZodOptional && schema._def.innerType instanceof z.ZodBoolean);
+    (schema instanceof z.ZodOptional && schema.unwrap() instanceof z.ZodBoolean);
 
   // Boolean options don't need a value placeholder
   if (isBooleanType) {
@@ -94,7 +94,7 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
     placeholder = "enum";
   } else if (schema instanceof z.ZodOptional) {
     // Recurse to check the inner type
-    return addValuePlaceholder(flag, schema._def.innerType);
+    return addValuePlaceholder(flag, schema.unwrap() as z.ZodType);
   }
 
   return `${flag} <${placeholder}>`;
@@ -108,7 +108,7 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
  * @returns Option description string
  */
 export function getSchemaDescription(
-  schema: z.ZodTypeAny,
+  schema: z.ZodType,
   fallback: string = "No description available"
 ): string {
   // Try to extract description from schema
@@ -121,8 +121,8 @@ export function getSchemaDescription(
     (schema as { description?: string }).description!.length > 0
   ) {
     description = schema.description;
-  } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
-    const innerDesc = schema._def.innerType.description;
+  } else if (schema instanceof z.ZodOptional && "description" in schema.unwrap()) {
+    const innerDesc = (schema.unwrap() as { description?: string }).description;
     if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }
@@ -137,8 +137,8 @@ export function getSchemaDescription(
  * @param schema Zod enum schema
  * @returns Array of enum values
  */
-export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[] {
-  return schema._def.values;
+export function getEnumValues(schema: z.ZodEnum): string[] {
+  return schema.options as string[];
 }
 
 /**

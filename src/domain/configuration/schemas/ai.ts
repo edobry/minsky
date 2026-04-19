@@ -65,7 +65,7 @@ export const aiProviderConfigSchema = z
     temperature: baseSchemas.temperature.optional(),
 
     // Custom headers for API requests
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
   })
   .strip();
 

@@ -38,7 +38,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
   /**
    * Get the Zod schema for validating parameters (optional, can return null for no validation)
    */
-  getSchema(): z.ZodSchema<TParams> | null {
+  getSchema(): z.ZodType<TParams> | null {
     return null; // Override in subclasses if validation needed
   }
 
@@ -87,7 +87,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
       if (error instanceof z.ZodError) {
         throw new ValidationError(
           `Invalid parameters for ${this.getOperationName()}`,
-          error.format(),
+          z.treeifyError(error),
           error
         );
       }
