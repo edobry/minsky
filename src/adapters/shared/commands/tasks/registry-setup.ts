@@ -68,6 +68,11 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
   const { createTasksDispatchCommand } = require("./dispatch-command");
   const { createTasksOrchestrateCommand } = require("./orchestrate-command");
+  const {
+    createTasksDecomposeCommand,
+    createTasksEstimateCommand,
+    createTasksAnalyzeCommand,
+  } = require("./context-commands");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider),
@@ -100,5 +105,9 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDispatchCommand(getPersistenceProvider, getSessionProvider),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getPersistenceProvider),
+    // Context commands (decompose, estimate, analyze)
+    createTasksDecomposeCommand(getPersistenceProvider),
+    createTasksEstimateCommand(getPersistenceProvider),
+    createTasksAnalyzeCommand(getPersistenceProvider),
   ];
 }
