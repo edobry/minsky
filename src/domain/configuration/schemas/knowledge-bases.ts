@@ -5,7 +5,9 @@ import { z } from "zod";
  */
 const knowledgeSourceAuthSchema = z.object({
   /** Environment variable containing the API token */
-  tokenEnvVar: z.string(),
+  tokenEnvVar: z.string().optional(),
+  /** Direct token value (alternative to tokenEnvVar) */
+  token: z.string().optional(),
   /** Optional environment variable for email (used by some providers like Confluence) */
   emailEnvVar: z.string().optional(),
 });
