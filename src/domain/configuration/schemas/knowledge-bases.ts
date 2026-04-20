@@ -14,8 +14,8 @@ const knowledgeSourceAuthSchema = z.object({
  * Sync schedule and behavior configuration
  */
 const knowledgeSyncConfigSchema = z.object({
-  /** Cron-based schedule for automatic sync */
-  schedule: z.enum(["hourly", "daily", "weekly"]).optional(),
+  /** When to sync: on-demand (explicit only), startup (session start), or daily */
+  schedule: z.enum(["on-demand", "startup", "daily"]).default("on-demand"),
   /** Maximum depth to traverse in hierarchical sources */
   maxDepth: z.number().int().positive().optional(),
   /** Glob patterns for pages/documents to exclude from sync */

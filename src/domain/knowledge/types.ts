@@ -83,8 +83,8 @@ export interface KnowledgeSourceConfig {
   };
   /** Optional sync configuration */
   sync?: {
-    /** Cron schedule for automatic sync */
-    schedule?: "hourly" | "daily" | "weekly";
+    /** When to sync: on-demand (explicit only), startup (session start), or daily */
+    schedule?: "on-demand" | "startup" | "daily";
     /** Maximum depth to traverse */
     maxDepth?: number;
     /** Glob patterns for pages/documents to exclude */
