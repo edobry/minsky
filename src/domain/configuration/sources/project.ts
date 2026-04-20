@@ -10,6 +10,7 @@ import { resolve, join } from "path";
 import { parse } from "yaml";
 import type { PartialConfiguration } from "../schemas";
 import { log } from "../../../utils/logger";
+import { deepMergeConfigs } from "../deep-merge";
 
 /**
  * Canonical project configuration location.
@@ -34,34 +35,6 @@ export const projectConfigFiles = [
   "minsky.config.yml",
   "minsky.config.json",
 ] as const;
-
-/**
- * Deep merge two plain objects. Source values override target values.
- */
-function deepMergeConfigs(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>
-): Record<string, unknown> {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    if (
-      typeof result[key] === "object" &&
-      result[key] !== null &&
-      !Array.isArray(result[key]) &&
-      typeof source[key] === "object" &&
-      source[key] !== null &&
-      !Array.isArray(source[key])
-    ) {
-      result[key] = deepMergeConfigs(
-        result[key] as Record<string, unknown>,
-        source[key] as Record<string, unknown>
-      );
-    } else {
-      result[key] = source[key];
-    }
-  }
-  return result;
-}
 
 /**
  * Load project configuration from .minsky/ directory.
