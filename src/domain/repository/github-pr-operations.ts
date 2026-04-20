@@ -21,6 +21,8 @@ import {
   handleMerge405or422,
   type ErrorContext,
 } from "./github-error-handler";
+import type { AuthorshipTier } from "../provenance/types";
+import { ensureAuthorshipLabelsExist, addAuthorshipLabel } from "../provenance/authorship-labels";
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -112,7 +114,8 @@ export async function createPullRequest(
   workdir: string,
   session: string | undefined,
   draft: boolean,
-  getSessionDB: () => Promise<SessionProviderInterface>
+  getSessionDB: () => Promise<SessionProviderInterface>,
+  authorshipTier?: AuthorshipTier
 ): Promise<PRInfo> {
   try {
     // Ensure the source branch is pushed to the remote
@@ -189,6 +192,19 @@ export async function createPullRequest(
         }
       } catch (error) {
         log.debug(`Failed to update session record with PR info: ${error}`);
+      }
+    }
+
+    // Apply authorship tier label if a tier was provided
+    if (authorshipTier !== undefined) {
+      try {
+        await ensureAuthorshipLabelsExist(octokit, gh.owner, gh.repo);
+        await addAuthorshipLabel(octokit, gh.owner, gh.repo, pr.number, authorshipTier);
+      } catch (labelError) {
+        // Label failure is non-fatal — warn but don't block PR creation
+        log.warn(
+          `Failed to apply authorship label to PR #${pr.number}: ${getErrorMessage(labelError)}`
+        );
       }
     }
 

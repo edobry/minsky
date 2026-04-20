@@ -18,3 +18,12 @@ export {
   type TaskOrigin,
   type TierSignals,
 } from "./types";
+export {
+  LABEL_HUMAN_AUTHORED,
+  LABEL_CO_AUTHORED,
+  LABEL_AGENT_AUTHORED,
+  AUTHORSHIP_LABELS,
+  tierToLabel,
+  ensureAuthorshipLabelsExist,
+  addAuthorshipLabel,
+} from "./authorship-labels";

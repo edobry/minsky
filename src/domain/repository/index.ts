@@ -215,6 +215,8 @@ export interface CreatePROptions {
   baseBranch: string;
   session?: string;
   draft?: boolean;
+  /** Optional authorship tier — when provided, the corresponding label is applied to the PR. */
+  authorshipTier?: import("../provenance/types").AuthorshipTier;
 }
 
 export interface UpdatePROptions {
