@@ -39,405 +39,403 @@ export interface StartSessionDependencies {
 }
 
 /**
- * Implementation of session start operation
- * Extracted from session.ts for better maintainability
+ * Validated context returned by the precondition phase.
+ * Contains all derived values needed by the mutation phase.
+ * Once this is returned, all validation has passed and side effects may begin.
  */
-export async function startSessionImpl(
+interface ValidatedSessionContext {
+  sessionId: string;
+  taskId: string | undefined;
+  repoUrl: string;
+  backendType: RepositoryBackendType;
+  cloneSource: string;
+  referenceRepo: string | undefined;
+  branchName: string;
+  normalizedRepoName: string;
+  sessionDir: string;
+}
+
+/**
+ * Phase 1: Validate all preconditions and derive context.
+ *
+ * This function MUST NOT perform any side effects (no git clone, no DB writes,
+ * no filesystem mutations). It may only read state and throw on invalid conditions.
+ * Returns a ValidatedSessionContext that the mutation phase consumes.
+ *
+ * Structural invariant: if this function throws, the system state is unchanged.
+ */
+async function validatePreconditions(
+  params: SessionStartParameters,
+  deps: StartSessionDependencies
+): Promise<ValidatedSessionContext> {
+  const { name, repo, task, description, branch, noStatusUpdate, quiet } = params;
+
+  const currentDir = process.env.PWD || process.cwd();
+  const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
+  if (isInSession) {
+    throw new MinskyError(`Cannot start session from within another session.
+
+Current location: ${currentDir}
+
+Navigate to your main workspace and try again:
+  minsky session start --task <id>`);
+  }
+
+  // Determine repo URL and backend type from project config (written by `minsky init`).
+  const configBackend = await deps.getRepositoryBackend();
+  const repoUrl = configBackend.repoUrl;
+  const backendType = configBackend.backendType;
+  const cloneSource = repo || repoUrl;
+
+  // Auto-detect local workspace for --reference clone optimization.
+  let referenceRepo: string | undefined;
+  if (!repo) {
+    try {
+      const { getConfiguration } = await import("../configuration/index");
+      const cfg = getConfiguration() as { workspace?: { mainPath?: string } };
+      const candidatePath = cfg.workspace?.mainPath || currentDir;
+
+      const localRemote = (
+        await deps.gitService.execInRepository(candidatePath, "git remote get-url origin")
+      ).trim();
+      if (localRemote) {
+        const { normalizeRepositoryUri } = await import("../uri-utils");
+        const opts = { validateLocalExists: false };
+        const localName = normalizeRepositoryUri(localRemote, opts).name;
+        const configName = normalizeRepositoryUri(repoUrl, opts).name;
+        if (localName === configName) {
+          referenceRepo = candidatePath;
+          log.debug("Using local workspace as reference clone source", { referenceRepo });
+        }
+      }
+    } catch {
+      // Config not available or detection failed — skip optimization
+    }
+  }
+
+  // Determine the session ID using task ID if provided
+  let sessionId = name;
+  let taskId: string | undefined = task;
+
+  // Auto-create task if description is provided but no task ID
+  if (description && !taskId) {
+    const taskSpec = createTaskFromDescription(description);
+    const createdTask = await deps.taskService.createTaskFromTitleAndSpec(
+      taskSpec.title,
+      taskSpec.description
+    );
+    taskId = createdTask.id;
+    // Auto-created tasks skip planning and go straight to READY
+    await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
+    await deps.taskService.setTaskStatus(taskId, TASK_STATUS.READY);
+    if (!quiet) {
+      log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+    }
+  }
+
+  if (taskId && !sessionId) {
+    // Normalize the task ID format using Zod validation
+    let normalizedTaskId: string;
+    try {
+      normalizedTaskId = TaskIdSchema.parse(taskId);
+    } catch (validationError) {
+      const manualNormalized = validateQualifiedTaskId(taskId);
+      if (manualNormalized) {
+        normalizedTaskId = manualNormalized;
+      } else {
+        throw new ValidationError(
+          `Invalid task ID format: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
+        );
+      }
+    }
+    taskId = normalizedTaskId;
+
+    // Verify the task exists
+    const taskObj = await deps.taskService.getTask(normalizedTaskId);
+    if (!taskObj) {
+      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+    }
+
+    // Validate task status
+    if (!noStatusUpdate) {
+      const currentStatus = await deps.taskService.getTaskStatus(normalizedTaskId);
+
+      if (currentStatus === TASK_STATUS.TODO) {
+        throw new ValidationError(
+          "Task must be in PLANNING status before starting a session. Set status to PLANNING first.",
+          undefined,
+          undefined
+        );
+      }
+
+      if (currentStatus === TASK_STATUS.PLANNING) {
+        throw new ValidationError(
+          "Planning is not yet marked as complete. Set status to READY when investigation is done.",
+          undefined,
+          undefined
+        );
+      }
+    }
+
+    sessionId = generateSessionId();
+  }
+
+  if (!sessionId) {
+    throw new ValidationError("Session ID could not be determined from task ID");
+  }
+
+  // Check if session already exists
+  const existingSession = await deps.sessionDB.getSession(sessionId);
+  if (existingSession) {
+    throw new MinskyError(`Session '${sessionId}' already exists`);
+  }
+
+  // Check if a session already exists for this task
+  if (taskId) {
+    const existingSessions = await deps.sessionDB.listSessions();
+    const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
+
+    if (taskSession) {
+      if (taskSession.prState?.mergedAt) {
+        throw new MinskyError(
+          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
+            `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
+            `delete the old one first:\n\n` +
+            `  minsky session delete ${taskSession.session}\n` +
+            `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+        );
+      }
+      throw new MinskyError(
+        `A session for task ${formatTaskIdForDisplay(taskId)} already exists ("${taskSession.session}"). ` +
+          `Use the existing session, or delete it before starting a new one.`
+      );
+    }
+  }
+
+  // Derive computed values (pure transforms, no side effects)
+  const repoName = normalizeRepoName(repoUrl);
+  let normalizedRepoName = repoName;
+  if (repoName.startsWith("local/")) {
+    const parts = repoName.split("/");
+    if (parts.length > 1) {
+      normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
+    }
+  } else {
+    normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+  }
+
+  const sessionBaseDir =
+    process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
+  const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
+
+  return {
+    sessionId,
+    taskId,
+    repoUrl,
+    backendType,
+    cloneSource,
+    referenceRepo,
+    branchName,
+    normalizedRepoName,
+    sessionDir,
+  };
+}
+
+/**
+ * Phase 2: Execute side effects using validated context.
+ *
+ * This function MUST NOT throw ValidationError — all validation has already
+ * passed in validatePreconditions(). It performs git clone, DB writes, and
+ * status transitions.
+ */
+async function executeMutations(
+  ctx: ValidatedSessionContext,
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
-  // Resolve filesystem adapter (defaults to real fs)
   const fsAdapter = deps.fs || {
     exists: (p: string) => existsSync(p),
     rm: async (p: string, o: { recursive: boolean; force: boolean }) => {
       try {
         const fsp = await import("fs/promises");
         if (typeof fsp.rm === "function") return fsp.rm(p, o);
-        // Node < 14.14 fallback
         if (typeof fsp.rmdir === "function")
           return fsp.rmdir(p, { recursive: o.recursive } as Parameters<typeof fsp.rmdir>[1]);
       } catch (_e) {
-        // In mock environments, silently no-op to avoid hard failure
         void 0;
       }
       return;
     },
   };
-  // Validate parameters using Zod schema (already done by type)
-  const {
-    name,
-    repo,
-    task,
-    description,
-    branch,
-    noStatusUpdate,
-    quiet,
-    skipInstall,
-    packageManager,
-  } = params;
+
+  const { sessionId, taskId, repoUrl, backendType, cloneSource, referenceRepo, branchName, normalizedRepoName, sessionDir } = ctx;
+  const { noStatusUpdate, quiet, skipInstall, packageManager } = params;
+
+  // Clean up stale session directory if one exists
+  if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
+    try {
+      await fsAdapter.rm(sessionDir, { recursive: true, force: true });
+    } catch (error) {
+      throw new MinskyError(
+        `Failed to clean up existing session directory: ${getErrorMessage(error)}`
+      );
+    }
+  }
+
+  // Prepare session record
+  const sessionRecord: SessionRecord = {
+    session: sessionId,
+    repoUrl,
+    repoName: normalizeRepoName(repoUrl),
+    createdAt: new Date().toISOString(),
+    taskId,
+    backendType,
+    branch: branchName,
+  };
+
+  let sessionAdded = false;
 
   try {
-    log.debug("Starting session with params", {
-      name,
-      task,
-      inputBranch: branch,
-      noStatusUpdate,
-      quiet,
-      skipInstall,
-      packageManager,
+    const _gitCloneResult = await deps.gitService.clone({
+      repoUrl: cloneSource,
+      session: sessionId,
+      workdir: sessionDir,
+      referenceRepo,
     });
 
-    const currentDir = process.env.PWD || process.cwd();
-    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
-    if (isInSession) {
-      throw new MinskyError(`🚫 Cannot Start Session from Within Another Session
+    const _branchResult = await deps.gitService.branchWithoutSession({
+      repoName: normalizedRepoName,
+      session: sessionId,
+      branch: branchName,
+    });
 
-You're currently inside a session workspace, but sessions can only be created from the main workspace.
-
-📍 Current location: ${currentDir}
-
-🔄 How to exit this session workspace:
-
-1️⃣ Navigate to your main workspace:
-   cd /path/to/your/main/project
-
-2️⃣ Or use the session directory command to find your way:
-   minsky session dir
-
-3️⃣ Then try creating your session again:
-   minsky session start --task <id> [session-id]
-   minsky session start --description "<description>" [session-id]
-
-💡 Why this restriction exists:
-Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
-
-Need help? Run 'minsky sessions list' to see all available sessions.`);
-    }
-
-    // Determine repo URL and backend type from project config (written by `minsky init`).
-    // Falls back to auto-detection for projects that haven't been initialised yet.
-    const configBackend = await deps.getRepositoryBackend();
-    const repoUrl = configBackend.repoUrl;
-    const backendType = configBackend.backendType;
-    // If the user explicitly passed --repo, use it as the clone source (speed optimisation
-    // for local clones) while keeping the canonical repoUrl / backendType from config.
-    const cloneSource = repo || repoUrl;
-
-    // Auto-detect local workspace for --reference clone optimization.
-    // Only when user didn't pass --repo (which already provides a fast local source).
-    // Checks config workspace.mainPath first, falls back to cwd heuristic.
-    // Gracefully skips if: not a git repo, no remote, different repo, or any error.
-    let referenceRepo: string | undefined;
-    if (!repo) {
+    await deps.sessionDB.addSession(sessionRecord);
+    sessionAdded = true;
+  } catch (gitError) {
+    if (sessionAdded) {
       try {
-        const { getConfiguration } = await import("../configuration/index");
-        const cfg = getConfiguration() as { workspace?: { mainPath?: string } };
-        const candidatePath = cfg.workspace?.mainPath || currentDir;
-
-        const localRemote = (
-          await deps.gitService.execInRepository(candidatePath, "git remote get-url origin")
-        ).trim();
-        if (localRemote) {
-          const { normalizeRepositoryUri } = await import("../uri-utils");
-          const opts = { validateLocalExists: false };
-          const localName = normalizeRepositoryUri(localRemote, opts).name;
-          const configName = normalizeRepositoryUri(repoUrl, opts).name;
-          if (localName === configName) {
-            referenceRepo = candidatePath;
-            log.debug("Using local workspace as reference clone source", { referenceRepo });
-          }
-        }
-      } catch {
-        // Config not available or detection failed — skip optimization
+        await deps.sessionDB.deleteSession(sessionId);
+      } catch (cleanupError) {
+        log.error("Failed to cleanup session record after git error", {
+          sessionId,
+          gitError: getErrorMessage(gitError),
+          cleanupError: getErrorMessage(cleanupError),
+        });
       }
     }
 
-    // Determine the session ID using task ID if provided
-    let sessionId = name;
-    let taskId: string | undefined = task;
-
-    // Auto-create task if description is provided but no task ID
-    if (description && !taskId) {
-      const taskSpec = createTaskFromDescription(description);
-      const createdTask = await deps.taskService.createTaskFromTitleAndSpec(
-        taskSpec.title,
-        taskSpec.description
-      );
-      taskId = createdTask.id;
-      // Auto-created tasks skip planning and go straight to READY
-      await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
-      await deps.taskService.setTaskStatus(taskId, TASK_STATUS.READY);
-      if (!quiet) {
-        // Display the task ID (taskId is already in the correct format from TaskService)
-        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
-      }
-    }
-
-    if (taskId && !sessionId) {
-      // Normalize the task ID format using Zod validation
-      let normalizedTaskId: string;
-      try {
-        normalizedTaskId = TaskIdSchema.parse(taskId);
-      } catch (validationError) {
-        // Fallback: if Zod validation fails, try manual normalization
-        const manualNormalized = validateQualifiedTaskId(taskId);
-        if (manualNormalized) {
-          normalizedTaskId = manualNormalized;
-        } else {
-          throw new ValidationError(
-            `Invalid task ID format: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
-          );
-        }
-      }
-      taskId = normalizedTaskId;
-
-      // Verify the task exists
-      const taskObj = await deps.taskService.getTask(normalizedTaskId);
-      if (!taskObj) {
-        throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
-      }
-
-      // Use a generated UUID as the session ID
-      sessionId = generateSessionId();
-    }
-
-    if (!sessionId) {
-      throw new ValidationError("Session ID could not be determined from task ID");
-    }
-
-    // Check if session already exists
-    const existingSession = await deps.sessionDB.getSession(sessionId);
-    if (existingSession) {
-      throw new MinskyError(`Session '${sessionId}' already exists`);
-    }
-
-    // Check if a session already exists for this task
-    if (taskId) {
-      const existingSessions = await deps.sessionDB.listSessions();
-      const taskSession = existingSessions.find((s: SessionRecord) => {
-        // Both taskId (from schema normalization) and s.taskId should be in plain format
-        return s.taskId === taskId;
-      });
-
-      if (taskSession) {
-        if (taskSession.prState?.mergedAt) {
-          throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
-              `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
-              `delete the old one first:\n\n` +
-              `  minsky session delete ${taskSession.session}\n` +
-              `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
-          );
-        }
-        throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} already exists ("${taskSession.session}"). ` +
-            `Use the existing session, or delete it before starting a new one.`
-        );
-      }
-    }
-
-    // Extract the repository name
-    const repoName = normalizeRepoName(repoUrl);
-
-    // Normalize the repo name for local repositories to ensure path consistency
-    let normalizedRepoName = repoName;
-    if (repoName.startsWith("local/")) {
-      // Replace slashes with dashes in the path segments after "local/"
-      const parts = repoName.split("/");
-      if (parts.length > 1) {
-        // Keep "local" as is, but normalize the rest
-        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
-      }
-    } else {
-      // For other repository types, normalize as usual
-      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-    }
-
-    // Generate the expected repository path using simplified session-ID-based structure
-    const sessionBaseDir =
-      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
-
-    // Check if session directory already exists and clean it up
     if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
       try {
         await fsAdapter.rm(sessionDir, { recursive: true, force: true });
-      } catch (error) {
-        throw new MinskyError(
-          `Failed to clean up existing session directory: ${getErrorMessage(error)}`
+      } catch (cleanupError) {
+        log.error("Failed to cleanup session directory after git error", {
+          sessionDir,
+          gitError: getErrorMessage(gitError),
+          cleanupError: getErrorMessage(cleanupError),
+        });
+      }
+    }
+
+    throw gitError;
+  }
+
+  // Install dependencies if not skipped
+  if (!skipInstall) {
+    try {
+      const { success, error } = await installDependencies(sessionDir, {
+        packageManager: packageManager,
+        quiet: quiet,
+      });
+
+      if (!success && !quiet) {
+        log.cli(`Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`);
+      }
+    } catch (installError) {
+      if (!quiet) {
+        log.cli(
+          `Warning: Dependency installation failed. You may need to run install manually.
+Error: ${getErrorMessage(installError)}`
         );
       }
     }
+  }
 
-    // Define branchName before session record so it can be persisted
-    const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
-
-    // Prepare session record but don't add to DB yet
-    // Detect repository backend type up-front so session records have correct backendType
-    const sessionRecord: SessionRecord = {
-      session: sessionId,
-      repoUrl,
-      repoName,
-      createdAt: new Date().toISOString(),
-      taskId,
-      backendType,
-      branch: branchName,
-    };
-
-    let sessionAdded = false;
-
+  // Transition task status to IN-PROGRESS
+  if (taskId && !noStatusUpdate) {
     try {
-      // First clone the repo.  Use cloneSource so that an explicit --repo path can
-      // serve as a fast local clone source while the canonical repoUrl (from config)
-      // is still stored on the session record.
-      const _gitCloneResult = await deps.gitService.clone({
-        repoUrl: cloneSource,
-        session: sessionId,
-        workdir: sessionDir, // Explicit workdir path computed by SessionDB
-        referenceRepo,
-      });
+      const currentStatus = await deps.taskService.getTaskStatus(taskId);
 
-      // Create a branch based on the session ID - use branchWithoutSession
-      // since session record hasn't been added to DB yet
-      const _branchResult = await deps.gitService.branchWithoutSession({
-        repoName: normalizedRepoName,
-        session: sessionId,
-        branch: branchName,
-      });
-
-      // Only add session to DB after git operations succeed
-      await deps.sessionDB.addSession(sessionRecord);
-      sessionAdded = true;
-    } catch (gitError) {
-      // Clean up session record if it was added but git operations failed
-      if (sessionAdded) {
-        try {
-          await deps.sessionDB.deleteSession(sessionId);
-        } catch (cleanupError) {
-          log.error("Failed to cleanup session record after git error", {
-            sessionId,
-            gitError: getErrorMessage(gitError),
-            cleanupError: getErrorMessage(cleanupError),
-          });
+      if (currentStatus === TASK_STATUS.READY || currentStatus === TASK_STATUS.IN_PROGRESS) {
+        if (currentStatus === TASK_STATUS.READY) {
+          try {
+            const specResult = await deps.taskService.getTaskSpecContent(taskId);
+            if (specResult) {
+              const uncheckedCriteria = specResult.content
+                .split("\n")
+                .filter((line) => /^\s*- \[ \]/.test(line))
+                .map((line) => line.trim());
+              if (uncheckedCriteria.length > 0) {
+                log.cliWarn(
+                  `Warning: Task ${taskId} has ${uncheckedCriteria.length} unchecked success criteria:\n${uncheckedCriteria
+                    .map((c) => `  ${c}`)
+                    .join("\n")}`
+                );
+              }
+            }
+          } catch (_specError) {
+            // Non-fatal
+          }
         }
+
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       }
-
-      // Clean up the directory if it was created
-      if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
-        try {
-          await fsAdapter.rm(sessionDir, { recursive: true, force: true });
-        } catch (cleanupError) {
-          log.error("Failed to cleanup session directory after git error", {
-            sessionDir,
-            gitError: getErrorMessage(gitError),
-            cleanupError: getErrorMessage(cleanupError),
-          });
-        }
-      }
-
-      throw gitError;
-    }
-
-    // Install dependencies (skipInstall is deprecated — warn if used)
-    if (skipInstall) {
-      log.cli(
-        "⚠️  DEPRECATED: --skip-install is deprecated and will be removed in a future release. " +
-          "Sessions without dependencies will fail typecheck hooks. " +
-          "If you have a use case for skipping install, please file an issue."
+    } catch (error) {
+      log.cliWarn(
+        `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
       );
     }
-    if (!skipInstall) {
-      try {
-        const { success, error } = await installDependencies(sessionDir, {
-          packageManager: packageManager,
-          quiet: quiet,
-        });
+  }
 
-        if (!success && !quiet) {
-          log.cli(`Warning: Dependency installation failed. You may need to run install manually.
-Error: ${error}`);
-        }
-      } catch (installError) {
-        // Log but don't fail session creation
-        if (!quiet) {
-          log.cli(
-            `Warning: Dependency installation failed. You may need to run install manually.
-Error: ${getErrorMessage(installError)}`
-          );
-        }
-      }
-    }
+  if (!quiet) {
+    log.debug(`Started session for task ${taskId}`, { session: sessionId });
+  }
 
-    // Update task status to IN-PROGRESS if requested and if we have a task ID
-    if (taskId && !noStatusUpdate) {
-      try {
-        // Get the current status first
-        const currentStatus = await deps.taskService.getTaskStatus(taskId);
+  return {
+    session: sessionId,
+    repoUrl,
+    repoName: normalizedRepoName,
+    taskId,
+  };
+}
 
-        if (currentStatus === TASK_STATUS.TODO) {
-          throw new ValidationError(
-            "Task must be in PLANNING status before starting a session. Set status to PLANNING first.",
-            undefined,
-            undefined
-          );
-        }
+/**
+ * Implementation of session start operation.
+ *
+ * Structured as two phases:
+ * 1. validatePreconditions() — checks all invariants, returns validated context
+ * 2. executeMutations() — performs side effects using validated context
+ *
+ * This separation ensures that validation failures cannot leave orphaned state.
+ */
+export async function startSessionImpl(
+  params: SessionStartParameters,
+  deps: StartSessionDependencies
+): Promise<Session> {
+  try {
+    log.debug("Starting session with params", {
+      name: params.name,
+      task: params.task,
+      inputBranch: params.branch,
+      noStatusUpdate: params.noStatusUpdate,
+      quiet: params.quiet,
+      skipInstall: params.skipInstall,
+      packageManager: params.packageManager,
+    });
 
-        if (currentStatus === TASK_STATUS.PLANNING) {
-          throw new ValidationError(
-            "Planning is not yet marked as complete. Set status to READY when investigation is done.",
-            undefined,
-            undefined
-          );
-        }
-
-        if (currentStatus === TASK_STATUS.READY || currentStatus === TASK_STATUS.IN_PROGRESS) {
-          // If transitioning from READY, warn about any unchecked success criteria
-          if (currentStatus === TASK_STATUS.READY) {
-            try {
-              const specResult = await deps.taskService.getTaskSpecContent(taskId);
-              if (specResult) {
-                const uncheckedCriteria = specResult.content
-                  .split("\n")
-                  .filter((line) => /^\s*- \[ \]/.test(line))
-                  .map((line) => line.trim());
-                if (uncheckedCriteria.length > 0) {
-                  log.cliWarn(
-                    `Warning: Task ${taskId} has ${uncheckedCriteria.length} unchecked success criteria:\n${uncheckedCriteria
-                      .map((c) => `  ${c}`)
-                      .join("\n")}`
-                  );
-                }
-              }
-            } catch (_specError) {
-              // Non-fatal: if spec fetch fails, proceed without warning
-            }
-          }
-
-          // Update the status to IN-PROGRESS
-          await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
-        }
-        // If already in some other status (e.g. IN-REVIEW, DONE), do nothing
-      } catch (error) {
-        if (error instanceof ValidationError) {
-          throw error;
-        }
-        // Log the error but don't fail the session creation
-        log.cliWarn(
-          `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
-        );
-      }
-    }
-
-    if (!quiet) {
-      log.debug(`Started session for task ${taskId}`, { session: sessionId });
-    }
-
-    return {
-      session: sessionId,
-      repoUrl,
-      repoName: normalizedRepoName,
-      taskId,
-    };
+    const ctx = await validatePreconditions(params, deps);
+    return await executeMutations(ctx, params, deps);
   } catch (error) {
     if (error instanceof MinskyError) {
       throw error;

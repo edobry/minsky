@@ -108,7 +108,8 @@ describe("session_start refusal differentiates merged vs active", () => {
           sessionDB,
           gitService: {} as any,
           taskService: {
-            getTask: async () => ({ id: "md#684", title: "test", status: "TODO" }) as any,
+            getTask: async () => ({ id: "md#684", title: "test", status: "READY" }) as any,
+            getTaskStatus: async () => "READY",
           } as any,
           workspaceUtils: { isSessionWorkspace: async () => false } as any,
           getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "github" }),
@@ -129,7 +130,8 @@ describe("session_start refusal differentiates merged vs active", () => {
           sessionDB,
           gitService: {} as any,
           taskService: {
-            getTask: async () => ({ id: "md#684", title: "test", status: "TODO" }) as any,
+            getTask: async () => ({ id: "md#684", title: "test", status: "READY" }) as any,
+            getTaskStatus: async () => "READY",
           } as any,
           workspaceUtils: { isSessionWorkspace: async () => false } as any,
           getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "github" }),
