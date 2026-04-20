@@ -16,7 +16,10 @@ import type { SessionProviderInterface } from "../../session/index";
  * Common dependencies for git operations
  */
 export interface GitOperationDependencies {
-  createGitService: (options?: { baseDir?: string }) => GitServiceInterface;
+  createGitService: (options?: {
+    baseDir?: string;
+    sessionProvider?: SessionProviderInterface;
+  }) => GitServiceInterface;
   sessionProvider?: SessionProviderInterface;
 }
 
@@ -60,8 +63,10 @@ export abstract class BaseGitOperation<TParams, TResult> {
       // Validate parameters if schema provided
       const validParams = this.validateParams(params);
 
-      // Create git service
-      const gitService = this.deps.createGitService();
+      // Create git service with sessionProvider so it doesn't need to create its own
+      const gitService = this.deps.createGitService({
+        sessionProvider: this.deps.sessionProvider,
+      });
 
       // Resolve session to repo path if session is provided but repo is not
       const baseParams = validParams as BaseGitOperationParams;
