@@ -609,6 +609,44 @@ export const sessionPrChecksCommandParams = {
 };
 
 /**
+ * Session PR Review Submit command parameters
+ * Submits a GitHub PR review through Minsky using the bot identity
+ */
+export const sessionPrReviewSubmitCommandParams = {
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  body: {
+    schema: z.string().min(1),
+    description: "Review body text (overall comment)",
+    required: true,
+  },
+  event: {
+    schema: z.enum(["APPROVE", "COMMENT", "REQUEST_CHANGES"]),
+    description: "Review event type: APPROVE, COMMENT, or REQUEST_CHANGES",
+    required: true,
+  },
+  comments: {
+    schema: z.array(
+      z.object({
+        path: z.string(),
+        line: z.number().int().positive(),
+        body: z.string().min(1),
+        side: z.enum(["LEFT", "RIGHT"]).optional(),
+      })
+    ),
+    description: "Optional inline line-level comments",
+    required: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session repair command parameters
  * Repairs various session state issues
  */
