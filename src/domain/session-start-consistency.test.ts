@@ -57,7 +57,7 @@ describe("Session Start Consistency Tests", () => {
       resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace/path")),
     };
 
-    mockResolveRepoPath = mock(() => Promise.resolve("local/minsky"));
+    mockResolveRepoPath = mock(() => Promise.resolve("https://github.com/edobry/minsky.git"));
 
     // Create individual spies for call tracking
     gitCloneSpy = mock(() =>
@@ -79,7 +79,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
         // sessionId will be auto-generated from taskId
       };
 
@@ -119,7 +119,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -148,7 +148,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -177,7 +177,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -206,7 +206,7 @@ describe("Session Start Consistency Tests", () => {
       const sessionGetSpy = mock(() =>
         Promise.resolve({
           session: TEST_UUID,
-          repoUrl: "local/minsky",
+          repoUrl: "https://github.com/edobry/minsky.git",
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
           task: "md#160",
@@ -217,7 +217,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -247,7 +247,7 @@ describe("Session Start Consistency Tests", () => {
           {
             session: "different-session",
             taskId: "md#160", // Use qualified task ID format to match
-            repoUrl: "local/minsky",
+            repoUrl: "https://github.com/edobry/minsky.git",
             repoName: "local-minsky",
             createdAt: new Date().toISOString(),
             branch: "different-session",
@@ -258,7 +258,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -288,7 +288,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -322,7 +322,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act & Assert
@@ -354,7 +354,7 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "local/minsky",
+        repo: "https://github.com/edobry/minsky.git",
       };
 
       // Act

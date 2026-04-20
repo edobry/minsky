@@ -24,29 +24,25 @@ import type { TaskServiceInterface } from "../tasks/taskService";
 import type { WorkspaceUtilsInterface } from "../workspace";
 
 /**
- * Create repository backend from session record's stored configuration
- * instead of auto-detecting from git remote
+ * Create repository backend from session record's stored configuration.
+ * Only GitHub is supported; all sessions use the GitHub backend.
  */
 async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
-  const backendType = resolveBackendType(sessionRecord.backendType, sessionRecord.repoUrl);
-
   const config: RepositoryBackendConfig = {
-    type: backendType,
+    type: RepositoryBackendType.GITHUB,
     repoUrl: sessionRecord.repoUrl,
   };
 
-  // Add GitHub-specific configuration by parsing from URL
-  if (backendType === RepositoryBackendType.GITHUB) {
-    const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
-    if (githubInfo) {
-      config.github = {
-        owner: githubInfo.owner,
-        repo: githubInfo.repo,
-      };
-    }
+  // Parse GitHub owner/repo from URL
+  const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+  if (githubInfo) {
+    config.github = {
+      owner: githubInfo.owner,
+      repo: githubInfo.repo,
+    };
   }
 
   return await createRepositoryBackend(config, sessionDB);

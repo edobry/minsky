@@ -149,7 +149,7 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     prState: record.prState ? JSON.parse(record.prState) : undefined,
 
     // Backend configuration
-    backendType: (record.backendType || undefined) as "local" | "remote" | "github" | undefined,
+    backendType: (record.backendType || undefined) as "github" | undefined,
     pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
   };
 }

@@ -17,26 +17,24 @@ import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
 import { assertSessionMutable } from "./session-mutability";
-import { resolveBackendType } from "./session-utils";
 import {
   createRepositoryBackend,
+  RepositoryBackendType,
   type RepositoryBackend,
   type RepositoryBackendConfig,
 } from "../repository/index";
 import type { PersistenceProvider } from "../persistence/types";
 
 /**
- * Create repository backend from session record's stored configuration
- * instead of auto-detecting from git remote
+ * Create repository backend from session record's stored configuration.
+ * Only GitHub is supported; all sessions use the GitHub backend.
  */
 async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
-  const backendType = resolveBackendType(sessionRecord.backendType, sessionRecord.repoUrl);
-
   const config: RepositoryBackendConfig = {
-    type: backendType,
+    type: RepositoryBackendType.GITHUB,
     repoUrl: sessionRecord.repoUrl,
   };
 
@@ -227,59 +225,6 @@ The task exists but has no associated session to approve.
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
-  // Early exit check (non-GitHub only): If DONE and PR branch missing, session is complete
-  if (taskId && deps.taskService.getTaskStatus && sessionRecord.backendType !== "github") {
-    try {
-      const currentStatus = await deps.taskService.getTaskStatus(taskId);
-      if (currentStatus === TASK_STATUS.DONE) {
-        // Check if PR branch exists
-        try {
-          await deps.gitService.execInRepository(
-            workingDirectory,
-            `git show-ref --verify --quiet refs/heads/${prBranch}`
-          );
-          // PR branch exists, continue with normal flow
-          log.debug(`PR branch ${prBranch} exists, continuing with normal flow`);
-        } catch (_branchError) {
-          // PR branch doesn't exist and task is already DONE - session is complete
-          log.debug(
-            `Session ${sessionIdToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`
-          );
-
-          // Get current HEAD info for the response
-          const commitHash = (
-            await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-          ).trim();
-          const mergedBy = (
-            await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-          ).trim();
-          const mergeDate = new Date().toISOString();
-
-          return {
-            session: sessionIdToUse,
-            commitHash,
-            mergeDate,
-            mergedBy,
-            baseBranch,
-            prBranch,
-            taskId,
-            isNewlyApproved: false,
-          };
-        }
-      } else {
-        log.debug(
-          `Task ${taskId} is not DONE (status: ${currentStatus}), continuing with normal flow`
-        );
-      }
-    } catch (_statusError) {
-      // If we can't check the status, continue with normal flow
-      log.debug(`Could not check task status for ${taskId}, continuing with normal approval flow`);
-    }
-  }
-
-  // Track whether we stashed changes for restoration logic (non-GitHub only)
-  let hasStashedChanges = false;
-
   // Initialize merge tracking variables
   let isNewlyApproved = true;
   let commitHash: string = "";
@@ -303,39 +248,8 @@ The task exists but has no associated session to approve.
       log.cli(`📦 Using ${backendType} repository backend for merge`);
     }
 
-    // Check for uncommitted changes and stash if needed (non-GitHub only)
-    if (!params.noStash && sessionRecord.backendType !== "github") {
-      try {
-        const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workingDirectory);
-        if (hasUncommittedChanges) {
-          if (!params.json) {
-            log.cli("📦 Stashing uncommitted changes...");
-          }
-          log.debug("Stashing uncommitted changes", { workdir: workingDirectory });
-
-          const stashResult = await deps.gitService.stashChanges(workingDirectory);
-          hasStashedChanges = stashResult.stashed;
-
-          if (hasStashedChanges && !params.json) {
-            log.cli("✅ Changes stashed successfully");
-          }
-          log.debug("Changes stashed", { stashed: hasStashedChanges });
-        }
-      } catch (statusError) {
-        // If we can't check/stash status, continue but might fail later with less friendly error
-        log.debug("Could not check/stash git status before approval", {
-          error: getErrorMessage(statusError),
-        });
-      }
-    }
-
-    // Determine PR identifier based on backend type
-    let prIdentifier: string | number = prBranch; // default
-    if (backendType === "github") {
-      // For GitHub, backend will resolve PR number from session context; leave identifier undefined
-      // Some backends require an identifier; we pass session via second argument
-      prIdentifier = sessionIdToUse;
-    }
+    // For GitHub backend, use session ID as PR identifier
+    const prIdentifier: string | number = sessionIdToUse;
 
     if (!params.json) {
       log.cli(`🔀 Merging pull request using ${backendType} backend...`);
@@ -371,13 +285,8 @@ The task exists but has no associated session to approve.
     mergedBy = mergeResult.mergedBy;
 
     if (!params.json) {
-      if (backendType === "github") {
-        log.cli(`✅ GitHub PR merged successfully!`);
-        log.cli(`📝 Commit: ${commitHash.substring(0, 8)}...`);
-      } else {
-        log.cli(`✅ PR branch merged successfully!`);
-        log.cli(`📝 Merge commit: ${commitHash.substring(0, 8)}...`);
-      }
+      log.cli(`✅ GitHub PR merged successfully!`);
+      log.cli(`📝 Commit: ${commitHash.substring(0, 8)}...`);
     }
 
     log.debug("Repository backend merge completed", {
@@ -431,33 +340,6 @@ The task exists but has no associated session to approve.
       }
     }
 
-    // Restore stashed changes if we stashed them (non-GitHub only)
-    if (hasStashedChanges && !params.noStash && sessionRecord.backendType !== "github") {
-      try {
-        if (!params.json) {
-          log.cli("📦 Restoring stashed changes...");
-        }
-        log.debug("Restoring stashed changes", { workdir: workingDirectory });
-
-        const restoreResult = await deps.gitService.popStash(workingDirectory);
-        if (restoreResult.stashed && !params.json) {
-          log.cli("✅ Stashed changes restored successfully");
-        }
-        log.debug("Stashed changes restored", { restored: restoreResult.stashed });
-      } catch (error) {
-        log.warn("Failed to restore stashed changes", {
-          error: getErrorMessage(error),
-          workdir: workingDirectory,
-        });
-        if (!params.json) {
-          log.cli(
-            "⚠️  Warning: Failed to restore stashed changes. You may need to manually run 'git stash pop'"
-          );
-        }
-        // Don't fail the entire operation if stash restoration fails
-      }
-    }
-
     // Clean up local branches after successful merge
     if (isNewlyApproved) {
       try {
@@ -477,27 +359,6 @@ The task exists but has no associated session to approve.
 
     return mergeInfo;
   } catch (error) {
-    // If there's an error during approval, try to restore stashed changes
-    if (hasStashedChanges && !params.noStash) {
-      try {
-        log.debug("Restoring stashed changes after error", { workdir: workingDirectory });
-        await deps.gitService.popStash(workingDirectory);
-        log.debug("Restored stashed changes after error");
-        if (!params.json) {
-          log.cli("📦 Restored stashed changes after error");
-        }
-      } catch (stashError) {
-        log.warn("Failed to restore stashed changes after error", {
-          stashError: getErrorMessage(stashError),
-        });
-        if (!params.json) {
-          log.cli(
-            "⚠️  Warning: Failed to restore stashed changes after error. You may need to manually run 'git stash pop'"
-          );
-        }
-      }
-    }
-
     if (error instanceof MinskyError) {
       throw error;
     } else {

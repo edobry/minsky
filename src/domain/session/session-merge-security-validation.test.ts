@@ -57,7 +57,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         // prBranch: undefined - missing!
         prApproved: true,
       };
@@ -79,7 +79,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/test-session",
         prApproved: false, // UNAPPROVED!
       };
@@ -101,7 +101,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/test-session",
         // prApproved: undefined - missing!
       };
@@ -123,7 +123,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/test-session",
         prApproved: "yes" as unknown as boolean, // Truthy but not boolean true!
       };
@@ -145,7 +145,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/test-session",
         prApproved: true, // PROPERLY APPROVED
       };
@@ -166,7 +166,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
         taskId: "task-456",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: `pr/${SESSION_TEST_PATTERNS.UNAPPROVED_SESSION}`,
         prApproved: false, // UNAPPROVED!
       };
@@ -198,7 +198,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: "no-pr-session",
         taskId: "task-789",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         // prBranch: undefined - no PR!
         // prApproved: undefined
       };
@@ -230,7 +230,7 @@ describe("Session Merge Security Validation", () => {
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.APPROVED_SESSION,
         taskId: "task-999",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/approved-session",
         prApproved: true, // PROPERLY APPROVED
       };
@@ -275,7 +275,7 @@ describe("Session Merge Security Validation", () => {
       const maliciousSession = {
         name: "malicious-session",
         taskId: "task-evil",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: "pr/malicious-session",
         prApproved: { valueOf: () => true }, // Object that's truthy but not boolean true
       } as unknown as SessionRecord;
@@ -290,7 +290,7 @@ describe("Session Merge Security Validation", () => {
       const edgeCaseSession = {
         name: "edge-case-session",
         taskId: "task-edge",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         prBranch: null,
         prApproved: null,
       } as unknown as SessionRecord;

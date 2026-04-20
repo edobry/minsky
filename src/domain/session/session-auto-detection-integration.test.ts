@@ -23,14 +23,14 @@ describe("Session Command Domain Logic", () => {
         {
           session: "test-session",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123",
         },
         {
           session: "task#456",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-02T00:00:00Z",
           taskId: "md#456",
         },
@@ -138,7 +138,7 @@ describe("Session Command Domain Logic", () => {
           {
             session: "test-session",
             repoName: "test-repo",
-            repoUrl: "/test/repo",
+            repoUrl: "https://github.com/test/repo.git",
             createdAt: "2024-01-01T00:00:00Z",
             taskId: "123",
           },

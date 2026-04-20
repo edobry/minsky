@@ -22,27 +22,17 @@ const defaultDeps: RepositoryBackendDetectionDeps = {
 };
 
 /**
- * Detect repository backend type directly from a repository URL
- * More efficient than detectRepositoryBackendType when you already have the URL
+ * Detect repository backend type directly from a repository URL.
+ * Only GitHub is supported; non-GitHub URLs throw an error.
  */
 export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryBackendType {
-  // GitHub detection
   if (repoUrl.includes("github.com")) {
     return RepositoryBackendType.GITHUB;
   }
 
-  // GitLab detection (for future use)
-  if (repoUrl.includes("gitlab.com")) {
-    return RepositoryBackendType.REMOTE; // Treat as remote for now
-  }
-
-  // Local repository detection
-  if (repoUrl.startsWith("/") || repoUrl.startsWith("file://")) {
-    return RepositoryBackendType.LOCAL;
-  }
-
-  // Default to remote for everything else
-  return RepositoryBackendType.REMOTE;
+  throw new Error(
+    `Unsupported repository forge for URL: ${repoUrl}. Only GitHub repositories are supported.`
+  );
 }
 
 /**
@@ -64,30 +54,21 @@ export function detectRepositoryBackendType(
       .toString()
       .trim();
 
-    // GitHub detection
     if (remoteUrl.includes("github.com")) {
       return RepositoryBackendType.GITHUB;
     }
 
-    // GitLab detection (for future use)
-    if (remoteUrl.includes("gitlab.com")) {
-      return RepositoryBackendType.REMOTE; // Treat as remote for now
-    }
-
-    // Local repository detection
-    if (remoteUrl.startsWith("/") || remoteUrl.startsWith("file://")) {
-      return RepositoryBackendType.LOCAL;
-    }
-
-    // Default to remote for everything else
-    return RepositoryBackendType.REMOTE;
+    throw new Error(
+      `Unsupported repository forge for remote URL: ${remoteUrl}. Only GitHub repositories are supported.`
+    );
   } catch (error) {
     log.debug("Failed to detect repository backend type", {
       workdir,
       error: getErrorMessage(error),
     });
-    // Default to local if detection fails
-    return RepositoryBackendType.LOCAL;
+    throw new Error(
+      `Could not detect repository backend type for workdir: ${workdir}. Error: ${getErrorMessage(error)}`
+    );
   }
 }
 
@@ -150,17 +131,10 @@ export async function resolveRepositoryAndBackend(
     }
   }
 
-  // Non-GitHub default: attempt to resolve current git repo path
-  try {
-    const toplevel = deps
-      .execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf8" })
-      .toString()
-      .trim();
-    return { repoUrl: toplevel, backendType: RepositoryBackendType.LOCAL };
-  } catch (_error) {
-    // Final fallback: use cwd and detect by URL rules
-    return { repoUrl: cwd, backendType: detectRepositoryBackendTypeFromUrl(cwd) };
-  }
+  // Non-GitHub default: not supported
+  throw new Error(
+    `Only GitHub repository backend is supported. Configure repository.default_repo_backend=github.`
+  );
 }
 
 /**
@@ -321,20 +295,12 @@ export async function getRepositoryBackendFromConfig(
 
     const repo = cfg.repository;
     if (repo?.backend) {
-      let backendType: RepositoryBackendType;
-      switch (repo.backend) {
-        case "github":
-          backendType = RepositoryBackendType.GITHUB;
-          break;
-        case "gitlab":
-          backendType = RepositoryBackendType.REMOTE;
-          break;
-        case "local":
-          backendType = RepositoryBackendType.LOCAL;
-          break;
-        default:
-          backendType = RepositoryBackendType.REMOTE;
+      if (repo.backend !== "github") {
+        throw new Error(
+          `Unsupported repository backend in config: "${repo.backend}". Only "github" is supported.`
+        );
       }
+      const backendType = RepositoryBackendType.GITHUB;
 
       const repoUrl = repo.url || "";
       const result: {

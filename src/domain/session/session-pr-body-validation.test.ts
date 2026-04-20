@@ -46,7 +46,7 @@ describe("Session PR Body Validation Bug Fix", () => {
         {
           session: "test-session",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           taskId: "123",
           createdAt: new Date().toISOString(),
         },
@@ -56,7 +56,7 @@ describe("Session PR Body Validation Bug Fix", () => {
       Promise.resolve({
         session: "test-session",
         repoName: "test-repo",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         taskId: "123",
         createdAt: new Date().toISOString(),
       });
@@ -64,7 +64,7 @@ describe("Session PR Body Validation Bug Fix", () => {
       Promise.resolve({
         session: "test-session",
         repoName: "test-repo",
-        repoUrl: "/test/repo",
+        repoUrl: "https://github.com/test/repo.git",
         taskId: "123",
         createdAt: new Date().toISOString(),
       });

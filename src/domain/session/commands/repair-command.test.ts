@@ -80,18 +80,6 @@ describe("analyzePRStateIssues — missing-pr detection", () => {
     expect(missingPRIssues).toHaveLength(0);
   });
 
-  it("skips when session is not github backend", async () => {
-    const sessionRecord = makeGitHubSession({ backendType: "local" });
-
-    const fakeDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
-    const fakeGit = new FakeGitService();
-
-    const issues = await analyzePRStateIssues(sessionRecord, fakeDB, fakeGit);
-
-    const missingPRIssues = issues.filter((i) => i.type === "missing-pr");
-    expect(missingPRIssues).toHaveLength(0);
-  });
-
   it("skips gracefully when repoUrl is not a GitHub URL", async () => {
     // Use a non-GitHub repoUrl so parseGitHubRepoUrl returns null.
     // This tests the graceful-skip path without making any real API calls,

@@ -21,14 +21,14 @@ describe("resolveSessionContext", () => {
         {
           session: "test-session",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123", // Qualified format for storage
         },
         {
           session: "task#456",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-02T00:00:00Z",
           taskId: "md#456", // Qualified format for storage
         },
@@ -119,7 +119,7 @@ describe("resolveSessionId", () => {
         {
           session: "test-session",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123",
         },
@@ -143,7 +143,7 @@ describe("validateSessionContext", () => {
         {
           session: "test-session",
           repoName: "test-repo",
-          repoUrl: "/test/repo",
+          repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123",
         },

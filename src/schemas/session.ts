@@ -21,7 +21,7 @@ export const _sessionRecordSchema = z.object({
   createdAt: z.string().describe("ISO timestamp of when the session was created"),
   taskId: taskIdSchema.optional().describe("Task ID associated with the session"),
   branch: z.string().optional().describe("Branch name for this session"),
-  backendType: z.string().describe("Backend type (local, remote, etc.)"),
+  backendType: z.literal("github").describe("Backend type (only github is supported)"),
   remote: z
     .object({
       authMethod: z.string().describe("Authentication method for remote operations"),

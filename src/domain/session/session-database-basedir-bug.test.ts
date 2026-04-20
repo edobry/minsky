@@ -85,7 +85,7 @@ describe("Session Database BaseDir Bug", () => {
     // Set up session record
     const sessionRecord: SessionRecord = {
       session: "task335",
-      repoUrl: "/test/repo",
+      repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "md#335",
       createdAt: new Date().toISOString(),
@@ -139,7 +139,7 @@ describe("Session Database BaseDir Bug", () => {
     // Set up session record
     const sessionRecord: SessionRecord = {
       session: "task335",
-      repoUrl: "/test/repo",
+      repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "md#335",
       createdAt: new Date().toISOString(),
@@ -205,7 +205,7 @@ describe("Session Database BaseDir Bug", () => {
 
     const sessionRecord: SessionRecord = {
       session: "test-session",
-      repoUrl: "/test/repo",
+      repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "123",
       createdAt: new Date().toISOString(),
@@ -238,7 +238,7 @@ describe("Session Database BaseDir Bug", () => {
 
     const sessionRecord: SessionRecord = {
       session: "test-session",
-      repoUrl: "/test/repo",
+      repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "123",
       createdAt: new Date().toISOString(),

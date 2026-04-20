@@ -6,7 +6,6 @@
  * - GitLab Merge Requests
  * - Bitbucket Pull Requests
  * - Gerrit Changes
- * - Local Git Prepared Merge Commits
  */
 
 // Core types and interfaces
@@ -18,10 +17,6 @@ import { ChangesetService, createChangesetService } from "./changeset-service";
 export { ChangesetService, createChangesetService };
 
 // Platform adapters
-export {
-  LocalGitChangesetAdapter,
-  LocalGitChangesetAdapterFactory,
-} from "./adapters/local-git-adapter";
 export { GitHubChangesetAdapter, GitHubChangesetAdapterFactory } from "./adapters/github-adapter";
 
 // Future platform adapters (placeholder exports)
