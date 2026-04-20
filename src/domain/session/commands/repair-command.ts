@@ -95,7 +95,13 @@ export async function sessionRepair(
   }
 
   // Analyze session for issues
-  const issuesFound = await analyzeSessionIssues(sessionRecord, sessionDB, gitService, params, deps.tokenProvider);
+  const issuesFound = await analyzeSessionIssues(
+    sessionRecord,
+    sessionDB,
+    gitService,
+    params,
+    deps.tokenProvider
+  );
 
   log.cli(`🔍 Found ${issuesFound.length} potential issues in session '${sessionId}'`);
 
@@ -186,7 +192,12 @@ async function analyzeSessionIssues(
 
   // Check PR state issues
   if (!params.backendSync || params.prState) {
-    const prIssues = await analyzePRStateIssues(sessionRecord, sessionDB, gitService, tokenProvider);
+    const prIssues = await analyzePRStateIssues(
+      sessionRecord,
+      sessionDB,
+      gitService,
+      tokenProvider
+    );
     issues.push(...prIssues);
   }
 
