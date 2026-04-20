@@ -35,6 +35,7 @@ import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
+import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 /** Union of simplified and full PR types from Octokit responses */
 type OctokitPR =
@@ -49,11 +50,12 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   readonly name = "GitHub Pull Requests";
 
   private repositoryBackend!: RepositoryBackend;
-  private octokit: Octokit;
+  private _octokit?: Octokit;
   private owner?: string;
   private repo?: string;
   private sessionProvider: SessionProviderInterface | null = null;
   private readonly resolveSessionProvider: () => Promise<SessionProviderInterface>;
+  private readonly tokenProvider: TokenProvider;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
@@ -62,10 +64,19 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     return this.sessionProvider;
   }
 
+  /** Returns a cached Octokit instance, creating it on first call. */
+  private async getOctokit(): Promise<Octokit> {
+    if (!this._octokit) {
+      const token = await this.tokenProvider.getServiceToken();
+      this._octokit = new Octokit({ auth: token });
+    }
+    return this._octokit;
+  }
+
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { sessionProvider: SessionProviderInterface }
+    deps?: { sessionProvider: SessionProviderInterface; tokenProvider?: TokenProvider }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
@@ -77,10 +88,13 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     }
     this.resolveSessionProvider = () => Promise.resolve(deps.sessionProvider);
 
-    // Initialize Octokit
-    this.octokit = new Octokit({
-      auth: config?.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
-    });
+    // Resolve token provider: injected > config token > env vars
+    if (deps?.tokenProvider) {
+      this.tokenProvider = deps.tokenProvider;
+    } else {
+      const token = config?.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+      this.tokenProvider = new FallbackTokenProvider(token);
+    }
   }
 
   async isAvailable(): Promise<boolean> {
@@ -90,7 +104,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       }
 
       // Test GitHub API access
-      await this.octokit.rest.repos.get({
+      const octokit = await this.getOctokit();
+      await octokit.rest.repos.get({
         owner: this.owner,
         repo: this.repo,
       });
@@ -139,7 +154,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         }
       }
 
-      const { data: pulls } = await this.octokit.rest.pulls.list({
+      const octokit = await this.getOctokit();
+      const { data: pulls } = await octokit.rest.pulls.list({
         owner: this.owner,
         repo: this.repo,
         state,
@@ -181,7 +197,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         return null;
       }
 
-      const { data: pr } = await this.octokit.rest.pulls.get({
+      const octokit = await this.getOctokit();
+      const { data: pr } = await octokit.rest.pulls.get({
         owner: this.owner,
         repo: this.repo,
         pull_number: pullNumber,
@@ -237,7 +254,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         }
       }
 
-      const { data } = await this.octokit.rest.search.issuesAndPullRequests({
+      const octokit = await this.getOctokit();
+      const { data } = await octokit.rest.search.issuesAndPullRequests({
         q: searchQuery,
         per_page: options.limit || 30,
       });
@@ -478,7 +496,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    */
   private async getPRReviews(prNumber: number): Promise<ChangesetReview[]> {
     try {
-      const { data: reviews } = await this.octokit.rest.pulls.listReviews({
+      const octokit = await this.getOctokit();
+      const { data: reviews } = await octokit.rest.pulls.listReviews({
         owner: this.owner!,
         repo: this.repo!,
         pull_number: prNumber,
@@ -487,7 +506,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       return Promise.all(
         reviews.map(async (review) => {
           // Get review comments
-          const { data: comments } = await this.octokit.rest.pulls.listCommentsForReview({
+          const { data: comments } = await octokit.rest.pulls.listCommentsForReview({
             owner: this.owner!,
             repo: this.repo!,
             pull_number: prNumber,
@@ -550,7 +569,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    */
   private async getPRComments(prNumber: number): Promise<ChangesetComment[]> {
     try {
-      const { data: comments } = await this.octokit.rest.issues.listComments({
+      const octokit = await this.getOctokit();
+      const { data: comments } = await octokit.rest.issues.listComments({
         owner: this.owner!,
         repo: this.repo!,
         issue_number: prNumber,
@@ -580,7 +600,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    */
   private async getPRCommits(prNumber: number): Promise<ChangesetCommit[]> {
     try {
-      const { data: commits } = await this.octokit.rest.pulls.listCommits({
+      const octokit = await this.getOctokit();
+      const { data: commits } = await octokit.rest.pulls.listCommits({
         owner: this.owner!,
         repo: this.repo!,
         pull_number: prNumber,
