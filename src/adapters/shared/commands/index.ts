@@ -20,6 +20,7 @@ import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
+import { registerRepoCommands } from "./repo";
 
 /**
  * Register all shared commands in the shared command registry.
@@ -29,6 +30,9 @@ import { registerMcpCommands } from "./mcp";
 export async function registerAllSharedCommands(container?: AppContainerInterface): Promise<void> {
   // Register git commands
   registerGitCommands();
+
+  // Register repo exploration commands
+  registerRepoCommands();
 
   // Register tasks commands
   registerTasksCommands(container);
@@ -89,4 +93,5 @@ export {
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,
+  registerRepoCommands,
 };

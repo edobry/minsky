@@ -13,7 +13,6 @@ import {
   getRepositoryBackendFromConfig,
   extractGitHubInfoFromUrl,
 } from "./repository-backend-detection";
-
 import {
   createRepositoryBackend,
   RepositoryBackendType,
