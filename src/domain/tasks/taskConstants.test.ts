@@ -9,13 +9,14 @@ import {
 } from "./taskConstants";
 
 const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 6;
+const TEST_ARRAY_SIZE = 7;
 
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {
     test("should have all required task statuses", () => {
       expect(Object.keys(TASK_STATUS)).toEqual([
         "TODO",
+        "PLANNING",
         "IN_PROGRESS",
         "IN_REVIEW",
         "DONE",
@@ -27,6 +28,7 @@ describe("Task Constants and Utilities", () => {
     test("should have bidirectional mapping between status and checkbox", () => {
       // Test status to checkbox mapping
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.TODO]).toBe(" ");
+      expect(TASK_STATUS_CHECKBOX[TASK_STATUS.PLANNING]).toBe("?");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.IN_PROGRESS]).toBe("+");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.IN_REVIEW]).toBe("-");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.DONE]).toBe("x");
@@ -35,6 +37,7 @@ describe("Task Constants and Utilities", () => {
 
       // Test checkbox to status mapping
       expect(CHECKBOX_TO_STATUS[" "]).toBe(TASK_STATUS.TODO);
+      expect(CHECKBOX_TO_STATUS["?"]).toBe(TASK_STATUS.PLANNING);
       expect(CHECKBOX_TO_STATUS["+"]).toBe(TASK_STATUS.IN_PROGRESS);
       expect(CHECKBOX_TO_STATUS["-"]).toBe(TASK_STATUS.IN_REVIEW);
       expect(CHECKBOX_TO_STATUS["x"]).toBe(TASK_STATUS.DONE);
@@ -60,9 +63,13 @@ describe("Task Constants and Utilities", () => {
       });
     });
 
+    test("should match PLANNING task lines", () => {
+      const planningLine = `- [?] Planning task [#${TEST_VALUE}](path/to/spec.md)`;
+      expect(TASK_REGEX_PATTERNS.TASK_LINE.test(planningLine)).toBe(true);
+    });
+
     test("should not match invalid task lines", () => {
       const invalidLines = [
-        `- [?] Invalid checkbox [#${TEST_VALUE}](path/to/spec.md)`,
         "- [ ] Missing link",
         "Not a task line at all",
         `  - [ ] Indented task [#${TEST_VALUE}](path/to/spec.md)`,
@@ -110,11 +117,7 @@ describe("Task Constants and Utilities", () => {
     });
 
     test("should return null for invalid task lines", () => {
-      const invalidLines = [
-        `- [?] Invalid checkbox [#${TEST_VALUE}](path/to/spec.md)`,
-        "- [ ] Missing link",
-        "Not a task line at all",
-      ];
+      const invalidLines = ["- [ ] Missing link", "Not a task line at all"];
 
       invalidLines.forEach((line) => {
         expect(TASK_PARSING_UTILS.parseTaskLine(line)).toBeNull();
@@ -131,7 +134,7 @@ describe("Task Constants and Utilities", () => {
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox(" ")).toBe(TASK_STATUS.TODO);
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox("x")).toBe(TASK_STATUS.DONE);
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox("~")).toBe(TASK_STATUS.BLOCKED);
-      expect(TASK_PARSING_UTILS.getStatusFromCheckbox("?")).toBe(TASK_STATUS.TODO);
+      expect(TASK_PARSING_UTILS.getStatusFromCheckbox("?")).toBe(TASK_STATUS.PLANNING);
     });
 
     test("should get checkbox from status correctly", () => {

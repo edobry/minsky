@@ -44,7 +44,7 @@ describe("Task Status Bug Regression Tests", () => {
 
   describe("Integration test with task status functionality", () => {
     test("should handle all status transitions without variable naming errors", () => {
-      const statuses = ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED"] as const;
+      const statuses = ["TODO", "PLANNING", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED"] as const;
 
       // This should not throw any "status is not defined" errors
       expect(() => {

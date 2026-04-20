@@ -639,7 +639,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
     test("should set task status", async () => {
       const params = {
         taskId: "155",
-        status: TASK_STATUS.DONE,
+        status: TASK_STATUS.PLANNING,
         json: false,
       };
 
@@ -685,7 +685,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       await setTaskStatusFromParams(params, mockDeps as any);
-      expect(statusSetTo).toBe(TASK_STATUS.DONE as any);
+      expect(statusSetTo).toBe(TASK_STATUS.PLANNING as any);
     });
 
     test("should throw error when task not found", async () => {
@@ -728,7 +728,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
     test("should handle task ID normalization", async () => {
       const params = {
         taskId: "155", // Without #
-        status: TASK_STATUS.DONE,
+        status: TASK_STATUS.PLANNING,
         json: false,
       };
 
@@ -774,7 +774,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       await setTaskStatusFromParams(params, mockDeps as any);
-      expect(statusSetTo).toBe(TASK_STATUS.DONE as any);
+      expect(statusSetTo).toBe(TASK_STATUS.PLANNING as any);
     });
   });
 

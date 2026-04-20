@@ -114,6 +114,24 @@ When a PR removes a feature, module, or backend, symbol-level grep ("is the dele
 
 **Always use the `/review-pr` skill when reviewing any PR.** This includes "review PR #X", "check this PR", "look at the diff", or reviewing after subagent work. A review that isn't posted to GitHub is not a review.
 
+## Task Lifecycle
+
+```
+TODO → PLANNING → IN-PROGRESS → IN-REVIEW → DONE
+       (mandatory)  (session_start)  (pr_create)   (verify + merge)
+
+Also: BLOCKED (from PLANNING or IN-PROGRESS), CLOSED (from any state)
+```
+
+**Status transitions are enforced in the domain layer.** Invalid transitions are rejected with descriptive errors listing valid transitions from the current state.
+
+- **TODO → PLANNING**: Agent picks up the task. Set status to PLANNING before any investigation or session work.
+- **PLANNING** (no session): Read and verify the spec (pre-flight). Investigate the codebase if needed. Persist findings to the spec. No session exists — no code changes yet.
+- **PLANNING → IN-PROGRESS**: Only via `session_start` (cannot be set directly). `session_start` blocks from TODO — the task must be in PLANNING first.
+- **IN-PROGRESS → IN-REVIEW**: PR created.
+- **IN-REVIEW → DONE**: Spec verified, PR merged.
+- **IN-PROGRESS → PLANNING**: Go back for more investigation if scope was wrong.
+
 ## Task Completion Protocol
 
 A PR merging is NOT the same as a task being complete. Before marking any task DONE:
@@ -125,22 +143,16 @@ A PR merging is NOT the same as a task being complete. Before marking any task D
 
 Never treat "code merged" as equivalent to "task complete." The spec defines completeness, not the PR.
 
-### Pre-flight: Verify spec before starting work
+### PLANNING phase: Pre-flight and investigation
 
-Task specs may be stale — written in a prior conversation when the codebase was different. Before starting a session:
+During PLANNING (before `session_start`):
 
-1. Fetch the task spec with `tasks_spec_get`
-2. For each specific item (file:line references, counts, etc.), verify against the **current** codebase
-3. If items are already done or no longer applicable, update the spec before starting work
-4. This prevents wasted effort on stale targets and ensures subagents get accurate instructions
-
-### Mid-task: Persist investigation findings
-
-After completing any investigation, audit, or research phase for a task, persist findings to the task spec **before** presenting them in chat. Chat is volatile — session termination loses all findings. The spec is the durable artifact.
-
-1. Update the task spec with findings (`tasks_edit` with `specContent`) — include file paths, line numbers, and rationale
-2. Mark completed criteria (e.g., `[x] Audit completed`)
-3. Then present a summary to the user in chat
+1. Fetch the task spec with `tasks_spec_get` and verify against the **current** codebase
+2. If items are already done or no longer applicable, update the spec before starting work
+3. If investigation/audit is needed, do it now and persist findings to the spec **before** presenting in chat. Chat is volatile — session termination loses all findings. The spec is the durable artifact.
+4. Update the task spec with findings (`tasks_edit` with `specContent`) — include file paths, line numbers, and rationale
+5. Mark completed criteria (e.g., `[x] Audit completed`)
+6. When ready, call `session_start` to transition to IN-PROGRESS
 
 ### Spec verification and documentation impact gate merge
 

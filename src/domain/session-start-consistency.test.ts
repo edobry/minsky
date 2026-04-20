@@ -46,7 +46,7 @@ describe("Session Start Consistency Tests", () => {
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task/md-160" });
 
     mockTaskService = new FakeTaskService({
-      initialTasks: [{ id: "md#160", title: "Test Task", status: "TODO" }],
+      initialTasks: [{ id: "md#160", title: "Test Task", status: "PLANNING" }],
     });
 
     mockWorkspaceUtils = {

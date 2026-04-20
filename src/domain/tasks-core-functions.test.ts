@@ -242,7 +242,7 @@ describe("interface-agnostic task functions", () => {
     test("should set task status with valid parameters", async () => {
       const params = {
         taskId: `#${TEST_VALUE}`,
-        status: TASK_STATUS.IN_PROGRESS,
+        status: TASK_STATUS.PLANNING,
         backend: "minsky",
       };
 

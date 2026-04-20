@@ -24,6 +24,8 @@ import {
   type TaskDeleteParams,
 } from "../../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
+import { validateStatusTransition } from "../status-transitions";
+import { TaskStatus } from "../taskConstants";
 
 /**
  * Set task status using the provided parameters
@@ -72,7 +74,11 @@ export async function setTaskStatusFromParams(
         validParams.taskId
       );
     }
-    const _oldStatus = task.status;
+
+    // Validate the status transition
+    if (task.status) {
+      validateStatusTransition(task.status as TaskStatus, validParams.status as TaskStatus);
+    }
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
