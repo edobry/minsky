@@ -111,7 +111,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService();
+    const service = await this.createService(this.getPersistenceProvider!());
     const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
@@ -232,7 +232,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService();
+    const service = await this.createService(this.getPersistenceProvider!());
 
     // Immediate progress hint to stderr unless JSON/quiet
     try {
@@ -333,7 +333,7 @@ import { getConfiguration } from "../../../../domain/configuration";
 import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(
-  persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider
+  persistenceProvider: import("../../../../domain/persistence/types").BasePersistenceProvider
 ): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
   const model = cfg.embeddings?.model || "text-embedding-3-small";
@@ -341,28 +341,7 @@ export async function createTaskSimilarityService(
 
   const embedding = await createEmbeddingServiceFromConfig();
 
-  // Resolve the persistence provider.
-  // When an explicit provider is available (from DI container), use it directly.
-  // Otherwise, try the app container.
-  let resolvedProvider = persistenceProvider;
-  if (!resolvedProvider) {
-    try {
-      const { getAppContainer } = await import("../../bridges/cli/command-generator-core");
-      const container = getAppContainer();
-      if (container?.has("persistence")) {
-        resolvedProvider = container.get("persistence");
-      }
-    } catch {
-      // Container not available
-    }
-  }
-
-  if (!resolvedProvider) {
-    throw new Error(
-      "createTaskSimilarityService requires a persistence provider. " +
-        "Pass it explicitly or ensure the DI container is initialized."
-    );
-  }
+  const resolvedProvider = persistenceProvider;
 
   // Check vector capability
   if (

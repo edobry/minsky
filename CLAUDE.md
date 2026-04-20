@@ -188,8 +188,9 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 ## Build & Test
 
 - **Runtime**: Bun (not Node.js)
+- **Type checking**: Handled automatically by hooks (`tsgo` native compiler). PostToolUse hook runs after every edit; Stop hook blocks if errors remain. For explicit checks, use `mcp__minsky__validate_typecheck`. **Never run `bun run tsc` manually.**
+- **Lint**: Handled automatically by hooks. For explicit checks, use `mcp__minsky__validate_lint`. **Never run `bun run lint` manually.**
 - **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain`
-- **Lint**: `bun run lint` (0 errors, ~660 warnings — `no-explicit-any` ratchet ongoing)
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 

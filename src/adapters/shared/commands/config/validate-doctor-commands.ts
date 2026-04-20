@@ -31,6 +31,7 @@ export const configValidateRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "validate",
   description: "Validate configuration against schemas",
+  requiresSetup: false,
   parameters: composeParams(configCommandParams, {
     verbose: {
       schema: z.boolean(),
@@ -74,6 +75,7 @@ export const configDoctorRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "doctor",
   description: "Diagnose common configuration problems",
+  requiresSetup: false,
   parameters: composeParams(configCommandParams, {
     verbose: {
       schema: z.boolean(),

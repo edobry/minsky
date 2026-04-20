@@ -51,6 +51,7 @@ export const configListRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "list",
   description: "Show all configuration from all sources",
+  requiresSetup: false,
   parameters: configListParams,
   execute: async (params, _ctx) => {
     try {
@@ -107,6 +108,7 @@ export const configShowRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "show",
   description: "Show the final resolved configuration",
+  requiresSetup: false,
   parameters: configShowParams,
   execute: async (params, _ctx) => {
     try {

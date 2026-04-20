@@ -25,17 +25,19 @@ export function setupTaskCommandRegistry(container?: AppContainerInterface) {
 
 // Factory function that creates commands when called
 export function createAllTaskCommands(container?: AppContainerInterface) {
-  let cachedPersistence: {
-    getProvider: () => import("../../../../domain/persistence/types").PersistenceProvider;
-  } | null = null;
   const getPersistenceProvider = () => {
-    if (container?.has("persistence")) {
-      return container.get("persistence");
+    if (!container?.has("persistence")) {
+      throw new Error(
+        "Persistence provider not available. Ensure the DI container is initialized."
+      );
     }
-    if (!cachedPersistence) {
-      cachedPersistence = require("../../../../domain/persistence/service").PersistenceService;
+    return container.get("persistence");
+  };
+  const getSessionProvider = async () => {
+    if (!container?.has("sessionProvider")) {
+      throw new Error("Session provider not available. Ensure the DI container is initialized.");
     }
-    return cachedPersistence!.getProvider();
+    return container.get("sessionProvider");
   };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
@@ -78,7 +80,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDeleteCommand(getPersistenceProvider),
     new TasksSimilarCommand(getPersistenceProvider),
     new TasksSearchCommand(getPersistenceProvider),
-    new TasksIndexEmbeddingsCommand(),
+    new TasksIndexEmbeddingsCommand(getPersistenceProvider),
     new TasksEmbeddingsStatusCommand(),
     new TasksEmbeddingsRepairCommand(),
     createTasksMigrateBackendCommand(),
@@ -95,7 +97,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksAvailableCommand(getPersistenceProvider),
     createTasksRouteCommand(getPersistenceProvider),
     // Dispatch (subtask + session + prompt in one call)
-    createTasksDispatchCommand(getPersistenceProvider),
+    createTasksDispatchCommand(getPersistenceProvider, getSessionProvider),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getPersistenceProvider),
   ];

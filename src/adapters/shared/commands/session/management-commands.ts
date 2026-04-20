@@ -90,6 +90,7 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
     category: CommandCategory.SESSION,
     name: "migrate-backend",
     description: "Migrate a session's repository backend to GitHub by following origin remote",
+    requiresSetup: false,
     parameters: sessionMigrateBackendCommandParams,
     execute: withErrorLogging(
       "session.migrate-backend",
@@ -285,6 +286,7 @@ export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDe
     category: CommandCategory.SESSION,
     name: "migrate",
     description: "Migrate legacy session IDs to UUID format",
+    requiresSetup: false,
     parameters: sessionMigrateCommandParams,
     execute: withErrorLogging("session.migrate", async (params: Record<string, unknown>) => {
       const deps = await getDeps();

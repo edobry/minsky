@@ -11,6 +11,7 @@ describe("autoIndexTaskEmbedding", () => {
       createTaskSimilarityService: async () => {
         throw new Error("No embedding provider configured");
       },
+      getPersistenceProvider: () => ({}) as any,
     };
 
     // Should not throw - fire-and-forget pattern swallows errors
@@ -51,6 +52,7 @@ describe("autoIndexTaskEmbedding", () => {
           return true;
         },
       }),
+      getPersistenceProvider: () => ({}) as any,
     };
 
     autoIndexTaskEmbedding("mt#777", deps);

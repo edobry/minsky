@@ -69,6 +69,7 @@ export function registerDebugCommands(): void {
       category: CommandCategory.DEBUG,
       name: "listMethods",
       description: "List all registered methods for debugging",
+      requiresSetup: false,
       parameters: debugListMethodsParams,
       execute: async (params, context) => {
         log.debug("Executing debug.listMethods command", { params });
@@ -98,6 +99,7 @@ export function registerDebugCommands(): void {
       category: CommandCategory.DEBUG,
       name: "echo",
       description: "Echo back the provided parameters (for testing communication)",
+      requiresSetup: false,
       parameters: debugEchoParams,
       execute: async (params, context) => {
         log.debug("Executing debug.echo command", { params });
@@ -124,6 +126,7 @@ export function registerDebugCommands(): void {
       category: CommandCategory.DEBUG,
       name: "systemInfo",
       description: "Get system information for diagnostics",
+      requiresSetup: false,
       parameters: debugSystemInfoParams,
       execute: async (params, context) => {
         log.debug("Executing debug.systemInfo command", { params });

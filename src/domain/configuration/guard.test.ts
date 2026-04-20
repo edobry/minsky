@@ -10,6 +10,13 @@ const FAKE_REPO = "/fake/repo";
 const CONFIG_YAML = `${FAKE_REPO}/.minsky/config.yaml`;
 const CONFIG_LOCAL_YAML = `${FAKE_REPO}/.minsky/config.local.yaml`;
 
+const SESSION_REPO = "/home/user/.local/state/minsky/sessions/d4be5fee-86a3-4235-89b8-9a8bbf54c610";
+const SESSION_CONFIG_YAML = `${SESSION_REPO}/.minsky/config.yaml`;
+
+// Error message constants to avoid magic string duplication
+const ERR_NOT_INITIALIZED = "This project hasn't been initialized. Run `minsky init` first.";
+const ERR_SETUP_INCOMPLETE = "Developer setup incomplete. Run `minsky setup` first.";
+
 /**
  * Create a minimal mock existsSync that returns true only for paths in the given set.
  */
@@ -21,9 +28,7 @@ describe("checkProjectSetup", () => {
   it("throws ValidationError with minsky init guidance when config.yaml is missing", () => {
     const deps = { existsSync: makeExistsSync(new Set()) };
     expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(ValidationError);
-    expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(
-      "This project hasn't been initialized. Run `minsky init` first."
-    );
+    expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(ERR_NOT_INITIALIZED);
   });
 
   it("throws ValidationError with minsky setup guidance when config.yaml exists but config.local.yaml is missing", () => {
@@ -31,9 +36,7 @@ describe("checkProjectSetup", () => {
       existsSync: makeExistsSync(new Set([CONFIG_YAML])),
     };
     expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(ValidationError);
-    expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(
-      "Developer setup incomplete. Run `minsky setup` first."
-    );
+    expect(() => checkProjectSetup(FAKE_REPO, deps)).toThrow(ERR_SETUP_INCOMPLETE);
   });
 
   it("does not throw when both config.yaml and config.local.yaml exist", () => {
@@ -41,6 +44,21 @@ describe("checkProjectSetup", () => {
       existsSync: makeExistsSync(new Set([CONFIG_YAML, CONFIG_LOCAL_YAML])),
     };
     expect(() => checkProjectSetup(FAKE_REPO, deps)).not.toThrow();
+  });
+
+  it("does not throw in a session directory even when config.local.yaml is missing", () => {
+    // Session directories have config.yaml (checked in) but not config.local.yaml (gitignored)
+    const deps = {
+      existsSync: makeExistsSync(new Set([SESSION_CONFIG_YAML])),
+    };
+    expect(() => checkProjectSetup(SESSION_REPO, deps)).not.toThrow();
+  });
+
+  it("still requires config.yaml in session directories", () => {
+    // Missing config.yaml in a session directory should still throw
+    const deps = { existsSync: makeExistsSync(new Set()) };
+    expect(() => checkProjectSetup(SESSION_REPO, deps)).toThrow(ValidationError);
+    expect(() => checkProjectSetup(SESSION_REPO, deps)).toThrow(ERR_NOT_INITIALIZED);
   });
 });
 
@@ -59,7 +77,7 @@ describe("guardProjectSetup", () => {
   it("throws for non-exempt commands when project is not initialized", () => {
     expect(() => guardProjectSetup("tasks.list", FAKE_REPO, missingDeps)).toThrow(ValidationError);
     expect(() => guardProjectSetup("tasks.list", FAKE_REPO, missingDeps)).toThrow(
-      "This project hasn't been initialized. Run `minsky init` first."
+      ERR_NOT_INITIALIZED
     );
   });
 

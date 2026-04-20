@@ -38,6 +38,18 @@ export const githubRepoConfigSchema = z
   .optional();
 
 /**
+ * GitHub App service account configuration
+ */
+export const githubServiceAccountSchema = z
+  .object({
+    type: z.literal("github-app"),
+    appId: z.number(),
+    privateKeyFile: z.string(),
+    installationId: z.number(),
+  })
+  .optional();
+
+/**
  * Complete GitHub configuration
  */
 export const githubConfigSchema = z
@@ -56,6 +68,9 @@ export const githubConfigSchema = z
 
     // GitHub API base URL (for GitHub Enterprise)
     baseUrl: baseSchemas.url.optional(),
+
+    // GitHub App service account configuration
+    serviceAccount: githubServiceAccountSchema,
   })
   .default({});
 
