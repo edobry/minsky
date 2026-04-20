@@ -8,6 +8,7 @@
  */
 
 import { execAsync } from "../utils/exec";
+import { execGitWithTimeout } from "../utils/git-exec";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
 
@@ -406,10 +407,11 @@ export class PreCommitHook {
     log.cli("🔐 Checking hook file permissions...");
 
     try {
-      const result = await execAsync("git diff --cached --name-only --diff-filter=ACM", {
-        cwd: this.projectRoot,
-        timeout: 5000,
-      });
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
 
       const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
       const hookFiles = stagedFiles.filter(
@@ -434,7 +436,7 @@ export class PreCommitHook {
 
       if (nonExecutable.length > 0) {
         log.cli("❌ Hook files missing execute permission! Commit blocked.");
-        log.cli("🔧 Fix with: chmod +x " + nonExecutable.join(" "));
+        log.cli(`🔧 Fix with: chmod +x ${nonExecutable.join(" ")}`);
         return {
           success: false,
           message: `Hook files missing +x: ${nonExecutable.join(", ")}`,
