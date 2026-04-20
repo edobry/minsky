@@ -4,11 +4,7 @@ import { enumSchemas } from "./configuration/schemas/base";
 import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-system";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
-import {
-  getMinskyConfigContentYaml,
-  getLocalConfigContentYaml,
-  getMCPConfigContent,
-} from "./init/config-content";
+import { getMinskyConfigContentYaml, getLocalConfigContentYaml } from "./init/config-content";
 import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,
@@ -17,6 +13,7 @@ import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
+import { registerWithClient } from "./mcp/registration";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
 
@@ -29,11 +26,7 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 }
 
 // Re-export content helpers for consumers that may reference them
-export {
-  getMinskyConfigContentYaml,
-  getLocalConfigContentYaml,
-  getMCPConfigContent,
-} from "./init/config-content";
+export { getMinskyConfigContentYaml, getLocalConfigContentYaml } from "./init/config-content";
 export {
   getMinskyRuleContent,
   getRulesIndexContent,
@@ -163,22 +156,30 @@ export async function initializeProject(
 
   // Setup MCP if enabled (default to enabled if not explicitly disabled)
   if (mcp?.enabled !== false) {
-    // Create the MCP config file
-    const mcpConfig = getMCPConfigContent(mcp);
-    const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite, fileSystem);
+    // Register Minsky with the Cursor MCP client
+    await registerWithClient(
+      repoPath,
+      {
+        transport: mcp?.transport || "stdio",
+        port: mcp?.port,
+        host: mcp?.host,
+      },
+      "cursor",
+      fileSystem,
+      overwrite
+    );
 
     // Determine rules dir path for MCP rule
-    const rulesDirPath =
+    const mcpRulesDirPath =
       ruleFormat === "cursor"
         ? path.join(repoPath, ".cursor", "rules")
         : path.join(repoPath, ".ai", "rules");
 
-    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
+    await createDirectoryIfNotExists(mcpRulesDirPath, fileSystem);
 
     // Generate MCP rule using template system (tolerate missing command registry in tests)
     try {
-      await generateMcpRuleWithTemplateSystem(rulesDirPath, ruleFormat, overwrite, mcp);
+      await generateMcpRuleWithTemplateSystem(mcpRulesDirPath, ruleFormat, overwrite, mcp);
     } catch (_e) {
       // Skip in unit tests without registry
     }
