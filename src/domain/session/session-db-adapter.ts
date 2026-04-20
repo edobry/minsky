@@ -322,8 +322,9 @@ export async function createSessionProvider(
 ): Promise<SessionProviderInterface> {
   if (!deps) {
     throw new Error(
-      "createSessionProvider requires a persistence dependency. " +
-        "Pass a PersistenceProvider or CreateSessionProviderDeps object."
+      "Session provider unavailable: no persistence dependency provided. " +
+        "This usually means the DI container was not initialized before tool " +
+        "registration. If running as an MCP server, restart with /mcp."
     );
   }
 

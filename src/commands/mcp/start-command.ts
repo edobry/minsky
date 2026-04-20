@@ -47,6 +47,14 @@ async function registerAllTools(
     log.debug("Container initialized for MCP server");
   }
 
+  // Health check: verify critical dependencies are available after init
+  if (container && !container.has("sessionProvider")) {
+    log.error(
+      "MCP startup health check failed: sessionProvider not available after container init. " +
+        "Session tools will fail. Check database connectivity."
+    );
+  }
+
   // Register debug tools first to ensure they're available for debugging
   registerDebugTools(commandMapper, container);
 
