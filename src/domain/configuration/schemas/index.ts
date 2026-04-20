@@ -31,6 +31,11 @@ import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
 import { rulesConfigSchema, type RulesConfig } from "./rules";
 import { mcpConfigSchema, type McpConfig } from "./mcp";
+import {
+  knowledgeBasesConfigSchema,
+  type KnowledgeBasesConfig,
+  type KnowledgeBaseEntry,
+} from "./knowledge-bases";
 
 /**
  * Complete application configuration schema
@@ -74,6 +79,9 @@ export const configurationSchema = z.looseObject({
 
   // MCP transport configuration (project-level invariants set during minsky init)
   mcp: mcpConfigSchema,
+
+  // Knowledge base sources configuration
+  knowledgeBases: knowledgeBasesConfigSchema,
 }); // looseObject allows extra properties (equivalent to passthrough)
 
 /**
@@ -248,6 +256,8 @@ export type {
   WorkspaceConfig,
   RulesConfig,
   McpConfig,
+  KnowledgeBasesConfig,
+  KnowledgeBaseEntry,
 };
 
 // Re-export schemas for external use
@@ -264,6 +274,7 @@ export {
   workspaceConfigSchema,
   rulesConfigSchema,
   mcpConfigSchema,
+  knowledgeBasesConfigSchema,
 };
 
 // Export the main schema as default

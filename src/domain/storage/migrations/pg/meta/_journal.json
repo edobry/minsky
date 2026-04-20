@@ -127,6 +127,13 @@
       "when": 1776412800000,
       "tag": "0017_task_relationship_types",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1745020800000,
+      "tag": "0020_knowledge_embeddings",
+      "breakpoints": true
     }
   ]
 }
