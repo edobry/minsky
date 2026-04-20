@@ -186,6 +186,44 @@ describe("generateSubagentPrompt", () => {
     });
   });
 
+  describe("skill references", () => {
+    it("includes implement-task and prepare-pr skills for implementation type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "implementation" });
+      expect(result.prompt).toContain("/implement-task");
+      expect(result.prompt).toContain("/prepare-pr");
+    });
+
+    it("includes code-organization skill for refactor type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "refactor" });
+      expect(result.prompt).toContain("/code-organization");
+    });
+
+    it("includes review-pr skill for review type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "review" });
+      expect(result.prompt).toContain("/review-pr");
+    });
+
+    it("includes fix-skipped-tests skill for cleanup type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
+      expect(result.prompt).toContain("/fix-skipped-tests");
+    });
+
+    it("does not include skill references for audit type", () => {
+      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
+      expect(result.prompt).not.toContain("Recommended Skills");
+    });
+
+    it("skill references appear before scope constraints", () => {
+      const scope = ["src/foo.ts"];
+      const result = generateSubagentPrompt({ ...baseParams, type: "implementation", scope });
+      const skillsIdx = result.prompt.indexOf("Recommended Skills");
+      const scopeIdx = result.prompt.indexOf("Scope Constraints");
+      expect(skillsIdx).toBeGreaterThan(-1);
+      expect(scopeIdx).toBeGreaterThan(-1);
+      expect(skillsIdx).toBeLessThan(scopeIdx);
+    });
+  });
+
   describe("scope handling", () => {
     it("lists files in the prompt when scope is provided", () => {
       const scope = ["src/foo.ts", "src/bar.ts"];

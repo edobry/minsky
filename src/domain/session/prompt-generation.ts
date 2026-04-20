@@ -29,6 +29,24 @@ const SCOPE_WARNING_THRESHOLD = 40;
 const BATCH_SIZE = 30;
 export const PROMPT_WATERMARK = "<!-- minsky:prompt:v1 -->";
 
+const SKILL_REFERENCES: Record<PromptType, string[]> = {
+  implementation: ["implement-task", "prepare-pr", "testing-guide", "error-handling"],
+  refactor: ["code-organization", "testing-guide"],
+  review: ["review-pr"],
+  cleanup: ["code-organization", "fix-skipped-tests"],
+  audit: [],
+};
+
+function renderSkillReferences(type: PromptType): string {
+  const skills = SKILL_REFERENCES[type];
+  if (skills.length === 0) return "";
+  return `
+## Recommended Skills
+
+The following Claude Code skills are available and relevant to this work. Use \`/skill-name\` to invoke:
+${skills.map((s) => `- \`/${s}\``).join("\n")}`;
+}
+
 function renderCommonHeader(params: GeneratePromptParams): string {
   return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
 
@@ -85,6 +103,11 @@ function generateSinglePrompt(
     sections.push(`${header}\n\n**Batch ${batchIndex} of ${totalBatches}**`);
   } else {
     sections.push(header);
+  }
+
+  const skillRefs = renderSkillReferences(type);
+  if (skillRefs) {
+    sections.push(skillRefs);
   }
 
   if (effectiveScope && effectiveScope.length > 0) {
