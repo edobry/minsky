@@ -6,7 +6,17 @@
  * is used when available; Minsky's own loop is the fallback.
  */
 
+import { existsSync } from "fs";
+import { homedir } from "os";
+import * as path from "path";
+
 export type AgentHarness = "claude-code" | "cursor" | "standalone";
+
+/**
+ * The set of MCP client applications that Minsky can register itself with.
+ * Extend this union as new clients are implemented.
+ */
+export type ManagedClient = "cursor" | "claude-desktop" | "vscode";
 
 /**
  * Detect the current agent harness from environment signals.
@@ -38,4 +48,27 @@ export function detectAgentHarness(): AgentHarness {
 export function hasNativeSubagentSupport(): boolean {
   const harness = detectAgentHarness();
   return harness === "claude-code"; // Cursor support TBD
+}
+
+/**
+ * Probe the filesystem for installed MCP client applications.
+ * Only returns clients that are actually present on this machine.
+ *
+ * Detection heuristics:
+ * - cursor: ~/.cursor/ directory exists
+ * - claude-desktop: TODO (~/Library/Application Support/Claude/ on macOS)
+ * - vscode: TODO
+ */
+export function detectInstalledClients(): ManagedClient[] {
+  const clients: ManagedClient[] = [];
+
+  // Cursor: check for ~/.cursor/ directory
+  if (existsSync(path.join(homedir(), ".cursor"))) {
+    clients.push("cursor");
+  }
+
+  // TODO: claude-desktop — check ~/Library/Application Support/Claude/ on macOS
+  // TODO: vscode — check ~/.vscode/ or platform-specific VS Code config dirs
+
+  return clients;
 }
