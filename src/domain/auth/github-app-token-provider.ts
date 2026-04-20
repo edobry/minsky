@@ -17,6 +17,8 @@ export interface GitHubAppConfig {
   privateKeyFile: string;
   installationId: number;
   userToken: string;
+  /** Optional override for loading the private key — used in tests to avoid real file I/O. */
+  privateKeyLoader?: () => string;
 }
 
 interface CachedInstallationToken {
@@ -39,6 +41,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
   private readonly privateKeyFile: string;
   private readonly installationId: number;
   private readonly userToken: string;
+  private readonly privateKeyLoader: () => string;
 
   private cachedToken: CachedInstallationToken | null = null;
   private cachedAppInfo: GitHubAppInfo | null = null;
@@ -49,6 +52,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
     this.privateKeyFile = config.privateKeyFile;
     this.installationId = config.installationId;
     this.userToken = config.userToken;
+    this.privateKeyLoader = config.privateKeyLoader ?? (() => this.loadPrivateKeyFromFile());
   }
 
   // ---------------------------------------------------------------------------
@@ -120,7 +124,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
     return timeUntilExpiry > REFRESH_THRESHOLD_MS;
   }
 
-  private loadPrivateKey(): string {
+  private loadPrivateKeyFromFile(): string {
     if (this.privateKeyCache) return this.privateKeyCache;
 
     const resolvedPath = this.privateKeyFile.startsWith("~/")
@@ -149,7 +153,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
 
     const sign = createSign("RSA-SHA256");
     sign.update(signingInput);
-    const signature = sign.sign(this.loadPrivateKey(), "base64url");
+    const signature = sign.sign(this.privateKeyLoader(), "base64url");
 
     return `${signingInput}.${signature}`;
   }
