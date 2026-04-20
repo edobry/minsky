@@ -2,6 +2,7 @@
  * AI-powered rule suggestion service
  */
 
+import { injectable } from "tsyringe";
 import { z } from "zod";
 import type { AICompletionService } from "../ai/types";
 import type { RuleService } from "../rules";
@@ -22,6 +23,7 @@ interface QueryAnalysis {
   suggestedCategories: string[];
 }
 
+@injectable()
 export class DefaultRuleSuggestionService {
   constructor(
     private aiService: AICompletionService,

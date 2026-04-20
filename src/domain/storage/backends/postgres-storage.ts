@@ -5,6 +5,7 @@
  * with Drizzle ORM for session record management.
  */
 
+import { injectable } from "tsyringe";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -51,6 +52,7 @@ export interface PostgresStorageConfig {
 /**
  * PostgreSQL storage implementation using PersistenceProvider
  */
+@injectable()
 export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
   private sql: ReturnType<typeof postgres> | null = null;
   private drizzle: ReturnType<typeof drizzle> | null = null;

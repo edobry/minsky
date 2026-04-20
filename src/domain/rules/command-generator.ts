@@ -6,6 +6,7 @@
  * across different interfaces.
  */
 
+import { injectable } from "tsyringe";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -213,6 +214,7 @@ export function getParameterDocumentation(commandId: string): string {
 /**
  * Service for generating commands based on the current configuration
  */
+@injectable()
 export class CommandGeneratorService {
   private config: CommandGenerationConfig;
 

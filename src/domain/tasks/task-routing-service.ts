@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
 
@@ -34,6 +35,7 @@ export interface TaskRoute {
   estimatedEffort?: number;
 }
 
+@injectable()
 export class TaskRoutingService {
   constructor(
     private taskGraphService: TaskGraphService,

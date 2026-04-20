@@ -5,6 +5,7 @@
  * model-aware selection, and cross-tokenizer comparison.
  */
 
+import { injectable } from "tsyringe";
 import type {
   TokenizationService,
   LocalTokenizer,
@@ -19,6 +20,7 @@ import { log } from "../../../utils/logger";
 /**
  * Default tokenization service implementation
  */
+@injectable()
 export class DefaultTokenizationService implements TokenizationService {
   private registry: DefaultTokenizerRegistry;
   private cache = new Map<string, TokenizationCacheEntry>();

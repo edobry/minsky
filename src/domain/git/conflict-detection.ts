@@ -4,6 +4,7 @@
  * Thin orchestrator that delegates to focused sub-modules for conflict detection,
  * analysis, resolution strategies, merge simulation, and rebase prediction.
  */
+import { injectable } from "tsyringe";
 import { execAsync as defaultExecAsync } from "../../utils/exec";
 import { log as defaultLog } from "../../utils/logger";
 import { gitFetchWithTimeout as defaultGitFetchWithTimeout } from "../../utils/git-exec";
@@ -70,6 +71,7 @@ export type {
   ConflictingCommit,
 } from "./conflict-detection-types";
 
+@injectable()
 export class ConflictDetectionService {
   private readonly deps: ConflictDetectionDeps;
 
