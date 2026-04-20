@@ -371,12 +371,12 @@ export function registerGitCommands(): void {
       const { commitChangesFromParams } = await import("../../../domain/git");
 
       const result = await commitChangesFromParams({
-        message: params!.message,
-        all: params!.all,
-        amend: params!.amend,
-        noStage: params!.noStage,
-        repo: params!.repo,
-        session: params!.session,
+        message: params.message,
+        all: params.all,
+        amend: params.amend,
+        noStage: params.noStage,
+        repo: params.repo,
+        session: params.session,
       });
 
       return {
@@ -399,11 +399,11 @@ export function registerGitCommands(): void {
       const { pushFromParams } = await import("../../../domain/git");
 
       const result = await pushFromParams({
-        repo: params!.repo,
-        session: params!.session,
-        remote: params!.remote,
-        force: params!.force,
-        debug: params!.debug,
+        repo: params.repo,
+        session: params.session,
+        remote: params.remote,
+        force: params.force,
+        debug: params.debug,
       });
 
       return {
@@ -425,10 +425,10 @@ export function registerGitCommands(): void {
       const { cloneFromParams } = await import("../../../domain/git");
 
       const result = await cloneFromParams({
-        url: params!.url,
-        workdir: params!.destination || ".",
-        session: params!.session,
-        branch: params!.branch,
+        url: params.url,
+        workdir: params.destination || ".",
+        session: params.session,
+        branch: params.branch,
       });
 
       return {
@@ -451,8 +451,8 @@ export function registerGitCommands(): void {
       const { branchFromParams } = await import("../../../domain/git");
 
       const result = await branchFromParams({
-        session: params!.session,
-        name: params!.name,
+        session: params.session,
+        name: params.name,
       });
 
       return {
@@ -475,12 +475,12 @@ export function registerGitCommands(): void {
       const { mergeFromParams } = await import("../../../domain/git");
 
       const result = await mergeFromParams({
-        sourceBranch: params!.branch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoResolve,
-        conflictStrategy: params!.conflictStrategy,
+        sourceBranch: params.branch,
+        session: params.session,
+        repo: params.repo,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
       });
 
       return {
@@ -505,18 +505,18 @@ export function registerGitCommands(): void {
       const { checkoutFromParams } = await import("../../../domain/git");
 
       const result = await checkoutFromParams({
-        branch: params!.branch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoStash, // Map autoStash to autoResolve for conflict handling
+        branch: params.branch,
+        session: params.session,
+        repo: params.repo,
+        preview: params.preview,
+        autoResolve: params.autoStash, // Map autoStash to autoResolve for conflict handling
       });
 
       return {
-        success: result!.switched,
-        workdir: result!.workdir,
-        message: result!.conflicts
-          ? result!.conflictDetails || "Checkout completed with warnings"
+        success: result.switched,
+        workdir: result.workdir,
+        message: result.conflicts
+          ? result.conflictDetails || "Checkout completed with warnings"
           : "Checkout completed successfully",
       };
     },
@@ -534,19 +534,19 @@ export function registerGitCommands(): void {
       const { rebaseFromParams } = await import("../../../domain/git");
 
       const result = await rebaseFromParams({
-        baseBranch: params!.baseBranch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoResolve,
-        conflictStrategy: params!.conflictStrategy,
+        baseBranch: params.baseBranch,
+        session: params.session,
+        repo: params.repo,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
       });
 
       return {
-        success: result!.rebased,
-        workdir: result!.workdir,
-        message: result!.conflicts
-          ? result!.conflictDetails || "Rebase completed with conflicts"
+        success: result.rebased,
+        workdir: result.workdir,
+        message: result.conflicts
+          ? result.conflictDetails || "Rebase completed with conflicts"
           : "Rebase completed successfully",
       };
     },
@@ -566,9 +566,9 @@ export function registerGitCommands(): void {
       );
 
       const result = await conflictsFromParams({
-        format: params!.format,
-        context: params!.context,
-        files: params!.files,
+        format: params.format,
+        context: params.context,
+        files: params.files,
       });
 
       if (!result.success) {
@@ -592,9 +592,9 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.log command", { params });
 
-      const repoPath = params!.repo || process.cwd();
-      const limit = params!.limit ?? 20;
-      const format = params!.format ?? "oneline";
+      const repoPath = params.repo || process.cwd();
+      const limit = params.limit ?? 20;
+      const format = params.format ?? "oneline";
 
       const args: string[] = ["git", "-C", repoPath, "log"];
 
@@ -609,23 +609,23 @@ export function registerGitCommands(): void {
       args.push(`-n`, String(limit));
 
       // Optional filters
-      if (params!.author) {
-        args.push(`--author=${params!.author}`);
+      if (params.author) {
+        args.push(`--author=${params.author}`);
       }
-      if (params!.since) {
-        args.push(`--since=${params!.since}`);
+      if (params.since) {
+        args.push(`--since=${params.since}`);
       }
-      if (params!.until) {
-        args.push(`--until=${params!.until}`);
+      if (params.until) {
+        args.push(`--until=${params.until}`);
       }
-      if (params!.grep) {
-        args.push(`--grep=${params!.grep}`);
+      if (params.grep) {
+        args.push(`--grep=${params.grep}`);
       }
-      if (params!.ref) {
-        args.push(params!.ref);
+      if (params.ref) {
+        args.push(params.ref);
       }
-      if (params!.path) {
-        args.push("--", params!.path);
+      if (params.path) {
+        args.push("--", params.path);
       }
 
       try {
@@ -653,11 +653,11 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.search command", { params });
 
-      const repoPath = params!.repo || process.cwd();
-      const pattern = params!.pattern;
-      const type = params!.type ?? "content";
-      const limit = params!.limit ?? 20;
-      const ignoreCase = params!.ignoreCase ?? false;
+      const repoPath = params.repo || process.cwd();
+      const pattern = params.pattern;
+      const type = params.type ?? "content";
+      const limit = params.limit ?? 20;
+      const ignoreCase = params.ignoreCase ?? false;
 
       try {
         let command: string;
@@ -667,8 +667,8 @@ export function registerGitCommands(): void {
           if (ignoreCase) args.push("-i");
           args.push("-n");
           args.push(pattern);
-          if (params!.ref) args.push(params!.ref);
-          if (params!.path) args.push("--", params!.path);
+          if (params.ref) args.push(params.ref);
+          if (params.path) args.push("--", params.path);
           command = args.join(" ");
         } else if (type === "commits") {
           // Pickaxe search: find commits that added/removed the pattern
@@ -677,8 +677,8 @@ export function registerGitCommands(): void {
           args.push("--oneline");
           if (ignoreCase) args.push("-i");
           args.push(`-S${pattern}`);
-          if (params!.ref) args.push(params!.ref);
-          if (params!.path) args.push("--", params!.path);
+          if (params.ref) args.push(params.ref);
+          if (params.path) args.push("--", params.path);
           command = args.join(" ");
         } else {
           // type === "diff": search in diffs
@@ -688,8 +688,8 @@ export function registerGitCommands(): void {
           args.push("-p");
           if (ignoreCase) args.push("-i");
           args.push(`-G${pattern}`);
-          if (params!.ref) args.push(params!.ref);
-          if (params!.path) args.push("--", params!.path);
+          if (params.ref) args.push(params.ref);
+          if (params.path) args.push("--", params.path);
           command = args.join(" ");
         }
 
@@ -721,12 +721,12 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.diff command", { params });
 
-      const repoPath = params!.repo || process.cwd();
-      const from = params!.from;
-      const to = params!.to;
-      const path = params!.path;
-      const stat = params!.stat ?? false;
-      const nameOnly = params!.nameOnly ?? false;
+      const repoPath = params.repo || process.cwd();
+      const from = params.from;
+      const to = params.to;
+      const path = params.path;
+      const stat = params.stat ?? false;
+      const nameOnly = params.nameOnly ?? false;
 
       const args: string[] = ["git", "-C", repoPath, "diff"];
 
@@ -775,11 +775,11 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.blame command", { params });
 
-      const repoPath = params!.repo || process.cwd();
-      const filePath = params!.path;
-      const ref = params!.ref;
-      const startLine = params!.startLine;
-      const endLine = params!.endLine;
+      const repoPath = params.repo || process.cwd();
+      const filePath = params.path;
+      const ref = params.ref;
+      const startLine = params.startLine;
+      const endLine = params.endLine;
 
       const args: string[] = ["git", "-C", repoPath, "blame"];
 

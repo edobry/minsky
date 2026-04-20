@@ -164,7 +164,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         const orderedTasks: typeof tasks = [];
         depthMap = new Map<string, number>();
         const addWithChildren = (task: (typeof tasks)[0], depth: number) => {
-          depthMap!.set(task.id, depth);
+          depthMap.set(task.id, depth);
           orderedTasks.push(task);
           const children = childrenMap.get(task.id) ?? [];
           for (const child of children) {

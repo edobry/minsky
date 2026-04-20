@@ -16,7 +16,7 @@ export function setupTaskCommandRegistry(container?: AppContainerInterface) {
     // Import and register commands only when needed
     const commands = createAllTaskCommands(container);
     commands.forEach((command) => {
-      registry!.register(command);
+      registry.register(command);
     });
   }
 

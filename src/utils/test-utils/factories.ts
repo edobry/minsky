@@ -65,15 +65,15 @@ export function createSessionData(
     createdAt?: string;
   } = {}
 ): Record<string, unknown> {
-  const taskId = overrides!.taskId || "123";
-  const session = overrides!.session || `test-session-${taskId}`;
+  const taskId = overrides.taskId || "123";
+  const session = overrides.session || `test-session-${taskId}`;
 
   return {
     session,
     taskId,
-    repoName: overrides!.repoName || "test/repo",
-    repoUrl: overrides!.repoUrl || "https://github.com/test/repo.git",
-    repoPath: overrides!.repoPath || `/mock/repo/${createRandomId()}`,
+    repoName: overrides.repoName || "test/repo",
+    repoUrl: overrides.repoUrl || "https://github.com/test/repo.git",
+    repoPath: overrides.repoPath || `/mock/repo/${createRandomId()}`,
     branch: overrides?.branch || `task/md-${taskId}`,
     createdAt: overrides?.createdAt || new Date().toISOString(),
   };
@@ -116,7 +116,7 @@ export function createRepositoryData(
   return {
     name: overrides?.name || "test-repo",
     type: overrides?.type || "local",
-    repoUrl: overrides!.repoUrl || "file:///mock/repo/path",
+    repoUrl: overrides.repoUrl || "file:///mock/repo/path",
     path: overrides?.path || `/mock/repo/${createRandomId()}`,
   };
 }

@@ -126,11 +126,11 @@ export function toTaskData(task: Record<string, unknown>): TaskData {
  */
 export function fromTaskData(taskData: TaskData): Record<string, unknown> {
   return {
-    id: taskData!.id,
-    title: taskData!.title,
-    spec: taskData!.spec,
-    status: taskData!.status,
-    worklog: taskData!.worklog,
-    mergeInfo: taskData!.mergeInfo,
+    id: taskData.id,
+    title: taskData.title,
+    spec: taskData.spec,
+    status: taskData.status,
+    worklog: taskData.worklog,
+    mergeInfo: taskData.mergeInfo,
   };
 }

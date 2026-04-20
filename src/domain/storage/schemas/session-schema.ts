@@ -90,9 +90,9 @@ function coerceToDate(input: unknown): Date {
  */
 export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
     createdAt: record.createdAt,
     taskId: record.taskId || null,
 
@@ -115,9 +115,9 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
  */
 export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl || "",
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl || "",
     createdAt: coerceToDate(record.createdAt),
     taskId: record.taskId || null,
 
@@ -137,9 +137,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
  */
 export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId || undefined,
 
