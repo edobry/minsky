@@ -55,9 +55,22 @@ Your final output MUST follow this structure exactly:
 **Recommendation**: <merge / fix before merge / needs discussion>
 ```
 
+# Post-merge baseline checks
+
+After checking all spec criteria, ALWAYS run these baseline checks regardless of whether the spec mentions them. These catch integration issues that spec criteria may not cover:
+
+1. **Full test suite**: `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain` — report pass count and any failures
+2. **Type check**: `bun run tsc --noEmit` — report clean or errors
+3. **Lint**: `bun run lint` — report new errors (pre-existing errors in unrelated files are noted but not blocking)
+4. **E2E smoke test**: Run at least one CLI command that exercises the changed code path (e.g., if the task changed DI, run `bun src/cli.ts tasks list` to verify the container initializes correctly)
+5. **Documentation staleness**: Check if `docs/architecture.md` has content related to the task's domain — if so, verify it's still accurate post-change
+
+Include these in the output table as "Baseline" criteria.
+
 # Anti-patterns
 
 - Never infer a criterion is met from prior conversation context — verify against current code
 - Never treat "the PR was merged" as evidence for any criterion — the spec defines completeness, not the PR
 - Never skip a criterion because it seems "obviously met"
 - If the spec is vague about a criterion, mark it AMBIGUOUS and explain what's unclear
+- Never treat "CI passed" as sufficient evidence for "all tests pass" — run the suite yourself on the post-merge codebase

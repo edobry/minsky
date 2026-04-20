@@ -91,6 +91,29 @@
             "statusMessage": "Pulling latest main..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__session_start",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-session-start.ts",
+            "timeout": 10,
+            "statusMessage": "Labeling session..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-session-title.ts",
+            "timeout": 5,
+            "statusMessage": "Checking session label..."
+          }
+        ]
       }
     ]
   }
