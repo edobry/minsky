@@ -18,7 +18,7 @@ import { expect } from "bun:test";
  */
 export function expectToMatch(value: string, pattern: RegExp): void {
   const result = value.match(pattern);
-  expect(result)!.toBeTruthy();
+  expect(result).toBeTruthy();
 }
 
 /**
