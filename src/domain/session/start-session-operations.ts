@@ -164,6 +164,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         taskSpec.description
       );
       taskId = createdTask.id;
+      // Auto-created tasks start in PLANNING so session_start can transition them
+      await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
       if (!quiet) {
         // Display the task ID (taskId is already in the correct format from TaskService)
         log.cli(`Created task ${taskId}: ${taskSpec.title}`);
@@ -362,11 +364,47 @@ Error: ${getErrorMessage(installError)}`
     if (taskId && !noStatusUpdate) {
       try {
         // Get the current status first
-        const _previousStatus = await deps.taskService.getTaskStatus(taskId);
+        const currentStatus = await deps.taskService.getTaskStatus(taskId);
 
-        // Update the status to IN-PROGRESS
-        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+        if (currentStatus === TASK_STATUS.TODO) {
+          throw new ValidationError(
+            "Task must be in PLANNING status before starting a session. Set status to PLANNING first.",
+            undefined,
+            undefined
+          );
+        }
+
+        if (currentStatus === TASK_STATUS.IN_PROGRESS || currentStatus === TASK_STATUS.PLANNING) {
+          // If transitioning from PLANNING, warn about any unchecked success criteria
+          if (currentStatus === TASK_STATUS.PLANNING) {
+            try {
+              const specResult = await deps.taskService.getTaskSpecContent(taskId);
+              if (specResult) {
+                const uncheckedCriteria = specResult.content
+                  .split("\n")
+                  .filter((line) => /^\s*- \[ \]/.test(line))
+                  .map((line) => line.trim());
+                if (uncheckedCriteria.length > 0) {
+                  log.cliWarn(
+                    `Warning: Task ${taskId} has ${uncheckedCriteria.length} unchecked success criteria:\n${uncheckedCriteria
+                      .map((c) => `  ${c}`)
+                      .join("\n")}`
+                  );
+                }
+              }
+            } catch (_specError) {
+              // Non-fatal: if spec fetch fails, proceed without warning
+            }
+          }
+
+          // Update the status to IN-PROGRESS
+          await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+        }
+        // If already in some other status (e.g. IN-REVIEW, DONE), do nothing
       } catch (error) {
+        if (error instanceof ValidationError) {
+          throw error;
+        }
         // Log the error but don't fail the session creation
         log.cliWarn(
           `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`

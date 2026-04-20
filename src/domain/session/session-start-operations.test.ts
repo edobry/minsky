@@ -24,7 +24,7 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
   }));
 
   const taskService = new FakeTaskService();
-  taskService.getTaskStatus = vi.fn(async () => "TODO");
+  taskService.getTaskStatus = vi.fn(async () => "PLANNING");
   taskService.setTaskStatus = vi.fn(async () => {});
   taskService.createTaskFromTitleAndSpec = vi.fn(async (t: string, d: string) => ({
     id: "md#999",
