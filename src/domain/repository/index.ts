@@ -309,6 +309,25 @@ export interface RepositoryBackend {
     diff: string;
     stats?: { filesChanged: number; insertions: number; deletions: number };
   }>;
+
+  /**
+   * Submit a review on an open pull request (optional — only GitHub-backed sessions support this).
+   *
+   * Uses the bot/service-account token so reviews are posted under the configured
+   * bot identity rather than the personal token of the session author.
+   *
+   * @param prIdentifier - PR number or branch name
+   * @param options - Review body, event type, and optional line-level comments
+   * @returns Promise with the GitHub review ID and HTML URL
+   */
+  submitReview?(
+    prIdentifier: string | number,
+    options: {
+      body: string;
+      event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+      comments?: Array<{ path: string; line: number; body: string; side?: "LEFT" | "RIGHT" }>;
+    }
+  ): Promise<{ reviewId: number; htmlUrl: string }>;
 }
 
 /**
