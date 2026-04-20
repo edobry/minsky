@@ -10,6 +10,8 @@ import {
   ClaudeDesktopRegistrar,
   McpServersJsonRegistrar,
   VSCodeRegistrar,
+  WindsurfRegistrar,
+  JunieRegistrar,
   getRegistrar,
   registerWithClient,
 } from "./registration";
@@ -212,6 +214,59 @@ describe("VSCodeRegistrar", () => {
   });
 });
 
+describe("WindsurfRegistrar", () => {
+  const registrar = new WindsurfRegistrar();
+
+  describe("generateConfig — inherits McpServersJsonRegistrar logic", () => {
+    test("stdio transport produces correct mcpServers JSON", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual(["mcp", "start"]);
+    });
+  });
+
+  describe("configPath", () => {
+    test("returns path under ~/.codeium/windsurf/ (ignores projectRoot)", () => {
+      const configPath = registrar.configPath("/unused");
+      expect(configPath).not.toContain("/unused");
+      expect(configPath.startsWith(os.homedir())).toBe(true);
+      expect(configPath).toContain(".codeium");
+      expect(configPath).toContain("windsurf");
+      expect(configPath.endsWith("mcp_config.json")).toBe(true);
+    });
+  });
+
+  test("mergeConfig is true (global config, may have other servers)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+
+  test("is an instance of McpServersJsonRegistrar", () => {
+    expect(registrar).toBeInstanceOf(McpServersJsonRegistrar);
+  });
+});
+
+describe("JunieRegistrar", () => {
+  const registrar = new JunieRegistrar();
+
+  describe("configPath", () => {
+    test("returns .junie/mcp/mcp.json under the project root", () => {
+      expect(registrar.configPath("/project")).toBe(
+        path.join("/project", ".junie", "mcp", "mcp.json")
+      );
+    });
+  });
+
+  test("mergeConfig is false (project-scoped)", () => {
+    expect(registrar.mergeConfig).toBe(false);
+  });
+
+  test("is an instance of McpServersJsonRegistrar", () => {
+    expect(registrar).toBeInstanceOf(McpServersJsonRegistrar);
+  });
+});
+
 describe("McpServersJsonRegistrar (abstract base)", () => {
   test("CursorRegistrar is an instance of McpServersJsonRegistrar", () => {
     expect(new CursorRegistrar()).toBeInstanceOf(McpServersJsonRegistrar);
@@ -241,9 +296,21 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("vscode");
   });
 
+  test("returns WindsurfRegistrar for 'windsurf'", () => {
+    const r = getRegistrar("windsurf");
+    expect(r).toBeInstanceOf(WindsurfRegistrar);
+    expect(r.name).toBe("windsurf");
+  });
+
+  test("returns JunieRegistrar for 'junie'", () => {
+    const r = getRegistrar("junie");
+    expect(r).toBeInstanceOf(JunieRegistrar);
+    expect(r.name).toBe("junie");
+  });
+
   test("throws descriptive error for unsupported client", () => {
     expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode'
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie'
     );
   });
 });

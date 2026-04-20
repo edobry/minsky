@@ -168,6 +168,36 @@ export class ClaudeDesktopRegistrar extends McpServersJsonRegistrar {
 }
 
 /**
+ * Registrar for the Windsurf editor MCP client.
+ *
+ * Windsurf stores MCP config globally at ~/.codeium/windsurf/mcp_config.json,
+ * so registration merges into any existing config rather than overwriting.
+ */
+export class WindsurfRegistrar extends McpServersJsonRegistrar {
+  readonly name = "windsurf";
+  override readonly mergeConfig = true; // global config, may have other servers
+
+  configPath(_projectRoot: string): string {
+    // Windsurf stores config globally at ~/.codeium/windsurf/mcp_config.json
+    return path.join(homedir(), ".codeium", "windsurf", "mcp_config.json");
+  }
+}
+
+/**
+ * Registrar for the Junie (JetBrains) MCP client.
+ *
+ * Junie stores MCP config at the project level: .junie/mcp/mcp.json.
+ */
+export class JunieRegistrar extends McpServersJsonRegistrar {
+  readonly name = "junie";
+
+  configPath(projectRoot: string): string {
+    // Junie stores project-level MCP config at .junie/mcp/mcp.json
+    return path.join(projectRoot, ".junie", "mcp", "mcp.json");
+  }
+}
+
+/**
  * Registrar for the VS Code editor MCP client.
  *
  * VS Code uses a "servers" root key (not "mcpServers") in its MCP config.
@@ -219,9 +249,13 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new ClaudeDesktopRegistrar();
     case "vscode":
       return new VSCodeRegistrar();
+    case "windsurf":
+      return new WindsurfRegistrar();
+    case "junie":
+      return new JunieRegistrar();
     default:
       throw new Error(
-        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode`
+        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie`
       );
   }
 }
