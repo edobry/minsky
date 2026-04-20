@@ -42,11 +42,13 @@ Before dispatching implementation:
 ### 4. Implementation dispatch
 
 Generate a subagent prompt: `mcp__minsky__session_generate_prompt` with:
+
 - `task`: the task ID
 - `type`: `"implementation"` (or `"refactor"`, `"cleanup"` as appropriate)
 - `instructions`: specific guidance for the implementation
 
 Dispatch the subagent with the generated prompt. The subagent will:
+
 - Edit code in the session directory
 - Commit using `mcp__minsky__session_commit`
 - Create a PR using `mcp__minsky__session_pr_create`
@@ -54,6 +56,7 @@ Dispatch the subagent with the generated prompt. The subagent will:
 ### 5. Review
 
 After the subagent creates a PR, review it using the `/review-pr` skill:
+
 - Verify findings against the actual codebase
 - Check spec criteria are met
 - Post the review to GitHub
@@ -61,6 +64,7 @@ After the subagent creates a PR, review it using the `/review-pr` skill:
 ### 6. Merge
 
 Only after review is posted and all checks pass:
+
 - Wait for CI: `mcp__minsky__session_pr_checks` — all must be `completed` + `success`
 - Merge: `mcp__minsky__session_pr_merge` with `task: "<task-id>"`
 - The local workspace auto-pulls after merge (PostToolUse hook)
@@ -74,14 +78,14 @@ Only after review is posted and all checks pass:
 
 ## Error recovery
 
-| Error | Recovery |
-|-------|----------|
-| Session tools fail | Fall back to git CLI with `git fetch origin main && git rebase origin/main` before pushing |
-| Path resolution issue | All file operations must use absolute paths under the session directory |
-| File editing outside session | Cancel edits, switch to session workspace |
-| PR has merge conflicts | Run `mcp__minsky__session_update` to rebase on latest main |
-| CI checks failing | Investigate failures, fix in session, commit, push — do not merge with failing checks |
-| Subagent runs out of capacity | Check `git diff` and `git status` in session, finish commit/PR from main agent |
+| Error                         | Recovery                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| Session tools fail            | Fall back to git CLI with `git fetch origin main && git rebase origin/main` before pushing |
+| Path resolution issue         | All file operations must use absolute paths under the session directory                    |
+| File editing outside session  | Cancel edits, switch to session workspace                                                  |
+| PR has merge conflicts        | Run `mcp__minsky__session_update` to rebase on latest main                                 |
+| CI checks failing             | Investigate failures, fix in session, commit, push — do not merge with failing checks      |
+| Subagent runs out of capacity | Check `git diff` and `git status` in session, finish commit/PR from main agent             |
 
 ## Key principles
 
