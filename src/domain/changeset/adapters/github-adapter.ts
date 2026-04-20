@@ -289,14 +289,14 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     }
 
     // Use existing repository backend PR creation
-    const prInfo = await this.repositoryBackend.createPullRequest(
-      options.title,
-      options.description,
-      options.sourceBranch || "HEAD",
-      options.targetBranch || "main",
-      options.sessionId,
-      options.isDraft
-    );
+    const prInfo = await this.repositoryBackend.pr.create({
+      title: options.title,
+      body: options.description,
+      sourceBranch: options.sourceBranch || "HEAD",
+      baseBranch: options.targetBranch || "main",
+      session: options.sessionId,
+      draft: options.isDraft,
+    });
 
     // Convert PRInfo to changeset
     const changeset = await this.get(prInfo.number.toString());
@@ -320,7 +320,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     }
 
     // Use existing repository backend update method
-    const _prInfo = await this.repositoryBackend.updatePullRequest({
+    const _prInfo = await this.repositoryBackend.pr.update({
       prIdentifier: parseInt(id),
       title: updates.title,
       body: updates.description,
@@ -346,7 +346,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       await this.isAvailable();
     }
 
-    const mergeInfo = await this.repositoryBackend.mergePullRequest(parseInt(id));
+    const mergeInfo = await this.repositoryBackend.pr.merge(parseInt(id));
 
     return {
       success: true,
@@ -365,7 +365,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       await this.isAvailable();
     }
 
-    const approvalInfo = await this.repositoryBackend.approvePullRequest(parseInt(id), comment);
+    const approvalInfo = await this.repositoryBackend.review.approve(parseInt(id), comment);
 
     return {
       success: true,
@@ -387,7 +387,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     }
 
     // Get diff information from repository backend
-    const diffInfo = await this.repositoryBackend.getPullRequestDiff({
+    const diffInfo = await this.repositoryBackend.pr.getDiff({
       prIdentifier: parseInt(id),
     });
 

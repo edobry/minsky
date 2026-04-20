@@ -248,7 +248,7 @@ export async function sessionReviewImpl(
       );
 
       // Fetch PR details; if GitHub, backend infers PR number from session
-      const details = await backend.getPullRequestDetails({ session: sessionIdToUse });
+      const details = await backend.pr.get({ session: sessionIdToUse });
       if (details) {
         if (details.headBranch) result.prBranch = details.headBranch;
         if (details.baseBranch) result.baseBranch = details.baseBranch;
@@ -257,7 +257,7 @@ export async function sessionReviewImpl(
       }
 
       // Fetch diff
-      const diffInfo = await backend.getPullRequestDiff({ session: sessionIdToUse });
+      const diffInfo = await backend.pr.getDiff({ session: sessionIdToUse });
       if (diffInfo) {
         result.diff = diffInfo.diff;
         if (diffInfo.stats) {

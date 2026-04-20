@@ -92,7 +92,7 @@ export interface SessionApprovalDependencies {
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Checks if already approved
- * 3. Calls repositoryBackend.approvePullRequest()
+ * 3. Calls repositoryBackend.review.approve()
  * 4. Updates session record with prApproved: true
  */
 export async function approveSessionPr(
@@ -196,10 +196,7 @@ export async function approveSessionPr(
     log.cli(`✅ Approving ${displayName}`);
   }
 
-  const approvalInfo = await repositoryBackend.approvePullRequest(
-    prIdentifier,
-    params.reviewComment
-  );
+  const approvalInfo = await repositoryBackend.review.approve(prIdentifier, params.reviewComment);
 
   // Note: Repository backend handles approval storage:
   // - GitHub backend: stores approval in GitHub

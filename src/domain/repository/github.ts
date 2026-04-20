@@ -9,7 +9,8 @@ import { execGitWithTimeout } from "../../utils/git-exec";
 import { MinskyError } from "../../errors/index";
 import type { RepositoryStatus } from "./legacy-types";
 import type {
-  RepositoryBackend,
+  ForgeBackend,
+  ForgeType,
   RepositoryBackendConfig,
   CloneResult,
   BranchResult,
@@ -17,8 +18,15 @@ import type {
   RepoStatus,
   PRInfo,
   MergeInfo,
+  CreatePROptions,
+  UpdatePROptions,
+  PullRequestOperations,
+  CIStatusOperations,
+  ReviewOperations,
 } from "./index";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
+import type { ChecksResult } from "./github-pr-checks";
+import { getCheckRunsForRef } from "./github-pr-checks";
 import type { Octokit } from "@octokit/rest";
 import {
   createPullRequest as createPR,
@@ -45,7 +53,7 @@ const HTTP_FORBIDDEN = 403;
  * GitHub Repository Backend implementation
  * Handles cloning, branching and other operations for GitHub repositories
  */
-export class GitHubBackend implements RepositoryBackend {
+export class GitHubBackend implements ForgeBackend {
   private readonly baseDir: string;
   private readonly repoUrl!: string;
   private readonly repoName!: string;
@@ -54,6 +62,7 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly sessionDB: SessionProviderInterface;
   private gitService: GitService;
   private readonly tokenProvider: TokenProvider;
+  readonly forgeType: ForgeType = "github";
 
   /**
    * Create a new GitHubBackend instance
@@ -576,113 +585,111 @@ Repository: https://github.com/${this.owner}/${this.repo}
     return findPRNumberForBranch(branchName, gh, octokit);
   }
 
-  // ── PR lifecycle (delegated to github-pr-operations) ────────────────
+  // ── Grouped sub-interface properties ─────────────────────────────────
 
-  /**
-   * Create a GitHub pull request using the GitHub API
-   */
-  async createPullRequest(
-    title: string,
-    body: string,
-    sourceBranch: string,
-    baseBranch: string = "main",
-    session?: string,
-    draft?: boolean
-  ): Promise<PRInfo> {
-    const gh = this.requireGitHubContext();
+  get pr(): PullRequestOperations {
+    return {
+      create: async (options: CreatePROptions): Promise<PRInfo> => {
+        const gh = this.requireGitHubContext();
 
-    let workdir: string;
-    if (session) {
-      const sessionDB = await this.getSessionDB();
-      const record = await sessionDB.getSession(session);
-      if (!record) {
-        throw new MinskyError(`Session '${session}' not found in database`);
-      }
-      workdir = await sessionDB.getSessionWorkdir(session);
-    } else {
-      workdir = process.cwd();
-    }
+        let workdir: string;
+        if (options.session) {
+          const sessionDB = await this.getSessionDB();
+          const record = await sessionDB.getSession(options.session);
+          if (!record) {
+            throw new MinskyError(`Session '${options.session}' not found in database`);
+          }
+          workdir = await sessionDB.getSessionWorkdir(options.session);
+        } else {
+          workdir = process.cwd();
+        }
 
-    return createPR(
-      gh,
-      title,
-      body,
-      sourceBranch,
-      baseBranch,
-      workdir,
-      session,
-      draft || false,
-      () => this.getSessionDB()
-    );
+        return createPR(
+          gh,
+          options.title,
+          options.body,
+          options.sourceBranch,
+          options.baseBranch,
+          workdir,
+          options.session,
+          options.draft || false,
+          () => this.getSessionDB()
+        );
+      },
+
+      update: async (options: UpdatePROptions): Promise<PRInfo> => {
+        const gh = this.requireGitHubContext();
+        return updatePR(gh, options, () => this.getSessionDB());
+      },
+
+      merge: async (prIdentifier: string | number, _session?: string): Promise<MergeInfo> => {
+        const gh = this.requireGitHubContext();
+        return mergePR(gh, prIdentifier, (prNum: number, octokit: Octokit) =>
+          diagnoseMergeBlocker(gh, prNum, octokit)
+        );
+      },
+
+      get: async (options: { prIdentifier?: string | number; session?: string }) => {
+        const gh = this.requireGitHubContext();
+        return getPRDetails(
+          gh,
+          options,
+          () => this.getSessionDB(),
+          (branch) => this.findPRNumberForBranch(branch)
+        );
+      },
+
+      getDiff: async (options: { prIdentifier?: string | number; session?: string }) => {
+        const gh = this.requireGitHubContext();
+        return getPRDiff(
+          gh,
+          options,
+          () => this.getSessionDB(),
+          (branch) => this.findPRNumberForBranch(branch)
+        );
+      },
+    };
   }
 
-  /**
-   * Update an existing GitHub pull request
-   */
-  async updatePullRequest(options: {
-    prIdentifier?: string | number;
-    title?: string;
-    body?: string;
-    session?: string;
-  }): Promise<PRInfo> {
-    const gh = this.requireGitHubContext();
-    return updatePR(gh, options, () => this.getSessionDB());
+  get ci(): CIStatusOperations {
+    return {
+      getChecksForRef: async (headSha: string): Promise<ChecksResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return getCheckRunsForRef(gh, headSha, octokit);
+      },
+
+      getChecksForPR: async (prNumber: number): Promise<ChecksResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+
+        const { data: pr } = await octokit.rest.pulls.get({
+          owner: gh.owner,
+          repo: gh.repo,
+          pull_number: prNumber,
+        });
+
+        return getCheckRunsForRef(gh, pr.head.sha, octokit);
+      },
+    };
   }
 
-  /**
-   * Merge a GitHub pull request using the GitHub API
-   */
-  async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
-    const gh = this.requireGitHubContext();
-    return mergePR(gh, prIdentifier, (prNum: number, octokit: Octokit) =>
-      diagnoseMergeBlocker(gh, prNum, octokit)
-    );
-  }
+  get review(): ReviewOperations {
+    return {
+      approve: async (
+        prIdentifier: string | number,
+        reviewComment?: string
+      ): Promise<ApprovalInfo> => {
+        const gh = this.requireGitHubContext();
+        return approvePR(gh, prIdentifier, reviewComment);
+      },
 
-  /**
-   * Backend-agnostic PR detail retrieval for GitHub
-   */
-  async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
-    const gh = this.requireGitHubContext();
-    return getPRDetails(
-      gh,
-      options,
-      () => this.getSessionDB(),
-      (branch) => this.findPRNumberForBranch(branch)
-    );
-  }
-
-  /**
-   * Backend-agnostic PR diff retrieval for GitHub
-   */
-  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
-    const gh = this.requireGitHubContext();
-    return getPRDiff(
-      gh,
-      options,
-      () => this.getSessionDB(),
-      (branch) => this.findPRNumberForBranch(branch)
-    );
-  }
-
-  // ── PR approval (delegated to github-pr-approval) ───────────────────
-
-  /**
-   * Approve a GitHub pull request
-   */
-  async approvePullRequest(
-    prIdentifier: string | number,
-    reviewComment?: string
-  ): Promise<ApprovalInfo> {
-    const gh = this.requireGitHubContext();
-    return approvePR(gh, prIdentifier, reviewComment);
-  }
-
-  /**
-   * Get approval status for a GitHub pull request
-   */
-  async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
-    const gh = this.requireGitHubContext();
-    return getApprovalStatus(gh, prIdentifier);
+      getApprovalStatus: async (prIdentifier: string | number): Promise<ApprovalStatus> => {
+        const gh = this.requireGitHubContext();
+        return getApprovalStatus(gh, prIdentifier);
+      },
+    };
   }
 }

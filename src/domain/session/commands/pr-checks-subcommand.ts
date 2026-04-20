@@ -15,15 +15,11 @@ import {
   getErrorMessage,
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
-import { createOctokit } from "../../repository/github-pr-operations";
-import { extractGitHubInfoFromUrl } from "../repository-backend-detection";
-import { getCheckRunsForRef, type ChecksResult } from "../../repository/github-pr-checks";
-import { FallbackTokenProvider, type TokenProvider } from "../../auth";
+import type { ChecksResult } from "../../repository/index";
+import { createRepositoryBackendFromSession } from "../session-pr-operations";
 
 export interface SessionPrChecksDependencies {
   sessionDB: SessionProviderInterface;
-  /** Optional token provider for GitHub API authentication. Falls back to config when omitted. */
-  tokenProvider?: TokenProvider;
 }
 
 export interface SessionPrChecksParams {
@@ -65,14 +61,6 @@ export async function sessionPrChecks(
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
     }
 
-    // Require GitHub backend
-    if (sessionRecord.backendType !== "github") {
-      throw new ValidationError(
-        `session.pr.checks only supports GitHub-backed sessions. ` +
-          `This session uses backend: ${sessionRecord.backendType ?? "unknown"}`
-      );
-    }
-
     // Require an existing PR
     const prNumber = sessionRecord.pullRequest?.number;
     if (!prNumber) {
@@ -82,41 +70,15 @@ export async function sessionPrChecks(
       );
     }
 
-    // Resolve owner/repo from the session's remote URL
-    const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl ?? "");
-    if (!githubInfo) {
-      throw new MinskyError(
-        `Could not extract GitHub owner/repo from session URL: ${sessionRecord.repoUrl}`
-      );
-    }
-    const gh = githubInfo;
-
-    // Authenticate — use injected provider or fall back to config
-    const tokenProvider =
-      deps.tokenProvider ??
-      (() => {
-        const { getConfiguration } = require("../../configuration/index");
-        const config = getConfiguration();
-        const token = config.github?.token || "";
-        return new FallbackTokenProvider(token);
-      })();
-    const token = await tokenProvider.getServiceToken();
-    const octokit = createOctokit(token);
+    // Create repository backend from session record
+    const backend = await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
 
     /**
-     * Inner helper: fetch the head SHA from the PR and then retrieve checks.
+     * Inner helper: fetch checks via the backend's CI sub-interface.
      */
     async function fetchChecks(): Promise<ChecksResult> {
-      const { data: pr } = await octokit.rest.pulls.get({
-        owner: gh.owner,
-        repo: gh.repo,
-        pull_number: prNumber!,
-      });
-
-      const headSha: string = pr.head.sha;
-      log.debug(`Fetching checks for PR #${prNumber} (SHA: ${headSha})`);
-
-      return getCheckRunsForRef(gh, headSha, octokit);
+      log.debug(`Fetching checks for PR #${prNumber}`);
+      return backend.ci.getChecksForPR(prNumber as number);
     }
 
     // Non-wait mode: single fetch

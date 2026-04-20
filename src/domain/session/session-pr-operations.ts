@@ -315,14 +315,14 @@ Please provide a title for your pull request:
 
     // Use repository backend to create pull request
     const baseBranch = params.baseBranch || "main";
-    const prInfo = await repositoryBackend.createPullRequest(
-      preparedContent.title,
-      preparedContent.body,
-      currentBranch,
+    const prInfo = await repositoryBackend.pr.create({
+      title: preparedContent.title,
+      body: preparedContent.body,
+      sourceBranch: currentBranch,
       baseBranch,
-      sessionId,
-      params.draft || false
-    );
+      session: sessionId,
+      draft: params.draft || false,
+    });
 
     log.cli(`✅ Pull request created successfully!`);
 
