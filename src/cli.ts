@@ -71,7 +71,7 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   if (needsAll || requestedCommand === "mcp") {
     const { createMCPCommand } = await import("./commands/mcp/index");
-    cli.addCommand(await createMCPCommand());
+    cli.addCommand(await createMCPCommand(container));
   }
   if (needsAll || requestedCommand === "github") {
     const { createGitHubCommand } = await import("./commands/github/index");
