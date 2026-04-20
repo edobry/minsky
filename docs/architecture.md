@@ -296,21 +296,42 @@ Rule selection configuration (presets, explicitly enabled/disabled IDs) is store
 
 ## 6. Dependency Injection
 
-Domain code never references the DI container directly. It receives typed dependency bundles
-(e.g., `SessionDeps`) assembled by composition roots.
+The codebase uses [tsyringe](https://github.com/microsoft/tsyringe) for constructor-based
+dependency injection. Domain code never references the DI container directly — it receives
+typed dependency bundles (e.g., `SessionDeps`) assembled by composition roots.
 
 ### Container
 
-`AppContainer` (`src/composition/container.ts`) is a lightweight (~100 lines) typed container:
+`TsyringeContainer` (`src/composition/container.ts`) wraps tsyringe's `DependencyContainer`,
+implementing `AppContainerInterface` with async lifecycle support:
 
-- `register(key, factory, options?)` — registers a factory function; returns `this` for chaining
+- `register(key, factory, options?)` — stores a factory; returns `this` for chaining
 - `set(key, instance)` — provides a pre-built instance (used in tests)
 - `get(key)` — retrieves a resolved instance; throws if `initialize()` not called first
 - `initialize()` — resolves all factories in registration order (sequential, supports async)
 - `close()` — disposes services in reverse registration order
 
 Registration order determines dependency resolution. Each factory may call `container.get()`
-to access earlier-registered services.
+to access earlier-registered services. Async factories are bridged via `useValue` registration
+into tsyringe after resolution.
+
+### Tokens
+
+String-based injection tokens are defined in `src/composition/tokens.ts`:
+
+```typescript
+export const TOKENS = {
+  persistence: "persistence",
+  sessionProvider: "sessionProvider",
+  sessionDeps: "sessionDeps",
+  gitService: "gitService",
+  taskService: "taskService",
+  workspaceUtils: "workspaceUtils",
+  repositoryBackend: "repositoryBackend",
+} as const;
+```
+
+These match the keys in the `AppServices` interface (`src/composition/types.ts`).
 
 ### Service map
 
@@ -328,23 +349,42 @@ interface AppServices {
 
 Source: `src/composition/types.ts`
 
+### Decorators
+
+Service classes use tsyringe decorators:
+
+- `@injectable()` — marks a class for DI participation
+- `@inject("tokenName")` — injects a dependency by token on a constructor parameter
+
+Eight core services are currently decorated. Services with primitive constructor params
+(e.g., `workspacePath: string`) use `@injectable()` only; services whose constructor
+params match registered tokens also use `@inject()`.
+
+**Polyfill requirement**: `import "reflect-metadata"` must be loaded before any decorated
+class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (test preload).
+
+**tsconfig**: Requires `experimentalDecorators: true` and `emitDecoratorMetadata: true`
+(TC39 standard decorators don't support parameter metadata — TypeScript #57533).
+
 ### DI pattern for domain code
 
 ```
-  AppContainer (composition root)
+  TsyringeContainer (composition root)
        |  register factories
        v
   container.initialize()
-       |  resolves in order
+       |  resolves in order, registers into tsyringe
        v
   container.get("sessionDeps") → SessionDeps
        |  passed to
        v
-  new SessionService(deps)     ← domain code sees only SessionDeps
+  @injectable()
+  class SessionService(@inject("sessionDeps") deps)  ← domain sees only SessionDeps
 ```
 
 Classes are used for stateful services; pure functions for stateless logic.
-The container is wired in `src/composition/cli.ts` (CLI entry) and `src/mcp/server.ts` (MCP).
+The container is wired in `src/composition/cli.ts` (CLI entry) and `src/composition/test.ts`
+(test fakes via `set()`).
 
 ---
 
