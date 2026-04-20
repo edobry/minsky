@@ -39,6 +39,16 @@ function registerAllTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
 ): void {
+  // Guard: container must be initialized before tools are registered.
+  // Tools resolve dependencies lazily on invocation — if persistence isn't
+  // ready by then, users get cryptic "requires a persistence dependency" errors.
+  if (container && !container.has("persistence")) {
+    throw new Error(
+      "registerAllTools called with an uninitialized container. " +
+        "Call container.initialize() before registering MCP tools."
+    );
+  }
+
   // Register debug tools first to ensure they're available for debugging
   registerDebugTools(commandMapper, container);
 
@@ -234,6 +244,13 @@ export function createStartCommand(
           inspectorPort: options.inspectorPort,
           httpConfig: serverConfig.httpConfig,
         });
+
+        // Initialize the DI container before registering tools — MCP commands
+        // bypass the CLI preAction hook, so persistence must be ready here.
+        if (container && !container.has("persistence")) {
+          await container.initialize();
+          log.debug("Container initialized for MCP server");
+        }
 
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
