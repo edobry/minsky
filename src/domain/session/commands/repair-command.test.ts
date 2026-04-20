@@ -92,24 +92,17 @@ describe("analyzePRStateIssues — missing-pr detection", () => {
     expect(missingPRIssues).toHaveLength(0);
   });
 
-  it("skips gracefully when GitHub token is unavailable", async () => {
-    // Ensure no token is set
-    const originalToken = process.env.GITHUB_TOKEN;
-    delete process.env.GITHUB_TOKEN;
-
-    const sessionRecord = makeGitHubSession();
+  it("skips gracefully when repoUrl is not a GitHub URL", async () => {
+    // Use a non-GitHub repoUrl so parseGitHubRepoUrl returns null.
+    // This tests the graceful-skip path without making any real API calls,
+    // keeping the test hermetic (no network, no token dependency).
+    const sessionRecord = makeGitHubSession({
+      repoUrl: "https://gitlab.com/some-org/some-repo.git",
+    });
     const fakeDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     const fakeGit = new FakeGitService();
 
-    // Should not throw — catches the missing-token error silently
-    let issues: Awaited<ReturnType<typeof analyzePRStateIssues>> = [];
-    try {
-      issues = await analyzePRStateIssues(sessionRecord, fakeDB, fakeGit);
-    } finally {
-      if (originalToken !== undefined) {
-        process.env.GITHUB_TOKEN = originalToken;
-      }
-    }
+    const issues = await analyzePRStateIssues(sessionRecord, fakeDB, fakeGit);
 
     const missingPRIssues = issues.filter((i) => i.type === "missing-pr");
     expect(missingPRIssues).toHaveLength(0);
