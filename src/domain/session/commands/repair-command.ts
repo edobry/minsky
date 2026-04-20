@@ -9,10 +9,18 @@
  */
 import { log } from "../../../utils/logger";
 import type { SessionProviderInterface, SessionRecord } from "../types";
+import type { PullRequestInfo } from "../session-db";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
+import { taskIdToBranchName } from "../../tasks/task-id";
+import {
+  findPRNumberForBranch,
+  requireGitHubToken,
+  createOctokit,
+  type GitHubContext,
+} from "../../repository/github-pr-operations";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -36,7 +44,7 @@ export interface SessionRepairResult {
 }
 
 export interface RepairIssue {
-  type: "pr-state" | "backend-sync" | "branch-format" | "workspace" | "task-id";
+  type: "pr-state" | "backend-sync" | "branch-format" | "workspace" | "task-id" | "missing-pr";
   severity: "low" | "medium" | "high" | "critical";
   description: string;
   details?: Record<string, unknown>;
@@ -189,9 +197,31 @@ async function analyzeSessionIssues(
 }
 
 /**
+ * Parse a GitHub URL into owner and repo components.
+ * Supports both HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git).
+ */
+function parseGitHubRepoUrl(repoUrl: string): GitHubContext | null {
+  if (!repoUrl) return null;
+
+  // SSH: git@github.com:owner/repo.git
+  const sshMatch = repoUrl.match(/git@github\.com:([^/]+)\/([^.]+)(?:\.git)?$/);
+  if (sshMatch && sshMatch[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  // HTTPS: https://github.com/owner/repo.git or https://github.com/owner/repo
+  const httpsMatch = repoUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/);
+  if (httpsMatch && httpsMatch[1] && httpsMatch[2]) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+
+  return null;
+}
+
+/**
  * Check for PR state related issues
  */
-async function analyzePRStateIssues(
+export async function analyzePRStateIssues(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
   gitService: GitServiceInterface
@@ -232,6 +262,66 @@ async function analyzePRStateIssues(
       }
     } catch (error) {
       log.debug("Could not check branch existence", { error });
+    }
+  }
+
+  // Check for missing PR metadata when GitHub has a PR for this session's branch
+  if (
+    !sessionRecord.pullRequest &&
+    sessionRecord.taskId &&
+    sessionRecord.backendType === "github"
+  ) {
+    try {
+      const gh = parseGitHubRepoUrl(sessionRecord.repoUrl);
+      if (gh) {
+        const token = requireGitHubToken();
+        const octokit = createOctokit(token);
+        const branchName = taskIdToBranchName(sessionRecord.taskId);
+
+        try {
+          const prNumber = await findPRNumberForBranch(branchName, gh, octokit);
+          const prResponse = await octokit.rest.pulls.get({
+            owner: gh.owner,
+            repo: gh.repo,
+            pull_number: prNumber,
+          });
+          const pr = prResponse.data;
+
+          const prState = pr.merged_at ? "merged" : pr.state === "open" ? "open" : "closed";
+
+          issues.push({
+            type: "missing-pr",
+            severity: "high",
+            description: `Session has no PR metadata but PR #${prNumber} exists on GitHub for branch ${branchName}`,
+            details: {
+              prNumber,
+              prUrl: pr.html_url,
+              prState,
+              headBranch: pr.head.ref,
+              baseBranch: pr.base.ref,
+              createdAt: pr.created_at,
+              mergedAt: pr.merged_at || undefined,
+              author: pr.user?.login || "unknown",
+              nodeId: pr.node_id,
+              id: pr.id,
+            },
+            autoFixable: true,
+          });
+        } catch (lookupError) {
+          // No PR found or lookup failed — skip silently
+          log.debug("Could not find PR for session branch", {
+            session: sessionRecord.session,
+            branch: branchName,
+            error: lookupError,
+          });
+        }
+      }
+    } catch (error) {
+      // GitHub token missing or URL parsing failed — skip silently
+      log.debug("Could not check GitHub for missing PR", {
+        session: sessionRecord.session,
+        error,
+      });
     }
   }
 
@@ -328,6 +418,9 @@ async function applyRepair(
     case "backend-sync":
       return await repairBackendSync(issue, sessionRecord, sessionDB);
 
+    case "missing-pr":
+      return await repairMissingPR(issue, sessionRecord, sessionDB);
+
     default:
       throw new Error(`Unknown repair type: ${issue.type}`);
   }
@@ -420,6 +513,72 @@ async function repairBackendSync(
   return {
     type: "backend-sync",
     description: `Updated backend type: '${recordedType ?? "undefined"}' → '${newBackendType}'`,
+    applied: true,
+  };
+}
+
+/**
+ * Backfill missing PR metadata from GitHub
+ */
+async function repairMissingPR(
+  issue: RepairIssue,
+  sessionRecord: SessionRecord,
+  sessionDB: SessionProviderInterface
+): Promise<RepairAction> {
+  const {
+    prNumber,
+    prUrl,
+    prState,
+    headBranch,
+    baseBranch,
+    createdAt,
+    mergedAt,
+    author,
+    nodeId,
+    id,
+  } = issue.details as {
+    prNumber: number;
+    prUrl: string;
+    prState: "open" | "closed" | "merged";
+    headBranch: string;
+    baseBranch: string;
+    createdAt: string;
+    mergedAt?: string;
+    author: string;
+    nodeId: string;
+    id: number;
+  };
+
+  const pullRequest: PullRequestInfo = {
+    number: prNumber,
+    url: prUrl,
+    state: prState,
+    createdAt,
+    mergedAt,
+    headBranch,
+    baseBranch,
+    github: {
+      id,
+      nodeId,
+      htmlUrl: prUrl,
+      author,
+    },
+    lastSynced: new Date().toISOString(),
+  };
+
+  await sessionDB.updateSession(sessionRecord.session, {
+    pullRequest,
+    prBranch: headBranch,
+    prState: {
+      branchName: headBranch,
+      lastChecked: new Date().toISOString(),
+      ...(mergedAt ? { mergedAt } : {}),
+    },
+  });
+
+  return {
+    type: "missing-pr",
+    description: `Backfilled PR #${prNumber} metadata from GitHub`,
     applied: true,
   };
 }
