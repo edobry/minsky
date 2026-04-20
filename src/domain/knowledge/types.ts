@@ -76,8 +76,10 @@ export interface KnowledgeSourceConfig {
   type: "notion" | "confluence" | "google-docs";
   /** Authentication credentials for the source */
   auth: {
+    /** Direct API token value (takes precedence over tokenEnvVar) */
+    token?: string;
     /** Environment variable containing the API token */
-    tokenEnvVar: string;
+    tokenEnvVar?: string;
     /** Optional environment variable for email (used by some providers) */
     emailEnvVar?: string;
   };

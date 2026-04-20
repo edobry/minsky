@@ -12,7 +12,7 @@ export function isRetryableAIError(error: unknown): boolean {
   const msg = String((error as Error)?.message || "");
   if (/insufficient_quota/i.test(msg)) return false;
   if (error instanceof RateLimitError) return true;
-  return /429|rate.limit|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
+  return /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
 }
 
 interface OpenAIEmbeddingResponse {
