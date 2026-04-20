@@ -1,9 +1,10 @@
 /**
- * Shared session provider cache — canonical lazy singleton.
+ * Shared session provider cache — test infrastructure only.
  *
- * @deprecated All production code should use container.get("sessionProvider")
- * instead. This module survives only for test seams and will be removed once
- * all reach-ins are eliminated.
+ * @deprecated Zero production callers remain. This module exists solely for
+ * test seams (setSharedSessionProvider/resetSharedSessionProvider) used by
+ * taskCommands.test.ts. Can be removed once that test migrates to the test
+ * container (createTestContainer).
  */
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import type { PersistenceProvider } from "../persistence/types";
@@ -17,8 +18,7 @@ export const _cache: { provider: SessionProviderInterface | null } = { provider:
 
 /**
  * @deprecated Use container.get("sessionProvider") instead.
- * This lazy singleton survives only for callers that have not yet migrated
- * to container-based DI. Will be removed once all reach-ins are eliminated.
+ * Zero production callers remain — kept only for test seam compatibility.
  */
 export async function getSharedSessionProvider(
   persistenceProvider?: PersistenceProvider

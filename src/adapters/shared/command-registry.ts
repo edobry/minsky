@@ -48,11 +48,7 @@ export interface CommandExecutionContext {
   format?: string;
   /** Workspace path for the current context */
   workspacePath?: string;
-  /**
-   * DI container — provides access to services without singleton reach-ins.
-   * Available after container.initialize() has been called (i.e., during command execution).
-   * Optional for backward compatibility during the migration period (mt#761).
-   */
+  /** DI container — provides access to services via typed dependency resolution. */
   container?: import("../../composition/types").AppContainerInterface;
 }
 
