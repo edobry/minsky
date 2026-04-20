@@ -35,7 +35,6 @@ describe("Init System Backend Selection", () => {
           backend: backend,
           ruleFormat: "cursor",
           mcp: { enabled: false },
-          mcpOnly: false,
           overwrite: false,
         },
         mockFileSystem
@@ -65,7 +64,6 @@ describe("Init System Backend Selection", () => {
         backend: "minsky",
         ruleFormat: "cursor",
         mcp: { enabled: false },
-        mcpOnly: false,
         overwrite: false,
       },
       mockFileSystem
@@ -85,7 +83,6 @@ describe("Init System Backend Selection", () => {
         backend: "github-issues",
         ruleFormat: "cursor",
         mcp: { enabled: false },
-        mcpOnly: false,
         overwrite: false,
       },
       mockFileSystem
@@ -112,7 +109,6 @@ describe("Init System Backend Selection", () => {
             backend: backend as unknown as "minsky", // cast to satisfy TS; intentionally invalid
             ruleFormat: "cursor",
             mcp: { enabled: false },
-            mcpOnly: false,
             overwrite: false,
           },
           mockFileSystem

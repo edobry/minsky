@@ -69,11 +69,6 @@ const initParams = composeParams(
       description: "Host for MCP network transports",
       required: false,
     },
-    mcpOnly: {
-      schema: z.boolean().optional(),
-      description: "Only configure MCP, skip other initialization steps",
-      required: false,
-    },
   }
 ) satisfies CommandParameterMap;
 
@@ -222,7 +217,7 @@ export function registerInitCommands() {
               port: params.mcpPort ? Number(params.mcpPort) : undefined,
               host: params.mcpHost,
             };
-          } else if (isInteractive() && !params.mcpOnly) {
+          } else if (isInteractive()) {
             // Interactive MCP configuration
             const enableMcp = await confirm({
               message: "Enable MCP (Model Context Protocol) configuration?",
@@ -289,7 +284,6 @@ export function registerInitCommands() {
             }
           }
 
-          const mcpOnly = params.mcpOnly ?? false;
           const overwrite = params.overwrite ?? false;
 
           // Detect repository backend from git remote
@@ -335,7 +329,6 @@ export function registerInitCommands() {
             backend: domainBackend,
             ruleFormat: ruleFormat as "cursor" | "generic" | "minsky",
             mcp,
-            mcpOnly,
             overwrite,
             repository,
           });

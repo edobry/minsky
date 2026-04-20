@@ -16,7 +16,6 @@ export const initParamsSchema = z.object({
   mcpTransport: z.string().optional(),
   mcpPort: z.string().optional(),
   mcpHost: z.string().optional(),
-  mcpOnly: z.boolean().optional(),
   overwrite: z.boolean().optional(),
   workspacePath: z.string().optional(),
 });
