@@ -45,6 +45,14 @@ export class CliCommandFactory {
   }
 
   /**
+   * Set the DI container so CLI execute handlers can access services via context.container.
+   * Called once from the CLI composition root (cli.ts) after container creation.
+   */
+  setContainer(container: import("../../../composition/types").AppContainerInterface): void {
+    this.cliBridge.setContainer(container);
+  }
+
+  /**
    * Initialize the factory with configuration
    */
   initialize(config?: Partial<CliFactoryConfig>): void {
