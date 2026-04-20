@@ -30,7 +30,6 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 
 // Re-export content helpers for consumers that may reference them
 export {
-  getMinskyConfigContent,
   getMinskyConfigContentYaml,
   getLocalConfigContentYaml,
   getMCPConfigContent,
@@ -54,7 +53,6 @@ export const initializeProjectParamsSchema = z.object({
       host: z.string().optional(),
     })
     .optional(),
-  mcpOnly: z.boolean().optional().default(false),
   overwrite: z.boolean().optional().default(false),
   repository: z
     .object({
@@ -94,7 +92,6 @@ export interface InitializeProjectOptions {
     port?: number;
     host?: string;
   };
-  mcpOnly?: boolean;
   overwrite?: boolean;
   repository?: ResolvedRepositoryConfig;
 }
@@ -104,57 +101,46 @@ export interface InitializeProjectOptions {
  * Orchestrates all project initialization steps.
  */
 export async function initializeProject(
-  {
-    repoPath,
-    backend,
-    ruleFormat,
-    mcp,
-    mcpOnly = false,
-    overwrite = false,
-    repository,
-  }: InitializeProjectOptions,
+  { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
   fileSystem: FsLike = createRealFs()
 ): Promise<void> {
-  // When mcpOnly is true, we only set up MCP configuration and skip other setup
-  if (!mcpOnly) {
-    // Create process/tasks directory structure
-    const tasksDir = path.join(repoPath, "process", "tasks");
-    await createDirectoryIfNotExists(tasksDir, fileSystem);
+  // Create process/tasks directory structure
+  const tasksDir = path.join(repoPath, "process", "tasks");
+  await createDirectoryIfNotExists(tasksDir, fileSystem);
 
-    // Initialize the tasks backend based on user selection
-    switch (backend) {
-      case "github-issues":
-        // GitHub Issues backend uses external GitHub repository - no local files needed
-        // Configuration will be set up in the config file below
-        break;
+  // Initialize the tasks backend based on user selection
+  switch (backend) {
+    case "github-issues":
+      // GitHub Issues backend uses external GitHub repository - no local files needed
+      // Configuration will be set up in the config file below
+      break;
 
-      case "minsky":
-        // Minsky backend uses database - no task files needed
-        // Database configuration will be set up in the config file below
-        break;
+    case "minsky":
+      // Minsky backend uses database - no task files needed
+      // Database configuration will be set up in the config file below
+      break;
 
-      default:
-        throw new Error(`Backend "${backend}" is not supported.`);
-    }
+    default:
+      throw new Error(`Backend "${backend}" is not supported.`);
+  }
 
-    // Create rule file directory
-    const rulesDirPath =
-      ruleFormat === "cursor"
-        ? path.join(repoPath, ".cursor", "rules")
-        : path.join(repoPath, ".ai", "rules");
-    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
+  // Create rule file directory
+  const rulesDirPath =
+    ruleFormat === "cursor"
+      ? path.join(repoPath, ".cursor", "rules")
+      : path.join(repoPath, ".ai", "rules");
+  await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
-    // Generate rules using template system (tolerate missing command registry in tests)
-    try {
-      await generateRulesWithTemplateSystem(
-        rulesDirPath,
-        ruleFormat,
-        overwrite,
-        mcp?.enabled ?? false
-      );
-    } catch (_e) {
-      // Skip rule generation when the command registry isn't available (unit tests)
-    }
+  // Generate rules using template system (tolerate missing command registry in tests)
+  try {
+    await generateRulesWithTemplateSystem(
+      rulesDirPath,
+      ruleFormat,
+      overwrite,
+      mcp?.enabled ?? false
+    );
+  } catch (_e) {
+    // Skip rule generation when the command registry isn't available (unit tests)
   }
 
   // Create main Minsky configuration file with user's backend choice
