@@ -34,7 +34,7 @@ export async function resolveRepository(
   const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
   let repositoryUri: string | undefined;
-  let backendType = RepositoryBackendType.LOCAL;
+  let backendType = RepositoryBackendType.GITHUB;
 
   // 1. Try to resolve from explicit URI
   if (uri) {
@@ -50,8 +50,7 @@ export async function resolveRepository(
       throw new ValidationError(`Session not found: ${session}`);
     }
     repositoryUri = sessionRecord.repoUrl;
-    backendType =
-      (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
+    backendType = RepositoryBackendType.GITHUB;
   }
   // 3. Try to resolve from task ID
   else if (taskId) {
@@ -64,8 +63,7 @@ export async function resolveRepository(
       throw new ValidationError(`No session found for task: ${taskId}`);
     }
     repositoryUri = sessionRecord.repoUrl;
-    backendType =
-      (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
+    backendType = RepositoryBackendType.GITHUB;
   }
   // 4. Try auto-detection from current directory
   else if (autoDetect) {
@@ -88,15 +86,8 @@ export async function resolveRepository(
       ensureFullyQualified: true,
     });
 
-    // Determine backend type based on URI format
-    if (normalized.isLocal) {
-      backendType = RepositoryBackendType.LOCAL;
-    } else {
-      // Default to GITHUB for remote repositories unless specified otherwise
-      if (backendType === RepositoryBackendType.LOCAL) {
-        backendType = RepositoryBackendType.GITHUB;
-      }
-    }
+    // All repositories use the GitHub backend
+    backendType = RepositoryBackendType.GITHUB;
 
     // For local repositories, extract the path
     let path: string | undefined;

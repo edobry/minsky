@@ -1,6 +1,9 @@
 /**
  * Repository Backend Integration Tests
  * Tests for Task #357: Integrate GitHub Issues Backend with Repository Backend Architecture
+ *
+ * Note: LOCAL and REMOTE backend types have been removed (mt#880).
+ * Only GITHUB is supported.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -12,77 +15,35 @@ import {
 import { RepositoryBackendType } from "../repository/index";
 
 describe("Task Backend Compatibility Validation", () => {
-  test("should allow minsky backend with any repository backend", () => {
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "minsky")
-    ).not.toThrow();
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.REMOTE, "minsky")
-    ).not.toThrow();
+  test("should allow minsky backend with GitHub repository backend", () => {
     expect(() =>
       validateTaskBackendCompatibility(RepositoryBackendType.GITHUB, "minsky")
     ).not.toThrow();
   });
 
   test("should allow github-issues backend only with GitHub repository backend", () => {
-    // Should work with GitHub repository backend
     expect(() =>
       validateTaskBackendCompatibility(RepositoryBackendType.GITHUB, "github-issues")
     ).not.toThrow();
-
-    // Should fail with other repository backends
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "github-issues")
-    ).toThrow(/GitHub Issues task backend requires GitHub repository backend/);
-    expect(() =>
-      validateTaskBackendCompatibility(RepositoryBackendType.REMOTE, "github-issues")
-    ).toThrow(/GitHub Issues task backend requires GitHub repository backend/);
-  });
-
-  test("should provide helpful error message for incompatible backend", () => {
-    try {
-      validateTaskBackendCompatibility(RepositoryBackendType.LOCAL, "github-issues");
-      expect.unreachable("Should have thrown an error");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      expect(message).toContain("GitHub Issues task backend requires GitHub repository backend");
-      expect(message).toContain("Current repository backend: local");
-      expect(message).toContain("To use GitHub Issues:");
-      expect(message).toContain("1. Use in a GitHub repository");
-      expect(message).toContain("2. Or switch to the minsky backend");
-    }
   });
 });
 
 describe("Compatible Task Backends Detection", () => {
-  test("should return correct compatible backends for each repository type", () => {
-    // Local and remote repositories support minsky
-    expect(getCompatibleTaskBackends(RepositoryBackendType.LOCAL)).toEqual(["minsky"]);
-    expect(getCompatibleTaskBackends(RepositoryBackendType.REMOTE)).toEqual(["minsky"]);
-
-    // GitHub repositories support minsky and github-issues
+  test("should return correct compatible backends for GitHub repository type", () => {
     expect(getCompatibleTaskBackends(RepositoryBackendType.GITHUB)).toEqual([
       "minsky",
       "github-issues",
     ]);
   });
 
-  test("should correctly identify backend compatibility", () => {
-    // Minsky backend compatible with all
-    expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "minsky")).toBe(true);
-    expect(isTaskBackendCompatible(RepositoryBackendType.REMOTE, "minsky")).toBe(true);
+  test("should correctly identify backend compatibility for GitHub", () => {
     expect(isTaskBackendCompatible(RepositoryBackendType.GITHUB, "minsky")).toBe(true);
-
-    // GitHub issues backend only compatible with GitHub
-    expect(isTaskBackendCompatible(RepositoryBackendType.LOCAL, "github-issues")).toBe(false);
-    expect(isTaskBackendCompatible(RepositoryBackendType.REMOTE, "github-issues")).toBe(false);
     expect(isTaskBackendCompatible(RepositoryBackendType.GITHUB, "github-issues")).toBe(true);
   });
 });
 
 describe("GitHub URL Parsing", () => {
   test("should parse SSH GitHub URLs correctly", async () => {
-    // Import the helper function we created
     const { extractGitHubInfoFromRepoUrl } = await import("./taskService");
     const result = extractGitHubInfoFromRepoUrl("git@github.com:edobry/minsky.git");
     expect(result).toEqual({ owner: "edobry", repo: "minsky" });
@@ -111,31 +72,22 @@ describe("GitHub URL Parsing", () => {
 describe("GitHub Repository Override (New Feature)", () => {
   test("should parse GitHub repository string correctly", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-
     const result = parseGitHubRepoString("microsoft/vscode");
     expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
   });
 
   test("should handle whitespace in repository string", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-
     const result = parseGitHubRepoString("  microsoft/vscode  ");
     expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
   });
 
   test("should return null for invalid repository format", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-
     expect(parseGitHubRepoString("invalid-format")).toBeNull();
     expect(parseGitHubRepoString("too/many/slashes")).toBeNull();
     expect(parseGitHubRepoString("")).toBeNull();
     expect(parseGitHubRepoString("/repo")).toBeNull();
     expect(parseGitHubRepoString("owner/")).toBeNull();
   });
-
-  // Note: Full integration test would require valid workspace and GitHub token
-  // The parsing functionality is thoroughly tested above
 });
-
-// Note: Full TaskService integration tests would require mocking repository backends
-// and setting up test environments, which we'll handle in a separate integration test suite

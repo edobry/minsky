@@ -17,7 +17,7 @@ export interface SessionRecord {
   createdAt: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
-  backendType?: "local" | "remote" | "github"; // Added for repository backend support
+  backendType?: "github"; // Repository backend type — only GitHub is supported
   /** Git branch name created for this session */
   branch?: string;
   prState?: {
@@ -63,7 +63,7 @@ export interface Session {
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
-  backendType?: "local" | "remote" | "github";
+  backendType?: "github";
   github?: {
     owner?: string;
     repo?: string;

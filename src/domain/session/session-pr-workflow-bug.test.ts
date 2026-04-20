@@ -24,7 +24,7 @@ describe("Session PR Workflow Architectural Bug", () => {
         title: "Test PR",
         body: "Test body",
         baseBranch: "main",
-        repo: "/test/repo",
+        repo: "https://github.com/test/repo.git",
         debug: false,
         noStatusUpdate: false,
         draft: false,

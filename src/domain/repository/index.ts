@@ -1,9 +1,8 @@
 /**
  * Repository Backend Interface
  *
- * Defines a common interface for different repository backend implementations.
- * This allows Minsky to support different repository sources (local git, GitHub, etc.)
- * without changing the core session management logic.
+ * Defines a common interface for repository backend implementations.
+ * Currently only the GitHub backend is supported.
  */
 
 export * from "./RepositoryBackend";
@@ -13,8 +12,6 @@ export * from "./approval-types";
 import type { RepositoryStatus } from "./legacy-types";
 import { RepositoryBackendType } from "./legacy-types";
 
-import { getErrorMessage } from "../../errors/index";
-import { execAsync } from "../../utils/exec";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 import type { SessionRecord } from "../session/types";
 import type { SessionProviderInterface } from "../session/types";
@@ -48,7 +45,7 @@ export interface RepositoryBackendConfig {
   /**
    * The type of repository backend to use
    */
-  type: "local" | "remote" | "github";
+  type: "github";
 
   /**
    * Repository URL or path
@@ -394,61 +391,8 @@ export async function createRepositoryBackend(
     throw new Error("Repository URL is required");
   }
 
-  // Backend-specific validation
+  // Backend-specific validation — only GitHub is supported
   switch (config.type) {
-    case RepositoryBackendType.LOCAL: {
-      // For local repositories, validate the path exists (if it's a local path)
-      if (!config.repoUrl.includes("://") && !config.repoUrl.includes("@")) {
-        try {
-          const { stdout } = await execAsync(
-            `test -d "${config.repoUrl}" && echo "exists" || echo "not exists"`
-          );
-          if (stdout.trim() === "not exists") {
-            throw new Error(`Repository path does not exist: ${config.repoUrl}`);
-          }
-        } catch (error) {
-          throw new Error(`Failed to validate local repository _path: ${getErrorMessage(error)}`);
-        }
-      }
-
-      const { LocalGitBackend } = await import("./local");
-      return new LocalGitBackend(config, sessionDB);
-    }
-
-    case RepositoryBackendType.REMOTE: {
-      // For remote repositories, validate URL format and required options
-      if (
-        !config.repoUrl.startsWith("http://") &&
-        !config.repoUrl.startsWith("https://") &&
-        !config.repoUrl.startsWith("git@") &&
-        !config.repoUrl.startsWith("ssh://")
-      ) {
-        throw new Error(`Invalid remote repository URL format: ${config.repoUrl}`);
-      }
-
-      // Validate remote options if provided
-      if (config.remote) {
-        if (
-          config.remote.authMethod &&
-          !["ssh", "https", "token"].includes(config.remote.authMethod)
-        ) {
-          throw new Error(
-            `Invalid auth method: ${config.remote.authMethod}. Must be one of: ssh, https, token`
-          );
-        }
-
-        if (
-          config.remote.depth &&
-          (typeof config.remote.depth !== "number" || config.remote.depth < 1)
-        ) {
-          throw new Error("Clone depth must be a positive number");
-        }
-      }
-
-      const { RemoteGitBackend } = await import("./remote");
-      return new RemoteGitBackend(config, sessionDB);
-    }
-
     case RepositoryBackendType.GITHUB: {
       // For GitHub repositories, validate GitHub-specific options
       if (config.github) {
@@ -476,6 +420,8 @@ export async function createRepositoryBackend(
     }
 
     default:
-      throw new Error(`Unsupported repository backend type: ${config.type}`);
+      throw new Error(
+        `Unsupported repository backend type: ${config.type}. Only "github" is supported.`
+      );
   }
 }

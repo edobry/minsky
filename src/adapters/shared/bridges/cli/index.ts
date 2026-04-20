@@ -10,7 +10,11 @@ export {
   CommandCustomizationManager,
   commandCustomizationManager,
 } from "./command-customization-manager";
-export { CommandGeneratorCore, createCommandGenerator } from "./command-generator-core";
+export {
+  CommandGeneratorCore,
+  createCommandGenerator,
+  type CommandGeneratorDependencies,
+} from "./command-generator-core";
 export { ParameterProcessor, parameterProcessor } from "./parameter-processor";
 export {
   DefaultCommandResultFormatter,
@@ -26,7 +30,7 @@ export type {
   CategoryCommandOptions,
   ParameterMappingOptions,
 } from "./command-customization-manager";
-export type { CliExecutionContext, CommandGeneratorDependencies } from "./command-generator-core";
+export type { CliExecutionContext } from "./command-generator-core";
 export type { CommandResultFormatter } from "./result-formatter";
 export type { CategoryCommandHandlerDependencies } from "./category-command-handler";
 

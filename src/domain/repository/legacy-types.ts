@@ -2,18 +2,16 @@
  * Legacy Repository Types
  *
  * Type definitions originally from the parent repository.ts file.
- * These are the types used by the old-style createRepositoryBackend factory,
- * resolveRepository functions, and legacy backend implementations
- * (localGitBackend.ts, remoteGitBackend.ts).
+ * These are the types used by the createRepositoryBackend factory and
+ * resolveRepository functions.
  */
 import type { UriFormat } from "../uri-utils";
 
 /**
  * Repository backend types supported by the system.
+ * Only GitHub is supported; LOCAL and REMOTE backends have been removed.
  */
 export enum RepositoryBackendType {
-  LOCAL = "local",
-  REMOTE = "remote",
   GITHUB = "github",
 }
 
@@ -104,26 +102,17 @@ export interface RepositoryStatus {
  * Base repository configuration.
  */
 export interface RepositoryConfig {
-  type: RepositoryBackendType | "local" | "remote" | "github";
-  path?: string; // Local repository path
+  type: RepositoryBackendType | "github";
+  path?: string; // Local repository path (legacy field, unused)
   url?: string; // Remote repository URL
   repoUrl?: string; // Alias for url - repository URL
   branch?: string; // Branch to checkout
 }
 
 /**
- * Remote Git repository configuration.
- */
-export interface RemoteGitConfig extends RepositoryConfig {
-  type: RepositoryBackendType.REMOTE;
-  url: string; // Required for remote repositories
-  branch?: string; // Branch to checkout
-}
-
-/**
  * GitHub repository configuration.
  */
-export interface GitHubConfig extends Omit<RemoteGitConfig, "type"> {
+export interface GitHubConfig extends RepositoryConfig {
   type: RepositoryBackendType.GITHUB;
   owner?: string; // GitHub repository owner
   repo?: string; // GitHub repository name

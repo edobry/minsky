@@ -146,7 +146,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: (async () => "/test/repo") as any,
+          resolveRepoPath: (async () => "https://github.com/test/repo.git") as any,
           // Inject fs adapter to avoid real fs ops
           fs: {
             exists: () => false,

@@ -28,11 +28,12 @@ describe("result-handling/filters: parseStatusFilter", () => {
 describe("result-handling/filters: parseBackendFilter", () => {
   it("normalizes valid backends", () => {
     expect(parseBackendFilter("github")).toBe("github");
-    expect(parseBackendFilter("REMOTE")).toBe("remote");
-    expect(parseBackendFilter("local")).toBe("local");
+    expect(parseBackendFilter("GITHUB")).toBe("github");
   });
-  it("returns undefined for invalid", () => {
+  it("returns undefined for invalid or removed backends", () => {
     expect(parseBackendFilter("gitlab" as any)).toBeUndefined();
+    expect(parseBackendFilter("remote" as any)).toBeUndefined();
+    expect(parseBackendFilter("local" as any)).toBeUndefined();
     expect(parseBackendFilter("")).toBeUndefined();
   });
 });

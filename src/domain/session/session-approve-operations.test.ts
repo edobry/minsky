@@ -39,33 +39,22 @@ describe("Session Approval Repository Backend Bug", () => {
     _mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
   });
 
-  /**
-   * BUG: Session approval incorrectly re-detects repository backend type
-   * instead of using the session's stored repository configuration.
-   *
-   * Steps to reproduce:
-   * 1. Session is created with LOCAL repository configuration
-   * 2. Session approval is called for that session
-   * 3. Instead of using session's LOCAL config, it re-detects backend from git remote
-   * 4. This causes wrong backend type to be used (GitHub instead of LOCAL)
-   */
-  it("should use session's stored repository configuration instead of re-detecting backend type", async () => {
-    // Arrange: Session was created with LOCAL repository configuration
-    const localSessionRecord: SessionRecord = {
+  it("should use session's stored repository configuration for GitHub backend", async () => {
+    // Arrange: Session created with GitHub repository configuration
+    const githubSessionRecord: SessionRecord = {
       session: "task335",
-      repoName: "local-minsky",
-      repoUrl: "/Users/edobry/Projects/minsky", // LOCAL path, not GitHub URL
+      repoName: "github-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2025-07-30T23:14:24.213Z",
       taskId: "md#335",
-      // branch removed from persistent schema; tests should not rely on it
-      // Note: no backendType set, which should default to LOCAL based on repoUrl
+      backendType: "github",
     };
 
     // Configure fake session database
-    mockSessionDB = new FakeSessionProvider({ initialSessions: [localSessionRecord] });
+    mockSessionDB = new FakeSessionProvider({ initialSessions: [githubSessionRecord] });
 
-    // Configure mock repository backend for LOCAL type
-    mockRepositoryBackend.getType = mock(() => "local");
+    // Configure mock repository backend for GitHub type
+    mockRepositoryBackend.getType = mock(() => "github");
     mockRepositoryBackend.mergePullRequest = mock(() =>
       Promise.resolve({
         commitHash: "abc123def456",
@@ -92,22 +81,18 @@ describe("Session Approval Repository Backend Bug", () => {
       }
     );
 
-    // Assert: Should use session's LOCAL repository configuration
+    // Assert: Should use session's GitHub repository configuration
     expect(result.session).toBe("task335");
-    expect(result.prBranch).toBe("pr/task335");
 
     // Verify repository backend was created with session's configuration
     expect(mockCreateRepositoryBackendFromSession).toHaveBeenCalledTimes(1);
-    expect(capturedSessionRecord).toEqual(localSessionRecord);
+    expect(capturedSessionRecord).toEqual(githubSessionRecord);
 
-    // Verify LOCAL backend's mergePullRequest was called
+    // Verify GitHub backend's mergePullRequest was called
     expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
-      "pr/task335", // PR branch name for LOCAL backend
+      "task335", // For GitHub backend, session ID is used as PR identifier
       "task335" // Session ID
     );
-
-    // Verify it used LOCAL backend (not GitHub)
-    expect(mockRepositoryBackend.getType).toHaveBeenCalled();
   });
 
   it("should respect session's GitHub backend configuration when explicitly set", async () => {

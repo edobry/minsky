@@ -238,16 +238,10 @@ export async function sessionReviewImpl(
     } else {
       log.debug("No changeset found, falling back to repository backend methods");
 
-      // Fallback to existing repository backend approach
-      const backendType: RepositoryBackendType = ((): RepositoryBackendType => {
-        if (sessionRecord.backendType === "github") return RepositoryBackendType.GITHUB;
-        if (sessionRecord.backendType === "remote") return RepositoryBackendType.REMOTE;
-        return RepositoryBackendType.LOCAL;
-      })();
-
+      // Fallback to repository backend approach — GitHub only
       const backend = await createRepositoryBackend(
         {
-          type: backendType,
+          type: RepositoryBackendType.GITHUB,
           repoUrl: sessionRecord.repoUrl,
         },
         deps.sessionDB

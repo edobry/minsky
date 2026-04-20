@@ -47,7 +47,7 @@ export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDef
             session: params.session as string | undefined,
             task: params.task as string | undefined,
             status: params.status as string | undefined,
-            backend: params.backend as "github" | "remote" | "local" | undefined,
+            backend: params.backend as "github" | undefined,
             since: params.since as string | undefined,
             until: params.until as string | undefined,
             repo: params.repo as string | undefined,

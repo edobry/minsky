@@ -36,12 +36,7 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
   const workspaceUtils = new FakeWorkspaceUtils();
 
   const getRepositoryBackend = vi.fn(async () => {
-    const backendType =
-      repoUrl.startsWith("/") || repoUrl.startsWith("file://")
-        ? "local"
-        : repoUrl.includes("github.com")
-          ? "github"
-          : "remote";
+    const backendType = repoUrl.includes("github.com") ? "github" : "github";
     return { repoUrl, backendType };
   });
   return {
@@ -63,11 +58,11 @@ describe("startSessionImpl - backendType", () => {
     expect(added.backendType).toBe("github");
   });
 
-  it("sets backendType=local for local paths", async () => {
-    const deps = createDeps("/Users/test/Projects/repo");
+  it("sets backendType=github for non-GitHub URLs (only github is supported)", async () => {
+    const deps = createDeps("https://example.com/owner/repo.git");
     const params = { task: "md#999" } as unknown as SessionStartParameters;
     await startSessionImpl(params, deps);
     const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
-    expect(added.backendType).toBe("local");
+    expect(added.backendType).toBe("github");
   });
 });

@@ -36,7 +36,7 @@ export interface SessionRecord {
   repoUrl: string;
   createdAt: string;
   taskId?: string;
-  backendType?: "local" | "remote" | "github";
+  backendType?: "github";
   github?: {
     owner?: string;
     repo?: string;

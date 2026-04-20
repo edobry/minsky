@@ -525,13 +525,13 @@ async function repairBackendSync(
       const { backendType: configBackendType } = await getRepositoryBackendFromConfig();
       newBackendType = configBackendType;
     } catch {
-      newBackendType = "local";
+      newBackendType = "github";
     }
   }
 
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
-    backendType: newBackendType as "local" | "remote" | "github",
+    backendType: newBackendType as "github",
   });
 
   return {

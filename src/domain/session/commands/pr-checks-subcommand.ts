@@ -69,7 +69,7 @@ export async function sessionPrChecks(
     if (sessionRecord.backendType !== "github") {
       throw new ValidationError(
         `session.pr.checks only supports GitHub-backed sessions. ` +
-          `This session uses backend: ${sessionRecord.backendType ?? "local"}`
+          `This session uses backend: ${sessionRecord.backendType ?? "unknown"}`
       );
     }
 

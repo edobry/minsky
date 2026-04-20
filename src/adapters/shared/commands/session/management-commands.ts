@@ -158,18 +158,18 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
           );
         }
 
-        if (targetBackend === "local" && !isLocalPath(firstHop)) {
+        if (targetBackend !== "github") {
           throw new Error(
-            `First-hop origin is not a local path: ${firstHop}. Cannot migrate to local backend from a non-local upstream.`
+            `Unsupported target backend: "${targetBackend}". Only "github" is supported.`
           );
         }
 
         const gh = extractGitHubInfoFromUrl(resolvedRemote);
 
-        const finalTargetUrl = targetBackend === "github" ? resolvedRemote : firstHop;
+        const finalTargetUrl = resolvedRemote;
 
         if (params.dryRun) {
-          const currentBackend = record.backendType || "local";
+          const currentBackend = record.backendType || "github";
           const needsMigration =
             currentBackend !== targetBackend || record.repoUrl !== finalTargetUrl;
 
@@ -217,18 +217,9 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
               .catch(() => {});
             await gitService.execInRepository(workdir, `git remote add local-origin ${firstHop}`);
           }
-          if (targetBackend === "local" && resolvedRemote.includes("github.com")) {
-            await gitService
-              .execInRepository(workdir, `git remote remove github-origin || true`)
-              .catch(() => {});
-            await gitService.execInRepository(
-              workdir,
-              `git remote add github-origin ${resolvedRemote}`
-            );
-          }
         }
 
-        const currentBackend = record.backendType || "local";
+        const currentBackend = record.backendType || "github";
         const needsMigration =
           currentBackend !== targetBackend || record.repoUrl !== finalTargetUrl;
 
@@ -248,16 +239,12 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
           backendType: targetBackend,
         };
 
-        if (targetBackend === "github") {
-          sessionUpdates.prBranch = undefined;
-          sessionUpdates.prState = undefined;
+        // GitHub backend: clear local-only PR state fields
+        sessionUpdates.prBranch = undefined;
+        sessionUpdates.prState = undefined;
 
-          if (gh?.owner && gh?.repo) {
-            sessionUpdates.repoName = `${gh.owner}/${gh.repo}`;
-          }
-        } else if (targetBackend === "local") {
-          sessionUpdates.pullRequest = undefined;
-          sessionUpdates.repoName = "local-minsky";
+        if (gh?.owner && gh?.repo) {
+          sessionUpdates.repoName = `${gh.owner}/${gh.repo}`;
         }
 
         await sessionProvider.updateSession(sessionId, sessionUpdates);

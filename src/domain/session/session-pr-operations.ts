@@ -32,29 +32,25 @@ export interface SessionPrDependencies {
 }
 
 /**
- * Create repository backend from session record's stored configuration
- * instead of auto-detecting from git remote
+ * Create repository backend from session record's stored configuration.
+ * Only GitHub is supported; all sessions use the GitHub backend.
  */
 export async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
-  const backendType = resolveBackendType(sessionRecord.backendType, sessionRecord.repoUrl);
-
   const config: RepositoryBackendConfig = {
-    type: backendType,
+    type: RepositoryBackendType.GITHUB,
     repoUrl: sessionRecord.repoUrl,
   };
 
-  // Add GitHub-specific configuration by parsing from URL
-  if (backendType === RepositoryBackendType.GITHUB) {
-    const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
-    if (githubInfo) {
-      config.github = {
-        owner: githubInfo.owner,
-        repo: githubInfo.repo,
-      };
-    }
+  // Parse GitHub owner/repo from URL
+  const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+  if (githubInfo) {
+    config.github = {
+      owner: githubInfo.owner,
+      repo: githubInfo.repo,
+    };
   }
 
   return await createRepositoryBackend(config, sessionDB);
@@ -348,15 +344,8 @@ Please provide a title for your pull request:
       }
     }
 
-    // Determine correct branch format based on backend type
-    let prBranchName: string;
-    if (sessionRecord?.backendType === "github") {
-      // GitHub backend uses the actual git branch (task/mt-NNN), not the session UUID
-      prBranchName = currentBranch;
-    } else {
-      // Local/remote backends use pr/ prefix format
-      prBranchName = typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`;
-    }
+    // GitHub backend uses the actual git branch (task/mt-NNN), not the session UUID
+    const prBranchName = currentBranch;
 
     return {
       prBranch: prBranchName,
