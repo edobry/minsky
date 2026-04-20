@@ -501,6 +501,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       const octokit = await this.getOctokit();
       const { data: reviews } = await octokit.rest.pulls.listReviews({
         owner: this.owner!,
+
         repo: this.repo!,
         pull_number: prNumber,
       });
@@ -510,6 +511,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           // Get review comments
           const { data: comments } = await octokit.rest.pulls.listCommentsForReview({
             owner: this.owner!,
+
             repo: this.repo!,
             pull_number: prNumber,
             review_id: review.id,
@@ -574,6 +576,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       const octokit = await this.getOctokit();
       const { data: comments } = await octokit.rest.issues.listComments({
         owner: this.owner!,
+
         repo: this.repo!,
         issue_number: prNumber,
       });
@@ -605,6 +608,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       const octokit = await this.getOctokit();
       const { data: commits } = await octokit.rest.pulls.listCommits({
         owner: this.owner!,
+
         repo: this.repo!,
         pull_number: prNumber,
       });

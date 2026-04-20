@@ -101,6 +101,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       // Run SQL migrations generated for PostgreSQL dialect
       // Keep this path aligned with drizzle.pg.config.ts `out` setting
+
       await migrate(this.drizzle!, { migrationsFolder: "./src/domain/storage/migrations/pg" });
     } catch (error) {
       // Log but don't throw - migrations may not exist yet
@@ -134,6 +135,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
 
     // Check if meta table exists in the drizzle schema (Drizzle default)
+
     const existsRes = await this.sql!<{ exists: boolean }[]>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
@@ -147,6 +149,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
 
     // Count applied migrations (qualified schema)
+
     const countRes = await this.sql!<{ count: string }[]>`
       SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
     `;
@@ -328,6 +331,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     await this.ensureConnection();
+
     const results = await this.drizzle!.select().from(postgresSessions);
     log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
     const mapped = results.map((record, index: number) => {
@@ -351,6 +355,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       await this.ensureConnection();
       const insertData = toPostgresInsert(entity);
+
       await this.drizzle!.insert(postgresSessions).values(insertData);
       return entity;
     } catch (error) {
@@ -375,6 +380,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Merge updates
       const updated = { ...existing, ...updates };
       const insertData = toPostgresInsert(updated);
+
       await this.drizzle!.update(postgresSessions)
         .set(insertData)
         .where(eq(postgresSessions.session, id));
@@ -393,6 +399,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async deleteEntity(id: string): Promise<boolean> {
     await this.ensureConnection();
+
     const deleted = await this.drizzle!.delete(postgresSessions)
       .where(eq(postgresSessions.session, id))
       .returning({ session: postgresSessions.session });

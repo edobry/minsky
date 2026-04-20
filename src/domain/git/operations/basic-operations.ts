@@ -155,14 +155,23 @@ export class CommitOperation extends BaseGitOperation<
     // Handle staging if not disabled
     if (!params.noStage) {
       if (params.all) {
-        await gitService.stageAll!(params.repo);
+        if (!gitService.stageAll) {
+          throw new Error("Git service does not support stageAll operation");
+        }
+        await gitService.stageAll(params.repo);
       } else {
-        await gitService.stageModified!(params.repo);
+        if (!gitService.stageModified) {
+          throw new Error("Git service does not support stageModified operation");
+        }
+        await gitService.stageModified(params.repo);
       }
     }
 
     // Commit changes
-    const commitHash = await gitService.commit!(params.message, params.repo, params.amend);
+    if (!gitService.commit) {
+      throw new Error("Git service does not support commit operation");
+    }
+    const commitHash = await gitService.commit(params.message, params.repo, params.amend);
 
     return {
       commitHash,
@@ -183,6 +192,7 @@ export class CommitOperation extends BaseGitOperation<
 /**
  * Factory functions for creating basic operations
  */
+
 export const createCloneOperation = (deps?: GitOperationDependencies) => new CloneOperation(deps!);
 
 export const createBranchOperation = (deps?: GitOperationDependencies) =>

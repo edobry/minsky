@@ -91,7 +91,7 @@ export class TaskRoutingService {
     for (const rel of relationships) {
       // If task depends on something (rel.fromTaskId → rel.toTaskId means fromTaskId depends on toTaskId)
       if (dependencyMap.has(rel.fromTaskId)) {
-        dependencyMap.get(rel.fromTaskId)!.push(rel.toTaskId);
+        dependencyMap.get(rel.fromTaskId)?.push(rel.toTaskId);
       }
     }
 
@@ -115,8 +115,8 @@ export class TaskRoutingService {
 
       // Filter out non-existent dependencies and completed ones
       const actualBlockingTasks = blockingTasks
-        .filter((dep) => dep !== null)
-        .filter((dep) => dep!.status !== "DONE" && dep!.status !== "CANCELLED");
+        .filter((dep): dep is { id: string; status: string } => dep !== null)
+        .filter((dep) => dep.status !== "DONE" && dep.status !== "CANCELLED");
 
       // Calculate readiness score (1.0 = no blockers, 0.0 = all blockers pending)
       const totalDeps = blockedBy.length;
@@ -128,7 +128,7 @@ export class TaskRoutingService {
         title: task.title || "Unknown",
         status: task.status,
         readinessScore,
-        blockedBy: actualBlockingTasks.map((dep) => dep!.id),
+        blockedBy: actualBlockingTasks.map((dep) => dep.id),
         backend: task.id.includes("#") ? task.id.split("#")[0] : undefined,
         // TODO: Add priority and effort when available in task metadata
       };
@@ -265,7 +265,8 @@ export class TaskRoutingService {
     depth: number,
     depths: Map<string, number>
   ): Promise<void> {
-    if (depths.has(taskId) && depths.get(taskId)! <= depth) {
+    const existingDepth = depths.get(taskId);
+    if (existingDepth !== undefined && existingDepth <= depth) {
       return; // Already processed with shorter or equal depth
     }
 

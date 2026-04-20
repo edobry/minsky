@@ -145,13 +145,16 @@ export const ToolSchemasComponent: ContextComponent = {
       if (shouldFilterByQuery) {
         try {
           // NEW: Query-aware tool filtering using ToolSimilarityService
+          // persistenceProvider is guaranteed non-null here because shouldFilterByQuery
+          // requires Boolean(context.persistenceProvider) to be true
+
           const toolSimilarityService = await createToolSimilarityService(
             {},
             context.persistenceProvider!
           );
 
           const relevantTools = await toolSimilarityService.findRelevantTools({
-            query: userQuery!,
+            query: userQuery as string,
             limit: 20, // Configurable limit - default reduces from 50+ to 20 tools
             threshold: 0.1, // Low threshold to be inclusive while still filtering
           });
@@ -195,8 +198,8 @@ export const ToolSchemasComponent: ContextComponent = {
           const allCommands = registry.getAllCommands();
           originalToolCount = allCommands.length;
           reductionPercentage =
-            originalToolCount! > 0
-              ? Math.round(((originalToolCount! - totalTools) / originalToolCount!) * 100)
+            originalToolCount > 0
+              ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
               : 0;
           filteredBy = "user-query";
         } catch (error) {

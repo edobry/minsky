@@ -157,7 +157,9 @@ export class TaskServiceImpl implements TaskService {
     const results: Task[] = [];
     for (const b of this.backends) {
       const list = await b.listTasks(options);
-      results.push(...list.map((t) => this.qualifyTaskFromBackend(t, b)!));
+      results.push(
+        ...list.map((t) => this.qualifyTaskFromBackend(t, b)).filter((t): t is Task => t !== null)
+      );
     }
     return results;
   }
@@ -252,11 +254,18 @@ export class TaskServiceImpl implements TaskService {
     for (const [backend, backendIds] of byBackend) {
       if (typeof backend.getTasks === "function") {
         const tasks = await backend.getTasks(backendIds);
-        results.push(...tasks.map((t) => this.qualifyTaskFromBackend(t, backend)!));
+        results.push(
+          ...tasks
+            .map((t) => this.qualifyTaskFromBackend(t, backend))
+            .filter((t): t is Task => t !== null)
+        );
       } else {
         for (const id of backendIds) {
           const t = await backend.getTask(id);
-          if (t) results.push(this.qualifyTaskFromBackend(t, backend)!);
+          if (t) {
+            const qualified = this.qualifyTaskFromBackend(t, backend);
+            if (qualified) results.push(qualified);
+          }
         }
       }
     }
@@ -266,7 +275,8 @@ export class TaskServiceImpl implements TaskService {
       for (const b of this.backends) {
         const t = await b.getTask(id);
         if (t) {
-          results.push(this.qualifyTaskFromBackend(t, b)!);
+          const qualified = this.qualifyTaskFromBackend(t, b);
+          if (qualified) results.push(qualified);
           break;
         }
       }
@@ -375,7 +385,11 @@ export class TaskServiceImpl implements TaskService {
     }
 
     const created = await backend.createTaskFromTitleAndSpec(title, spec, options);
-    return this.qualifyTaskFromBackend(created, backend)!;
+    const qualified = this.qualifyTaskFromBackend(created, backend);
+    if (!qualified) {
+      throw new Error(`Failed to qualify created task from backend: ${backend.name}`);
+    }
+    return qualified;
   }
 
   async getBackendForTask(taskId: string): Promise<string> {
