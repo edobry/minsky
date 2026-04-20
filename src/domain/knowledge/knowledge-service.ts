@@ -79,10 +79,10 @@ export class KnowledgeService {
   private async createNotionProvider(
     config: KnowledgeSourceConfig
   ): Promise<KnowledgeSourceProvider> {
-    const token = process.env[config.auth.tokenEnvVar];
+    const token = config.auth.token;
     if (!token) {
       throw new Error(
-        `Notion API token not found. Set the "${config.auth.tokenEnvVar}" environment variable.`
+        `Notion API token not found. Provide "auth.token" in the knowledge base configuration.`
       );
     }
 

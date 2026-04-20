@@ -269,40 +269,40 @@ describe("generateSubagentPrompt", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
       expect(result.batches).toBeDefined();
-      expect(result.batches!.length).toBe(2);
+      expect(result.batches?.length).toBe(2);
     });
 
     it("batches 90 files into 3 batches (30 + 30 + 30)", () => {
       const scope = Array.from({ length: 90 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
       expect(result.batches).toBeDefined();
-      expect(result.batches!.length).toBe(3);
+      expect(result.batches?.length).toBe(3);
     });
 
     it("each batch prompt contains the correct batch number", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      expect(result.batches![0]!.prompt).toContain("Batch 1 of 2");
-      expect(result.batches![1]!.prompt).toContain("Batch 2 of 2");
+      expect(result.batches?.[0]?.prompt).toContain("Batch 1 of 2");
+      expect(result.batches?.[1]?.prompt).toContain("Batch 2 of 2");
     });
 
     it("each batch prompt contains only its own files in the scope section", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
       // Batch 1: files 0-29
-      expect(result.batches![0]!.prompt).toContain("src/file0.ts");
-      expect(result.batches![0]!.prompt).toContain("src/file29.ts");
-      expect(result.batches![0]!.prompt).not.toContain("src/file30.ts");
+      expect(result.batches?.[0]?.prompt).toContain("src/file0.ts");
+      expect(result.batches?.[0]?.prompt).toContain("src/file29.ts");
+      expect(result.batches?.[0]?.prompt).not.toContain("src/file30.ts");
       // Batch 2: files 30-40
-      expect(result.batches![1]!.prompt).toContain("src/file30.ts");
-      expect(result.batches![1]!.prompt).toContain("src/file40.ts");
-      expect(result.batches![1]!.prompt).not.toContain("src/file0.ts");
+      expect(result.batches?.[1]?.prompt).toContain("src/file30.ts");
+      expect(result.batches?.[1]?.prompt).toContain("src/file40.ts");
+      expect(result.batches?.[1]?.prompt).not.toContain("src/file0.ts");
     });
 
     it("non-final batches include intermediate commit instructions", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      expect(result.batches![0]!.prompt).toContain(
+      expect(result.batches?.[0]?.prompt).toContain(
         "Commit this batch before proceeding to the next"
       );
     });
@@ -310,7 +310,7 @@ describe("generateSubagentPrompt", () => {
     it("final batch includes full commit and PR instructions instead of intermediate", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      const lastBatch = result.batches![result.batches!.length - 1]!;
+      const lastBatch = result.batches?.[result.batches?.length - 1]!;
       expect(lastBatch.prompt).not.toContain("Commit this batch before proceeding to the next");
       expect(lastBatch.prompt).toContain(MCP_SESSION_PR_CREATE);
     });
@@ -318,13 +318,13 @@ describe("generateSubagentPrompt", () => {
     it("primary prompt matches the first batch prompt", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      expect(result.prompt).toBe(result.batches![0]!.prompt);
+      expect(result.prompt).toBe(result.batches?.[0]?.prompt ?? "");
     });
 
     it("each batch has correct batchIndex and totalBatches", () => {
       const scope = Array.from({ length: 90 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      result.batches!.forEach((batch, idx) => {
+      result.batches?.forEach((batch, idx) => {
         expect(batch.batchIndex).toBe(idx + 1);
         expect(batch.totalBatches).toBe(3);
       });

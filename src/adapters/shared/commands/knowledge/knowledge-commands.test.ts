@@ -52,7 +52,7 @@ function makeFakeKnowledgeService(syncReports: SyncReport[] = []): () => Knowled
 const SAMPLE_SOURCE: KnowledgeSourceConfig = {
   name: "my-notion",
   type: "notion",
-  auth: { tokenEnvVar: "NOTION_TOKEN" },
+  auth: { token: "test-notion-token" },
   sync: { schedule: "on-demand" },
 };
 
@@ -110,7 +110,7 @@ describe("Knowledge Commands", () => {
       const cmd = registry.getCommand(SEARCH_CMD);
       expect(cmd).toBeDefined();
 
-      const result = (await cmd!.execute({ query: "test query" }, {})) as {
+      const result = (await cmd?.execute({ query: "test query" }, {})) as {
         results: unknown[];
         backend: string;
         degraded: boolean;
@@ -144,7 +144,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
-      const result = (await cmd!.execute({ query: "nothing" }, {})) as {
+      const result = (await cmd?.execute({ query: "nothing" }, {})) as {
         results: unknown[];
         backend: string;
         degraded: boolean;
@@ -167,7 +167,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
-      const result = (await cmd!.execute({ query: "test" }, {})) as {
+      const result = (await cmd?.execute({ query: "test" }, {})) as {
         results: unknown[];
         backend: string;
         degraded: boolean;
@@ -198,7 +198,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SOURCES_CMD);
-      const result = (await cmd!.execute({}, {})) as { sources: unknown[] };
+      const result = (await cmd?.execute({}, {})) as { sources: unknown[] };
 
       expect(result.sources).toHaveLength(1);
       const first = result.sources[0] as { name: string; type: string; syncSchedule: string };
@@ -216,7 +216,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SOURCES_CMD);
-      const result = (await cmd!.execute({}, {})) as { sources: unknown[] };
+      const result = (await cmd?.execute({}, {})) as { sources: unknown[] };
 
       expect(result.sources).toHaveLength(0);
     });
@@ -244,17 +244,15 @@ describe("Knowledge Commands", () => {
 
       const cmd = registry.getCommand(FETCH_CMD);
       await expect(
-        cmd!.execute({ source: "nonexistent-source", documentId: "doc-1" }, {})
+        cmd?.execute({ source: "nonexistent-source", documentId: "doc-1" }, {})
       ).rejects.toThrow('Knowledge source not found: "nonexistent-source"');
     });
 
-    test("throws when source exists but token env var is not set", async () => {
-      // Ensure the env var is not set
-      const tokenVar = "KNOWLEDGE_TEST_TOKEN_THAT_DOES_NOT_EXIST_12345";
+    test("throws when source exists but token is empty", async () => {
       const sourceWithMissingToken: KnowledgeSourceConfig = {
         name: "test-source",
         type: "notion",
-        auth: { tokenEnvVar: tokenVar },
+        auth: { token: "" },
       };
 
       const deps: KnowledgeCommandsDeps = {
@@ -266,8 +264,8 @@ describe("Knowledge Commands", () => {
 
       const cmd = registry.getCommand(FETCH_CMD);
       await expect(
-        cmd!.execute({ source: "test-source", documentId: "doc-1" }, {})
-      ).rejects.toThrow(`API token not found. Set the "${tokenVar}" environment variable.`);
+        cmd?.execute({ source: "test-source", documentId: "doc-1" }, {})
+      ).rejects.toThrow("API token not found");
     });
   });
 
@@ -299,7 +297,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
-      const result = (await cmd!.execute({}, {})) as { reports: SyncReport[] };
+      const result = (await cmd?.execute({}, {})) as { reports: SyncReport[] };
 
       expect(result.reports).toHaveLength(1);
       const firstReport = result.reports[0]!;
@@ -323,12 +321,12 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
-      const result = (await cmd!.execute({ source: "my-notion", force: false }, {})) as {
+      const result = (await cmd?.execute({ source: "my-notion", force: false }, {})) as {
         reports: SyncReport[];
       };
 
       expect(result.reports).toHaveLength(1);
-      expect(result.reports[0]!.sourceName).toBe("my-notion");
+      expect(result.reports[0]?.sourceName).toBe("my-notion");
     });
 
     test("passes force flag to sync service", async () => {
@@ -351,7 +349,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
-      await cmd!.execute({ force: true }, {});
+      await cmd?.execute({ force: true }, {});
 
       expect(capturedOptions?.force).toBe(true);
     });

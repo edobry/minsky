@@ -342,7 +342,7 @@ export function registerSessionChangesetCommands(): void {
         // Delegate to existing session.pr.create
         const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
         if (prCreateCommand) {
-          return await prCreateCommand.execute(params, ctx!);
+          return await prCreateCommand.execute(params, ctx);
         }
         throw new Error("session.pr.create command not available");
       },
@@ -360,7 +360,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
         if (prApproveCommand) {
-          return await prApproveCommand.execute(params, ctx!);
+          return await prApproveCommand.execute(params, ctx);
         }
         throw new Error("session.pr.approve command not available");
       },
@@ -378,7 +378,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
         if (prMergeCommand) {
-          return await prMergeCommand.execute(params, ctx!);
+          return await prMergeCommand.execute(params, ctx);
         }
         throw new Error("session.pr.merge command not available");
       },
@@ -396,7 +396,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prEditCommand = sharedCommandRegistry.getCommand("session.pr.edit");
         if (prEditCommand) {
-          return await prEditCommand.execute(params, ctx!);
+          return await prEditCommand.execute(params, ctx);
         }
         throw new Error("session.pr.edit command not available");
       },
@@ -414,7 +414,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
         if (prCreateCommand) {
-          return await prCreateCommand.execute(params, ctx!);
+          return await prCreateCommand.execute(params, ctx);
         }
         throw new Error("session.pr.create command not available");
       },
@@ -431,7 +431,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
         if (prApproveCommand) {
-          return await prApproveCommand.execute(params, ctx!);
+          return await prApproveCommand.execute(params, ctx);
         }
         throw new Error("session.pr.approve command not available");
       },
@@ -448,7 +448,7 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
         if (prMergeCommand) {
-          return await prMergeCommand.execute(params, ctx!);
+          return await prMergeCommand.execute(params, ctx);
         }
         throw new Error("session.pr.merge command not available");
       },

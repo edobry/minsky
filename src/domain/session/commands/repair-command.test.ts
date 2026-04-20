@@ -207,12 +207,12 @@ describe("FakeSessionProvider backfill simulation", () => {
 
     const updated = await fakeDB.getSession("test-session-id");
     expect(updated).not.toBeNull();
-    expect(updated!.pullRequest).toBeDefined();
-    expect(updated!.pullRequest!.number).toBe(42);
-    expect(updated!.pullRequest!.state).toBe("open");
-    expect(updated!.pullRequest!.headBranch).toBe("task/mt-886");
-    expect(updated!.prBranch).toBe("task/mt-886");
-    expect(updated!.prState?.branchName).toBe("task/mt-886");
+    expect(updated?.pullRequest).toBeDefined();
+    expect(updated?.pullRequest?.number).toBe(42);
+    expect(updated?.pullRequest?.state).toBe("open");
+    expect(updated?.pullRequest?.headBranch).toBe("task/mt-886");
+    expect(updated?.prBranch).toBe("task/mt-886");
+    expect(updated?.prState?.branchName).toBe("task/mt-886");
   });
 
   it("updateSession with mergedAt sets prState.mergedAt", async () => {
@@ -241,8 +241,8 @@ describe("FakeSessionProvider backfill simulation", () => {
     });
 
     const updated = await fakeDB.getSession("test-session-id");
-    expect(updated!.pullRequest!.state).toBe("merged");
-    expect(updated!.pullRequest!.mergedAt).toBe(mergedAt);
-    expect(updated!.prState!.mergedAt).toBe(mergedAt);
+    expect(updated?.pullRequest?.state).toBe("merged");
+    expect(updated?.pullRequest?.mergedAt).toBe(mergedAt);
+    expect(updated?.prState?.mergedAt).toBe(mergedAt);
   });
 });

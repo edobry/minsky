@@ -338,11 +338,11 @@ describe("TaskGraphService (in-memory)", () => {
       ]);
       const deps = await svc.getAllRelationships("depends");
       expect(deps).toHaveLength(1);
-      expect(deps[0]!.type).toBe("depends");
+      expect(deps[0]?.type).toBe("depends");
 
       const parents = await svc.getAllRelationships("parent");
       expect(parents).toHaveLength(1);
-      expect(parents[0]!.type).toBe("parent");
+      expect(parents[0]?.type).toBe("parent");
     });
 
     it("getRelationshipsForTasks filters by task IDs and type", async () => {

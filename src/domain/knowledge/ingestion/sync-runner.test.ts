@@ -130,11 +130,11 @@ describe("runSync", () => {
       const meta = await vectorStorage.getMetadata(id);
 
       expect(meta).not.toBeNull();
-      expect(meta!["sourceType"]).toBe("notion");
-      expect(meta!["sourceName"]).toBe("my-notion");
-      expect(meta!["title"]).toBe("Title doc1");
-      expect(typeof meta!["contentHash"]).toBe("string");
-      expect(meta!["chunkIndex"]).toBe(0);
+      expect(meta?.["sourceType"]).toBe("notion");
+      expect(meta?.["sourceName"]).toBe("my-notion");
+      expect(meta?.["title"]).toBe("Title doc1");
+      expect(typeof meta?.["contentHash"]).toBe("string");
+      expect(meta?.["chunkIndex"]).toBe(0);
     });
 
     it("calls embeddingService once per chunk", async () => {
@@ -235,7 +235,7 @@ describe("runSync", () => {
 
       // Should have at least one error
       expect(report.errors.length).toBeGreaterThanOrEqual(1);
-      expect(report.errors[0]!.documentId).toBe("doc1");
+      expect(report.errors[0]?.documentId).toBe("doc1");
 
       // doc2 should still be stored
       const doc2Id = "test-source:doc2:0";
@@ -260,7 +260,7 @@ describe("runSync", () => {
       });
 
       expect(report.errors).toHaveLength(1);
-      expect(report.errors[0]!.message).toContain("Rate limit exceeded");
+      expect(report.errors[0]?.message).toContain("Rate limit exceeded");
     });
   });
 
@@ -303,8 +303,8 @@ describe("runSync", () => {
 
       const meta0 = await vectorStorage.getMetadata("test-source:big-doc:0");
       expect(meta0).not.toBeNull();
-      expect(typeof meta0!["totalChunks"]).toBe("number");
-      expect(meta0!["totalChunks"] as number).toBeGreaterThanOrEqual(1);
+      expect(typeof meta0?.["totalChunks"]).toBe("number");
+      expect(meta0?.["totalChunks"] as number).toBeGreaterThanOrEqual(1);
     });
   });
 });

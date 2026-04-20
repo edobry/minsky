@@ -11,13 +11,14 @@ let registry: TaskCommandRegistry | null = null;
 // Lazy registry setup function
 export function setupTaskCommandRegistry(container?: AppContainerInterface) {
   if (!registry) {
-    registry = new TaskCommandRegistry();
+    const newRegistry = new TaskCommandRegistry();
 
     // Import and register commands only when needed
     const commands = createAllTaskCommands(container);
     commands.forEach((command) => {
-      registry.register(command);
+      newRegistry.register(command);
     });
+    registry = newRegistry;
   }
 
   return registry;
