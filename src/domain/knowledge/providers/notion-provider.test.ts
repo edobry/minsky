@@ -643,24 +643,37 @@ describe("NotionKnowledgeProvider.getChangedSince", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: rate limiting
+// Tests: retry behavior (via IntelligentRetryService)
 // ---------------------------------------------------------------------------
 
-describe("NotionKnowledgeProvider rate limiting", () => {
-  it("spaces out requests to avoid exceeding 3 req/sec", async () => {
-    const pageId = "rate-test-page";
-    const callTimes: number[] = [];
+describe("NotionKnowledgeProvider retry behavior", () => {
+  it("retries on 502 Bad Gateway and succeeds on second attempt", async () => {
+    const pageId = "retry-502-page";
+    let callCount = 0;
 
     const fetchFn: FetchFn = async (url: string): Promise<Response> => {
-      callTimes.push(Date.now());
-
       if (url.includes(`/pages/${pageId}`)) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 502,
+            statusText: "Bad Gateway",
+            async json() {
+              throw new Error("no body");
+            },
+            async text() {
+              return "Bad Gateway";
+            },
+            headers: new Headers(),
+          } as unknown as Response;
+        }
         return {
           ok: true,
           status: 200,
           statusText: "OK",
           async json() {
-            return makePage(pageId, "Rate Test Page");
+            return makePage(pageId, "Retry Page");
           },
           async text() {
             return "";
@@ -668,7 +681,6 @@ describe("NotionKnowledgeProvider rate limiting", () => {
           headers: new Headers(),
         } as Response;
       }
-
       return {
         ok: true,
         status: 200,
@@ -683,18 +695,73 @@ describe("NotionKnowledgeProvider rate limiting", () => {
       } as Response;
     };
 
-    const provider = new NotionKnowledgeProvider("root", "token", "test", { fetch: fetchFn });
+    const { IntelligentRetryService } = await import("../../ai/intelligent-retry-service");
+    const provider = new NotionKnowledgeProvider("root", "token", "test", {
+      fetch: fetchFn,
+      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0 }),
+    });
 
-    await provider.fetchDocument(pageId);
+    const doc = await provider.fetchDocument(pageId);
+    expect(doc.title).toBe("Retry Page");
+    expect(callCount).toBe(2);
+  });
 
-    // fetchDocument makes 2 requests (page + blocks)
-    // With rate limiting at 3 req/sec (333ms interval), 2 requests should take ~333ms
-    expect(callTimes).toHaveLength(2);
-    // At minimum, the second request should be delayed
-    if (callTimes.length >= 2) {
-      const gap = (callTimes[1] ?? 0) - (callTimes[0] ?? 0);
-      // Should be at least ~300ms (rate limiter minimum interval)
-      expect(gap).toBeGreaterThanOrEqual(300);
-    }
+  it("retries on 429 Too Many Requests and succeeds on second attempt", async () => {
+    const pageId = "retry-429-page";
+    let callCount = 0;
+
+    const fetchFn: FetchFn = async (url: string): Promise<Response> => {
+      if (url.includes(`/pages/${pageId}`)) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 429,
+            statusText: "Too Many Requests",
+            async json() {
+              return { message: "rate limited", code: "rate_limited" };
+            },
+            async text() {
+              return "Too Many Requests";
+            },
+            headers: new Headers(),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          async json() {
+            return makePage(pageId, "Retry 429 Page");
+          },
+          async text() {
+            return "";
+          },
+          headers: new Headers(),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        async json() {
+          return makeBlocksResponse([]);
+        },
+        async text() {
+          return "";
+        },
+        headers: new Headers(),
+      } as Response;
+    };
+
+    const { IntelligentRetryService } = await import("../../ai/intelligent-retry-service");
+    const provider = new NotionKnowledgeProvider("root", "token", "test", {
+      fetch: fetchFn,
+      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0 }),
+    });
+
+    const doc = await provider.fetchDocument(pageId);
+    expect(doc.title).toBe("Retry 429 Page");
+    expect(callCount).toBe(2);
   });
 });

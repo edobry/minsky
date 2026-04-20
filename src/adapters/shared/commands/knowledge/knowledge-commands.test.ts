@@ -267,7 +267,7 @@ describe("Knowledge Commands", () => {
       const cmd = registry.getCommand(FETCH_CMD);
       await expect(
         cmd!.execute({ source: "test-source", documentId: "doc-1" }, {})
-      ).rejects.toThrow(`API token not found. Set the "${tokenVar}" environment variable.`);
+      ).rejects.toThrow("API token not found.");
     });
   });
 
