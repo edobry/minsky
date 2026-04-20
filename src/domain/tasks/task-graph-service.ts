@@ -1,5 +1,5 @@
 import { injectable } from "tsyringe";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 
@@ -38,6 +38,7 @@ interface TaskRelationshipsRepository {
   listTo(taskId: string, type: RelationshipType): Promise<string[]>;
   getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]>;
   getRelationshipsForTasks(taskIds: string[], type?: RelationshipType): Promise<TaskRelationship[]>;
+  getAncestorChain(taskId: string, maxDepth: number): Promise<string[]>;
 }
 
 function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
@@ -127,6 +128,22 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
         .from(taskRelationshipsTable)
         .where(conditions);
       return rows as TaskRelationship[];
+    },
+    async getAncestorChain(taskId: string, maxDepth: number): Promise<string[]> {
+      const result = await db.execute(sql`
+        WITH RECURSIVE ancestors AS (
+          SELECT to_task_id AS ancestor_id, 1 AS depth
+          FROM task_relationships
+          WHERE from_task_id = ${taskId} AND type = 'parent'
+          UNION ALL
+          SELECT tr.to_task_id, a.depth + 1
+          FROM ancestors a
+          JOIN task_relationships tr ON tr.from_task_id = a.ancestor_id AND tr.type = 'parent'
+          WHERE a.depth < ${maxDepth}
+        )
+        SELECT ancestor_id FROM ancestors ORDER BY depth
+      `);
+      return Array.from(result).map((row) => row["ancestor_id"] as string);
     },
   };
 }
@@ -236,34 +253,11 @@ export class TaskGraphService {
 
   /**
    * Walk up the parent chain from a task, returning all ancestors.
-   * Uses batched edge lookups to minimize DB round-trips.
+   * Uses a single recursive CTE query to fetch the entire ancestor chain.
    * Stops at root (no parent) or max depth.
    */
   async getAncestors(taskId: string, maxDepth = 10): Promise<string[]> {
-    const ancestors: string[] = [];
-    let current = taskId;
-    // Prefetch all parent edges for the starting task in one query
-    let parentEdges = await this.repo.getRelationshipsForTasks([current], "parent");
-    const edgeMap = new Map<string, string>();
-    for (const edge of parentEdges) {
-      edgeMap.set(edge.fromTaskId, edge.toTaskId);
-    }
-
-    for (let i = 0; i < maxDepth; i++) {
-      let parent = edgeMap.get(current);
-      if (parent === undefined) {
-        // Not in cache — fetch this node's parent edges (handles walking beyond prefetch)
-        parentEdges = await this.repo.getRelationshipsForTasks([current], "parent");
-        for (const edge of parentEdges) {
-          edgeMap.set(edge.fromTaskId, edge.toTaskId);
-        }
-        parent = edgeMap.get(current);
-      }
-      if (parent === undefined) break;
-      ancestors.push(parent);
-      current = parent;
-    }
-    return ancestors;
+    return this.repo.getAncestorChain(taskId, maxDepth);
   }
 
   /**
