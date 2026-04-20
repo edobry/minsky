@@ -30,6 +30,7 @@ import { tasksConfigSchema, type TasksConfig } from "./tasks";
 import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
 import { rulesConfigSchema, type RulesConfig } from "./rules";
+import { mcpConfigSchema, type McpConfig } from "./mcp";
 
 /**
  * Complete application configuration schema
@@ -70,6 +71,9 @@ export const configurationSchema = z.looseObject({
 
   // Repository backend configuration (project-level, set during minsky init)
   repository: repositoryConfigSchema.optional(),
+
+  // MCP transport configuration (project-level invariants set during minsky init)
+  mcp: mcpConfigSchema,
 }); // looseObject allows extra properties (equivalent to passthrough)
 
 /**
@@ -243,6 +247,7 @@ export type {
   EmbeddingsConfig,
   WorkspaceConfig,
   RulesConfig,
+  McpConfig,
 };
 
 // Re-export schemas for external use
@@ -258,6 +263,7 @@ export {
   embeddingsConfigSchema,
   workspaceConfigSchema,
   rulesConfigSchema,
+  mcpConfigSchema,
 };
 
 // Export the main schema as default
