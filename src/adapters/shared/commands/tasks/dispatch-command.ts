@@ -60,7 +60,7 @@ interface DispatchParams {
 
 export function createTasksDispatchCommand(
   getPersistenceProvider: () => PersistenceProvider,
-  getSessionProvider?: () => Promise<
+  getSessionProvider: () => Promise<
     import("../../../../domain/session/types").SessionProviderInterface
   >
 ) {
@@ -144,20 +144,7 @@ export function createTasksDispatchCommand(
         "../../../../domain/session/resolve-session-directory"
       );
 
-      // Use injected sessionProvider if available, otherwise fall back to container
-      let sessionProvider: import("../../../../domain/session/types").SessionProviderInterface;
-      if (getSessionProvider) {
-        sessionProvider = await getSessionProvider();
-      } else {
-        const { getAppContainer } = await import("../../bridges/cli/command-generator-core");
-        const container = getAppContainer();
-        if (!container?.has("sessionProvider")) {
-          throw new Error(
-            "No sessionProvider available. Pass getSessionProvider or initialize the DI container."
-          );
-        }
-        sessionProvider = container.get("sessionProvider");
-      }
+      const sessionProvider = await getSessionProvider();
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 
