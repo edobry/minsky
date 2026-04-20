@@ -18,7 +18,6 @@ import {
   EnhancedMergeResult,
   SmartUpdateResult,
 } from "./git/conflict-detection";
-import { preparePrImpl } from "./git/prepare-pr-operations";
 import { mergePrImpl } from "./git/merge-pr-operations";
 import { mergeBranchImpl } from "./git/merge-branch-operations";
 import { prWithDependenciesImpl } from "./git/pr-generation-operations";
@@ -68,8 +67,6 @@ import type {
   PrResult,
   PushOptions,
   PushResult,
-  PreparePrOptions,
-  PreparePrResult,
   MergePrOptions,
   MergePrResult,
 } from "./git/types";
@@ -80,7 +77,6 @@ export type * from "./git/types";
 export {
   createPullRequestFromParams,
   commitChangesFromParams,
-  preparePrFromParams,
   mergePrFromParams,
   cloneFromParams,
   branchFromParams,
@@ -254,15 +250,6 @@ export class GitService implements GitServiceInterface {
 
   public async execInRepository(workdir: string, command: string): Promise<string> {
     return execInRepositoryImpl(execAsync, workdir, command);
-  }
-
-  async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
-    return preparePrImpl(options, {
-      sessionDb: await this.getSessionDb(),
-      getSessionWorkdir: this.getSessionWorkdir.bind(this),
-      execInRepository: this.execInRepository.bind(this),
-      push: this.push.bind(this),
-    });
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {

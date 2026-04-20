@@ -82,9 +82,7 @@ export async function sessionPrEdit(
     );
   }
 
-  // For editing, delegate to the repository backend which knows whether conflicts are relevant
-  // GitHub backend: no conflicts needed (server handles it)
-  // Local/Remote backends: may need conflict checking depending on implementation
+  // For editing, delegate to the repository backend; conflicts are not relevant for edits
 
   // Import the function from the correct location
   const { createRepositoryBackendFromSession } = await import("../session-pr-operations");

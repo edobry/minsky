@@ -6,7 +6,6 @@
  */
 import { modularGitCommandsManager, createModularGitCommandsManager } from "./git-commands-modular";
 import type { GitOperationDependencies } from "./operations/base-git-operation";
-import type { PreparePrResult } from "./prepare-pr-operations";
 import type { MergePrResult } from "./merge-pr-operations";
 import type { CloneResult } from "./clone-operations";
 import type { PushResult } from "./push-operations";
@@ -45,22 +44,6 @@ export async function commitChangesFromParams(
 ): Promise<{ commitHash: string; message: string }> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.commitChangesFromParams(params);
-}
-
-/**
- * Interface-agnostic function to prepare a PR branch
- * MODULARIZED: Delegates to modular operation
- */
-export async function preparePrFromParams(params: {
-  session?: string;
-  repo?: string;
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  branchName?: string;
-  debug?: boolean;
-}): Promise<PreparePrResult> {
-  return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
 /**

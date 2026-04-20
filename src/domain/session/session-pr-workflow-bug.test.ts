@@ -70,30 +70,29 @@ describe("Session PR Workflow Architectural Bug", () => {
     it("should demonstrate the correct session workflow layers", () => {
       // This test documents the correct architectural layers that should be used:
 
-      // WRONG (current): Session Command → Git Layer (preparePrFromParams)
+      // WRONG (old): Session Command → Git Layer (preparePrFromParams)
       // ❌ Skips session update
       // ❌ Skips conflict handling on session branch
       // ❌ Creates PR branch too early
       // ❌ Switches user to PR branch
 
-      // CORRECT (required): Session Command → Session PR Operations → Git Layer
+      // CORRECT (current): Session Command → Session PR Operations → Repository Backend
       // ✅ Session update happens first on session branch
       // ✅ Conflicts resolved on session branch
-      // ✅ PR branch created only after session branch is clean
+      // ✅ PR created via GitHub API (no local PR branch needed)
       // ✅ User stays on session branch
 
       const correctLayers = {
         sessionCommand: "src/domain/session/commands/pr-command.ts",
         sessionOperations: "src/domain/session/session-pr-operations.ts", // This should be used
-        gitLayer: "src/domain/git/prepare-pr-operations.ts", // Only called by session operations
+        repositoryBackend: "src/domain/repository/index.ts", // GitHub backend creates the PR
       };
 
-      const currentBrokenImport = "preparePrFromParams from ../../git"; // WRONG
       const _correctImport = "sessionPrImpl from ../session-pr-operations"; // CORRECT
 
       // Test passes when we document the architectural requirement
       expect(correctLayers.sessionOperations).toContain("session-pr-operations");
-      expect(currentBrokenImport).toContain("git"); // This proves the bug exists
+      expect(correctLayers.repositoryBackend).toContain("repository");
     });
   });
 });

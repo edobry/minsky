@@ -10,7 +10,7 @@ import {
   type BaseGitOperationParams,
 } from "./base-git-operation";
 import { type GitServiceInterface } from "../types";
-import { type PreparePrResult, type MergePrResult, type PrResult } from "../types";
+import { type MergePrResult, type PrResult } from "../types";
 
 /**
  * Parameters for create pull request operation
@@ -19,16 +19,6 @@ interface CreatePullRequestParams extends BaseGitOperationParams {
   branch?: string;
   taskId?: string;
   noStatusUpdate?: boolean;
-}
-
-/**
- * Parameters for prepare PR operation
- */
-interface PreparePrParams extends BaseGitOperationParams {
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  branchName?: string;
 }
 
 /**
@@ -75,39 +65,6 @@ export class CreatePullRequestOperation extends BaseGitOperation<
 }
 
 /**
- * Prepare PR operation
- */
-export class PreparePrOperation extends BaseGitOperation<PreparePrParams, PreparePrResult> {
-  getOperationName(): string {
-    return "prepare pull request";
-  }
-
-  async executeOperation(
-    params: PreparePrParams,
-    gitService: GitServiceInterface
-  ): Promise<PreparePrResult> {
-    const result = await gitService.preparePr!({
-      session: params.session,
-      repoPath: params.repo,
-      baseBranch: params.baseBranch,
-      title: params.title,
-      body: params.body,
-      branchName: params.branchName,
-      debug: params.debug,
-    });
-    return result;
-  }
-
-  protected getAdditionalLogContext(params: PreparePrParams): Record<string, unknown> {
-    return {
-      baseBranch: params.baseBranch,
-      title: params.title,
-      branchName: params.branchName,
-    };
-  }
-}
-
-/**
  * Merge PR operation
  */
 export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrResult> {
@@ -141,9 +98,6 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
  */
 export const createCreatePullRequestOperation = (deps?: GitOperationDependencies) =>
   new CreatePullRequestOperation(deps!);
-
-export const createPreparePrOperation = (deps?: GitOperationDependencies) =>
-  new PreparePrOperation(deps!);
 
 export const createMergePrOperation = (deps?: GitOperationDependencies) =>
   new MergePrOperation(deps!);

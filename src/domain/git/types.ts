@@ -165,11 +165,6 @@ export interface GitServiceInterface {
   pr?(options: PrOptions): Promise<PrResult>;
 
   /**
-   * Prepare a pull request
-   */
-  preparePr?(options: PreparePrOptions): Promise<PreparePrResult>;
-
-  /**
    * Merge a pull request
    */
   mergePr?(options: MergePrOptions): Promise<MergePrResult>;
@@ -283,23 +278,6 @@ export interface PushResult {
 
 export interface GitResult {
   workdir: string;
-}
-
-export interface PreparePrOptions {
-  session?: string;
-  repoPath?: string;
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  debug?: boolean;
-  branchName?: string;
-}
-
-export interface PreparePrResult {
-  prBranch: string;
-  baseBranch: string;
-  title?: string;
-  body?: string;
 }
 
 export interface MergePrOptions {

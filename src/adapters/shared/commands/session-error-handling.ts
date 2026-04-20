@@ -31,24 +31,6 @@ Technical details: ${errorMessage}`
     );
   }
 
-  if (errorMessage.includes("Failed to create prepared merge commit")) {
-    throw new MinskyError(
-      `❌ Failed to create PR branch merge commit.
-
-This could be due to:
-• Merge conflicts between your session branch and base branch
-• Remote PR branch already exists with different content
-• Network issues with git operations
-
-💡 Try these solutions:
-• Run 'git status' to check for conflicts
-• Resolve conflicts in your session branch first
-• Check your git remote connection
-
-Technical details: ${errorMessage}`
-    );
-  }
-
   if (errorMessage.includes("Permission denied") || errorMessage.includes("authentication")) {
     throw new MinskyError(
       `🔐 Git authentication error.
