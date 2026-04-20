@@ -145,6 +145,14 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
       // Handle individual task details
       if (typeof result === "object" && result !== null && "task" in result) {
         const taskResult = result as Record<string, unknown>;
+
+        // Prefer the pre-built message — commands build it with full context
+        // (spec content, dep warnings, edit details, etc.) that the generic
+        // formatter below would lose.
+        if (taskResult.message && typeof taskResult.message === "string") {
+          return taskResult.message;
+        }
+
         const task = taskResult.task;
         if (task && typeof task === "object" && !Array.isArray(task)) {
           const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
@@ -154,8 +162,6 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
           let output = `${displayId}: ${taskObj.title}\n`;
           output += `Status: ${taskObj.status}\n`;
 
-          // Note: Task objects don't contain spec content directly
-          // Spec content needs to be fetched separately via getTaskSpecContent
           if (taskObj.spec) {
             output += `Spec: ${taskObj.spec}\n`;
           }
