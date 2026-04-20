@@ -11,7 +11,7 @@ tags: [minsky]
 To ensure all code, test, and configuration changes for a task are made exclusively within the session workspace, maintaining strict isolation and traceability as required by the Minsky workflow.
 
 ## Best Practices Cross-Reference
-- See also: minsky-workflow, dont-ignore-errors
+- See also: orchestrate skill, dont-ignore-errors
 - This rule governs: session workspace integrity, audit trail, progress logging, and tool adaptation.
 
 ## Requirements (Revised)

@@ -167,7 +167,7 @@ Before marking any task as DONE, do a final verification:
 
 For more comprehensive verification of task status, especially when there might be discrepancies between tracked status and actual implementation state, see [task-status-verification](mdc:.cursor/rules/task-status-verification.mdc).
 
-- See [minsky-workflow-orchestrator](mdc:.cursor/rules/minsky-workflow-orchestrator.mdc) for workflow overview
+- See `orchestrate` skill (`.claude/skills/orchestrate/SKILL.md`) for workflow overview
 - See [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) for CLI command reference
 - See [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
 
