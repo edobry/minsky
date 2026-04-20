@@ -237,19 +237,23 @@ Please provide a title for your pull request:
   log.cli("🔍 Checking for conflicts before PR creation...");
 
   try {
-    // Use enhanced update with conflict detection options
-    await updateSessionFromParams({
-      name: sessionId,
-      repo: params.repo,
-      json: false,
-      force: false,
-      noStash: false,
-      noPush: false,
-      dryRun: false,
-      skipConflictCheck: params.skipConflictCheck,
-      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-      skipIfAlreadyMerged: true, // Automatically skip if changes already merged
-    });
+    // Use enhanced update with conflict detection options — pass deps through
+    // so updateSessionFromParams doesn't try to create its own sessionProvider.
+    await updateSessionFromParams(
+      {
+        name: sessionId,
+        repo: params.repo,
+        json: false,
+        force: false,
+        noStash: false,
+        noPush: false,
+        dryRun: false,
+        skipConflictCheck: params.skipConflictCheck,
+        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+        skipIfAlreadyMerged: true, // Automatically skip if changes already merged
+      },
+      { sessionDB: deps.sessionDB, gitService: deps.gitService }
+    );
     log.cli("✅ Session updated successfully");
   } catch (error) {
     const errorMessage = getErrorMessage(error);
