@@ -113,5 +113,3 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 ## See Also
 - See `orchestrate` skill (`.claude/skills/orchestrate/SKILL.md`) for workflow overview
 - See [session-first-workflow.mdc](mdc:.cursor/rules/session-first-workflow.mdc) for detailed file handling in sessions
-
-3. **Reproducibility**: Sessions can be recreated or updated as needed
