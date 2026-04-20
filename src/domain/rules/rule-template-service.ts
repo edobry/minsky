@@ -4,6 +4,7 @@
  * Extends the RuleService with template-based rule generation.
  */
 
+import { injectable } from "tsyringe";
 import * as fs from "fs";
 import * as path from "path";
 import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
@@ -98,6 +99,7 @@ export interface RuleTemplateServiceDeps {
   defaultTemplates?: RuleTemplate[];
 }
 
+@injectable()
 export class RuleTemplateService {
   private ruleService: RuleService;
   private templateRegistry: Map<string, RuleTemplate> = new Map();

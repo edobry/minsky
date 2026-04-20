@@ -5,6 +5,7 @@
  * Handles provider settings, credentials, and validation.
  */
 
+import { injectable } from "tsyringe";
 import { AIConfigurationService, AIProviderConfig } from "./types";
 import { enumSchemas } from "../configuration/schemas/base";
 import { z } from "zod";
@@ -19,6 +20,7 @@ export type AnyConfigService =
   | { loadConfiguration(path?: string): Promise<{ resolved: unknown }> }
   | { getConfig(): Record<string, unknown> };
 
+@injectable()
 export class DefaultAIConfigurationService implements AIConfigurationService {
   constructor(private configService: AnyConfigService) {}
 

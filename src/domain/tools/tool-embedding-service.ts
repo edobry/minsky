@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { createHash } from "crypto";
 import { createLogger } from "../../utils/logger";
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
@@ -17,6 +18,7 @@ export interface ToolEmbeddingServiceConfig {
  * ToolEmbeddingService: embedding-based tool indexing and retrieval
  * Follows patterns from RuleSimilarityService (mt#445)
  */
+@injectable()
 export class ToolEmbeddingService {
   constructor(
     private readonly persistenceProvider: PersistenceProvider,

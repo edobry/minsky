@@ -5,6 +5,7 @@
  * for AI models across different providers.
  */
 
+import { injectable } from "tsyringe";
 import type { TokenizerInfo } from "./types";
 
 /** Common shape of tokenizer instances returned by various libraries */
@@ -58,6 +59,7 @@ export interface TokenizerService {
 /**
  * Default implementation of TokenizerService
  */
+@injectable()
 export class DefaultTokenizerService implements TokenizerService {
   private customTokenizers = new Map<string, TokenizerInfo>();
   private tokenizerCache = new Map<string, unknown>();

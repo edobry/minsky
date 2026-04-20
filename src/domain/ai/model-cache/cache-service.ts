@@ -5,6 +5,7 @@
  * Handles local caching to ~/.cache/minsky/models/ with automatic refresh.
  */
 
+import { injectable } from "tsyringe";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -34,6 +35,7 @@ const DEFAULT_CACHE_CONFIG: CacheConfig = {
 /**
  * Default model cache service implementation
  */
+@injectable()
 export class DefaultModelCacheService implements ModelCacheService {
   private config: CacheConfig;
   private fetchers: Map<string, ModelFetcher> = new Map();

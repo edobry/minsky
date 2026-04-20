@@ -1,4 +1,5 @@
-import { AICompletionService, AIUsage } from "./types";
+import { injectable } from "tsyringe";
+import type { AICompletionService, AIUsage } from "./types";
 import { ChangesetDetails } from "../changeset/adapter-interface";
 import { log } from "../../utils/logger";
 // ConfigurationService removed - using any for configuration
@@ -73,6 +74,7 @@ export interface AIReviewOptions {
   maxTokens?: number;
 }
 
+@injectable()
 export class AIReviewService {
   constructor(private completionService: AICompletionService) {}
 

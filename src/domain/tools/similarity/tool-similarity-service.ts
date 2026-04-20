@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { createToolSimilarityCore } from "./create-tool-similarity-core";
 import {
   sharedCommandRegistry,
@@ -35,6 +36,7 @@ export interface RelevantTool {
  * ToolSimilarityService: embedding-based tool retrieval
  * Follows patterns from TaskSimilarityService and RuleSimilarityService
  */
+@injectable()
 export class ToolSimilarityService {
   constructor(
     private readonly persistenceProvider: PersistenceProvider,

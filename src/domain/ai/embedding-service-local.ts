@@ -1,7 +1,9 @@
+import { injectable } from "tsyringe";
 import type { EmbeddingService } from "./embeddings/types";
 import { getEmbeddingDimension } from "./embedding-models";
 import { getConfiguration } from "../configuration";
 
+@injectable()
 export class LocalEmbeddingService implements EmbeddingService {
   private readonly dimension: number;
   private readonly normalize: boolean;

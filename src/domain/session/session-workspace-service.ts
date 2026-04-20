@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { type SessionProviderInterface } from "../session";
 import { SessionPathResolver, SessionNotFoundError } from "./session-path-resolver";
 import {
@@ -20,6 +21,7 @@ export interface SessionWorkspaceInfo {
  * Service for session-aware workspace operations
  * Bridges session management with workspace backend operations
  */
+@injectable()
 export class SessionWorkspaceService {
   private sessionProvider: SessionProviderInterface;
   private pathResolver: SessionPathResolver;
