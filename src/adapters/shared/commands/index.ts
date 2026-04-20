@@ -11,6 +11,7 @@ import { registerTasksCommands } from "./tasks";
 import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
+import { registerSetupCommands } from "./setup";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -40,6 +41,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register init commands
   registerInitCommands();
+
+  // Register setup commands
+  registerSetupCommands();
 
   // Register config commands
   registerConfigCommands();
@@ -76,6 +80,7 @@ export {
   registerSessionCommands,
   registerRulesCommands,
   registerInitCommands,
+  registerSetupCommands,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,

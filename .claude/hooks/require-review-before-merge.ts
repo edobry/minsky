@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // PreToolUse hook: block session_pr_merge if no review exists on the PR,
-// the review lacks a spec verification section, or the review is stale
-// (covers an older commit than PR HEAD).
-// Ensures code review, spec verification, AND review freshness before merging.
+// the review lacks a spec verification or documentation impact section,
+// or the review is stale (covers an older commit than PR HEAD).
+// Ensures code review, spec verification, documentation impact assessment,
+// AND review freshness before merging.
 
 import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
@@ -62,6 +63,19 @@ if (!hasSpec) {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: `Review on PR #${pr} lacks spec verification section. Use /review-pr to post a review that includes spec verification before merging.`,
+    },
+  });
+  process.exit(0);
+}
+
+// Check that at least one review contains documentation impact assessment
+const hasDocImpact = reviews.some((r) => r.body && /documentation impact/i.test(r.body));
+if (!hasDocImpact) {
+  writeOutput({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `Review on PR #${pr} lacks documentation impact section. Use /review-pr to post a review that includes documentation impact assessment before merging.`,
     },
   });
   process.exit(0);

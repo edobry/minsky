@@ -88,6 +88,25 @@ Any hits are **blocking findings** — they indicate incomplete removal.
    - Follow-up tasks must be created for deferred items
    - The review must explicitly list what was deferred and why
 
+### 6a. Assess documentation impact
+
+**This step is mandatory.** The pre-merge hook will reject merges without a "Documentation impact" section in the review.
+
+Assess whether the PR's changes affect any project documentation. Consider:
+
+- **Architectural changes** (new pattern, changed lifecycle, new subsystem, changed command registry) → check `docs/architecture.md`
+- **Theoretical/structural changes** (new enforcement mechanism, changed VSM organ status, new environmental constraint) → check `docs/theory-of-operation.md`
+- **Developer workflow changes** (new test pattern, changed hooks, changed DI approach, new commands) → check `CONTRIBUTING.md`
+- **User-facing changes** (new capabilities, changed CLI interface, changed configuration) → check `README.md`
+
+Classify the impact:
+
+- **"No update needed — [reason]"** — the change doesn't affect documented behavior (bugfix, internal refactor, cosmetic)
+- **"Updated [doc] in this PR"** — the PR includes documentation updates alongside the code changes
+- **"BLOCKING — [doc] needs updating but isn't updated in this PR"** — the change affects documented architecture/behavior and the docs weren't updated. This is a **blocking finding** that should trigger `REQUEST_CHANGES`. The PR cannot merge until the docs are updated in the same PR.
+
+"Follow-up task" is only acceptable when the reviewer provides explicit justification for why the doc update cannot be done in this PR (e.g., requires information from a different workstream that hasn't landed yet).
+
 ### 7. Post to GitHub
 
 Use `mcp__github__pull_request_review_write` to post the review:
@@ -126,6 +145,17 @@ Use `mcp__github__pull_request_review_write` to post the review:
 <If any criteria not met:>
 **Action required:** <spec update needed / follow-up task needed / blocking>
 
+### Documentation impact
+
+<One of:>
+No update needed — <reason: bugfix, internal refactor, cosmetic, etc.>
+
+<or:>
+Updated <doc> in this PR.
+
+<or:>
+**BLOCKING** — <doc> needs updating: <what changed and what section is affected>
+
 (Had Claude look into this — AI-assisted review)
 ```
 
@@ -136,4 +166,5 @@ Use `mcp__github__pull_request_review_write` to post the review:
 - **The diff shows what changed; the codebase shows whether the change is correct.** Always check both.
 - **Include CI status.** Don't approve with failing checks.
 - **Spec verification is mandatory.** The review must include a spec verification table. The pre-merge hook will reject merges without it.
+- **Documentation impact is mandatory.** The review must include a documentation impact section. The pre-merge hook will reject merges without it. If docs need updating but aren't updated in the PR, that's a blocking finding.
 - **Attribute AI involvement** per user preferences.
