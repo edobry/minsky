@@ -5,6 +5,7 @@
  * This shows the extensible architecture for additional platforms.
  */
 
+import { injectable } from "tsyringe";
 import type {
   ChangesetAdapter,
   ChangesetAdapterConfig,
@@ -29,6 +30,7 @@ import { MinskyError } from "../../../errors/index";
  * Bitbucket changeset adapter for Pull Requests
  * TODO: Implement using Bitbucket API
  */
+@injectable()
 export class BitbucketChangesetAdapter implements ChangesetAdapter {
   readonly platform: ChangesetPlatform = "bitbucket-pr";
   readonly name = "Bitbucket Pull Requests";
@@ -98,6 +100,7 @@ export class BitbucketChangesetAdapter implements ChangesetAdapter {
 /**
  * Factory for creating Bitbucket changeset adapters
  */
+@injectable()
 export class BitbucketChangesetAdapterFactory implements ChangesetAdapterFactory {
   readonly platform: ChangesetPlatform = "bitbucket-pr";
 

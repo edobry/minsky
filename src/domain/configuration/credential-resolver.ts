@@ -167,6 +167,3 @@ export class DefaultCredentialResolver implements CredentialResolver {
     return filePath;
   }
 }
-
-// Export singleton instance
-export const _credentialResolver = new DefaultCredentialResolver();

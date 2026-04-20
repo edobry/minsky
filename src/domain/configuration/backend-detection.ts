@@ -41,6 +41,3 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
     return false;
   }
 }
-
-// Export singleton instance
-export const _backendDetectionService = new DefaultBackendDetectionService();

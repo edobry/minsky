@@ -232,9 +232,3 @@ export class MultiRepositoryChangesetService {
     log.debug(`Removed repository from multi-repo changeset service: ${repositoryUrl}`);
   }
 }
-
-/**
- * Global multi-repository changeset service instance
- * Useful for indexing and searching across multiple repositories
- */
-export const globalChangesetService = new MultiRepositoryChangesetService();

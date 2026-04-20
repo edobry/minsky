@@ -5,6 +5,7 @@
  * the existing GitHub repository backend and GitHub API.
  */
 
+import { injectable } from "tsyringe";
 import type {
   ChangesetAdapter,
   ChangesetAdapterConfig,
@@ -45,6 +46,7 @@ type OctokitPR =
 /**
  * GitHub changeset adapter that maps GitHub PRs to changeset abstraction
  */
+@injectable()
 export class GitHubChangesetAdapter implements ChangesetAdapter {
   readonly platform: ChangesetPlatform = "github-pr";
   readonly name = "GitHub Pull Requests";
@@ -627,6 +629,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 /**
  * Factory for creating GitHub changeset adapters
  */
+@injectable()
 export class GitHubChangesetAdapterFactory implements ChangesetAdapterFactory {
   readonly platform: ChangesetPlatform = "github-pr";
 

@@ -23,12 +23,14 @@ import type {
   ChangesetPlatform,
 } from "../types";
 
+import { injectable } from "tsyringe";
 import { MinskyError } from "../../../errors/index";
 
 /**
  * GitLab changeset adapter for Merge Requests
  * TODO: Implement using GitLab API
  */
+@injectable()
 export class GitLabChangesetAdapter implements ChangesetAdapter {
   readonly platform: ChangesetPlatform = "gitlab-mr";
   readonly name = "GitLab Merge Requests";
@@ -97,6 +99,7 @@ export class GitLabChangesetAdapter implements ChangesetAdapter {
 /**
  * Factory for creating GitLab changeset adapters
  */
+@injectable()
 export class GitLabChangesetAdapterFactory implements ChangesetAdapterFactory {
   readonly platform: ChangesetPlatform = "gitlab-mr";
 
