@@ -16,7 +16,14 @@ export type AgentHarness = "claude-code" | "cursor" | "standalone";
  * The set of MCP client applications that Minsky can register itself with.
  * Extend this union as new clients are implemented.
  */
-export type ManagedClient = "cursor" | "claude-desktop" | "vscode" | "windsurf" | "junie";
+export type ManagedClient =
+  | "cursor"
+  | "claude-desktop"
+  | "vscode"
+  | "windsurf"
+  | "junie"
+  | "codex"
+  | "openhands";
 
 /**
  * Detect the current agent harness from environment signals.
@@ -94,8 +101,18 @@ export function detectInstalledClients(): ManagedClient[] {
     clients.push("windsurf");
   }
 
-  // Junie (JetBrains): skip auto-detection — JetBrains detection is unreliable.
-  // Users can specify --client junie explicitly to register with Junie.
+  // Junie (JetBrains): check for ~/.junie/ directory (created by Junie CLI)
+  if (existsSync(path.join(homedir(), ".junie"))) {
+    clients.push("junie");
+  }
+
+  // Codex: check for ~/.codex/ directory
+  if (existsSync(path.join(homedir(), ".codex"))) {
+    clients.push("codex");
+  }
+
+  // OpenHands: skip auto-detection — use --client openhands explicitly
+  // OpenHands is an agent framework, not typically installed as a user app.
 
   return clients;
 }

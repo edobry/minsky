@@ -12,6 +12,8 @@ import {
   VSCodeRegistrar,
   WindsurfRegistrar,
   JunieRegistrar,
+  CodexRegistrar,
+  OpenHandsRegistrar,
   getRegistrar,
   registerWithClient,
 } from "./registration";
@@ -267,6 +269,96 @@ describe("JunieRegistrar", () => {
   });
 });
 
+describe("CodexRegistrar", () => {
+  const registrar = new CodexRegistrar();
+
+  describe("generateConfig", () => {
+    test("stdio transport produces valid TOML with [mcp_servers.minsky-server] header", () => {
+      const content = registrar.generateConfig("stdio");
+
+      expect(content).toContain("[mcp_servers.minsky-server]");
+      expect(content).toContain('command = "minsky"');
+      expect(content).toContain('"mcp"');
+      expect(content).toContain('"start"');
+    });
+
+    test("httpStream transport includes --http-stream in args", () => {
+      const content = registrar.generateConfig("httpStream", 3000, "localhost");
+
+      expect(content).toContain("[mcp_servers.minsky-server]");
+      expect(content).toContain('"--http-stream"');
+      expect(content).toContain('"3000"');
+      expect(content).toContain('"localhost"');
+    });
+
+    test("sse transport includes --sse in args", () => {
+      const content = registrar.generateConfig("sse", 4000, "0.0.0.0");
+
+      expect(content).toContain('"--sse"');
+      expect(content).toContain('"4000"');
+      expect(content).toContain('"0.0.0.0"');
+    });
+  });
+
+  describe("configPath", () => {
+    test("returns .codex/config.toml under project root", () => {
+      expect(registrar.configPath("/project")).toBe(path.join("/project", ".codex", "config.toml"));
+    });
+  });
+
+  test("mergeConfig is true (Codex config has other settings)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+
+  test("is NOT an instance of McpServersJsonRegistrar", () => {
+    expect(registrar).not.toBeInstanceOf(McpServersJsonRegistrar);
+  });
+});
+
+describe("OpenHandsRegistrar", () => {
+  const registrar = new OpenHandsRegistrar();
+
+  describe("generateConfig", () => {
+    test("stdio transport produces TOML with [mcp] section and stdio_servers array", () => {
+      const content = registrar.generateConfig("stdio");
+
+      expect(content).toContain("[mcp]");
+      expect(content).toContain("stdio_servers");
+      expect(content).toContain('"minsky-server"');
+      expect(content).toContain('"minsky"');
+    });
+
+    test("httpStream transport produces TOML with shttp_servers and URL", () => {
+      const content = registrar.generateConfig("httpStream", 3000, "localhost");
+
+      expect(content).toContain("[mcp]");
+      expect(content).toContain("shttp_servers");
+      expect(content).toContain("http://localhost:3000/mcp");
+    });
+
+    test("sse transport produces TOML with shttp_servers", () => {
+      const content = registrar.generateConfig("sse", 4000, "0.0.0.0");
+
+      expect(content).toContain("shttp_servers");
+      expect(content).toContain("http://0.0.0.0:4000/mcp");
+    });
+  });
+
+  describe("configPath", () => {
+    test("returns config.toml at project root", () => {
+      expect(registrar.configPath("/project")).toBe(path.join("/project", "config.toml"));
+    });
+  });
+
+  test("mergeConfig is true (OpenHands config has other settings)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+
+  test("is NOT an instance of McpServersJsonRegistrar", () => {
+    expect(registrar).not.toBeInstanceOf(McpServersJsonRegistrar);
+  });
+});
+
 describe("McpServersJsonRegistrar (abstract base)", () => {
   test("CursorRegistrar is an instance of McpServersJsonRegistrar", () => {
     expect(new CursorRegistrar()).toBeInstanceOf(McpServersJsonRegistrar);
@@ -308,9 +400,21 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("junie");
   });
 
-  test("throws descriptive error for unsupported client", () => {
+  test("returns CodexRegistrar for 'codex'", () => {
+    const r = getRegistrar("codex");
+    expect(r).toBeInstanceOf(CodexRegistrar);
+    expect(r.name).toBe("codex");
+  });
+
+  test("returns OpenHandsRegistrar for 'openhands'", () => {
+    const r = getRegistrar("openhands");
+    expect(r).toBeInstanceOf(OpenHandsRegistrar);
+    expect(r.name).toBe("openhands");
+  });
+
+  test("throws descriptive error for unsupported client listing all 7 clients", () => {
     expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie'
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands'
     );
   });
 });

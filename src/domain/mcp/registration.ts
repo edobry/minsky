@@ -238,6 +238,72 @@ export class VSCodeRegistrar implements ClientRegistrar {
 }
 
 /**
+ * Registrar for the Codex MCP client.
+ *
+ * Codex uses TOML format with [mcp_servers.<name>] sections.
+ * Config is project-scoped at .codex/config.toml.
+ */
+export class CodexRegistrar implements ClientRegistrar {
+  readonly name = "codex";
+  readonly mergeConfig = true; // Codex config has other settings
+
+  generateConfig(transport: string, port?: number, host?: string): string {
+    // Codex uses TOML format: [mcp_servers.<name>] with command/args/env
+    const resolvedPort = port || DEFAULT_DEV_PORT;
+    const resolvedHost = host || "localhost";
+
+    const args = ['"mcp"', '"start"'];
+    if (transport === "sse") {
+      args.push('"--sse"', `"--port"`, `"${resolvedPort}"`, `"--host"`, `"${resolvedHost}"`);
+    } else if (transport === "httpStream") {
+      args.push(
+        '"--http-stream"',
+        `"--port"`,
+        `"${resolvedPort}"`,
+        `"--host"`,
+        `"${resolvedHost}"`
+      );
+    }
+
+    return `[mcp_servers.minsky-server]\ncommand = "minsky"\nargs = [${args.join(", ")}]\nenv = {}\nenabled = true\n`;
+  }
+
+  configPath(projectRoot: string): string {
+    // Project-scoped by default
+    return path.join(projectRoot, ".codex", "config.toml");
+  }
+}
+
+/**
+ * Registrar for the OpenHands MCP client.
+ *
+ * OpenHands uses TOML format with [mcp] section containing stdio_servers or shttp_servers.
+ * Config is project-scoped at config.toml.
+ */
+export class OpenHandsRegistrar implements ClientRegistrar {
+  readonly name = "openhands";
+  readonly mergeConfig = true; // OpenHands config has other settings
+
+  generateConfig(transport: string, port?: number, host?: string): string {
+    // OpenHands uses [mcp] section with stdio_servers array for stdio,
+    // or shttp_servers for HTTP transport
+    const resolvedPort = port || DEFAULT_DEV_PORT;
+    const resolvedHost = host || "localhost";
+
+    if (transport === "stdio") {
+      return `[mcp]\nstdio_servers = [\n  {name = "minsky-server", command = "minsky", args = ["mcp", "start"]}\n]\n`;
+    }
+    // For HTTP transports, use shttp_servers
+    const url = `http://${resolvedHost}:${resolvedPort}/mcp`;
+    return `[mcp]\nshttp_servers = [\n  {url = "${url}"}\n]\n`;
+  }
+
+  configPath(projectRoot: string): string {
+    return path.join(projectRoot, "config.toml");
+  }
+}
+
+/**
  * Returns the registrar for the given client name.
  * Throws a descriptive error for unrecognized clients.
  */
@@ -253,9 +319,13 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new WindsurfRegistrar();
     case "junie":
       return new JunieRegistrar();
+    case "codex":
+      return new CodexRegistrar();
+    case "openhands":
+      return new OpenHandsRegistrar();
     default:
       throw new Error(
-        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie`
+        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands`
       );
   }
 }
