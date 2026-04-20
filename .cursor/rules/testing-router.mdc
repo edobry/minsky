@@ -15,11 +15,11 @@ This rule serves as the **primary entry point** for all testing guidance in the 
 | Organizing test files | test-organization | testing-boundaries |
 | Understanding test architecture | Test Architecture Guide | test-organization, testing-boundaries |
 | Implementing mocks | bun-test-patterns, testing-boundaries | framework-specific-tests |
-| Debugging failing tests | test-debugging | bun-test-patterns, test-expectations |
+| Debugging failing tests | debug-tests skill | bun-test-patterns, test-expectations |
 | Updating test expectations | test-expectations | testing-boundaries |
 | Setting up test environments | test-infrastructure-patterns | framework-specific-tests |
-| Fixing bugs with tests | test-driven-bugfix | testing-boundaries, test-debugging, test-organization |
-| Verifying and running tests | tests | test-debugging |
+| Fixing bugs with tests | test-driven-bugfix | testing-boundaries, debug-tests skill, test-organization |
+| Verifying and running tests | tests | debug-tests skill |
 
 ## Test Architecture Overview (Task #270)
 
@@ -62,7 +62,7 @@ src/
 - [**designing-tests**](mdc:.cursor/rules/designing-tests.mdc): General principles for effective test design
 
 ### Specialized Layer (Apply for Specific Scenarios)
-- [**test-debugging**](mdc:.cursor/rules/test-debugging.mdc): Systematic approach to troubleshooting test failures
+- **debug-tests** skill (`.claude/skills/debug-tests/SKILL.md`): Systematic approach to troubleshooting test failures
 - [**test-expectations**](mdc:.cursor/rules/test-expectations.mdc): Managing test assertions and expectations correctly
 - [**test-driven-bugfix**](mdc:.cursor/rules/test-driven-bugfix.mdc): Using TDD for fixing bugs
 
