@@ -53,7 +53,7 @@ export async function performSetup(
   options: SetupOptions,
   fileSystem: FsLike = createRealFs()
 ): Promise<SetupResult> {
-  const { repoPath, client = "cursor", overwrite = false } = options;
+  const { repoPath, client = "cursor", overwrite = true } = options;
 
   // 1. Check .minsky/config.yaml exists — error if not
   const configPath = path.join(repoPath, ".minsky", "config.yaml");

@@ -86,6 +86,7 @@ const persistenceMigrateRegistration = defineCommand({
   name: "migrate",
   description:
     "Migrate session database between backends, or run schema migrations when no target is provided",
+  requiresSetup: false,
   parameters: persistenceMigrateCommandParams,
   async execute(params, context) {
     const {
@@ -405,6 +406,7 @@ const persistenceCheckRegistration = defineCommand({
   category: CommandCategory.PERSISTENCE,
   name: "check",
   description: "Check database integrity and detect issues",
+  requiresSetup: false,
   parameters: persistenceCheckCommandParams,
   async execute(params, context) {
     const { file, backend, fix, report } = params;

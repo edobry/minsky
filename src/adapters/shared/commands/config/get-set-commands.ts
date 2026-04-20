@@ -33,6 +33,7 @@ export const configGetRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "get",
   description: "Get a configuration value by key path",
+  requiresSetup: false,
   parameters: composeParams(configCommandParams, {
     key: {
       schema: z.string(),
@@ -84,6 +85,7 @@ export const configSetRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "set",
   description: "Set a configuration value",
+  requiresSetup: false,
   parameters: composeParams(configCommandParams, {
     key: {
       schema: z.string(),
@@ -142,6 +144,7 @@ export const configUnsetRegistration = defineCommand({
   category: CommandCategory.CONFIG,
   name: "unset",
   description: "Remove a configuration value",
+  requiresSetup: false,
   parameters: composeParams(configCommandParams, {
     key: {
       schema: z.string(),
