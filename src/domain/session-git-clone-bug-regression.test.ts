@@ -51,7 +51,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockGitService = fakeGitService1;
 
     const mockTaskService = new FakeTaskService({
-      initialTasks: [{ id: "md#160", title: "Test Task", status: "PLANNING" }],
+      initialTasks: [{ id: "md#160", title: "Test Task", status: "READY" }],
     });
 
     // Create workspace utils mock with all required methods
@@ -114,7 +114,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockGitService = fakeGitService2;
 
     const mockTaskService = new FakeTaskService({
-      initialTasks: [{ id: "md#160", title: "Test Task", status: "PLANNING" }],
+      initialTasks: [{ id: "md#160", title: "Test Task", status: "READY" }],
     });
 
     // Create workspace utils mock with all required methods
