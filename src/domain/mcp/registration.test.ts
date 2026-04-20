@@ -5,6 +5,10 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import * as path from "path";
 import * as os from "os";
+
+// Shared TOML assertion constants (avoids magic-string-duplication lint warnings)
+const TOML_MINSKY_SECTION = "[mcp_servers.minsky-server]";
+const TOML_COMMAND_MINSKY = 'command = "minsky"';
 import {
   CursorRegistrar,
   ClaudeDesktopRegistrar,
@@ -276,8 +280,8 @@ describe("CodexRegistrar", () => {
     test("stdio transport produces valid TOML with [mcp_servers.minsky-server] header", () => {
       const content = registrar.generateConfig("stdio");
 
-      expect(content).toContain("[mcp_servers.minsky-server]");
-      expect(content).toContain('command = "minsky"');
+      expect(content).toContain(TOML_MINSKY_SECTION);
+      expect(content).toContain(TOML_COMMAND_MINSKY);
       expect(content).toContain('"mcp"');
       expect(content).toContain('"start"');
     });
@@ -285,7 +289,7 @@ describe("CodexRegistrar", () => {
     test("httpStream transport includes --http-stream in args", () => {
       const content = registrar.generateConfig("httpStream", 3000, "localhost");
 
-      expect(content).toContain("[mcp_servers.minsky-server]");
+      expect(content).toContain(TOML_MINSKY_SECTION);
       expect(content).toContain('"--http-stream"');
       expect(content).toContain('"3000"');
       expect(content).toContain('"localhost"');
@@ -524,6 +528,70 @@ describe("registerWithClient", () => {
       const parsed = JSON.parse(mockFs.files.get(configPath)!);
       expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
       expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+    });
+  });
+
+  describe("codex TOML merging", () => {
+    test("appends minsky-server section to existing TOML config", async () => {
+      const configPath = path.join("/my-project", ".codex", "config.toml");
+      const existingToml = `model = "gpt-4"\napproval_mode = "suggest"\n`;
+      mockFs.files.set(configPath, existingToml);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/my-project", { transport: "stdio" }, "codex", mockFs);
+
+      const result = mockFs.files.get(configPath)!;
+      // Existing content preserved
+      expect(result).toContain('model = "gpt-4"');
+      expect(result).toContain('approval_mode = "suggest"');
+      // New section appended
+      expect(result).toContain(TOML_MINSKY_SECTION);
+    });
+
+    test("overwrites when minsky-server already exists in TOML", async () => {
+      const configPath = path.join("/my-project", ".codex", "config.toml");
+      const existingToml = `[mcp_servers.minsky-server]\ncommand = "old"\n`;
+      mockFs.files.set(configPath, existingToml);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/my-project", { transport: "stdio" }, "codex", mockFs);
+
+      const result = mockFs.files.get(configPath)!;
+      // Old content replaced entirely
+      expect(result).not.toContain('command = "old"');
+      expect(result).toContain(TOML_COMMAND_MINSKY);
+    });
+  });
+
+  describe("openhands TOML merging", () => {
+    test("appends mcp section to existing TOML config", async () => {
+      const configPath = path.join("/my-project", "config.toml");
+      const existingToml = `[core]\nworkspace_base = "/workspace"\n`;
+      mockFs.files.set(configPath, existingToml);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/my-project", { transport: "stdio" }, "openhands", mockFs);
+
+      const result = mockFs.files.get(configPath)!;
+      // Existing content preserved
+      expect(result).toContain("[core]");
+      expect(result).toContain('workspace_base = "/workspace"');
+      // New section appended
+      expect(result).toContain("[mcp]");
+      expect(result).toContain("minsky-server");
+    });
+
+    test("overwrites when minsky-server already exists", async () => {
+      const configPath = path.join("/my-project", "config.toml");
+      const existingToml = `[mcp]\nstdio_servers = [\n  {name = "minsky-server", command = "old"}\n]\n`;
+      mockFs.files.set(configPath, existingToml);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/my-project", { transport: "stdio" }, "openhands", mockFs);
+
+      const result = mockFs.files.get(configPath)!;
+      expect(result).not.toContain('command = "old"');
+      expect(result).toContain(TOML_COMMAND_MINSKY);
     });
   });
 });
