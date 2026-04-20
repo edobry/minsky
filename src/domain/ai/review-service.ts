@@ -1,5 +1,5 @@
 import { injectable } from "tsyringe";
-import { AICompletionService, AIUsage } from "./types";
+import type { AICompletionService, AIUsage } from "./types";
 import { ChangesetDetails } from "../changeset/adapter-interface";
 import { log } from "../../utils/logger";
 // ConfigurationService removed - using any for configuration
