@@ -90,9 +90,10 @@ async function main(): Promise<void> {
     if (result.exitCode === 0) {
       const output = result.stdout.toString().trim();
       if (output) {
-        const taskData = JSON.parse(output) as { title?: string };
-        if (taskData.title) {
-          title = taskData.title;
+        const taskData = JSON.parse(output) as { task?: { title?: string }; title?: string };
+        const taskTitle = taskData.task?.title ?? taskData.title;
+        if (taskTitle) {
+          title = taskTitle;
         }
       }
     }
