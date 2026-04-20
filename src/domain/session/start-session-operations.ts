@@ -224,8 +224,7 @@ Navigate to your main workspace and try again:
     normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
   }
 
-  const sessionBaseDir =
-    process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const sessionBaseDir = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
   const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
@@ -270,8 +269,15 @@ async function executeMutations(
   };
 
   const {
-    sessionId, taskId, repoUrl, backendType, cloneSource,
-    referenceRepo, branchName, normalizedRepoName, sessionDir,
+    sessionId,
+    taskId,
+    repoUrl,
+    backendType,
+    cloneSource,
+    referenceRepo,
+    branchName,
+    normalizedRepoName,
+    sessionDir,
   } = ctx;
   const { noStatusUpdate, quiet, skipInstall, packageManager } = params;
 
@@ -404,9 +410,7 @@ Error: ${getErrorMessage(installError)}`
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       }
     } catch (error) {
-      log.cliWarn(
-        `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
-      );
+      log.cliWarn(`Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`);
     }
   }
 
