@@ -269,8 +269,20 @@ async function executeMutations(
     },
   };
 
-  const { sessionId, taskId, repoUrl, backendType, cloneSource, referenceRepo, branchName, normalizedRepoName, sessionDir } = ctx;
+  const {
+    sessionId, taskId, repoUrl, backendType, cloneSource,
+    referenceRepo, branchName, normalizedRepoName, sessionDir,
+  } = ctx;
   const { noStatusUpdate, quiet, skipInstall, packageManager } = params;
+
+  // Warn on deprecated skipInstall flag
+  if (skipInstall) {
+    log.cli(
+      "DEPRECATED: --skip-install is deprecated and will be removed in a future release. " +
+        "Sessions without dependencies will fail typecheck hooks. " +
+        "If you have a use case for skipping install, please file an issue."
+    );
+  }
 
   // Clean up stale session directory if one exists
   if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
