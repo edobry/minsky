@@ -13,6 +13,7 @@ import {
   getRepositoryBackendFromConfig,
   extractGitHubInfoFromUrl,
 } from "./repository-backend-detection";
+
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -325,7 +326,7 @@ Please provide a title for your pull request:
 
     log.cli(`✅ Pull request created successfully!`);
 
-    // PR state persistence is handled by repository backends (local backend updates commit hash)
+    // PR state persistence is handled by repository backends
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {

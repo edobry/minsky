@@ -113,9 +113,7 @@ export async function sessionPr(
       options
     );
 
-    // Let repository backends handle PR state updates per backend type
-    // Local backend records prBranch and commitHash; GitHub backend records pullRequest info
-    // Include session information in the result for CLI formatting
+    // Repository backends handle PR state persistence; include session info for CLI formatting
     return {
       ...result,
       session: {

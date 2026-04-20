@@ -9,6 +9,7 @@ import { log } from "../../utils/logger";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { type SessionProviderInterface } from "./session-db-adapter";
 import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
+
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -146,7 +147,7 @@ export async function approveSessionPr(
     );
   }
 
-  // Check if already approved (local backend only)
+  // Check if already approved (non-GitHub sessions use prApproved flag)
   // For GitHub backend, we delegate approval checking to the repository backend
   if (hasLocalPr && sessionRecord.prApproved) {
     if (!params.json) {
@@ -202,7 +203,6 @@ export async function approveSessionPr(
 
   // Note: Repository backend handles approval storage:
   // - GitHub backend: stores approval in GitHub
-  // - Local backend: updates session record with prApproved: true
 
   if (!params.json) {
     log.cli("✅ Session PR approved successfully!");

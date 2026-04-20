@@ -23,11 +23,7 @@ import {
   createPushOperation,
   createCommitOperation,
 } from "./basic-operations";
-import {
-  createCreatePullRequestOperation,
-  createPreparePrOperation,
-  createMergePrOperation,
-} from "./pr-operations";
+import { createCreatePullRequestOperation, createMergePrOperation } from "./pr-operations";
 import {
   createMergeOperation,
   createCheckoutOperation,
@@ -37,10 +33,8 @@ import {
 
 export {
   CreatePullRequestOperation,
-  PreparePrOperation,
   MergePrOperation,
   createCreatePullRequestOperation,
-  createPreparePrOperation,
   createMergePrOperation,
 } from "./pr-operations";
 
@@ -66,7 +60,6 @@ export function createAllGitOperations(deps?: GitOperationDependencies) {
 
     // PR operations
     createPullRequest: createCreatePullRequestOperation(deps),
-    preparePr: createPreparePrOperation(deps),
     mergePr: createMergePrOperation(deps),
 
     // Advanced operations
@@ -87,7 +80,6 @@ export function setupGitOperationRegistry(deps?: GitOperationDependencies): GitO
   registry.register("push", operations.push);
   registry.register("commit", operations.commit);
   registry.register("createPullRequest", operations.createPullRequest);
-  registry.register("preparePr", operations.preparePr);
   registry.register("mergePr", operations.mergePr);
   registry.register("merge", operations.merge);
   registry.register("checkout", operations.checkout);

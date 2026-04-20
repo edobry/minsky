@@ -15,7 +15,6 @@ import type {
   CloneResult,
   BranchResult,
   PushResult,
-  PreparePrResult,
   MergePrResult,
   EnhancedMergeResult,
   PrResult,
@@ -82,21 +81,6 @@ export class ModularGitCommandsManager {
     noStage?: boolean;
   }): Promise<{ commitHash: string; message: string }> {
     return await this.getOperations().commit.execute(params);
-  }
-
-  /**
-   * Prepare PR using the provided parameters
-   */
-  async preparePrFromParams(params: {
-    session?: string;
-    repo?: string;
-    baseBranch?: string;
-    title?: string;
-    body?: string;
-    branchName?: string;
-    debug?: boolean;
-  }): Promise<PreparePrResult> {
-    return await this.getOperations().preparePr.execute(params);
   }
 
   /**
@@ -277,25 +261,6 @@ export async function commitChangesFromParams(
 ): Promise<{ commitHash: string; message: string }> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.commitChangesFromParams(params);
-}
-
-/**
- * Prepare PR using the provided parameters (backward compatibility)
- */
-export async function preparePrFromParams(
-  params: {
-    session?: string;
-    repo?: string;
-    baseBranch?: string;
-    title?: string;
-    body?: string;
-    branchName?: string;
-    debug?: boolean;
-  },
-  deps?: GitOperationDependencies
-): Promise<PreparePrResult> {
-  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
-  return await manager.preparePrFromParams(params);
 }
 
 /**

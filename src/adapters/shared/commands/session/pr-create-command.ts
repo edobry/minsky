@@ -143,10 +143,6 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
     return new MinskyError(
       `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Use --auto-resolve-delete-conflicts for simple conflicts\n\nTechnical details: ${errorMessage}`
     );
-  } else if (errorMessage.includes("Failed to create prepared merge commit")) {
-    return new MinskyError(
-      `❌ Failed to create PR branch merge commit.\n\nThis could be due to:\n• Merge conflicts between your session branch and base branch\n• Remote PR branch already exists with different content\n• Network issues with git operations\n\n💡 Try these solutions:\n• Run 'git status' to check for conflicts\n• Resolve conflicts in your session branch first\n• Check your git remote connection\n\nTechnical details: ${errorMessage}`
-    );
   } else if (
     errorMessage.includes("Permission denied") ||
     errorMessage.includes("authentication")

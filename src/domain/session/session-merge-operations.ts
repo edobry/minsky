@@ -52,7 +52,7 @@ export function validateSessionApprovedForMerge(
     return;
   }
 
-  // Local/remote backends require a PR branch and explicit approval flag
+  // Non-GitHub sessions require a PR branch and explicit approval flag
   if (!sessionRecord.prBranch) {
     throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionId}" has no PR branch.\n` +

@@ -15,7 +15,6 @@ export * from "./git";
 import {
   createPullRequestFromParams as modularCreatePullRequestFromParams,
   commitChangesFromParams as modularCommitChangesFromParams,
-  preparePrFromParams as modularPreparePrFromParams,
   mergePrFromParams as modularMergePrFromParams,
   cloneFromParams as modularCloneFromParams,
   branchFromParams as modularBranchFromParams,
@@ -29,7 +28,6 @@ import {
 export {
   modularCreatePullRequestFromParams as createPullRequestFromParams,
   modularCommitChangesFromParams as commitChangesFromParams,
-  modularPreparePrFromParams as preparePrFromParams,
   modularMergePrFromParams as mergePrFromParams,
   modularCloneFromParams as cloneFromParams,
   modularBranchFromParams as branchFromParams,

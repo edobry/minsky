@@ -1,13 +1,6 @@
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
-import {
-  PrOptions,
-  PrResult,
-  PreparePrOptions,
-  PreparePrResult,
-  MergePrOptions,
-  MergePrResult,
-} from "../types";
+import { PrOptions, PrResult, MergePrOptions, MergePrResult } from "../types";
 
 /**
  * Creates a pull request from parameters
@@ -40,38 +33,6 @@ export async function createPullRequestFromParams(params: {
     markdown: result.markdown,
     statusUpdateResult: result.statusUpdateResult,
   };
-}
-
-/**
- * Prepare a pull request with enhanced options
- */
-export async function preparePrFromParams(params: {
-  session?: string;
-  repo?: string;
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  branchName?: string;
-  debug?: boolean;
-}): Promise<PreparePrResult> {
-  const gitService = createGitService();
-  const options: PreparePrOptions = {
-    session: params.session,
-    repoPath: params.repo,
-    baseBranch: params.baseBranch,
-    title: params.title,
-    body: params.body,
-    branchName: params.branchName,
-    debug: params.debug,
-  };
-
-  const result = await gitService.preparePr!(options);
-
-  if (params.debug) {
-    log.debug("Pull request prepared successfully", { result });
-  }
-
-  return result;
 }
 
 /**
