@@ -92,10 +92,7 @@ function makeProvider(
 }
 
 /** Replace globalThis.fetch with a mock for the duration of fn. */
-async function withFetch(
-  fakeFetch: typeof fetch,
-  fn: () => Promise<void>
-): Promise<void> {
+async function withFetch(fakeFetch: typeof fetch, fn: () => Promise<void>): Promise<void> {
   const original = globalThis.fetch;
   globalThis.fetch = fakeFetch;
   try {
@@ -162,14 +159,15 @@ describe("GitHubAppTokenProvider", () => {
           return new Response(JSON.stringify({ token: "ghs_installtoken" }), { status: 201 });
         }
         return new Response("not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
         const token1 = await provider.getServiceToken();
         const token2 = await provider.getServiceToken();
-        expect(token1).toBe("ghs_installtoken");
-        expect(token2).toBe("ghs_installtoken");
+        const expectedToken = "ghs_installtoken";
+        expect(token1).toBe(expectedToken);
+        expect(token2).toBe(expectedToken);
         expect(fetchCallCount).toBe(1); // cached — only one HTTP call
       });
     });
@@ -190,13 +188,14 @@ describe("GitHubAppTokenProvider", () => {
           });
         }
         return new Response("not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
 
         // Inject a cached token that expires in 3 minutes (below the 5-min threshold)
-        const soonExpiry = new Date(Date.now() + 3 * 60 * 1000);
+        // Set expiry to epoch 0 — always in the past, always triggers refresh
+        const soonExpiry = new Date(0);
         (provider as unknown as Record<string, unknown>)["cachedToken"] = {
           token: "ghs_old_token",
           expiresAt: soonExpiry,
@@ -215,7 +214,7 @@ describe("GitHubAppTokenProvider", () => {
       const fakeFetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
         capturedBody = JSON.parse((init?.body as string) ?? "{}");
         return new Response(JSON.stringify({ token: "ghs_scoped" }), { status: 201 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
@@ -230,7 +229,7 @@ describe("GitHubAppTokenProvider", () => {
       const fakeFetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
         capturedBody = JSON.parse((init?.body as string) ?? "{}");
         return new Response(JSON.stringify({ token: "ghs_scoped2" }), { status: 201 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
@@ -244,7 +243,7 @@ describe("GitHubAppTokenProvider", () => {
       const fakeFetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
         capturedInit = init;
         return new Response(JSON.stringify({ token: "ghs_noscope" }), { status: 201 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
@@ -258,7 +257,7 @@ describe("GitHubAppTokenProvider", () => {
     it("returns login with [bot] suffix from app slug", async () => {
       const fakeFetch = mock(async () => {
         return new Response(JSON.stringify({ slug: "minsky-ai", id: 12345 }), { status: 200 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
@@ -272,7 +271,7 @@ describe("GitHubAppTokenProvider", () => {
       const fakeFetch = mock(async () => {
         fetchCount++;
         return new Response(JSON.stringify({ slug: "minsky-ai" }), { status: 200 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();
@@ -285,7 +284,7 @@ describe("GitHubAppTokenProvider", () => {
     it("throws when GitHub API returns an error", async () => {
       const fakeFetch = mock(async () => {
         return new Response("Unauthorized", { status: 401 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await withFetch(fakeFetch, async () => {
         const provider = makeProvider();

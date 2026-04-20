@@ -97,9 +97,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch GitHub App info: ${response.status} ${response.statusText}`
-      );
+      throw new Error(`Failed to fetch GitHub App info: ${response.status} ${response.statusText}`);
     }
 
     const data = (await response.json()) as { slug: string };
@@ -131,7 +129,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
       ? join(homedir(), this.privateKeyFile.slice(2))
       : this.privateKeyFile;
 
-    this.privateKeyCache = readFileSync(resolvedPath, "utf8");
+    this.privateKeyCache = readFileSync(resolvedPath, "utf8") as string;
     return this.privateKeyCache;
   }
 
