@@ -34,7 +34,7 @@ import type {
 } from "../schemas/session";
 import type { GitServiceInterface } from "./git";
 
-import { SessionService, type SessionDeps, createSessionDeps } from "./session/session-service";
+import { SessionService, type SessionDeps } from "./session/session-service";
 import type { PersistenceProvider } from "./persistence/types";
 
 // Re-export canonical types from sub-modules
@@ -44,9 +44,6 @@ export type { SessionDbState } from "./session/session-db";
 // Re-export factory and adapter
 export { createSessionProvider } from "./session/session-db-adapter";
 export { SessionDbAdapter } from "./session/session-db-adapter";
-
-// Re-export shared session provider cache
-export { getSharedSessionProvider } from "./session/session-provider-cache";
 
 // Re-export review types
 export type { SessionReviewParams, SessionReviewResult };
@@ -63,9 +60,8 @@ export {
 export { sessionCommit };
 
 // Re-export SessionService and related types for consumers
-export { SessionService, createSessionDeps };
+export { SessionService };
 export type { SessionDeps };
-export { createSessionService } from "./session/session-service";
 
 // ---- Param-based facade functions (thin wrappers that inject defaults) ----
 
@@ -370,7 +366,13 @@ export async function approveSessionFromParams(
   // call approveSessionPr directly to pass it through
   const { approveSessionPr } = await import("./session/session-approval-operations");
 
-  const resolvedSessionDB = depsInput?.sessionDB ?? (await createSessionDeps()).sessionProvider;
+  const resolvedSessionDB =
+    depsInput?.sessionDB ??
+    (
+      await resolvePartialDeps({
+        persistenceProvider: depsInput?.persistenceProvider,
+      })
+    ).sessionProvider;
 
   let sessionToUse = params.session;
   if (!sessionToUse && !params.task && params.repo) {
