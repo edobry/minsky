@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { existsSync } from "fs";
+import * as path from "path";
 import { select, isCancel, cancel, text, confirm } from "@clack/prompts";
 import { getErrorMessage } from "../../../errors/index";
 import {
@@ -84,6 +86,21 @@ export function registerInitCommands() {
         try {
           // Map CLI params to domain params
           const repoPath = params.repo || params.workspacePath || process.cwd();
+          const overwrite = params.overwrite ?? false;
+
+          // If config.yaml already exists and --overwrite is not set, inform the user
+          // and return early — the project is already initialized.
+          const configYamlPath = path.join(repoPath, ".minsky", "config.yaml");
+          if (!overwrite && existsSync(configYamlPath)) {
+            log.info(
+              "Project already initialized. Run `minsky setup` for developer-local configuration."
+            );
+            return {
+              success: true,
+              message:
+                "Project already initialized. Run `minsky setup` for developer-local configuration.",
+            };
+          }
 
           // Interactive backend selection if not provided
           let backend = params.backend;
@@ -283,8 +300,6 @@ export function registerInitCommands() {
               }
             }
           }
-
-          const overwrite = params.overwrite ?? false;
 
           // Detect repository backend from git remote
           let repository: ResolvedRepositoryConfig | undefined;

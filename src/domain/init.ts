@@ -4,7 +4,7 @@ import { enumSchemas } from "./configuration/schemas/base";
 import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-system";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
-import { getMinskyConfigContentYaml, getLocalConfigContentYaml } from "./init/config-content";
+import { getMinskyConfigContentYaml } from "./init/config-content";
 import {
   generateRulesWithTemplateSystem,
   generateMcpRuleWithTemplateSystem,
@@ -13,7 +13,7 @@ import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
-import { registerWithClient } from "./mcp/registration";
+import { performSetup } from "./setup";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
 
@@ -26,7 +26,7 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 }
 
 // Re-export content helpers for consumers that may reference them
-export { getMinskyConfigContentYaml, getLocalConfigContentYaml } from "./init/config-content";
+export { getMinskyConfigContentYaml } from "./init/config-content";
 export {
   getMinskyRuleContent,
   getRulesIndexContent,
@@ -90,13 +90,23 @@ export interface InitializeProjectOptions {
 }
 
 /**
- * Creates directories if they don't exist, and errors if files already exist.
- * Orchestrates all project initialization steps.
+ * Orchestrates project initialization in two phases:
+ *
+ * Phase 1 (project-init): Creates project-level files checked into the repo —
+ *   .minsky/config.yaml (with mcp section), process/tasks/ dir, rules directory,
+ *   rule files. No harness-specific files.
+ *
+ * Phase 2 (developer-setup): Calls performSetup() to handle developer-local
+ *   configuration — MCP client registration (.cursor/mcp.json) and
+ *   .minsky/config.local.yaml with workspace.mainPath and harness field.
+ *   Skipped when mcp.enabled is false.
  */
 export async function initializeProject(
   { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
   fileSystem: FsLike = createRealFs()
 ): Promise<void> {
+  // === Phase 1: Project initialization ===
+
   // Create process/tasks directory structure
   const tasksDir = path.join(repoPath, "process", "tasks");
   await createDirectoryIfNotExists(tasksDir, fileSystem);
@@ -148,28 +158,8 @@ export async function initializeProject(
   const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
-  // Write machine-specific local config (gitignored) with workspace.mainPath
-  // so session_start can use --reference cloning for fast session creation.
-  const localConfigPath = path.join(minskyDir, "config.local.yaml");
-  const localConfigContent = getLocalConfigContentYaml(repoPath);
-  await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
-
-  // Setup MCP if enabled (default to enabled if not explicitly disabled)
+  // Generate MCP rule file (project-level rule checked into repo) when MCP is enabled
   if (mcp?.enabled !== false) {
-    // Register Minsky with the Cursor MCP client
-    await registerWithClient(
-      repoPath,
-      {
-        transport: mcp?.transport || "stdio",
-        port: mcp?.port,
-        host: mcp?.host,
-      },
-      "cursor",
-      fileSystem,
-      overwrite
-    );
-
-    // Determine rules dir path for MCP rule
     const mcpRulesDirPath =
       ruleFormat === "cursor"
         ? path.join(repoPath, ".cursor", "rules")
@@ -183,5 +173,13 @@ export async function initializeProject(
     } catch (_e) {
       // Skip in unit tests without registry
     }
+  }
+
+  // === Phase 2: Developer-local setup ===
+  // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).
+  // performSetup() writes .minsky/config.local.yaml (with harness field) and
+  // registers Minsky with the MCP client (e.g. .cursor/mcp.json).
+  if (mcp?.enabled !== false) {
+    await performSetup({ repoPath, client: "cursor", overwrite }, fileSystem);
   }
 }
