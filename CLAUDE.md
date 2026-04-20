@@ -142,13 +142,14 @@ After completing any investigation, audit, or research phase for a task, persist
 2. Mark completed criteria (e.g., `[x] Audit completed`)
 3. Then present a summary to the user in chat
 
-### Spec verification gates merge
+### Spec verification and documentation impact gate merge
 
-The `/review-pr` skill requires a **Spec verification** section in every review. The pre-merge hook (`require-review-before-merge.ts`) blocks merges if the review lacks this section. This ensures:
+The `/review-pr` skill requires both a **Spec verification** section and a **Documentation impact** section in every review. The pre-merge hook (`require-review-before-merge.ts`) blocks merges if either section is missing. This ensures:
 
 - Every spec criterion is checked before merge
 - Scope reductions are caught and documented
 - Follow-up tasks are created for deferred work
+- Documentation freshness is assessed for every PR — if docs need updating, the update must be in the same PR (not deferred to a follow-up)
 
 ## Work Completion
 
