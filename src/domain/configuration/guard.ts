@@ -24,11 +24,21 @@ export interface GuardDeps {
 }
 
 /**
+ * Detect whether `repoPath` is a Minsky session directory.
+ *
+ * Session directories are isolated git clones that don't have `.minsky/config.local.yaml`
+ * (it's gitignored), so the local config check must be skipped for them.
+ */
+function isSessionDirectory(repoPath: string): boolean {
+  return repoPath.includes("/.local/state/minsky/sessions/");
+}
+
+/**
  * Check whether the project at `repoPath` has been properly initialized.
  *
  * - Missing `.minsky/config.yaml` → error with "minsky init" guidance
- * - Missing `.minsky/config.local.yaml` (when config.yaml exists) → error with "minsky setup" guidance
- * - Both files present → no error
+ * - Missing `.minsky/config.local.yaml` (when config.yaml exists and not in session) → error with "minsky setup" guidance
+ * - Both files present (or in a session directory) → no error
  *
  * @param repoPath - Path to the project root
  * @param deps     - Injectable dependencies (defaults to real fs)
@@ -42,7 +52,9 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
     throw new ValidationError("This project hasn't been initialized. Run `minsky init` first.");
   }
 
-  if (!deps.existsSync(localConfigPath)) {
+  // Skip the local config check when running inside a session directory.
+  // Session directories are isolated git clones where config.local.yaml is gitignored.
+  if (!isSessionDirectory(repoPath) && !deps.existsSync(localConfigPath)) {
     throw new ValidationError("Developer setup incomplete. Run `minsky setup` first.");
   }
 }
