@@ -123,17 +123,6 @@ A PR merging is NOT the same as a task being complete. Before marking any task D
 3. **If scope was reduced**, update the spec FIRST to reflect actual scope, note what was deferred, and create follow-up tasks for gaps before marking DONE
 4. **If criteria can't be verified**, the task is not DONE — use IN-REVIEW or create follow-up tasks
 
-### Post-merge verification (mandatory)
-
-After the final PR merges, run these on the post-merge codebase before declaring completion:
-
-1. **Full test suite** — `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain` (not just the files you changed)
-2. **Lint** — `bun run lint` (confirm no new errors)
-3. **E2E smoke test** — execute at least one CLI command that exercises the changed code path end-to-end
-4. **Documentation** — search `docs/` for existing content on the same topic; update if stale
-
-"CI passed" is not a substitute for running verification locally on the merged codebase. CI verifies the branch; post-merge verification catches integration issues.
-
 Never treat "code merged" as equivalent to "task complete." The spec defines completeness, not the PR.
 
 ### Pre-flight: Verify spec before starting work
@@ -205,13 +194,6 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - 10 custom ESLint rules enforce architectural patterns
-
-## Documentation
-
-- **CLAUDE.md** is for agent behavioral instructions only — not project architecture, design decisions, or system documentation
-- **`docs/architecture.md`** is the canonical architecture reference — update it when making architectural changes (new frameworks, patterns, system design)
-- **`docs/architecture/`** contains ADRs and design docs
-- Before creating new documentation, **search `docs/` for existing content** on the same topic — update in place rather than creating duplicates
 
 ## Key Architecture
 
