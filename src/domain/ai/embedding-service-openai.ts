@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
 import { RateLimitError } from "./enhanced-error-types";
@@ -18,6 +19,7 @@ interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
 }
 
+@injectable()
 export class OpenAIEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
   private readonly baseURL: string;

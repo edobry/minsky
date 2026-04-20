@@ -5,6 +5,7 @@
  * Supports OpenAI, Anthropic, Google, and other providers with unified interface.
  */
 
+import { injectable } from "tsyringe";
 import { generateText, streamText, generateObject, LanguageModel } from "ai";
 
 import {
@@ -31,6 +32,7 @@ import { log } from "../../utils/logger";
 /**
  * Default AI completion service implementation
  */
+@injectable()
 export class DefaultAICompletionService implements AICompletionService {
   private configService: DefaultAIConfigurationService;
   private providerModels: Map<string, LanguageModel> = new Map();

@@ -1,6 +1,8 @@
+import { injectable } from "tsyringe";
 import type { SimilarityBackend, SimilarityQuery, SimilaritySearchResponse } from "./types";
 import { log } from "../../utils/logger";
 
+@injectable()
 export class SimilaritySearchService {
   private readonly backends: SimilarityBackend[];
   private lastUsedBackend: string | null = null;

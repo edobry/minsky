@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import {
   AICompletionService,
   AICompletionRequest,
@@ -11,6 +12,7 @@ import { IntelligentRetryService } from "./intelligent-retry-service";
 import { RateLimitError, ServerError, NetworkError } from "./enhanced-error-types";
 import { log } from "../../utils/logger";
 
+@injectable()
 export class EnhancedAICompletionService implements AICompletionService {
   private defaultCompletionService: DefaultAICompletionService;
   private retryService: IntelligentRetryService;

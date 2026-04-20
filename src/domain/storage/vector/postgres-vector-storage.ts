@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
@@ -13,6 +14,7 @@ export interface PostgresVectorStorageConfig {
   contentHashColumn?: string; // e.g., content_hash (TEXT)
 }
 
+@injectable()
 export class PostgresVectorStorage implements VectorStorage {
   private readonly sql: ReturnType<typeof postgres>;
   private readonly db: PostgresJsDatabase;

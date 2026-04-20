@@ -5,6 +5,7 @@
  * and the new changeset abstraction system.
  */
 
+import { injectable } from "tsyringe";
 import { ChangesetService, createChangesetService } from "./changeset-service";
 import type { RepositoryBackend, RepositoryBackendConfig } from "../repository/index";
 import type { Changeset, CreateChangesetOptions } from "./types";
@@ -130,6 +131,7 @@ export async function createChangesetAwareRepositoryBackend(
  * Service for managing changesets across multiple repositories
  * Useful for multi-repo scenarios or repository indexing
  */
+@injectable()
 export class MultiRepositoryChangesetService {
   private services = new Map<string, ChangesetService>();
 

@@ -5,6 +5,7 @@
  * delegates compilation to the appropriate target implementation.
  */
 
+import { injectable } from "tsyringe";
 import { classifyRuleType } from "../rule-classifier";
 import type { RuleService } from "../../rules";
 import type { CompileTarget, CompileResult, TargetOptions } from "./types";
@@ -14,6 +15,7 @@ import { claudeMdTarget } from "./targets/claude-md";
 import { cursorRulesTarget } from "./targets/cursor-rules";
 import { resolveActiveRules } from "../rule-selection";
 
+@injectable()
 export class CompileService {
   private targets = new Map<string, CompileTarget>();
 
