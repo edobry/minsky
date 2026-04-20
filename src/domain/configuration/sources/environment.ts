@@ -27,6 +27,11 @@ export const environmentMappings = {
   GITHUB_BASE_URL: "github.baseUrl",
   GITHUB_API_URL: "github.baseUrl",
 
+  // GitHub App service account configuration
+  MINSKY_APP_ID: "github.serviceAccount.appId",
+  MINSKY_APP_PRIVATE_KEY_FILE: "github.serviceAccount.privateKeyFile",
+  MINSKY_APP_INSTALLATION_ID: "github.serviceAccount.installationId",
+
   // AI provider configuration
   OPENAI_API_KEY: "ai.providers.openai.apiKey",
   OPENAI_ORGANIZATION: "ai.providers.openai.organization",
@@ -87,6 +92,8 @@ const typeConverters = {
  */
 const fieldTypes: Record<string, keyof typeof typeConverters> = {
   // Numbers
+  "github.serviceAccount.appId": "number",
+  "github.serviceAccount.installationId": "number",
   "logger.maxFileSize": "number",
   "logger.maxFiles": "number",
   "ai.providers.openai.maxTokens": "number",
