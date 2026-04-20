@@ -13,6 +13,7 @@ import {
 } from "../customizations/config-customizations";
 import { getToolsCustomizations } from "../customizations/tools-customizations";
 import { getMcpCustomizations } from "../customizations/mcp-customizations";
+import { getInitCustomizations } from "../customizations/init-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -45,6 +46,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const mcpConfig = getMcpCustomizations();
   cliFactory.customizeCategory(mcpConfig.category, mcpConfig.options);
+
+  const initConfig = getInitCustomizations();
+  cliFactory.customizeCategory(initConfig.category, initConfig.options);
 }
 
 /**

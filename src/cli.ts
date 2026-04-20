@@ -57,9 +57,9 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // Register all commands via CLI command factory (which applies customizations)
   cliFactory.registerAllCommands(cli);
 
-  // Non-shared commands (context, mcp, github, lint) pull in expensive dependencies
-  // (~700ms total: AI tokenizer, MCP SDK, etc.). Only load when actually invoked
-  // or when full help is requested.
+  // Non-shared commands (context, mcp, github, lint, init, setup) pull in expensive
+  // dependencies (~700ms total: AI tokenizer, MCP SDK, etc.). Only load when actually
+  // invoked or when full help is requested.
   const requestedCommand = process.argv[2];
   const needsAll =
     !requestedCommand ||
@@ -71,7 +71,7 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   if (needsAll || requestedCommand === "mcp") {
     const { createMCPCommand } = await import("./commands/mcp/index");
-    cli.addCommand(await createMCPCommand());
+    cli.addCommand(await createMCPCommand(container));
   }
   if (needsAll || requestedCommand === "github") {
     const { createGitHubCommand } = await import("./commands/github/index");
@@ -84,6 +84,14 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   if (needsAll || requestedCommand === "lint") {
     const { createLintCommand } = await import("./commands/lint/index");
     cli.addCommand(createLintCommand());
+  }
+  if (needsAll || requestedCommand === "init") {
+    const { createInitCommand } = await import("./commands/init/index");
+    cli.addCommand(createInitCommand());
+  }
+  if (needsAll || requestedCommand === "setup") {
+    const { createSetupCommand } = await import("./commands/setup/index");
+    cli.addCommand(createSetupCommand());
   }
 
   // Set error handler
