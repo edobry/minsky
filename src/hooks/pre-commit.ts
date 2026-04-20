@@ -8,6 +8,7 @@
  */
 
 import { execAsync } from "../utils/exec";
+import { execGitWithTimeout } from "../utils/git-exec";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
 
@@ -49,6 +50,14 @@ export class PreCommitHook {
     log.cli("🔍 Running pre-commit validation...\n");
 
     try {
+      // ── Instant checks (~0s) ──
+
+      // Step 0: Hook file permissions
+      const hookPermResult = await this.runHookPermissionCheck();
+      if (!hookPermResult.success) {
+        return hookPermResult;
+      }
+
       // ── Fast, lightweight checks first (~1s each) ──
 
       // Step 1: Code formatting (lint-staged, only staged files, ~1s)
@@ -389,6 +398,59 @@ export class PreCommitHook {
     log.cli("🔍 Checking for test anti-patterns...");
     log.cli("✅ Test pattern validation completed.");
     return { success: true, message: "Test pattern validation passed", exitCode: 0 };
+  }
+
+  /**
+   * Check that all .claude/hooks/*.ts files staged for commit have execute permission
+   */
+  private async runHookPermissionCheck(): Promise<HookResult> {
+    log.cli("🔐 Checking hook file permissions...");
+
+    try {
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+
+      const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+      const hookFiles = stagedFiles.filter(
+        (f) => f.startsWith(".claude/hooks/") && f.endsWith(".ts")
+      );
+
+      if (hookFiles.length === 0) {
+        log.cli("✅ No hook files staged.");
+        return { success: true, message: "No hook files to check", exitCode: 0 };
+      }
+
+      const nonExecutable: string[] = [];
+      for (const file of hookFiles) {
+        const stat = await execAsync(`test -x "${file}" && echo ok || echo no`, {
+          cwd: this.projectRoot,
+          timeout: 2000,
+        });
+        if (stat.stdout.toString().trim() !== "ok") {
+          nonExecutable.push(file);
+        }
+      }
+
+      if (nonExecutable.length > 0) {
+        log.cli("❌ Hook files missing execute permission! Commit blocked.");
+        log.cli(`🔧 Fix with: chmod +x ${nonExecutable.join(" ")}`);
+        return {
+          success: false,
+          message: `Hook files missing +x: ${nonExecutable.join(", ")}`,
+          exitCode: 1,
+        };
+      }
+
+      log.cli("✅ All hook files have execute permission.");
+      return { success: true, message: "Hook permission check passed", exitCode: 0 };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ Hook permission check failed: ${errorMsg}`);
+      return { success: false, message: `Hook permission check failed: ${errorMsg}`, exitCode: 1 };
+    }
   }
 
   /**
