@@ -371,6 +371,19 @@ export function registerMcpCommandsWithMcp(
 }
 
 /**
+ * Register knowledge commands with MCP
+ */
+export function registerKnowledgeCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.KNOWLEDGE],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -389,6 +402,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.DEBUG,
       CommandCategory.PERSISTENCE,
       CommandCategory.MCP,
+      CommandCategory.KNOWLEDGE,
     ],
     ...config,
   });

@@ -366,18 +366,29 @@ export function registerGitCommands(): void {
     name: "commit",
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.commit command", { params });
       const { commitChangesFromParams } = await import("../../../domain/git");
+      const { createGitService } = await import("../../../domain/git/git-service-factory");
 
-      const result = await commitChangesFromParams({
-        message: params!.message,
-        all: params!.all,
-        amend: params!.amend,
-        noStage: params!.noStage,
-        repo: params!.repo,
-        session: params!.session,
-      });
+      const deps = {
+        createGitService,
+        sessionProvider: context.container?.has("sessionProvider")
+          ? context.container.get("sessionProvider")
+          : undefined,
+      };
+
+      const result = await commitChangesFromParams(
+        {
+          message: params!.message,
+          all: params!.all,
+          amend: params!.amend,
+          noStage: params!.noStage,
+          repo: params!.repo,
+          session: params!.session,
+        },
+        deps
+      );
 
       return {
         success: true,
@@ -394,17 +405,28 @@ export function registerGitCommands(): void {
     name: "push",
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
       const { pushFromParams } = await import("../../../domain/git");
+      const { createGitService } = await import("../../../domain/git/git-service-factory");
 
-      const result = await pushFromParams({
-        repo: params!.repo,
-        session: params!.session,
-        remote: params!.remote,
-        force: params!.force,
-        debug: params!.debug,
-      });
+      const deps = {
+        createGitService,
+        sessionProvider: context.container?.has("sessionProvider")
+          ? context.container.get("sessionProvider")
+          : undefined,
+      };
+
+      const result = await pushFromParams(
+        {
+          repo: params!.repo,
+          session: params!.session,
+          remote: params!.remote,
+          force: params!.force,
+          debug: params!.debug,
+        },
+        deps
+      );
 
       return {
         success: result.pushed,

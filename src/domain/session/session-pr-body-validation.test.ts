@@ -93,21 +93,23 @@ describe("Session PR Body Validation Bug Fix", () => {
           createRepositoryBackend: mock((_sessionRecord: string) =>
             Promise.resolve({
               getType: () => "local",
-              createPullRequest: mock(() =>
-                Promise.resolve({
-                  prBranch: "pr/test-session",
-                  baseBranch: "main",
-                  title: "Test PR",
-                  body: "",
-                })
-              ),
-              mergePullRequest: mock(() =>
-                Promise.resolve({
-                  commitHash: "abc123commit",
-                  mergeDate: new Date(),
-                  mergedBy: "test-user",
-                })
-              ),
+              pr: {
+                create: mock(() =>
+                  Promise.resolve({
+                    prBranch: "pr/test-session",
+                    baseBranch: "main",
+                    title: "Test PR",
+                    body: "",
+                  })
+                ),
+                merge: mock(() =>
+                  Promise.resolve({
+                    commitHash: "abc123commit",
+                    mergeDate: new Date(),
+                    mergedBy: "test-user",
+                  })
+                ),
+              },
             } as any)
           ) as any,
         }

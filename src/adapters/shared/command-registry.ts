@@ -32,6 +32,7 @@ export enum CommandCategory {
   AI = "AI",
   TOOLS = "TOOLS",
   MCP = "MCP",
+  KNOWLEDGE = "KNOWLEDGE",
 }
 
 /**

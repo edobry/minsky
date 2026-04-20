@@ -105,17 +105,19 @@ describe("Session Database BaseDir Bug", () => {
     const mockCreateRepositoryBackend = mock(() =>
       Promise.resolve({
         getType: () => "local",
-        mergePullRequest: mock((prIdentifier: string, sessionId: string) => {
-          // This simulates the git operations that fail due to wrong workspace path
-          return mockExecGitWithTimeout("switch", "switch main", {
-            workdir: "/test/minsky/wrong-component/sessions/task335",
-            timeout: 30000,
-          }).then(() => ({
-            commitHash: "abc123",
-            mergeDate: new Date().toISOString(),
-            mergedBy: "test-user",
-          }));
-        }),
+        pr: {
+          merge: mock((prIdentifier: string, sessionId: string) => {
+            // This simulates the git operations that fail due to wrong workspace path
+            return mockExecGitWithTimeout("switch", "switch main", {
+              workdir: "/test/minsky/wrong-component/sessions/task335",
+              timeout: 30000,
+            }).then(() => ({
+              commitHash: "abc123",
+              mergeDate: new Date().toISOString(),
+              mergedBy: "test-user",
+            }));
+          }),
+        },
       })
     );
 
@@ -168,13 +170,15 @@ describe("Session Database BaseDir Bug", () => {
     const mockCreateRepositoryBackend = mock(() =>
       Promise.resolve({
         getType: () => "local",
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123",
-            mergeDate: new Date().toISOString(),
-            mergedBy: "test-user",
-          })
-        ),
+        pr: {
+          merge: mock(() =>
+            Promise.resolve({
+              commitHash: "abc123",
+              mergeDate: new Date().toISOString(),
+              mergedBy: "test-user",
+            })
+          ),
+        },
       })
     );
 

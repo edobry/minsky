@@ -30,6 +30,3 @@ export {
 
 // Export canonical session directory resolution utility
 export { resolveSessionDirectory } from "./resolve-session-directory";
-
-// Export shared session provider cache
-export { getSharedSessionProvider } from "./session-provider-cache";

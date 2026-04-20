@@ -117,7 +117,7 @@ export interface SessionMergeDependencies {
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Validates the PR is approved (prApproved: true)
- * 3. Calls repositoryBackend.mergePullRequest()
+ * 3. Calls repositoryBackend.pr.merge()
  * 4. Updates session record
  *
  * Requires the PR to be approved first.
@@ -228,7 +228,7 @@ export async function mergeSessionPr(
     }
 
     try {
-      const approvalStatus = await repositoryBackend.getPullRequestApprovalStatus(
+      const approvalStatus = await repositoryBackend.review.getApprovalStatus(
         sessionRecord.pullRequest.number
       );
 
@@ -289,7 +289,7 @@ export async function mergeSessionPr(
     throw new ValidationError("No PR identifier available for merge");
   }
 
-  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionIdToUse);
+  const mergeInfo = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse);
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);

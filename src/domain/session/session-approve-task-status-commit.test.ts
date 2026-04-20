@@ -126,20 +126,24 @@ describe("Session Approve Task Status Commit", () => {
     // Mock repository backend to avoid filesystem validation
     const mockRepositoryBackend = {
       getType: mock(() => "local"),
-      mergePullRequest: mock(() =>
-        Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        } as MergeInfo)
-      ),
-      approvePullRequest: mock(() =>
-        Promise.resolve({
-          approvalId: "approval-123",
-          approvedAt: "2025-07-30T23:14:24.213Z",
-          approvedBy: "Test User",
-        })
-      ), // EXPLICIT MOCK: Add required approvePullRequest method
+      pr: {
+        merge: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          } as MergeInfo)
+        ),
+      },
+      review: {
+        approve: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
+      },
     } as unknown as RepositoryBackend;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -261,20 +265,24 @@ describe("Session Approve Task Status Commit", () => {
     // Mock repository backend to avoid filesystem validation
     const mockRepositoryBackend = {
       getType: mock(() => "local"),
-      mergePullRequest: mock(() =>
-        Promise.resolve({
-          commitHash: "def456abc789",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        } as MergeInfo)
-      ),
-      approvePullRequest: mock(() =>
-        Promise.resolve({
-          approvalId: "approval-124",
-          approvedAt: "2025-07-30T23:14:24.213Z",
-          approvedBy: "Test User",
-        })
-      ), // EXPLICIT MOCK: Add required approvePullRequest method
+      pr: {
+        merge: mock(() =>
+          Promise.resolve({
+            commitHash: "def456abc789",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          } as MergeInfo)
+        ),
+      },
+      review: {
+        approve: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-124",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
+      },
     } as unknown as RepositoryBackend;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));

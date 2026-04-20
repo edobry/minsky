@@ -14,8 +14,12 @@ import { RepositoryBackendType } from "./legacy-types";
 
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 import type { SessionProviderInterface } from "../session/types";
+import type { ChecksResult } from "./github-pr-checks";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
+
+// Re-export check types so consumers don't need to import from github-pr-checks directly
+export type { ChecksResult, CheckRunResult } from "./github-pr-checks";
 
 // Define ValidationResult with compatibility for both interfaces
 export interface ValidationResult {
@@ -44,7 +48,7 @@ export interface RepositoryBackendConfig {
   /**
    * The type of repository backend to use
    */
-  type: "github";
+  type: "github" | "gitlab" | "bitbucket";
 
   /**
    * Repository URL or path
@@ -202,6 +206,57 @@ export interface MergeInfo {
   metadata?: Record<string, unknown>;
 }
 
+// --- Sub-interfaces for forge operations ---
+
+export interface CreatePROptions {
+  title: string;
+  body: string;
+  sourceBranch: string;
+  baseBranch: string;
+  session?: string;
+  draft?: boolean;
+}
+
+export interface UpdatePROptions {
+  prIdentifier?: string | number;
+  title?: string;
+  body?: string;
+  session?: string;
+}
+
+export interface PullRequestOperations {
+  create(options: CreatePROptions): Promise<PRInfo>;
+  update(options: UpdatePROptions): Promise<PRInfo>;
+  merge(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
+  get(options: { prIdentifier?: string | number; session?: string }): Promise<{
+    number?: number | string;
+    url?: string;
+    state?: string;
+    title?: string;
+    body?: string;
+    headBranch?: string;
+    baseBranch?: string;
+    author?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    mergedAt?: string;
+  }>;
+  getDiff(options: { prIdentifier?: string | number; session?: string }): Promise<{
+    diff: string;
+    stats?: { filesChanged: number; insertions: number; deletions: number };
+  }>;
+}
+
+export interface CIStatusOperations {
+  getChecksForRef(headSha: string): Promise<ChecksResult>;
+  getChecksForPR(prNumber: number): Promise<ChecksResult>;
+}
+
+export interface ReviewOperations {
+  approve(prIdentifier: string | number, reviewComment?: string): Promise<ApprovalInfo>;
+  getApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
+}
+
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
@@ -215,100 +270,18 @@ export interface RepositoryBackend {
   checkout?(branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 
-  // New PR workflow methods
-  /**
-   * Create a pull request from the source branch to the base branch
-   *
-   * @param title - PR title
-   * @param body - PR body/description
-   * @param sourceBranch - Source branch name (session branch)
-   * @param baseBranch - Target branch name (usually main/master)
-   * @param session - Session identifier for workspace context
-   * @param draft - Whether to create as draft PR (GitHub only)
-   * @returns Promise<PRInfo> - Information about the created PR
-   */
-  createPullRequest(
-    title: string,
-    body: string,
-    sourceBranch: string,
-    baseBranch: string,
-    session?: string,
-    draft?: boolean
-  ): Promise<PRInfo>;
+  /** Grouped pull request operations */
+  readonly pr: PullRequestOperations;
+  /** Grouped CI status operations */
+  readonly ci: CIStatusOperations;
+  /** Grouped review/approval operations */
+  readonly review: ReviewOperations;
+}
 
-  /**
-   * Update an existing pull request
-   *
-   * @param options - Update options including prIdentifier, title, body, session
-   * @returns Promise<PRInfo> - Information about the updated PR
-   */
-  updatePullRequest(options: {
-    prIdentifier?: string | number;
-    title?: string;
-    body?: string;
-    session?: string;
-  }): Promise<PRInfo>;
+export type ForgeType = "github" | "gitlab" | "bitbucket";
 
-  /**
-   * Merge a pull request into the base branch
-   *
-   * @param prIdentifier - PR number/ID or branch name depending on backend
-   * @param session - Session identifier for workspace context
-   * @returns Promise<MergeInfo> - Information about the merge operation
-   */
-  mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
-
-  /**
-   * NEW: Approve a pull request without merging (Task #358)
-   *
-   * Performs approval operation on the specified pull request. This separates
-   * the approval action from the merge action, enabling standard PR workflows
-   * where approval and merging are distinct operations.
-   *
-   * @param prIdentifier - PR number/ID or branch name depending on backend
-   * @param reviewComment - Optional review comment to include with approval
-   * @returns Promise<ApprovalInfo> - Information about the approval operation
-   */
-  approvePullRequest(prIdentifier: string | number, reviewComment?: string): Promise<ApprovalInfo>;
-
-  /**
-   * NEW: Check approval status of a pull request (Task #358)
-   *
-   * Retrieves the current approval state of a pull request, including
-   * whether it has sufficient approvals to be merged, approval count,
-   * and platform-specific requirements.
-   *
-   * @param prIdentifier - PR number/ID or branch name depending on backend
-   * @returns Promise<ApprovalStatus> - Current approval state and merge eligibility
-   */
-  getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
-
-  /**
-   * Get PR details for review rendering (backend-agnostic)
-   * If prIdentifier is omitted, implementation should infer from session when possible
-   */
-  getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }): Promise<{
-    number?: number | string;
-    url?: string;
-    state?: string;
-    title?: string;
-    body?: string;
-    headBranch?: string;
-    baseBranch?: string;
-    author?: string;
-    createdAt?: string;
-    updatedAt?: string;
-    mergedAt?: string;
-  }>;
-
-  /**
-   * Get PR diff and optional stats (backend-agnostic)
-   * If prIdentifier is omitted, implementation should infer from session when possible
-   */
-  getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }): Promise<{
-    diff: string;
-    stats?: { filesChanged: number; insertions: number; deletions: number };
-  }>;
+export interface ForgeBackend extends RepositoryBackend {
+  readonly forgeType: ForgeType;
 }
 
 /**
@@ -344,7 +317,7 @@ export interface Result {
 export async function createRepositoryBackend(
   config: RepositoryBackendConfig,
   sessionDB: SessionProviderInterface
-): Promise<RepositoryBackend> {
+): Promise<ForgeBackend> {
   // Validate common configuration
   if (!config.type) {
     throw new Error("Repository backend type is required");
@@ -382,9 +355,19 @@ export async function createRepositoryBackend(
       return new GitHubBackend(config, sessionDB, tokenProvider);
     }
 
+    case RepositoryBackendType.GITLAB:
+      throw new Error(
+        "GitLab backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+      );
+
+    case RepositoryBackendType.BITBUCKET:
+      throw new Error(
+        "Bitbucket backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+      );
+
     default:
       throw new Error(
-        `Unsupported repository backend type: ${config.type}. Only "github" is supported.`
+        `Unsupported repository backend type: ${config.type}. Only "github" is currently supported for PR/CI/review operations.`
       );
   }
 }

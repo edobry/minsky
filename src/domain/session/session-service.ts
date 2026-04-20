@@ -2,24 +2,16 @@
  * SessionService — unified service class for all session operations
  *
  * Provides a single object that holds injected dependencies and delegates
- * to the impl functions defined in the session sub-modules.  The companion
- * `createSessionDeps()` / `createSessionService()` factories wire in the
- * real implementations so callers get a fully-constructed service with no
- * manual wiring.
+ * to the impl functions defined in the session sub-modules. Dependencies
+ * are injected at construction time via the DI container.
  */
 
 import { injectable, inject } from "tsyringe";
-import { createGitService } from "../git";
 import type { GitServiceInterface } from "../git/types";
-import { createWorkspaceUtils, getCurrentSession } from "../workspace";
-import { execAsync } from "../../utils/exec";
 import type { WorkspaceUtilsInterface } from "../workspace";
-import { createConfiguredTaskService } from "../tasks/taskService";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import { RepositoryBackendType } from "../repository/index";
-import { createSessionProvider } from "./session-db-adapter";
 import type { SessionProviderInterface } from "./session-db-adapter";
-import { getRepositoryBackendFromConfig } from "./repository-backend-detection";
 import {
   getSessionImpl,
   listSessionsImpl,
@@ -46,8 +38,6 @@ import type {
   SessionConflictScanOptions,
   SessionConflictScanResult,
 } from "./session-conflicts-operations";
-import type { PersistenceProvider } from "../persistence/types";
-
 import type { Session } from "./types";
 import type {
   SessionGetParams,
@@ -77,44 +67,6 @@ export interface SessionDeps {
     backendType: RepositoryBackendType;
     github?: { owner: string; repo: string };
   }>;
-}
-
-/**
- * Creates all real-implementation dependencies for the SessionService.
- *
- * @param sessionProvider - Pre-built session provider. If omitted,
- *   `persistenceProvider` is required to create one.
- * @param persistenceProvider - Used for creating sessionProvider (if not
- *   provided) and taskService. In production, obtained from the DI container.
- */
-export async function createSessionDeps(
-  sessionProvider?: SessionProviderInterface,
-  persistenceProvider?: PersistenceProvider
-): Promise<SessionDeps> {
-  const provider =
-    sessionProvider ??
-    (persistenceProvider
-      ? await createSessionProvider(undefined, persistenceProvider)
-      : (() => {
-          throw new Error(
-            "createSessionDeps requires either sessionProvider or persistenceProvider."
-          );
-        })());
-  return {
-    sessionProvider: provider,
-    gitService: createGitService(),
-    taskService: await createConfiguredTaskService({
-      workspacePath: process.cwd(),
-      persistenceProvider,
-    }),
-    workspaceUtils: createWorkspaceUtils(provider),
-    // getCurrentSession returns string | undefined; wrap to match string | null contract
-    getCurrentSession: async (repoPath: string) => {
-      const result = await getCurrentSession(repoPath, execAsync, provider);
-      return result ?? null;
-    },
-    getRepositoryBackend: getRepositoryBackendFromConfig,
-  };
 }
 
 /**
@@ -362,11 +314,4 @@ export class SessionService {
   }> {
     return cleanupSessionImpl(params, { sessionDB: this.deps.sessionProvider });
   }
-}
-
-/**
- * Convenience factory — creates a fully-wired SessionService with real deps.
- */
-export async function createSessionService(): Promise<SessionService> {
-  return new SessionService(await createSessionDeps());
 }
