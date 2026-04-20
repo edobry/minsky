@@ -22,6 +22,7 @@ export const commandCategorySchema = z.enum([
   "AI",
   "TOOLS",
   "MCP",
+  "KNOWLEDGE",
 ]);
 
 /**
