@@ -196,13 +196,6 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 
-### CI & Branch Protection
-
-- **Main branch is protected** — all PRs must pass CI checks (`build` + `Prevent Placeholder Tests`) before merging.
-- **Never merge with failing or pending checks** — use the `orchestrate` skill's merge step (step 6) to wait for CI and merge.
-- **The build must always be green** — if CI fails, investigate and fix before merging. Never bypass with the GitHub API.
-- **Tests must be hermetic** — no environment-dependent tests that pass locally but fail in CI. If a test needs local config/db/git, it's an integration test and must handle missing deps gracefully (not with `test.skipIf(isCI)`).
-
 ## Hook Files
 
 - **All `.claude/hooks/*.ts` files must have execute permission** (`chmod +x`). The `Write` tool creates files with `644` by default — always run `chmod +x` after creating a hook file.
