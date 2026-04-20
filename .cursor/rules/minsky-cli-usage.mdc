@@ -161,6 +161,6 @@ Always check specific command help with `minsky <command> --help` for the most a
 ## See Also
 - See `orchestrate` skill (`.claude/skills/orchestrate/SKILL.md`) for workflow overview
 - See [minsky-session-management.mdc](mdc:.cursor/rules/minsky-session-management.mdc) for session-specific operations
-- See [task-implementation-workflow.mdc](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
+- See `implement-task` skill for implementing tasks
 - See [task-status-protocol.mdc](mdc:.cursor/rules/task-status-protocol.mdc) for status update procedures
 - See `prepare-pr` skill for PR creation procedures

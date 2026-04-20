@@ -169,6 +169,6 @@ For more comprehensive verification of task status, especially when there might 
 
 - See `orchestrate` skill (`.claude/skills/orchestrate/SKILL.md`) for workflow overview
 - See [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) for CLI command reference
-- See [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
+- See `implement-task` skill for implementing tasks
 
 - `DONE`: Work is complete, reviewed, and merged
