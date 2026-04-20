@@ -23,15 +23,25 @@ const defaultDeps: RepositoryBackendDetectionDeps = {
 
 /**
  * Detect repository backend type directly from a repository URL.
- * Only GitHub is supported; non-GitHub URLs throw an error.
+ * GitHub, GitLab, and Bitbucket are recognized; other URLs throw an error.
+ * Note: GitLab and Bitbucket are config-plumbing only — runtime operations (PR/CI/review) are
+ * not yet implemented and will throw when the factory is called.
  */
 export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryBackendType {
   if (repoUrl.includes("github.com")) {
     return RepositoryBackendType.GITHUB;
   }
 
+  if (repoUrl.includes("gitlab.com")) {
+    return RepositoryBackendType.GITLAB;
+  }
+
+  if (repoUrl.includes("bitbucket.org")) {
+    return RepositoryBackendType.BITBUCKET;
+  }
+
   throw new Error(
-    `Unsupported repository forge for URL: ${repoUrl}. Only GitHub repositories are supported.`
+    `Unsupported repository forge for URL: ${repoUrl}. Only GitHub, GitLab, and Bitbucket repositories are recognized.`
   );
 }
 

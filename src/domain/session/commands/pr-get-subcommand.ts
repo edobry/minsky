@@ -49,7 +49,7 @@ export async function sessionPrGet(
     task?: string;
     repo?: string;
     json?: boolean;
-    backend?: "github";
+    backend?: "github" | "gitlab" | "bitbucket";
     status?: string; // optional constraint
     since?: string;
     until?: string;
@@ -72,7 +72,7 @@ export async function sessionPrGet(
     author?: string;
     filesChanged?: number;
     commits?: number;
-    backendType?: "github";
+    backendType?: "github" | "gitlab" | "bitbucket";
   };
 }> {
   const { sessionDB } = deps;

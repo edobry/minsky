@@ -4,16 +4,19 @@
  * Tests for:
  * - resolveRepositoryFromGitRemote (init-time detection)
  * - getRepositoryBackendFromConfig (config-based session creation)
+ * - detectRepositoryBackendTypeFromUrl (URL-based type detection)
+ * - createRepositoryBackend (factory error messages)
  *
  * All tests are hermetic — no real filesystem, git, or network access.
  * Uses dependency injection instead of mock.module().
  */
 import { describe, it, expect, beforeEach } from "bun:test";
-import { RepositoryBackendType } from "../repository/index";
+import { RepositoryBackendType, createRepositoryBackend } from "../repository/index";
 import type { RepositoryBackendDetectionDeps } from "./repository-backend-detection";
 import {
   resolveRepositoryFromGitRemote,
   getRepositoryBackendFromConfig,
+  detectRepositoryBackendTypeFromUrl,
 } from "./repository-backend-detection";
 
 // ─── Shared mutable state for mock control ───────────────────────────────────
@@ -126,5 +129,71 @@ describe("getRepositoryBackendFromConfig", () => {
       expect(result.backendType).toBe(RepositoryBackendType.GITHUB);
       expect(result.repoUrl).toContain("github.com");
     });
+  });
+});
+
+// ─── detectRepositoryBackendTypeFromUrl ─────────────────────────────────────
+
+describe("detectRepositoryBackendTypeFromUrl", () => {
+  it("returns GITHUB for github.com URLs", () => {
+    expect(detectRepositoryBackendTypeFromUrl("https://github.com/owner/repo.git")).toBe(
+      RepositoryBackendType.GITHUB
+    );
+    expect(detectRepositoryBackendTypeFromUrl("git@github.com:owner/repo.git")).toBe(
+      RepositoryBackendType.GITHUB
+    );
+  });
+
+  it("returns GITLAB for gitlab.com URLs", () => {
+    expect(detectRepositoryBackendTypeFromUrl("https://gitlab.com/someorg/somerepo.git")).toBe(
+      RepositoryBackendType.GITLAB
+    );
+    expect(detectRepositoryBackendTypeFromUrl("git@gitlab.com:someorg/somerepo.git")).toBe(
+      RepositoryBackendType.GITLAB
+    );
+  });
+
+  it("returns BITBUCKET for bitbucket.org URLs", () => {
+    expect(detectRepositoryBackendTypeFromUrl("https://bitbucket.org/someuser/somerepo.git")).toBe(
+      RepositoryBackendType.BITBUCKET
+    );
+    expect(detectRepositoryBackendTypeFromUrl("git@bitbucket.org:someuser/somerepo.git")).toBe(
+      RepositoryBackendType.BITBUCKET
+    );
+  });
+
+  it("throws for unrecognized URLs", () => {
+    expect(() => detectRepositoryBackendTypeFromUrl("https://example.com/repo.git")).toThrow(
+      /Unsupported repository forge/
+    );
+  });
+});
+
+// ─── createRepositoryBackend factory error messages ─────────────────────────
+
+// Minimal stub — only the type signature needs to satisfy SessionProviderInterface
+const stubSessionDB = {} as any;
+
+describe("createRepositoryBackend factory", () => {
+  it("throws a clear error for gitlab type", async () => {
+    await expect(
+      createRepositoryBackend(
+        { type: "gitlab", repoUrl: "https://gitlab.com/org/repo" },
+        stubSessionDB
+      )
+    ).rejects.toThrow(
+      "GitLab backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+    );
+  });
+
+  it("throws a clear error for bitbucket type", async () => {
+    await expect(
+      createRepositoryBackend(
+        { type: "bitbucket", repoUrl: "https://bitbucket.org/user/repo" },
+        stubSessionDB
+      )
+    ).rejects.toThrow(
+      "Bitbucket backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+    );
   });
 });
