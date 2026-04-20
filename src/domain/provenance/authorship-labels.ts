@@ -100,7 +100,8 @@ export async function ensureAuthorshipLabelsExist(
         // 404 → label does not exist yet, fall through to creation
       }
 
-      const cfg = LABEL_CONFIG[labelName]!;
+      const cfg = LABEL_CONFIG[labelName];
+      if (!cfg) continue;
       await octokit.rest.issues.createLabel({
         owner,
         repo,
