@@ -80,14 +80,12 @@ export function registerTaskEditTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
 ): void {
-  // Task edit file tool - works like session.edit_file but for task specs
+  // Marker-based spec patching — edits task specs using // ... existing code ... markers
   commandMapper.addCommand({
-    name: "tasks.edit_file",
-    description: `Edit a task specification using familiar file editing patterns. Works exactly like session.edit_file but operates on task specs in-memory with backend delegation.
+    name: "tasks.spec.patch",
+    description: `Edit a task specification using marker-based patching. Task specs are stored in the database, not the filesystem.
 
-Use this tool to make edits to a task specification. You should make it clear what the edit is, while also minimizing the unchanged content you write.
-
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged content in between edited lines.
+Use this tool to make partial edits to a task spec. Specify each edit with the special comment // ... existing code ... to represent unchanged content between edited sections.
 
 For example:
 
@@ -99,18 +97,16 @@ Added content here
 Modified content here
 // ... existing code ...
 
-You should still bias towards repeating as few lines of the original spec as possible to convey the change. But, each edit should contain sufficient context of unchanged lines around the content you're editing to resolve ambiguity.
+Bias towards repeating as few lines of the original spec as possible. Each edit should contain sufficient context of unchanged lines to resolve ambiguity.
 
-DO NOT omit spans of pre-existing content without using the // ... existing code ... comment to indicate its absence. If you omit the existing code comment, the model may inadvertently delete these sections.
+DO NOT omit spans of pre-existing content without using the // ... existing code ... comment. If you omit it, the model may inadvertently delete those sections.
 
-If you plan on deleting a section, you must provide context before and after to delete it. Make sure it is clear what the edit should be, and where it should be applied.
-
-Make edits to a task spec in a single edit_file call instead of multiple edit_file calls to the same task. The apply model can handle many distinct edits at once.`,
+Make all edits to a task spec in a single call instead of multiple calls to the same task.`,
     parameters: TaskEditSchema,
     handler: async (args): Promise<Record<string, unknown>> => {
       const typedArgs = args as TaskEditArgs;
       try {
-        log.debug("Starting task edit_file operation", { taskId: typedArgs.taskId });
+        log.debug("Starting task spec.patch operation", { taskId: typedArgs.taskId });
 
         // Load current task spec content
         let originalContent = "";
@@ -199,7 +195,7 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
             : undefined
         );
 
-        log.debug("Task edit_file operation completed", { taskId: typedArgs.taskId });
+        log.debug("Task spec.patch operation completed", { taskId: typedArgs.taskId });
 
         return {
           success: true,
@@ -208,17 +204,17 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           instructions: typedArgs.instructions,
         };
       } catch (error) {
-        log.error("Task edit_file operation failed", { taskId: typedArgs.taskId, error });
+        log.error("Task spec.patch operation failed", { taskId: typedArgs.taskId, error });
         throw error;
       }
     },
   });
 
-  // Task search replace tool - works like session.search_replace but for task specs
+  // Search-replace on task specs (database-backed, not filesystem)
   commandMapper.addCommand({
-    name: "tasks.search_replace",
+    name: "tasks.spec.search_replace",
     description:
-      "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
+      "Replace a single occurrence of text in a task specification. Task specs are stored in the database, not the filesystem.",
     parameters: TaskSearchReplaceSchema,
     handler: async (args): Promise<Record<string, unknown>> => {
       const typedArgs = args as TaskSearchReplaceArgs;
