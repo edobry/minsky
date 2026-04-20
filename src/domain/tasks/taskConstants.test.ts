@@ -9,7 +9,7 @@ import {
 } from "./taskConstants";
 
 const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 7;
+const TEST_ARRAY_SIZE = 8;
 
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {
@@ -17,6 +17,7 @@ describe("Task Constants and Utilities", () => {
       expect(Object.keys(TASK_STATUS)).toEqual([
         "TODO",
         "PLANNING",
+        "READY",
         "IN_PROGRESS",
         "IN_REVIEW",
         "DONE",
@@ -29,6 +30,7 @@ describe("Task Constants and Utilities", () => {
       // Test status to checkbox mapping
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.TODO]).toBe(" ");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.PLANNING]).toBe("?");
+      expect(TASK_STATUS_CHECKBOX[TASK_STATUS.READY]).toBe("=");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.IN_PROGRESS]).toBe("+");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.IN_REVIEW]).toBe("-");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.DONE]).toBe("x");
@@ -38,6 +40,7 @@ describe("Task Constants and Utilities", () => {
       // Test checkbox to status mapping
       expect(CHECKBOX_TO_STATUS[" "]).toBe(TASK_STATUS.TODO);
       expect(CHECKBOX_TO_STATUS["?"]).toBe(TASK_STATUS.PLANNING);
+      expect(CHECKBOX_TO_STATUS["="]).toBe(TASK_STATUS.READY);
       expect(CHECKBOX_TO_STATUS["+"]).toBe(TASK_STATUS.IN_PROGRESS);
       expect(CHECKBOX_TO_STATUS["-"]).toBe(TASK_STATUS.IN_REVIEW);
       expect(CHECKBOX_TO_STATUS["x"]).toBe(TASK_STATUS.DONE);

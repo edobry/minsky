@@ -290,7 +290,16 @@ export const TaskParameters = {
    * Task status parameter
    */
   status: {
-    schema: z.enum(["TODO", "PLANNING", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]),
+    schema: z.enum([
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "IN-REVIEW",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]),
     description: "Task status",
     required: false,
   } as CommandParameterDefinition,

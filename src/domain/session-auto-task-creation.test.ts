@@ -66,7 +66,7 @@ describe("Session Auto-Task Creation", () => {
 
     // Mock task service using FakeTaskService with proper task creation mock
     const fakeTaskService = new FakeTaskService({
-      initialTasks: [{ id: "md#001", title: "Test Task", status: "PLANNING" }],
+      initialTasks: [{ id: "md#001", title: "Test Task", status: "READY" }],
       workspacePath: "/test/workspace",
     });
     fakeTaskService.createTaskFromTitleAndSpec = createTaskSpy;

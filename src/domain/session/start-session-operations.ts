@@ -164,8 +164,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         taskSpec.description
       );
       taskId = createdTask.id;
-      // Auto-created tasks start in PLANNING so session_start can transition them
+      // Auto-created tasks skip planning and go straight to READY
       await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
+      await deps.taskService.setTaskStatus(taskId, TASK_STATUS.READY);
       if (!quiet) {
         // Display the task ID (taskId is already in the correct format from TaskService)
         log.cli(`Created task ${taskId}: ${taskSpec.title}`);
@@ -374,9 +375,17 @@ Error: ${getErrorMessage(installError)}`
           );
         }
 
-        if (currentStatus === TASK_STATUS.IN_PROGRESS || currentStatus === TASK_STATUS.PLANNING) {
-          // If transitioning from PLANNING, warn about any unchecked success criteria
-          if (currentStatus === TASK_STATUS.PLANNING) {
+        if (currentStatus === TASK_STATUS.PLANNING) {
+          throw new ValidationError(
+            "Planning is not yet marked as complete. Set status to READY when investigation is done.",
+            undefined,
+            undefined
+          );
+        }
+
+        if (currentStatus === TASK_STATUS.READY || currentStatus === TASK_STATUS.IN_PROGRESS) {
+          // If transitioning from READY, warn about any unchecked success criteria
+          if (currentStatus === TASK_STATUS.READY) {
             try {
               const specResult = await deps.taskService.getTaskSpecContent(taskId);
               if (specResult) {

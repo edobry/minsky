@@ -36,8 +36,24 @@ describe("status-transitions", () => {
       expect(() => validateStatusTransition(TaskStatus.PLANNING, TaskStatus.BLOCKED)).not.toThrow();
     });
 
+    test("PLANNING → READY is valid", () => {
+      expect(() => validateStatusTransition(TaskStatus.PLANNING, TaskStatus.READY)).not.toThrow();
+    });
+
     test("PLANNING → CLOSED is valid", () => {
       expect(() => validateStatusTransition(TaskStatus.PLANNING, TaskStatus.CLOSED)).not.toThrow();
+    });
+
+    test("READY → PLANNING is valid (go back for more investigation)", () => {
+      expect(() => validateStatusTransition(TaskStatus.READY, TaskStatus.PLANNING)).not.toThrow();
+    });
+
+    test("READY → BLOCKED is valid", () => {
+      expect(() => validateStatusTransition(TaskStatus.READY, TaskStatus.BLOCKED)).not.toThrow();
+    });
+
+    test("READY → CLOSED is valid", () => {
+      expect(() => validateStatusTransition(TaskStatus.READY, TaskStatus.CLOSED)).not.toThrow();
     });
 
     test("IN_PROGRESS → IN_REVIEW is valid", () => {
@@ -70,6 +86,10 @@ describe("status-transitions", () => {
 
     test("BLOCKED → PLANNING is valid", () => {
       expect(() => validateStatusTransition(TaskStatus.BLOCKED, TaskStatus.PLANNING)).not.toThrow();
+    });
+
+    test("BLOCKED → READY is valid", () => {
+      expect(() => validateStatusTransition(TaskStatus.BLOCKED, TaskStatus.READY)).not.toThrow();
     });
 
     test("BLOCKED → TODO is valid", () => {
@@ -105,10 +125,17 @@ describe("status-transitions", () => {
       );
     });
 
-    // Special case: PLANNING → IN-PROGRESS reserved for session_start
-    test("PLANNING → IN-PROGRESS via direct status set is rejected with session_start guidance", () => {
+    // Special case: READY → IN-PROGRESS reserved for session_start
+    test("READY → IN-PROGRESS via direct status set is rejected with session_start guidance", () => {
+      expect(() => validateStatusTransition(TaskStatus.READY, TaskStatus.IN_PROGRESS)).toThrow(
+        /Use session_start to transition from READY to IN-PROGRESS/
+      );
+    });
+
+    // Special case: PLANNING → IN-PROGRESS must go through READY
+    test("PLANNING → IN-PROGRESS via direct status set is rejected", () => {
       expect(() => validateStatusTransition(TaskStatus.PLANNING, TaskStatus.IN_PROGRESS)).toThrow(
-        /Use session_start to transition from PLANNING to IN-PROGRESS/
+        /Cannot transition directly from PLANNING to IN-PROGRESS.*Set status to READY first/
       );
     });
 

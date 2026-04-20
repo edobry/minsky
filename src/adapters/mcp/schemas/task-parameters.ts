@@ -28,7 +28,8 @@ export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
  * Uses the centralized TaskStatus enum
  */
 export const TaskStatusSchema = z.enum(TaskStatus, {
-  error: "Status must be one of: TODO, PLANNING, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
+  error:
+    "Status must be one of: TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
 });
 
 /**

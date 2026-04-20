@@ -12,6 +12,7 @@ import { isQualifiedTaskId } from "./task-id";
 export enum TaskStatus {
   TODO = "TODO",
   PLANNING = "PLANNING",
+  READY = "READY",
   IN_PROGRESS = "IN-PROGRESS",
   IN_REVIEW = "IN-REVIEW",
   DONE = "DONE",
@@ -36,6 +37,7 @@ export const TASK_STATUS_VALUES = Object.values(TaskStatus);
 export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.TODO]: " ",
   [TASK_STATUS.PLANNING]: "?",
+  [TASK_STATUS.READY]: "=",
   [TASK_STATUS.IN_PROGRESS]: "+",
   [TASK_STATUS.IN_REVIEW]: "-",
   [TASK_STATUS.DONE]: "x",
@@ -49,6 +51,7 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
 export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   " ": TASK_STATUS.TODO,
   "?": TASK_STATUS.PLANNING,
+  "=": TASK_STATUS.READY,
   "+": TASK_STATUS.IN_PROGRESS,
   "-": TASK_STATUS.IN_REVIEW,
   x: TASK_STATUS.DONE,
@@ -63,6 +66,7 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
 export const STATUS_TO_CHECKBOX: Record<string, string> = {
   TODO: " ",
   PLANNING: "?",
+  READY: "=",
   "IN-PROGRESS": "+",
   "IN-REVIEW": "-",
   DONE: "x",

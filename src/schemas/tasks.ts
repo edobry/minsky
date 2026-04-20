@@ -11,6 +11,7 @@ import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 export const _TASK_STATUS = {
   TODO: "TODO",
   PLANNING: "PLANNING",
+  READY: "READY",
   DONE: "DONE",
   IN_PROGRESS: "IN-PROGRESS",
   IN_REVIEW: "IN-REVIEW",

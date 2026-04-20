@@ -117,20 +117,22 @@ When a PR removes a feature, module, or backend, symbol-level grep ("is the dele
 ## Task Lifecycle
 
 ```
-TODO → PLANNING → IN-PROGRESS → IN-REVIEW → DONE
-       (mandatory)  (session_start)  (pr_create)   (verify + merge)
+TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE
+       (investigate) (gate)  (session_start) (pr_create)  (verify + merge)
 
-Also: BLOCKED (from PLANNING or IN-PROGRESS), CLOSED (from any state)
+Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state)
 ```
 
 **Status transitions are enforced in the domain layer.** Invalid transitions are rejected with descriptive errors listing valid transitions from the current state.
 
 - **TODO → PLANNING**: Agent picks up the task. Set status to PLANNING before any investigation or session work.
 - **PLANNING** (no session): Read and verify the spec (pre-flight). Investigate the codebase if needed. Persist findings to the spec. No session exists — no code changes yet.
-- **PLANNING → IN-PROGRESS**: Only via `session_start` (cannot be set directly). `session_start` blocks from TODO — the task must be in PLANNING first.
+- **PLANNING → READY**: Agent declares planning complete. Set status to READY when investigation is done and spec is up to date.
+- **READY → IN-PROGRESS**: Only via `session_start` (cannot be set directly). `session_start` blocks from TODO and PLANNING.
 - **IN-PROGRESS → IN-REVIEW**: PR created.
 - **IN-REVIEW → DONE**: Spec verified, PR merged.
 - **IN-PROGRESS → PLANNING**: Go back for more investigation if scope was wrong.
+- **READY → PLANNING**: Go back if more investigation is needed before starting.
 
 ## Task Completion Protocol
 
