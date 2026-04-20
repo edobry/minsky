@@ -3,6 +3,7 @@ import { createStartCommand } from "./start-command";
 import { createToolsCommand } from "./tools-command";
 import { createCallCommand } from "./call-command";
 import { createInspectCommand } from "./inspect-command";
+import { createRegisterCommand } from "./register-command";
 
 /**
  * Create the MCP command
@@ -17,6 +18,7 @@ export function createMCPCommand(): Command {
   mcpCommand.addCommand(createToolsCommand());
   mcpCommand.addCommand(createCallCommand());
   mcpCommand.addCommand(createInspectCommand());
+  mcpCommand.addCommand(createRegisterCommand());
 
   return mcpCommand;
 }

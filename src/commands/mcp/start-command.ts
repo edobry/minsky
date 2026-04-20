@@ -24,6 +24,7 @@ import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { registerValidateTools } from "../../adapters/mcp/validate";
+import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -58,6 +59,7 @@ function registerAllTools(commandMapper: CommandMapper): void {
   registerConfigTools(commandMapper);
   registerChangesetTools(commandMapper);
   registerValidateTools(commandMapper);
+  registerMcpManagementTools(commandMapper);
 }
 
 /**
