@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers persistence tools with the MCP command mapper
  */
-export function registerPersistenceTools(commandMapper: CommandMapper): void {
+export function registerPersistenceTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering persistence commands via shared command integration");
 
   // Use the bridge integration to automatically register all persistence commands
   registerPersistenceCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "persistence.migrate": {
@@ -30,7 +34,10 @@ export function registerPersistenceTools(commandMapper: CommandMapper): void {
 /**
  * Legacy sessiondb tools registration (for backward compatibility)
  */
-export function registerSessiondbTools(commandMapper: CommandMapper): void {
+export function registerSessiondbTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   // Forward to persistence tools for backward compatibility
-  registerPersistenceTools(commandMapper);
+  registerPersistenceTools(commandMapper, container);
 }

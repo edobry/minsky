@@ -9,11 +9,15 @@ import { log } from "../../utils/logger";
  * Registers debug tools with the MCP command mapper
  * These tools are primarily for development and debugging purposes
  */
-export function registerDebugTools(commandMapper: CommandMapper): void {
+export function registerDebugTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering debug commands via shared command integration");
 
   // Use the bridge integration to automatically register all debug commands
   registerDebugCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "debug.listMethods": {

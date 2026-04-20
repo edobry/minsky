@@ -9,7 +9,10 @@ import { log } from "../../utils/logger";
 /**
  * Registers task tools with the MCP command mapper
  */
-export function registerTaskTools(commandMapper: CommandMapper): void {
+export function registerTaskTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug(
     "Exposing task commands via shared command integration (commands already registered during CLI init)"
   );
@@ -21,6 +24,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   // Note: Shared commands are already registered during CLI initialization,
   // so we just need to expose them via MCP without re-registering
   registerTaskCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "tasks.list": {

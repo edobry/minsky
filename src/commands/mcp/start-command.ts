@@ -34,32 +34,35 @@ const INSPECTOR_PORT = 5173;
 /**
  * Register all MCP tool adapters on the given command mapper.
  */
-function registerAllTools(commandMapper: CommandMapper): void {
+function registerAllTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper);
+  registerDebugTools(commandMapper, container);
 
   // Register main application tools
   log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper);
+  registerTaskTools(commandMapper, container);
   log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper);
-  registerSessionWorkspaceTools(commandMapper);
+  registerSessionTools(commandMapper, container);
+  registerSessionWorkspaceTools(commandMapper); // no container needed
 
-  registerSessionFileTools(commandMapper);
-  registerSessionEditTools(commandMapper);
+  registerSessionFileTools(commandMapper); // no container needed
+  registerSessionEditTools(commandMapper); // no container needed
 
   // Register persistence tools for agent querying
   log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper);
+  registerPersistenceTools(commandMapper, container);
 
-  registerGitTools(commandMapper);
+  registerGitTools(commandMapper, container);
 
-  registerInitTools(commandMapper);
-  registerRulesTools(commandMapper);
-  registerConfigTools(commandMapper);
-  registerChangesetTools(commandMapper);
-  registerValidateTools(commandMapper);
-  registerMcpManagementTools(commandMapper);
+  registerInitTools(commandMapper, container);
+  registerRulesTools(commandMapper, container);
+  registerConfigTools(commandMapper, container);
+  registerChangesetTools(commandMapper, container);
+  registerValidateTools(commandMapper, container);
+  registerMcpManagementTools(commandMapper, container);
 }
 
 /**
@@ -235,7 +238,11 @@ export function createStartCommand(): Command {
 
         // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(server, server.getProjectContext());
-        registerAllTools(commandMapper);
+        const { getAppContainer } = await import(
+          "../../adapters/shared/bridges/cli/command-generator-core"
+        );
+        const container = getAppContainer();
+        registerAllTools(commandMapper, container);
 
         // Launch inspector if requested
         if (options.withInspector) {
@@ -286,12 +293,8 @@ export function createStartCommand(): Command {
         }
 
         // Fire-and-forget background embedding sweep for missing tasks
-        Promise.all([
-          import("../../adapters/shared/commands/tasks/startup-embedding-sweep"),
-          import("../../adapters/shared/bridges/cli/command-generator-core"),
-        ])
-          .then(([{ triggerStartupEmbeddingSweep }, { getAppContainer }]) => {
-            const container = getAppContainer();
+        import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
+          .then(({ triggerStartupEmbeddingSweep }) => {
             const persistence = container?.has("persistence")
               ? container.get("persistence")
               : undefined;
