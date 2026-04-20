@@ -74,7 +74,7 @@ export interface SessionRecord {
   repoPath?: string; // Local path to the repository
   createdAt: string;
   taskId?: string;
-  backendType?: "github"; // Repository backend type — only GitHub is supported
+  backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
   prState?: {
     branchName: string;
     exists?: boolean;

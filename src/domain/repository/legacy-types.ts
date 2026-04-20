@@ -9,10 +9,23 @@ import type { UriFormat } from "../uri-utils";
 
 /**
  * Repository backend types supported by the system.
- * Only GitHub is supported; LOCAL and REMOTE backends have been removed.
+ * GitHub is fully supported; GitLab and Bitbucket are config-plumbing only.
  */
 export enum RepositoryBackendType {
   GITHUB = "github",
+  GITLAB = "gitlab",
+  BITBUCKET = "bitbucket",
+}
+
+/**
+ * Returns true if the given backend type is a forge (hosted git platform).
+ */
+export function isForgeBackend(type: RepositoryBackendType): boolean {
+  return [
+    RepositoryBackendType.GITHUB,
+    RepositoryBackendType.GITLAB,
+    RepositoryBackendType.BITBUCKET,
+  ].includes(type);
 }
 
 /**
