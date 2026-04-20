@@ -15,7 +15,8 @@ export interface McpOptions {
  */
 export function getMinskyConfigContentYaml(
   backend: z.infer<typeof enumSchemas.backendType>,
-  repository?: ResolvedRepositoryConfig
+  repository?: ResolvedRepositoryConfig,
+  mcp?: McpOptions
 ): string {
   const config: Record<string, unknown> = {
     tasks: {
@@ -41,6 +42,19 @@ export function getMinskyConfigContentYaml(
       repoSection.github = repository.github;
     }
     config.repository = repoSection;
+  }
+
+  if (mcp) {
+    const mcpSection: Record<string, unknown> = {
+      transport: mcp.transport ?? "stdio",
+    };
+    if (mcp.port !== undefined) {
+      mcpSection.port = mcp.port;
+    }
+    if (mcp.host !== undefined) {
+      mcpSection.host = mcp.host;
+    }
+    config.mcp = mcpSection;
   }
 
   return yamlStringify(config);

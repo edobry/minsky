@@ -141,7 +141,11 @@ export async function initializeProject(
   await createDirectoryIfNotExists(minskyDir, fileSystem);
 
   const configPath = path.join(minskyDir, "config.yaml");
-  const configContent = getMinskyConfigContentYaml(backend, repository);
+  const mcpForConfig =
+    mcp?.enabled !== false
+      ? { transport: mcp?.transport, port: mcp?.port, host: mcp?.host }
+      : undefined;
+  const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
   // Write machine-specific local config (gitignored) with workspace.mainPath
