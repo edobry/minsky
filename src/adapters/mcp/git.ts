@@ -21,10 +21,14 @@ import { log } from "../../utils/logger";
  * - git.rebase: Use session commands for rebasing
  * - git.branch: Use session commands for branch creation
  */
-export function registerGitTools(commandMapper: CommandMapper): void {
+export function registerGitTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering git commands via shared command integration");
 
   registerGitCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       // Hide session-scoped or less useful git operations from main workspace MCP

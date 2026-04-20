@@ -21,15 +21,23 @@ import { createSuccessResponse, createErrorResponse } from "../../domain/schemas
 /**
  * Create a new session path resolver instance
  */
-function createPathResolver(): SessionPathResolver {
-  return new SessionPathResolver();
+function createPathResolver(
+  container?: import("../../composition/types").AppContainerInterface
+): SessionPathResolver {
+  const sessionProvider = container?.has("sessionProvider")
+    ? container.get("sessionProvider")
+    : undefined;
+  return new SessionPathResolver(sessionProvider);
 }
 
 /**
  * Registers session file operation tools with the MCP command mapper
  */
-export function registerSessionFileTools(commandMapper: CommandMapper): void {
-  const pathResolver = createPathResolver();
+export function registerSessionFileTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
+  const pathResolver = createPathResolver(container);
 
   // Session read file tool with line range support
   // Session move file tool

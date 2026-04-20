@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers rules tools with the MCP command mapper
  */
-export function registerRulesTools(commandMapper: CommandMapper): void {
+export function registerRulesTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering rules commands via shared command integration");
 
   // Use the bridge integration to automatically register all rules commands
   registerRulesCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "rules.list": {

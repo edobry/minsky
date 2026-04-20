@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers session tools with the MCP command mapper
  */
-export function registerSessionTools(commandMapper: CommandMapper): void {
+export function registerSessionTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering session commands with MCP");
 
   // Use the bridge integration to automatically register all session commands
   registerSessionCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "session.list": {

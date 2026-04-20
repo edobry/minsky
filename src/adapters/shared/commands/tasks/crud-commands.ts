@@ -543,7 +543,12 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       }
 
       // Fire-and-forget embedding indexing for the newly created task
-      autoIndexTaskEmbedding(result.id);
+      autoIndexTaskEmbedding(
+        result.id,
+        this.getPersistenceProvider
+          ? { getPersistenceProvider: this.getPersistenceProvider }
+          : undefined
+      );
 
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;

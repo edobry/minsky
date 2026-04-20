@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers initialization tools with the MCP command mapper
  */
-export function registerInitTools(commandMapper: CommandMapper): void {
+export function registerInitTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering init commands via shared command integration");
 
   // Use the bridge integration to automatically register all init commands
   registerInitCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       init: {

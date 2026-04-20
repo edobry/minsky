@@ -29,7 +29,7 @@ export class SessionWorkspaceService {
 
   constructor(sessionProvider: SessionProviderInterface, workspaceBackend?: WorkspaceBackend) {
     this.sessionProvider = sessionProvider;
-    this.pathResolver = new SessionPathResolver();
+    this.pathResolver = new SessionPathResolver(sessionProvider);
     this.workspaceBackend = workspaceBackend || new LocalWorkspaceBackend();
   }
 

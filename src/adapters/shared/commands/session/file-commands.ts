@@ -101,6 +101,7 @@ async function callSessionEditFileMcpTool(args: {
   content: string;
   dryRun: boolean;
   createDirs: boolean;
+  sessionProvider?: import("../../../../domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
   const { writeFile, stat } = await import("fs/promises");
   const { dirname } = await import("path");
@@ -109,7 +110,7 @@ async function callSessionEditFileMcpTool(args: {
   const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
   const { createSuccessResponse } = await import("../../../../domain/schemas");
 
-  const pathResolver = new SessionPathResolver();
+  const pathResolver = new SessionPathResolver(args.sessionProvider);
   const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
 
   let fileExists = false;
@@ -257,6 +258,7 @@ export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandD
           content,
           dryRun: typedParams.dryRun || false,
           createDirs: typedParams.createDirs !== false,
+          sessionProvider: deps.sessionProvider,
         });
 
         return formatResult(mcpResult, typedParams);

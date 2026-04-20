@@ -67,20 +67,19 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
 /**
  * Registers task-aware editing tools with the MCP command mapper
  */
-function getTaskDeps(): TaskServiceDeps {
-  try {
-    const { getAppContainer } = require("../shared/bridges/cli/command-generator-core");
-    const container = getAppContainer();
-    if (container?.has("persistence")) {
-      return { persistenceProvider: container.get("persistence") };
-    }
-    return {};
-  } catch {
-    return {};
+function getTaskDeps(
+  container?: import("../../composition/types").AppContainerInterface
+): TaskServiceDeps {
+  if (container?.has("persistence")) {
+    return { persistenceProvider: container.get("persistence") };
   }
+  return {};
 }
 
-export function registerTaskEditTools(commandMapper: CommandMapper): void {
+export function registerTaskEditTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   // Task edit file tool - works like session.edit_file but for task specs
   commandMapper.addCommand({
     name: "tasks.edit_file",
@@ -126,7 +125,7 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
               session: typedArgs.session,
               backend: typedArgs.backend,
             },
-            getTaskDeps()
+            getTaskDeps(container)
           );
           if (specResult?.content) {
             originalContent = specResult.content;
@@ -189,11 +188,16 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
             session: typedArgs.session,
             backend: typedArgs.backend,
           },
-          getTaskDeps()
+          getTaskDeps(container)
         );
 
         // Fire-and-forget embedding re-index after spec update
-        autoIndexTaskEmbedding(typedArgs.taskId);
+        autoIndexTaskEmbedding(
+          typedArgs.taskId,
+          container?.has("persistence")
+            ? { getPersistenceProvider: () => container!.get("persistence") }
+            : undefined
+        );
 
         log.debug("Task edit_file operation completed", { taskId: typedArgs.taskId });
 
@@ -246,7 +250,7 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
             session: typedArgs.session,
             backend: typedArgs.backend,
           },
-          getTaskDeps()
+          getTaskDeps(container)
         );
 
         if (!specResult?.content) {
@@ -283,11 +287,16 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
             session: typedArgs.session,
             backend: typedArgs.backend,
           },
-          getTaskDeps()
+          getTaskDeps(container)
         );
 
         // Fire-and-forget embedding re-index after spec update
-        autoIndexTaskEmbedding(typedArgs.taskId);
+        autoIndexTaskEmbedding(
+          typedArgs.taskId,
+          container?.has("persistence")
+            ? { getPersistenceProvider: () => container!.get("persistence") }
+            : undefined
+        );
 
         log.debug("Task search_replace operation completed", {
           taskId: typedArgs.taskId,

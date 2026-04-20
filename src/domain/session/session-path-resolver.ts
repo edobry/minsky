@@ -223,24 +223,7 @@ export class SessionPathResolver {
     sessionProvider?: import("./index").SessionProviderInterface
   ): Promise<string> {
     const { resolveSessionDirectory } = await import("./resolve-session-directory");
-    let provider = sessionProvider ?? this.sessionProvider;
-
-    // Lazy resolution: if no provider was injected, try the DI container
-    if (!provider) {
-      try {
-        const { getAppContainer } = await import(
-          "../../adapters/shared/bridges/cli/command-generator-core"
-        );
-        const container = getAppContainer();
-        if (container) {
-          provider = container.get("sessionProvider");
-          // Cache for subsequent calls
-          this.sessionProvider = provider;
-        }
-      } catch {
-        // Container not available
-      }
-    }
+    const provider = sessionProvider ?? this.sessionProvider;
 
     if (!provider) {
       throw new Error(

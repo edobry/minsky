@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers changeset tools with the MCP command mapper
  */
-export function registerChangesetTools(commandMapper: CommandMapper): void {
+export function registerChangesetTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering changeset commands with MCP");
 
   // Use the bridge integration to automatically register all changeset commands
   registerChangesetCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "changeset.list": {

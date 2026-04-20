@@ -8,11 +8,15 @@ import { log } from "../../utils/logger";
 /**
  * Registers config tools with the MCP command mapper
  */
-export function registerConfigTools(commandMapper: CommandMapper): void {
+export function registerConfigTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering config commands via shared command integration");
 
   // Use the bridge integration to automatically register all config commands
   registerConfigCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "config.list": {

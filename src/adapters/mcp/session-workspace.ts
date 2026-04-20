@@ -92,15 +92,23 @@ function processFileContentWithLineRange(
 /**
  * Create a new session path resolver instance
  */
-function createPathResolver(): SessionPathResolver {
-  return new SessionPathResolver();
+function createPathResolver(
+  container?: import("../../composition/types").AppContainerInterface
+): SessionPathResolver {
+  const sessionProvider = container?.has("sessionProvider")
+    ? container.get("sessionProvider")
+    : undefined;
+  return new SessionPathResolver(sessionProvider);
 }
 
 /**
  * Registers session workspace tools with the MCP command mapper
  */
-export function registerSessionWorkspaceTools(commandMapper: CommandMapper): void {
-  const pathResolver = createPathResolver();
+export function registerSessionWorkspaceTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
+  const pathResolver = createPathResolver(container);
 
   // Session read file tool
   commandMapper.addCommand({

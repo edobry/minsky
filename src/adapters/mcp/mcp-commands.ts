@@ -8,10 +8,14 @@ import { log } from "../../utils/logger";
 /**
  * Registers MCP management tools with the MCP command mapper
  */
-export function registerMcpManagementTools(commandMapper: CommandMapper): void {
+export function registerMcpManagementTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
   log.debug("Registering MCP management commands via shared command integration");
 
   registerMcpCommandsWithMcp(commandMapper, {
+    container,
     debug: true,
     commandOverrides: {
       "mcp.register": {
