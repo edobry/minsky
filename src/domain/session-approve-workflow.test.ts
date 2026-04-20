@@ -122,13 +122,15 @@ describe("Session Approve Workflow", () => {
         createRepositoryBackendForSession: (() =>
           Promise.resolve({
             getType: () => "test-backend",
-            approvePullRequest: () =>
-              Promise.resolve({
-                reviewId: "test-review-025",
-                approvedBy: "test-user",
-                approvedAt: new Date().toISOString(),
-                prNumber: "025",
-              }),
+            review: {
+              approve: () =>
+                Promise.resolve({
+                  reviewId: "test-review-025",
+                  approvedBy: "test-user",
+                  approvedAt: new Date().toISOString(),
+                  prNumber: "025",
+                }),
+            },
           })) as any,
       }
     );
@@ -158,13 +160,15 @@ describe("Session Approve Workflow", () => {
           createRepositoryBackend: mock((sessionRecord: any) =>
             Promise.resolve({
               getType: () => "local",
-              mergePullRequest: mock(() =>
-                Promise.resolve({
-                  commitHash: "abc123commit",
-                  mergeDate: new Date(),
-                  mergedBy: "test-user",
-                })
-              ),
+              pr: {
+                merge: mock(() =>
+                  Promise.resolve({
+                    commitHash: "abc123commit",
+                    mergeDate: new Date(),
+                    mergedBy: "test-user",
+                  })
+                ),
+              },
             })
           ) as any,
         }

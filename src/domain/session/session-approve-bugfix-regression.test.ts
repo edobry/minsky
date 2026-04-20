@@ -52,23 +52,28 @@ describe("Session Approve - Bug Regression Tests", () => {
       };
 
       // Mock repository backend for approval
+      const mockApprove = mock(() =>
+        Promise.resolve({
+          reviewId: "approval-123",
+          approvedBy: "Test User",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          prNumber: PR_BRANCH,
+        })
+      );
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123def456",
-            mergeDate: "2025-07-30T23:14:24.213Z",
-            mergedBy: "Test User",
-          } as MergeInfo)
-        ),
-        approvePullRequest: mock(() =>
-          Promise.resolve({
-            reviewId: "approval-123",
-            approvedBy: "Test User",
-            approvedAt: "2025-07-30T23:14:24.213Z",
-            prNumber: PR_BRANCH,
-          })
-        ),
+        pr: {
+          merge: mock(() =>
+            Promise.resolve({
+              commitHash: "abc123def456",
+              mergeDate: "2025-07-30T23:14:24.213Z",
+              mergedBy: "Test User",
+            } as MergeInfo)
+          ),
+        },
+        review: {
+          approve: mockApprove,
+        },
       } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -84,7 +89,7 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Assert: Verify approval operations were called
       expect(mockCreateRepositoryBackend).toHaveBeenCalled();
-      expect(mockRepositoryBackend.approvePullRequest).toHaveBeenCalledWith(PR_BRANCH, undefined);
+      expect(mockApprove).toHaveBeenCalledWith(PR_BRANCH, undefined);
       expect(result.session).toBe(SESSION_NAME);
       expect(result.prBranch).toBe(PR_BRANCH);
       expect(result.approvalInfo).toBeDefined();
@@ -156,18 +161,23 @@ describe("Session Approve - Bug Regression Tests", () => {
       };
 
       // Mock repository backend that throws approval error
+      const mockApprove2 = mock(() => {
+        throw new Error("PR approval failed: insufficient permissions");
+      });
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123def456",
-            mergeDate: "2025-07-30T23:14:24.213Z",
-            mergedBy: "Test User",
-          } as MergeInfo)
-        ),
-        approvePullRequest: mock(() => {
-          throw new Error("PR approval failed: insufficient permissions");
-        }),
+        pr: {
+          merge: mock(() =>
+            Promise.resolve({
+              commitHash: "abc123def456",
+              mergeDate: "2025-07-30T23:14:24.213Z",
+              mergedBy: "Test User",
+            } as MergeInfo)
+          ),
+        },
+        review: {
+          approve: mockApprove2,
+        },
       } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -184,7 +194,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       ).rejects.toThrow("PR approval failed: insufficient permissions");
 
       // Verify approval was attempted
-      expect(mockRepositoryBackend.approvePullRequest).toHaveBeenCalledWith(PR_BRANCH, undefined);
+      expect(mockApprove2).toHaveBeenCalledWith(PR_BRANCH, undefined);
     });
 
     test("should handle already approved PR gracefully", async () => {
@@ -229,23 +239,28 @@ describe("Session Approve - Bug Regression Tests", () => {
       };
 
       // Mock repository backend (should not be called for already approved)
+      const mockApprove3 = mock(() =>
+        Promise.resolve({
+          reviewId: "approval-123",
+          approvedBy: "Test User",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          prNumber: PR_BRANCH,
+        })
+      );
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123def456",
-            mergeDate: "2025-07-30T23:14:24.213Z",
-            mergedBy: "Test User",
-          } as MergeInfo)
-        ),
-        approvePullRequest: mock(() =>
-          Promise.resolve({
-            reviewId: "approval-123",
-            approvedBy: "Test User",
-            approvedAt: "2025-07-30T23:14:24.213Z",
-            prNumber: PR_BRANCH,
-          })
-        ),
+        pr: {
+          merge: mock(() =>
+            Promise.resolve({
+              commitHash: "abc123def456",
+              mergeDate: "2025-07-30T23:14:24.213Z",
+              mergedBy: "Test User",
+            } as MergeInfo)
+          ),
+        },
+        review: {
+          approve: mockApprove3,
+        },
       } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -265,7 +280,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       expect(result.approvalInfo.reviewId).toBe("already-approved");
 
       // Repository backend approval should NOT be called for already approved PR
-      expect(mockRepositoryBackend.approvePullRequest).not.toHaveBeenCalled();
+      expect(mockApprove3).not.toHaveBeenCalled();
     });
 
     test("should fail when session has no PR branch", async () => {
@@ -307,23 +322,28 @@ describe("Session Approve - Bug Regression Tests", () => {
       };
 
       // Mock repository backend (should not be called)
+      const mockApprove4 = mock(() =>
+        Promise.resolve({
+          reviewId: "approval-123",
+          approvedBy: "Test User",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          prNumber: "pr/test",
+        })
+      );
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() =>
-          Promise.resolve({
-            commitHash: "abc123def456",
-            mergeDate: "2025-07-30T23:14:24.213Z",
-            mergedBy: "Test User",
-          } as MergeInfo)
-        ),
-        approvePullRequest: mock(() =>
-          Promise.resolve({
-            reviewId: "approval-123",
-            approvedBy: "Test User",
-            approvedAt: "2025-07-30T23:14:24.213Z",
-            prNumber: "pr/test",
-          })
-        ),
+        pr: {
+          merge: mock(() =>
+            Promise.resolve({
+              commitHash: "abc123def456",
+              mergeDate: "2025-07-30T23:14:24.213Z",
+              mergedBy: "Test User",
+            } as MergeInfo)
+          ),
+        },
+        review: {
+          approve: mockApprove4,
+        },
       } as unknown as RepositoryBackend;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -340,7 +360,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       ).rejects.toThrow("has no PR branch. Create a PR first");
 
       // Repository backend should not be called for validation failure
-      expect(mockRepositoryBackend.approvePullRequest).not.toHaveBeenCalled();
+      expect(mockApprove4).not.toHaveBeenCalled();
     });
   });
 });

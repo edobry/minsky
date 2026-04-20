@@ -99,7 +99,7 @@ export async function sessionPrEdit(
   }
 
   // Use the repository backend's updatePullRequest method
-  const _prInfo = await repositoryBackend.updatePullRequest({
+  const _prInfo = await repositoryBackend.pr.update({
     session: resolvedContext.sessionId,
     title: params.title,
     body: finalBody,

@@ -228,7 +228,7 @@ export async function mergeSessionPr(
     }
 
     try {
-      const approvalStatus = await repositoryBackend.getPullRequestApprovalStatus(
+      const approvalStatus = await repositoryBackend.review.getApprovalStatus(
         sessionRecord.pullRequest.number
       );
 
@@ -289,7 +289,7 @@ export async function mergeSessionPr(
     throw new ValidationError("No PR identifier available for merge");
   }
 
-  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionIdToUse);
+  const mergeInfo = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse);
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);

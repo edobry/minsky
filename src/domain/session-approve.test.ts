@@ -76,13 +76,15 @@ describe("Session Approve", () => {
       createRepositoryBackendForSession: (() =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: TEST_REVIEW_ID,
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: TEST_PR_NUMBER,
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: TEST_REVIEW_ID,
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: TEST_PR_NUMBER,
+              }),
+          },
         })) as any,
     };
 
@@ -136,13 +138,15 @@ describe("Session Approve", () => {
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: TEST_REVIEW_ID,
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: TEST_PR_NUMBER,
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: TEST_REVIEW_ID,
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: TEST_PR_NUMBER,
+              }),
+          },
         }),
     };
 
@@ -197,13 +201,15 @@ describe("Session Approve", () => {
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: "test-review-456",
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: "456",
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: "test-review-456",
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: "456",
+              }),
+          },
         }),
       getCurrentSession: () => Promise.resolve("current-session"), // Mock session detection
     };

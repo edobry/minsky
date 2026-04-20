@@ -19,13 +19,15 @@ describe("Session Approval Repository Backend Bug", () => {
 
     mockRepositoryBackend = {
       getType: mock(() => "local"),
-      mergePullRequest: mock(() =>
-        Promise.resolve({
-          commitHash: "abc123",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        })
-      ),
+      pr: {
+        merge: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          })
+        ),
+      },
     } as unknown as RepositoryBackend;
 
     mockTaskService = new FakeTaskService();
@@ -55,7 +57,7 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Configure mock repository backend for GitHub type
     mockRepositoryBackend.getType = mock(() => "github");
-    mockRepositoryBackend.mergePullRequest = mock(() =>
+    (mockRepositoryBackend.pr as any).merge = mock(() =>
       Promise.resolve({
         commitHash: "abc123def456",
         mergeDate: "2025-07-30T23:14:24.213Z",
@@ -89,7 +91,7 @@ describe("Session Approval Repository Backend Bug", () => {
     expect(capturedSessionRecord).toEqual(githubSessionRecord);
 
     // Verify GitHub backend's mergePullRequest was called
-    expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
+    expect(mockRepositoryBackend.pr.merge).toHaveBeenCalledWith(
       "task335", // For GitHub backend, session ID is used as PR identifier
       "task335" // Session ID
     );
@@ -116,7 +118,7 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Configure mock repository backend for GitHub type
     mockRepositoryBackend.getType = mock(() => "github");
-    mockRepositoryBackend.mergePullRequest = mock(() =>
+    (mockRepositoryBackend.pr as any).merge = mock(() =>
       Promise.resolve({
         commitHash: "abc123def456",
         mergeDate: "2025-07-30T23:14:24.213Z",
@@ -150,7 +152,7 @@ describe("Session Approval Repository Backend Bug", () => {
     expect(capturedSessionRecord).toEqual(githubSessionRecord);
 
     // Verify GitHub backend's mergePullRequest was called
-    expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
+    expect(mockRepositoryBackend.pr.merge).toHaveBeenCalledWith(
       "task336", // For GitHub backend, session ID is used as PR identifier
       "task336" // Session ID
     );

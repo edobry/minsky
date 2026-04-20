@@ -258,7 +258,7 @@ The task exists but has no associated session to approve.
     // Use repository backend to merge the pull request
     let mergeResult;
     try {
-      mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionIdToUse);
+      mergeResult = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse);
       isNewlyApproved = true;
     } catch (mergeError) {
       const errorMessage = getErrorMessage(mergeError);

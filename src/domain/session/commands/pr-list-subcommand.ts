@@ -69,7 +69,7 @@ export async function sessionPrList(
           const repositoryBackend = await createRepositoryBackendFromSession(session, sessionDB);
 
           // Query the backend for PR details - this delegates to GitHub API for GitHub sessions
-          const prDetails = await repositoryBackend.getPullRequestDetails({
+          const prDetails = await repositoryBackend.pr.get({
             session: session.session,
           });
 

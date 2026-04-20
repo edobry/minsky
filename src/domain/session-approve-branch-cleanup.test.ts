@@ -65,13 +65,15 @@ describe("Session Approve Branch Cleanup", () => {
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: TEST_REVIEW_ID,
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: TEST_PR_NUMBER,
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: TEST_REVIEW_ID,
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: TEST_PR_NUMBER,
+              }),
+          },
         }),
     };
 
@@ -119,13 +121,15 @@ describe("Session Approve Branch Cleanup", () => {
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: TEST_REVIEW_ID,
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: TEST_PR_NUMBER,
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: TEST_REVIEW_ID,
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: TEST_PR_NUMBER,
+              }),
+          },
         }),
     };
 
@@ -174,13 +178,15 @@ describe("Session Approve Branch Cleanup", () => {
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
-          approvePullRequest: () =>
-            Promise.resolve({
-              reviewId: TEST_REVIEW_ID,
-              approvedBy: TEST_USER_NAME,
-              approvedAt: new Date().toISOString(),
-              prNumber: TEST_PR_NUMBER,
-            }),
+          review: {
+            approve: () =>
+              Promise.resolve({
+                reviewId: TEST_REVIEW_ID,
+                approvedBy: TEST_USER_NAME,
+                approvedAt: new Date().toISOString(),
+                prNumber: TEST_PR_NUMBER,
+              }),
+          },
         }),
     };
 
