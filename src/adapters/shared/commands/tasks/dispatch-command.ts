@@ -88,11 +88,14 @@ export function createTasksDispatchCommand(
       // Step 1: Create the task
       log.debug("[tasks.dispatch] Creating task", { title: p.title, parent: p.parentTaskId });
       const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
-      const taskResult = await createTaskFromTitleAndSpec({
-        title: p.title,
-        spec: p.description || p.instructions,
-        workspace: process.cwd(),
-      });
+      const taskResult = await createTaskFromTitleAndSpec(
+        {
+          title: p.title,
+          spec: p.description || p.instructions,
+          workspace: process.cwd(),
+        },
+        { persistenceProvider: getPersistenceProvider() }
+      );
 
       const taskId = taskResult.id;
       log.debug("[tasks.dispatch] Task created", { taskId });
