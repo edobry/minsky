@@ -82,6 +82,7 @@ export function registerInitCommands() {
       name: "init",
       description: "Initialize a project for Minsky",
       parameters: initParams,
+      requiresSetup: false,
       execute: async (params, _ctx) => {
         try {
           // Map CLI params to domain params

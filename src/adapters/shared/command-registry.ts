@@ -116,6 +116,12 @@ export interface CommandDefinition<
   parameters: T;
   /** Command execution handler */
   execute: CommandExecutionHandler<T, R>;
+  /**
+   * Whether this command requires the project to be initialized before execution.
+   * Defaults to true. Set to false for commands like `init`, `setup`, and `mcp.register`
+   * that are responsible for initialization themselves.
+   */
+  requiresSetup?: boolean;
 }
 
 /**
@@ -170,6 +176,7 @@ export interface SharedCommand<T extends CommandParameterMap = CommandParameterM
   description: string;
   parameters: T;
   execute: CommandExecutionHandler<T, R>;
+  requiresSetup?: boolean;
 }
 
 /**
