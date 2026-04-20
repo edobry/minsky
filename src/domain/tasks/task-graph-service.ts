@@ -143,7 +143,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
         )
         SELECT ancestor_id FROM ancestors ORDER BY depth
       `);
-      return result.rows.map((row: any) => row.ancestor_id as string);
+      return Array.from(result).map((row) => row["ancestor_id"] as string);
     },
   };
 }
