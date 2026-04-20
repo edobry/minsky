@@ -186,6 +186,6 @@ expect(execSync("git status --short")).toBe("On branch main\nnothing to commit")
 
 See also:
 - `bun-test-patterns` for detailed mocking solutions
-- `test-debugging` for troubleshooting
+- `debug-tests` skill for troubleshooting
 - `testing-boundaries` for guidance on what should and shouldn't be tested
 - `test-infrastructure-patterns` for setup patterns
