@@ -36,8 +36,14 @@ type SearchReplaceArgs = SessionSearchReplace;
 /**
  * Registers session-aware file editing tools with the MCP command mapper
  */
-export function registerSessionEditTools(commandMapper: CommandMapper): void {
-  const pathResolver = new SessionPathResolver();
+export function registerSessionEditTools(
+  commandMapper: CommandMapper,
+  container?: import("../../composition/types").AppContainerInterface
+): void {
+  const sessionProvider = container?.has("sessionProvider")
+    ? container.get("sessionProvider")
+    : undefined;
+  const pathResolver = new SessionPathResolver(sessionProvider);
 
   // Session edit file tool
   commandMapper.addCommand({

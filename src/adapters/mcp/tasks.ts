@@ -18,7 +18,7 @@ export function registerTaskTools(
   );
 
   // Register new task-specific editing tools (tasks.edit_file, tasks.search_replace)
-  registerTaskEditTools(commandMapper);
+  registerTaskEditTools(commandMapper, container);
 
   // Use the bridge integration to expose already-registered task commands
   // Note: Shared commands are already registered during CLI initialization,

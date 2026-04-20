@@ -2,11 +2,12 @@ import { log } from "../../../../utils/logger";
 import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
- * Dependencies that can be injected for testing.
+ * Dependencies that can be injected for testing or DI threading.
+ * All fields are optional; missing ones fall back to dynamic imports.
  */
 export interface AutoIndexDeps {
-  getConfiguration: () => { embeddings?: { autoIndex?: boolean } };
-  createTaskSimilarityService: (
+  getConfiguration?: () => { embeddings?: { autoIndex?: boolean } };
+  createTaskSimilarityService?: (
     provider: BasePersistenceProvider
   ) => Promise<{ indexTask: (id: string) => Promise<boolean> }>;
   getPersistenceProvider?: () => BasePersistenceProvider;
@@ -36,13 +37,8 @@ export function autoIndexTaskEmbedding(taskId: string, deps?: AutoIndexDeps): vo
       if (deps?.getPersistenceProvider) {
         persistenceProvider = deps.getPersistenceProvider();
       } else {
-        const { getAppContainer } = await import("../../bridges/cli/command-generator-core");
-        const container = getAppContainer();
-        if (!container?.has("persistence")) {
-          log.debug(`Auto-index skipped for ${taskId}: DI container not initialized`);
-          return;
-        }
-        persistenceProvider = container.get("persistence");
+        log.debug(`Auto-index skipped for ${taskId}: no persistence provider available`);
+        return;
       }
 
       const service = await createTaskSimilarityService(persistenceProvider);

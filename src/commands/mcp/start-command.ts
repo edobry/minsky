@@ -46,10 +46,9 @@ function registerAllTools(
   registerTaskTools(commandMapper, container);
   log.debug("[MCP] About to register session tools");
   registerSessionTools(commandMapper, container);
-  registerSessionWorkspaceTools(commandMapper); // no container needed
-
-  registerSessionFileTools(commandMapper); // no container needed
-  registerSessionEditTools(commandMapper); // no container needed
+  registerSessionWorkspaceTools(commandMapper, container);
+  registerSessionFileTools(commandMapper, container);
+  registerSessionEditTools(commandMapper, container);
 
   // Register persistence tools for agent querying
   log.debug("[MCP] About to register persistence tools");
