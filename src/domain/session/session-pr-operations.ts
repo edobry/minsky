@@ -22,7 +22,8 @@ import {
 } from "../repository/index";
 import type { SessionRecord } from "./types";
 import { assertSessionMutable } from "./session-mutability";
-import type { PersistenceProvider } from "../persistence/types";
+import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
+import { ProvenanceService, computePreliminaryTier } from "../provenance/provenance-service";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -313,7 +314,14 @@ Please provide a title for your pull request:
       preparedContent.warnings.forEach((warning) => log.warn(`PR Content Warning: ${warning}`));
     }
 
-    // Use repository backend to create pull request
+    // Compute authorship tier from static signals for label application
+    const authorshipTier = computePreliminaryTier({
+      taskOrigin: "human", // default: human-dispatched sessions
+      specAuthorship: "mixed", // default: mixed authorship
+      initiationMode: "dispatched", // all current sessions are human-dispatched
+    });
+
+    // Use repository backend to create pull request (includes authorship label)
     const baseBranch = params.baseBranch || "main";
     const prInfo = await repositoryBackend.pr.create({
       title: preparedContent.title,
@@ -322,11 +330,40 @@ Please provide a title for your pull request:
       baseBranch,
       session: sessionId,
       draft: params.draft || false,
+      authorshipTier,
     });
 
     log.cli(`✅ Pull request created successfully!`);
 
     // PR state persistence is handled by repository backends
+
+    // Record provenance for the created PR (non-fatal — failures log and continue)
+    if (deps.persistenceProvider) {
+      try {
+        const provider = deps.persistenceProvider as SqlCapablePersistenceProvider;
+        if (provider.getDatabaseConnection) {
+          const db = await provider.getDatabaseConnection();
+          if (db) {
+            const provenanceService = new ProvenanceService(db);
+            await provenanceService.createProvenanceRecord({
+              artifactId: String(prInfo.number),
+              artifactType: "pr",
+              taskId: sessionRecord?.taskId ?? undefined,
+              sessionId,
+              taskOrigin: "human",
+              specAuthorship: "mixed",
+              initiationMode: "dispatched",
+              participants: [],
+            });
+            log.debug(`Recorded provenance for PR #${prInfo.number}`);
+          }
+        }
+      } catch (provenanceError) {
+        log.warn(
+          `Failed to record provenance for PR #${prInfo.number}: ${getErrorMessage(provenanceError)}`
+        );
+      }
+    }
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
