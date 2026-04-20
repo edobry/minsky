@@ -131,32 +131,3 @@ export class PersistenceService {
     }
   }
 }
-
-/**
- * Convenience function to get persistence provider from the default instance.
- * @deprecated Use container.get("persistence") instead.
- */
-export function getPersistenceProvider(): PersistenceProvider {
-  return defaultInstance.getProvider();
-}
-
-/**
- * Default instance — used during migration period while callers
- * transition to container-based injection. Will be removed in Phase E.
- */
-export const defaultInstance = new PersistenceService();
-
-/**
- * Resolve a PersistenceProvider: use the explicit one if provided,
- * otherwise fall back to the default instance lazily.
- *
- * Callers with DI container access should always pass the provider
- * explicitly. This helper exists as a transitional bridge for domain
- * code that hasn't been fully migrated to container-based DI yet.
- *
- * @deprecated Prefer receiving the provider via constructor injection or deps interface.
- */
-export function resolveProvider(provider?: PersistenceProvider): PersistenceProvider {
-  if (provider) return provider;
-  return defaultInstance.getProvider();
-}

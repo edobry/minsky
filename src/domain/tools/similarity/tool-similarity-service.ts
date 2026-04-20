@@ -169,8 +169,7 @@ export class ToolSimilarityService {
  */
 export async function createToolSimilarityService(
   config: ToolSimilarityServiceConfig = {},
-  persistenceProvider?: PersistenceProvider
+  persistenceProvider: PersistenceProvider
 ): Promise<ToolSimilarityService> {
-  const { resolveProvider } = await import("../../persistence/service");
-  return new ToolSimilarityService(resolveProvider(persistenceProvider), config);
+  return new ToolSimilarityService(persistenceProvider, config);
 }

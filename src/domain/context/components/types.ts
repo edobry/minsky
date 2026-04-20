@@ -18,6 +18,8 @@ export interface ComponentInput {
   rulesService?: unknown;
   // Optional session provider for DI (avoids reaching into shared singleton)
   sessionProvider?: import("../../session/index").SessionProviderInterface;
+  // Optional persistence provider for DI (used by query-aware tool filtering)
+  persistenceProvider?: import("../../persistence/types").PersistenceProvider;
   // ... other potential inputs
 }
 

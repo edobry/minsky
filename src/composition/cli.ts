@@ -27,17 +27,14 @@ export async function createCliContainer(): Promise<AppContainerInterface> {
   container.register(
     "persistence",
     async () => {
-      // Use the defaultInstance during migration — code that hasn't been
-      // migrated to container access still uses defaultInstance.getProvider().
-      // Once all callers use the container, this can create a fresh instance.
-      const { defaultInstance } = await import("../domain/persistence/service");
-      await defaultInstance.initialize();
-      return defaultInstance.getProvider();
+      const { PersistenceService } = await import("../domain/persistence/service");
+      const service = new PersistenceService();
+      await service.initialize();
+      return service.getProvider();
     },
     {
-      dispose: async () => {
-        const { defaultInstance } = await import("../domain/persistence/service");
-        await defaultInstance.close();
+      dispose: async (provider) => {
+        await provider.close();
       },
     }
   );

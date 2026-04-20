@@ -7,16 +7,15 @@ import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-sto
 import { RuleService } from "../rules";
 import { getConfiguration } from "../configuration";
 import type { PersistenceProvider } from "../persistence/types";
-import { resolveProvider } from "../persistence/service";
 
 export interface RuleSimilarityCoreOptions {
   disableEmbeddings?: boolean;
-  persistenceProvider?: PersistenceProvider;
+  persistenceProvider: PersistenceProvider;
 }
 
 export async function createRuleSimilarityCore(
   workspacePath: string,
-  options: RuleSimilarityCoreOptions = {}
+  options: RuleSimilarityCoreOptions
 ) {
   const cfg = getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
@@ -25,9 +24,11 @@ export async function createRuleSimilarityCore(
   let embeddings: EmbeddingsSimilarityBackend | null = null;
   if (!options.disableEmbeddings) {
     try {
-      const resolvedProvider = resolveProvider(options.persistenceProvider);
       const embedding = await createEmbeddingServiceFromConfig();
-      const storage = await createRulesVectorStorageFromConfig(dimension, resolvedProvider);
+      const storage = await createRulesVectorStorageFromConfig(
+        dimension,
+        options.persistenceProvider
+      );
       embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
     } catch {
       embeddings = null;

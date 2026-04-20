@@ -130,7 +130,11 @@ export const ToolSchemasComponent: ContextComponent = {
       const userQuery = context.userQuery || context.userPrompt;
       // IMPORTANT: When a custom commandRegistry is provided (e.g., in unit tests),
       // disable query-based filtering to ensure full registry visibility.
-      let shouldFilterByQuery = Boolean(userQuery?.trim()) && !context.commandRegistry;
+      // Also disable if no persistence provider is available (required for embedding lookup).
+      let shouldFilterByQuery =
+        Boolean(userQuery?.trim()) &&
+        !context.commandRegistry &&
+        Boolean(context.persistenceProvider);
 
       const toolSchemas: Record<string, unknown> = {};
       let totalTools = 0;
@@ -141,7 +145,10 @@ export const ToolSchemasComponent: ContextComponent = {
       if (shouldFilterByQuery) {
         try {
           // NEW: Query-aware tool filtering using ToolSimilarityService
-          const toolSimilarityService = await createToolSimilarityService();
+          const toolSimilarityService = await createToolSimilarityService(
+            {},
+            context.persistenceProvider!
+          );
 
           const relevantTools = await toolSimilarityService.findRelevantTools({
             query: userQuery!,

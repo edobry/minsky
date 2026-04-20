@@ -53,7 +53,13 @@ export class ToolsIndexEmbeddingsCommand {
       const { createLogger } = await import("../../../../utils/logger");
 
       const log = createLogger();
-      const service = await createToolEmbeddingService();
+      const persistence = ctx?.container?.get("persistence");
+      if (!persistence) {
+        throw new Error(
+          "Persistence provider not available. Ensure the DI container is initialized."
+        );
+      }
+      const service = await createToolEmbeddingService({}, persistence);
 
       // If limit is specified, we'll need to get all tools and slice
       // For now, index all tools (following the pattern)

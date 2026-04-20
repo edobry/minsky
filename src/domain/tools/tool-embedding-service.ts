@@ -165,8 +165,7 @@ export class ToolEmbeddingService {
  */
 export async function createToolEmbeddingService(
   config: ToolEmbeddingServiceConfig = {},
-  persistenceProvider?: PersistenceProvider
+  persistenceProvider: PersistenceProvider
 ): Promise<ToolEmbeddingService> {
-  const { resolveProvider } = await import("../persistence/service");
-  return new ToolEmbeddingService(resolveProvider(persistenceProvider), config);
+  return new ToolEmbeddingService(persistenceProvider, config);
 }
