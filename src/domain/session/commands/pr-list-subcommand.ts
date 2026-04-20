@@ -18,7 +18,7 @@ export async function sessionPrList(
     session?: string;
     task?: string;
     status?: string; // comma-separated list or 'all'
-    backend?: "github" | "remote" | "local";
+    backend?: "github";
     since?: string; // YYYY-MM-DD or relative like 7d, 24h
     until?: string; // YYYY-MM-DD or relative like 7d, 24h
     repo?: string;

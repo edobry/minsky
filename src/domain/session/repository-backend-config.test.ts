@@ -106,26 +106,6 @@ describe("getRepositoryBackendFromConfig", () => {
     });
   });
 
-  describe("config has repository.backend=local", () => {
-    beforeEach(() => {
-      configurationImpl = () => ({
-        repository: {
-          backend: "local",
-          url: "/home/user/projects/myrepo",
-        },
-      });
-      execSyncImpl = (_cmd: string, _opts?: any) => {
-        throw new Error("execSync should not be called when config has repository.backend");
-      };
-    });
-
-    it("returns RepositoryBackendType.LOCAL and the configured url", async () => {
-      const result = await getRepositoryBackendFromConfig(makeDeps());
-      expect(result.backendType).toBe(RepositoryBackendType.LOCAL);
-      expect(result.repoUrl).toBe("/home/user/projects/myrepo");
-    });
-  });
-
   describe("config has no repository section — falls back to auto-detection", () => {
     beforeEach(() => {
       // Config without a repository section

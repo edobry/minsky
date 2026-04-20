@@ -57,11 +57,11 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
-    const mockResolveRepoPath = () => Promise.resolve("local/minsky");
+    const mockResolveRepoPath = () => Promise.resolve("https://github.com/edobry/minsky.git");
 
     const params = {
       task: "md#160",
-      repo: "local/minsky",
+      repo: "https://github.com/edobry/minsky.git",
       // name will be auto-generated from task
     };
 
@@ -120,11 +120,11 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
-    const mockResolveRepoPath = () => Promise.resolve("local/minsky");
+    const mockResolveRepoPath = () => Promise.resolve("https://github.com/edobry/minsky.git");
 
     const params = {
       task: "md#160",
-      repo: "local/minsky",
+      repo: "https://github.com/edobry/minsky.git",
       // name will be auto-generated from task
     };
 
@@ -140,8 +140,8 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Assert - Session should be created successfully
     expect(result).toMatchObject({
       taskId: "md#160",
-      repoName: "local-minsky",
-      repoUrl: "local/minsky",
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
     });
     // Session ID is now a UUID
     expect(result.session).toMatch(
@@ -157,8 +157,8 @@ describe("Session Git Clone Bug Regression Test", () => {
     expect(addSessionSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "md#160",
-        repoUrl: "local/minsky",
-        repoName: "local/minsky",
+        repoUrl: "https://github.com/edobry/minsky.git",
+        repoName: "edobry/minsky",
       })
     );
     // Verify the session ID in the record is a UUID

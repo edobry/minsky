@@ -58,27 +58,9 @@ export function parsePrDescriptionFromCommitMessage(commitMessage: string): {
  * `repoUrl` is inspected for well-known patterns (file path, github.com).
  */
 export function resolveBackendType(
-  backendType: string | undefined,
-  repoUrl: string
+  _backendType: string | undefined,
+  _repoUrl: string
 ): RepositoryBackendType {
-  if (backendType) {
-    switch (backendType) {
-      case "github":
-        return RepositoryBackendType.GITHUB;
-      case "remote":
-        return RepositoryBackendType.REMOTE;
-      case "local":
-      default:
-        return RepositoryBackendType.LOCAL;
-    }
-  }
-
-  // Infer from repoUrl for backward compatibility
-  if (repoUrl.startsWith("/") || repoUrl.startsWith("file://")) {
-    return RepositoryBackendType.LOCAL;
-  } else if (repoUrl.includes("github.com")) {
-    return RepositoryBackendType.GITHUB;
-  } else {
-    return RepositoryBackendType.REMOTE;
-  }
+  // Only GitHub is supported after LOCAL/REMOTE backend removal (mt#880)
+  return RepositoryBackendType.GITHUB;
 }

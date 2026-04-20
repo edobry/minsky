@@ -1,6 +1,6 @@
 // Result handling filters and parsers for list/get style commands
 
-export type BackendType = "github" | "remote" | "local";
+export type BackendType = "github";
 
 // Parse a comma-separated status filter or 'all'
 export function parseStatusFilter(input?: string | null): Set<string> | null {
@@ -19,7 +19,7 @@ export function parseStatusFilter(input?: string | null): Set<string> | null {
 export function parseBackendFilter(input?: string | null): BackendType | undefined {
   if (!input) return undefined;
   const value = String(input).trim().toLowerCase();
-  if (value === "github" || value === "remote" || value === "local") return value as BackendType;
+  if (value === "github") return value as BackendType;
   return undefined;
 }
 

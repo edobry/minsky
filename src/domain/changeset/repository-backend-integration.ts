@@ -96,7 +96,7 @@ export async function createChangesetAwareRepositoryBackend(
     const { backendType } = await getRepositoryBackendFromConfig();
 
     const config: RepositoryBackendConfig = {
-      type: backendType as "local" | "remote" | "github",
+      type: backendType as "github",
       repoUrl: repositoryUrl,
     };
 

@@ -6,4 +6,3 @@
  */
 export * from "./repository/legacy-types";
 export * from "./repository/resolution";
-export { createRepositoryBackend } from "./repository/legacy-backend-factory";

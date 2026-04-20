@@ -111,7 +111,7 @@ describe("session_start refusal differentiates merged vs active", () => {
             getTask: async () => ({ id: "md#684", title: "test", status: "TODO" }) as any,
           } as any,
           workspaceUtils: { isSessionWorkspace: async () => false } as any,
-          getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "local" }),
+          getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "github" }),
         } as any
       )
     ).rejects.toThrow(/merged at/);
@@ -132,7 +132,7 @@ describe("session_start refusal differentiates merged vs active", () => {
             getTask: async () => ({ id: "md#684", title: "test", status: "TODO" }) as any,
           } as any,
           workspaceUtils: { isSessionWorkspace: async () => false } as any,
-          getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "local" }),
+          getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "github" }),
         } as any
       )
     ).rejects.toThrow(/already exists/);

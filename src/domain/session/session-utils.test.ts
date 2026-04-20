@@ -56,47 +56,16 @@ describe("parsePrDescriptionFromCommitMessage", () => {
 });
 
 describe("resolveBackendType", () => {
-  it('"github" → RepositoryBackendType.GITHUB', () => {
+  it("always returns GITHUB (only supported backend)", () => {
     expect(resolveBackendType("github", "https://github.com/owner/repo.git")).toBe(
       RepositoryBackendType.GITHUB
     );
-  });
-
-  it('"local" → RepositoryBackendType.LOCAL', () => {
-    expect(resolveBackendType("local", "/some/local/path")).toBe(RepositoryBackendType.LOCAL);
-  });
-
-  it('"remote" → RepositoryBackendType.REMOTE', () => {
-    expect(resolveBackendType("remote", "https://example.com/repo.git")).toBe(
-      RepositoryBackendType.REMOTE
-    );
-  });
-
-  it("undefined with github.com URL → GITHUB", () => {
     expect(resolveBackendType(undefined, "https://github.com/owner/repo.git")).toBe(
       RepositoryBackendType.GITHUB
     );
-  });
-
-  it("undefined with local absolute path → LOCAL", () => {
-    expect(resolveBackendType(undefined, "/home/user/projects/repo")).toBe(
-      RepositoryBackendType.LOCAL
+    expect(resolveBackendType(undefined, "/some/local/path")).toBe(RepositoryBackendType.GITHUB);
+    expect(resolveBackendType("unknown", "https://example.com/repo.git")).toBe(
+      RepositoryBackendType.GITHUB
     );
-  });
-
-  it("undefined with file:// URL → LOCAL", () => {
-    expect(resolveBackendType(undefined, "file:///home/user/projects/repo")).toBe(
-      RepositoryBackendType.LOCAL
-    );
-  });
-
-  it("undefined with non-github remote URL → REMOTE", () => {
-    expect(resolveBackendType(undefined, "https://gitlab.com/owner/repo.git")).toBe(
-      RepositoryBackendType.REMOTE
-    );
-  });
-
-  it("unknown backendType string falls back to LOCAL", () => {
-    expect(resolveBackendType("unknown-type", "/some/path")).toBe(RepositoryBackendType.LOCAL);
   });
 });

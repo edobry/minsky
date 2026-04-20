@@ -260,13 +260,6 @@ async function registerDefaultAdapterFactories(service: ChangesetService): Promi
     log.debug("GitHub changeset adapter not available", { error });
   }
 
-  try {
-    const { LocalGitChangesetAdapterFactory } = await import("./adapters/local-git-adapter");
-    service.registerAdapterFactory(new LocalGitChangesetAdapterFactory());
-  } catch (error) {
-    log.debug("Local git changeset adapter not available", { error });
-  }
-
   // Future: GitLab, Bitbucket, Gerrit adapters
   try {
     const { GitLabChangesetAdapterFactory } = await import("./adapters/gitlab-adapter");

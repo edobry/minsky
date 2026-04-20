@@ -53,7 +53,7 @@ describe("Session Approve Workflow", () => {
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
-        backendType: "local",
+        backendType: "github",
         remote: { authMethod: "ssh", depth: 1 },
         createdAt: new Date().toISOString(),
         taskId: "md#025", // Use qualified task ID format

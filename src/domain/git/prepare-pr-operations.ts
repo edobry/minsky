@@ -1,7 +1,8 @@
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionProviderInterface } from "../session";
-import { createPreparedMergeCommitPR } from "./prepared-merge-commit-workflow";
+// TODO: mt#881 — remove after GitService cleanup
+// import { createPreparedMergeCommitPR } from "./prepared-merge-commit-workflow";
 
 // execAsync is now injected via deps.execAsync
 
@@ -168,7 +169,7 @@ export async function preparePrImpl(
   }
 
   // Create PR branch FROM base branch (not feature branch) - per Task #025
-  let existingPrMessage: string | undefined;
+  let _existingPrMessage: string | undefined;
 
   try {
     // Enhanced PR branch cleanup with automatic recovery
@@ -183,7 +184,7 @@ export async function preparePrImpl(
         preserveCommitMessage: !options.title, // Only preserve if no new title provided
       });
 
-      existingPrMessage = recovery.preservedMessage;
+      _existingPrMessage = recovery.preservedMessage;
 
       if (recovery.recovered) {
         log.cli(`🔧 Cleaned up existing PR branch state (${prBranch})`);
@@ -204,187 +205,8 @@ export async function preparePrImpl(
     throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err)}`);
   }
 
-  // Create commit message for merge commit (Task #025)
-  try {
-    // Use preserved message from recovery if no new title provided
-    let commitMessage =
-      options.title || existingPrMessage || `Merge ${sourceBranch} into ${prBranch}`;
-    if (options.body) {
-      commitMessage += `\n\n${options.body}`;
-    }
-
-    // If we're reusing a preserved message, log it for transparency
-    if (!options.title && existingPrMessage) {
-      log.cli("📝 Reusing commit message from recovered PR branch");
-    }
-
-    log.debug("Prepared commit message for merge commit", {
-      commitMessage,
-      sourceBranch,
-      prBranch,
-    });
-
-    // DELEGATE to conflict-checking workflow instead of duplicating logic
-    // This ensures both code paths use the same conflict validation
-    try {
-      await createPreparedMergeCommitPR(
-        {
-          title: options.title || `Merge ${sourceBranch} into ${prBranch}`,
-          body: options.body || "",
-          sourceBranch,
-          baseBranch,
-          workdir,
-          session: options.session,
-        },
-        {
-          execGitWithTimeout: async (
-            operation: string,
-            command: string,
-            options?: { workdir?: string; timeout?: number }
-          ) => {
-            const result = await deps.execInRepository(options?.workdir ?? "", `git ${command}`);
-            return {
-              stdout: result,
-              stderr: "",
-              command: `git ${command}`,
-              workdir: options?.workdir,
-              executionTimeMs: 0,
-            };
-          },
-          predictConflicts: async (workdir: string, sourceBranch: string, baseBranch: string) => {
-            return {
-              hasConflicts: false,
-              conflictType: "none",
-              userGuidance: "",
-            };
-          },
-        }
-      );
-
-      log.debug("✅ Delegated to createPreparedMergeCommitPR successfully");
-    } catch (error) {
-      log.debug("❌ createPreparedMergeCommitPR failed", {
-        error: getErrorMessage(error),
-        sourceBranch,
-        prBranch,
-        workdir,
-      });
-      throw error; // Re-throw to maintain error handling behavior
-    }
-
-    // 🔥 DEBUG: Log after successful merge
-    log.debug("🔥 DEBUG: Merge completed successfully", {
-      sourceBranch,
-      prBranch,
-    });
-
-    // VERIFICATION: Check that the merge commit has the correct message
-    const logOutput = await deps.execInRepository(workdir, "git log -1 --pretty=format:%B");
-    const actualTitle = logOutput.trim().split("\n")[0];
-    const expectedTitle = commitMessage.split("\n")[0];
-
-    if (actualTitle !== expectedTitle) {
-      log.warn("Commit message mismatch detected", {
-        expected: expectedTitle,
-        actual: actualTitle,
-        fullExpected: commitMessage,
-        fullActual: logOutput.trim(),
-      });
-      // Don't throw error but log the issue for debugging
-    } else {
-      log.debug("✅ Verified merge commit message is correct", {
-        commitMessage: actualTitle,
-      });
-    }
-
-    log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
-  } catch (err) {
-    // 🔥 DEBUG: Log merge error details
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log.debug("🔥 DEBUG: Merge failed with error", {
-      error: errorMessage,
-      errorType: err?.constructor?.name,
-      sourceBranch,
-      prBranch,
-      workdir,
-    });
-
-    // Check for conflict errors FIRST - before any cleanup
-    if (
-      errorMessage.includes("CONFLICT") ||
-      errorMessage.includes("Automatic merge failed") ||
-      errorMessage.includes("💥 Merge Conflicts Detected")
-    ) {
-      // DON'T clean up on conflict - leave user in natural git merge conflict state
-      // This allows them to use standard git workflow to resolve conflicts
-      log.debug("Merge conflicts detected - staying in conflict state for user resolution", {
-        prBranch,
-        sourceBranch,
-        workdir,
-      });
-
-      throw new MinskyError(
-        `🔥 Session PR creation encountered merge conflicts.
-
-You are currently on branch '${prBranch}' with merge in progress.
-
-To resolve conflicts and complete the PR:
-
-1. 🔍 Check current status:
-   git status
-
-2. ✏️ Resolve conflicts manually (recommended):
-   code <conflicted-file>
-   # Then stage and commit resolved files:
-   git add <resolved-files>
-   git commit --no-edit
-
-3. 🚀 Or accept all session changes (use with caution):
-   git checkout --theirs . && git add . && git merge --continue
-
-4. 🔄 Or accept all main branch changes (use with caution):
-   git checkout --ours . && git add . && git merge --continue
-
-After resolving conflicts, re-run the PR creation command to complete the process.`,
-        { exitCode: 4 }
-      );
-    }
-
-    // For non-conflict errors, clean up and switch back
-    try {
-      await deps.execInRepository(workdir, "git merge --abort");
-      await deps.execInRepository(workdir, `git switch ${sourceBranch}`);
-      log.debug("Cleaned up after non-conflict merge error");
-    } catch (cleanupErr) {
-      log.warn("Failed to clean up after non-conflict merge error", { cleanupErr });
-    }
-
-    throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err)}`);
-  }
-
-  // Push changes to the PR branch with timeout handling
-  try {
-    if (deps.gitPush) {
-      await deps.gitPush(workdir, prBranch, 30000);
-    }
-    log.debug(`Successfully pushed PR branch ${prBranch} to remote`);
-  } catch (error) {
-    throw new MinskyError(`Failed to push PR branch to remote: ${getErrorMessage(error)}`);
-  }
-
-  // CRITICAL: Always switch back to the original session branch after creating PR branch
-  // This ensures session pr command never leaves user on the PR branch
-  try {
-    await deps.execInRepository(workdir, `git switch ${sourceBranch}`);
-    log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
-  } catch (err) {
-    log.warn(`Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`);
-  }
-
-  return {
-    prBranch,
-    baseBranch,
-    title: options.title,
-    body: options.body,
-  };
+  // TODO: mt#881 — remove this entire file after GitService cleanup
+  throw new MinskyError(
+    "prepare-pr-operations: prepared merge commit workflow has been removed. See mt#881."
+  );
 }
