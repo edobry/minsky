@@ -117,7 +117,7 @@ export interface SessionMergeDependencies {
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Validates the PR is approved (prApproved: true)
- * 3. Calls repositoryBackend.mergePullRequest()
+ * 3. Calls repositoryBackend.pr.merge()
  * 4. Updates session record
  *
  * Requires the PR to be approved first.

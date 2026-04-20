@@ -92,7 +92,7 @@ export interface SessionApprovalDependencies {
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Checks if already approved
- * 3. Calls repositoryBackend.approvePullRequest()
+ * 3. Calls repositoryBackend.review.approve()
  * 4. Updates session record with prApproved: true
  */
 export async function approveSessionPr(
