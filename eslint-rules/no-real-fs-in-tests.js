@@ -15,7 +15,7 @@ export default {
       category: "Best Practices",
       recommended: true,
     },
-    fixable: "code",
+    hasSuggestions: true,
     schema: [
       {
         type: "object",
@@ -128,12 +128,16 @@ export default {
           context.report({
             node,
             messageId: "fsImport",
-            fix(fixer) {
-              // Suggest mock module approach
-              const comment =
-                "// Use dependency injection — pass mock fs via function/constructor parameters";
-              return fixer.insertTextBefore(node, `${comment}\n// `);
-            },
+            suggest: [
+              {
+                desc: "Comment out import (requires manual fix of call sites)",
+                fix(fixer) {
+                  const comment =
+                    "// Use dependency injection — pass mock fs via function/constructor parameters";
+                  return fixer.insertTextBefore(node, `${comment}\n// `);
+                },
+              },
+            ],
           });
         }
 
