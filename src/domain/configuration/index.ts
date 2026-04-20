@@ -9,6 +9,7 @@
 import type { Configuration, PartialConfiguration } from "./schemas";
 import type { ConfigurationLoadResult, ConfigurationLoaderOptions } from "./loader";
 import { log } from "../../utils/logger";
+import { deepMergeConfigs } from "./deep-merge";
 export type { Configuration, PartialConfiguration } from "./schemas";
 export { configurationSchema } from "./schemas";
 
@@ -132,7 +133,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       if (this.options.overrideSource) {
         this.configResult = {
           ...this.configResult,
-          config: this.deepMerge(
+          config: deepMergeConfigs(
             this.configResult.config as Record<string, unknown>,
             this.options.overrideSource as Record<string, unknown>
           ) as Configuration,
@@ -245,49 +246,6 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       }
       return undefined;
     }, obj);
-  }
-
-  /**
-   * Deep merge two configuration objects
-   */
-  private deepMerge(
-    target: Record<string, unknown>,
-    source: Record<string, unknown>
-  ): Record<string, unknown> {
-    if (source === null || source === undefined) {
-      return target;
-    }
-
-    if (target === null || target === undefined) {
-      return source;
-    }
-
-    // For primitive values, override
-    if (typeof source !== "object") {
-      return source;
-    }
-
-    // For objects, merge recursively
-    const result: Record<string, unknown> = { ...target };
-
-    for (const key in source) {
-      if (Object.prototype.hasOwnProperty.call(source, key)) {
-        if (
-          typeof source[key] === "object" &&
-          !Array.isArray(source[key]) &&
-          source[key] !== null
-        ) {
-          result[key] = this.deepMerge(
-            (result[key] as Record<string, unknown>) || {},
-            source[key] as Record<string, unknown>
-          );
-        } else {
-          result[key] = source[key];
-        }
-      }
-    }
-
-    return result;
   }
 }
 

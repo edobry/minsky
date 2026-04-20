@@ -4,6 +4,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
+import { parsePrDescriptionFromCommitMessage } from "./session-utils";
 import type { SessionUpdateParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
@@ -584,31 +585,7 @@ export async function extractPrDescription(
       }
     }
 
-    // Parse the commit message more intelligently to prevent title duplication
-    const lines = commitMessage.trim().split("\n");
-    const title = lines[0] || "";
-
-    // Filter out empty lines and prevent title duplication in body
-    const bodyLines = lines.slice(1).filter((line) => line.trim() !== "");
-
-    // Check if first line of body duplicates the title
-    let body = "";
-    if (bodyLines.length > 0) {
-      // If first body line is identical to title, skip it to prevent duplication
-      const firstBodyLine = bodyLines[0]?.trim() || "";
-      if (firstBodyLine === title.trim()) {
-        body = bodyLines.slice(1).join("\n").trim();
-        log.debug("Removed duplicate title from PR body", {
-          sessionId,
-          originalTitle: title,
-          duplicatedLine: firstBodyLine,
-        });
-      } else {
-        body = bodyLines.join("\n").trim();
-      }
-    }
-
-    return { title, body };
+    return parsePrDescriptionFromCommitMessage(commitMessage);
   } catch (error) {
     log.debug("Error extracting PR description", {
       error: getErrorMessage(error),

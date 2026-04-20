@@ -13,6 +13,7 @@ import { getProjectConfiguration, projectSourceMetadata } from "./sources/projec
 import { getUserConfiguration, userSourceMetadata } from "./sources/user";
 import { getEnvironmentConfiguration, environmentSourceMetadata } from "./sources/environment";
 import { log } from "../../utils/logger";
+import { deepMergeConfigs } from "./deep-merge";
 
 /**
  * Configuration type that preserves known fields but allows additional unknown ones
@@ -260,7 +261,7 @@ export class ConfigurationLoader {
     let mergedConfig: Record<string, unknown> = {};
 
     for (const sourceResult of sortedSources) {
-      mergedConfig = this.deepMerge(mergedConfig, sourceResult.config as Record<string, unknown>);
+      mergedConfig = deepMergeConfigs(mergedConfig, sourceResult.config as Record<string, unknown>);
 
       if (this.options.logDebugInfo) {
         log.debug(
@@ -270,49 +271,6 @@ export class ConfigurationLoader {
     }
 
     return mergedConfig as PartialConfiguration;
-  }
-
-  /**
-   * Deep merge two configuration objects
-   */
-  private deepMerge(
-    target: Record<string, unknown>,
-    source: Record<string, unknown>
-  ): Record<string, unknown> {
-    if (source === null || source === undefined) {
-      return target;
-    }
-
-    if (target === null || target === undefined) {
-      return source;
-    }
-
-    // For primitive values, override
-    if (typeof source !== "object") {
-      return source;
-    }
-
-    // For objects, merge recursively
-    const result: Record<string, unknown> = { ...target };
-
-    for (const key in source) {
-      if (Object.prototype.hasOwnProperty.call(source, key)) {
-        if (
-          typeof source[key] === "object" &&
-          !Array.isArray(source[key]) &&
-          source[key] !== null
-        ) {
-          result[key] = this.deepMerge(
-            (result[key] as Record<string, unknown>) || {},
-            source[key] as Record<string, unknown>
-          );
-        } else {
-          result[key] = source[key];
-        }
-      }
-    }
-
-    return result;
   }
 
   /**

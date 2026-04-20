@@ -9,6 +9,7 @@ import { log } from "../../utils/logger";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { type SessionProviderInterface } from "./session-db-adapter";
 import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
+import { resolveBackendType } from "./session-utils";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -30,33 +31,7 @@ async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepositoryBackend> {
-  // Determine backend type from session configuration
-  let backendType: RepositoryBackendType;
-
-  if (sessionRecord.backendType) {
-    // Use explicitly set backend type
-    switch (sessionRecord.backendType) {
-      case "github":
-        backendType = RepositoryBackendType.GITHUB;
-        break;
-      case "remote":
-        backendType = RepositoryBackendType.REMOTE;
-        break;
-      case "local":
-      default:
-        backendType = RepositoryBackendType.LOCAL;
-        break;
-    }
-  } else {
-    // Infer backend type from repoUrl format for backward compatibility
-    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
-      backendType = RepositoryBackendType.LOCAL;
-    } else if (sessionRecord.repoUrl.includes("github.com")) {
-      backendType = RepositoryBackendType.GITHUB;
-    } else {
-      backendType = RepositoryBackendType.REMOTE;
-    }
-  }
+  const backendType = resolveBackendType(sessionRecord.backendType, sessionRecord.repoUrl);
 
   const config: RepositoryBackendConfig = {
     type: backendType,
