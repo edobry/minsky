@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
-import { writeFileSync } from "fs";
+import { openSync, writeSync, closeSync, writeFileSync } from "fs";
 
 const COLORS: [number, number, number][] = [
   [86, 182, 194], // teal
@@ -36,26 +36,22 @@ function emitITermEscapes(taskId: string, title: string): void {
     return;
   }
 
-  const shortTitle = title.length > 50 ? title.slice(0, 47) + "..." : title;
+  const shortTitle = title.length > 50 ? `${title.slice(0, 47)}...` : title;
   const tabLabel = `${taskId} — ${shortTitle}`;
 
-  // Set tab title via OSC 1
+  // Set tab title via OSC 1 and tab color via OSC 6
+  const [r, g, b] = getColorForTaskId(taskId);
   const ttyEscapes =
     `\x1b]1;${tabLabel}\x07` +
-    (() => {
-      const [r, g, b] = getColorForTaskId(taskId);
-      return (
-        `\x1b]6;1;bg;red;brightness;${r}\x07` +
-        `\x1b]6;1;bg;green;brightness;${g}\x07` +
-        `\x1b]6;1;bg;blue;brightness;${b}\x07`
-      );
-    })();
+    `\x1b]6;1;bg;red;brightness;${r}\x07` +
+    `\x1b]6;1;bg;green;brightness;${g}\x07` +
+    `\x1b]6;1;bg;blue;brightness;${b}\x07`;
 
   try {
     // Write escape sequences directly to /dev/tty
-    const ttyFd = require("fs").openSync("/dev/tty", "w");
-    require("fs").writeSync(ttyFd, ttyEscapes);
-    require("fs").closeSync(ttyFd);
+    const ttyFd = openSync("/dev/tty", "w");
+    writeSync(ttyFd, ttyEscapes);
+    closeSync(ttyFd);
   } catch {
     // Silently ignore if /dev/tty is not available
   }
@@ -70,7 +66,9 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const taskId = (toolResult.taskId as string) || "";
+  // session_start returns { success, session: { session, repoUrl, repoName, taskId }, ... }
+  const sessionData = toolResult.session as Record<string, unknown> | undefined;
+  const taskId = (sessionData?.taskId as string) || "";
   const sessionId = input.session_id;
 
   if (!taskId) {
