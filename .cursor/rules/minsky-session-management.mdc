@@ -107,7 +107,7 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 
 - For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
 - For task status checking and updating, see [task-status-protocol](mdc:.cursor/rules/task-status-protocol.mdc)
-- For PR preparation and submission, see [pr-preparation-workflow](mdc:.cursor/rules/pr-preparation-workflow.mdc)
+- For PR preparation and submission, see `prepare-pr` skill
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 
 ## See Also

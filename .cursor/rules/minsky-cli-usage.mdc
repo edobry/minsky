@@ -163,4 +163,4 @@ Always check specific command help with `minsky <command> --help` for the most a
 - See [minsky-session-management.mdc](mdc:.cursor/rules/minsky-session-management.mdc) for session-specific operations
 - See [task-implementation-workflow.mdc](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
 - See [task-status-protocol.mdc](mdc:.cursor/rules/task-status-protocol.mdc) for status update procedures
-- See [pr-preparation-workflow.mdc](mdc:.cursor/rules/pr-preparation-workflow.mdc) for PR creation procedures
+- See `prepare-pr` skill for PR creation procedures
