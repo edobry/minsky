@@ -17,6 +17,7 @@ import noMagicStringDuplication from "./eslint-rules/no-magic-string-duplication
 import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js";
 import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
+import noIgnoredCommandContext from "./eslint-rules/no-ignored-command-context.js";
 
 export default [
   js.configs.recommended,
@@ -110,6 +111,7 @@ export default [
           "no-unwaited-async-factory": noUnwaitedAsyncFactory,
           "no-singleton-reach-in": noSingletonReachIn,
           "no-from-params-in-adapters": noFromParamsInAdapters,
+          "no-ignored-command-context": noIgnoredCommandContext,
         },
       },
     },
@@ -170,6 +172,7 @@ export default [
 
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
+      "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

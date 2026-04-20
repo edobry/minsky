@@ -28,8 +28,8 @@ import { registerKnowledgeCommands } from "./knowledge";
  *   resolve services from it instead of reaching into singletons.
  */
 export async function registerAllSharedCommands(container?: AppContainerInterface): Promise<void> {
-  // Register git commands
-  registerGitCommands();
+  // Register git commands — pass container for DI migration (mt#929)
+  registerGitCommands(container);
 
   // Register tasks commands
   registerTasksCommands(container);
@@ -52,8 +52,8 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register debug commands
   registerDebugCommands();
 
-  // Register persistence commands
-  registerPersistenceCommands();
+  // Register persistence commands — pass container for DI migration (mt#929)
+  registerPersistenceCommands(container);
 
   // Register AI commands
   registerAiCommands();
