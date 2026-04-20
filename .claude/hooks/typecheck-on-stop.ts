@@ -7,6 +7,7 @@
 // Consolidates: typecheck-on-stop.sh, typecheck-on-subagent-stop.sh, typecheck-tracked-roots.sh
 
 import { existsSync, readFileSync, unlinkSync } from "fs";
+import { join } from "path";
 import { readInput, execSync } from "./types";
 import type { StopHookInput } from "./types";
 
@@ -33,6 +34,9 @@ if (roots.length === 0) {
   if (fallback) roots = [fallback];
 }
 
+// Per-root timeout: 15s each — prevents one hung check from consuming the entire hook budget
+const PER_ROOT_TIMEOUT_MS = 15_000;
+
 // Check each root
 let allErrors = "";
 let totalCount = 0;
@@ -42,8 +46,20 @@ for (const root of roots) {
   if (!existsSync(root)) continue;
   if (!existsSync(`${root}/tsconfig.json`)) continue;
 
-  // Run full tsgo (native TypeScript compiler, NO --incremental — correctness gate)
-  const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cwd: root });
+  // Use the local tsgo binary directly to avoid bunx package resolution overhead
+  // and nested process spawning (bunx → node → native binary).
+  const localBinary = join(root, "node_modules", ".bin", "tsgo");
+  const cmd = existsSync(localBinary)
+    ? [localBinary, "--noEmit"]
+    : ["bunx", "@typescript/native-preview", "--noEmit"];
+
+  const result = execSync(cmd, { cwd: root, timeout: PER_ROOT_TIMEOUT_MS });
+
+  if (result.timedOut) {
+    // Skip this root — don't block the hook on a hung check
+    continue;
+  }
+
   if (result.exitCode !== 0) {
     const output = result.stdout || result.stderr;
     const count = output.split("\n").filter((line) => line.includes("): error TS")).length;

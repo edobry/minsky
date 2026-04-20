@@ -33,17 +33,20 @@ export interface HookOutput {
 // Sync exec helper — returns exit code + output without throwing
 export function execSync(
   cmd: string[],
-  options?: { cwd?: string }
-): { exitCode: number; stdout: string; stderr: string } {
+  options?: { cwd?: string; timeout?: number }
+): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
   const result = Bun.spawnSync(cmd, {
     cwd: options?.cwd,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: options?.timeout,
   });
+  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
   return {
-    exitCode: result.exitCode,
+    exitCode: result.exitCode ?? 1,
     stdout: result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
+    timedOut,
   };
 }
 
