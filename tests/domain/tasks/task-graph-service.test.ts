@@ -69,6 +69,24 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
         .filter((e) => !type || e.type === type)
         .map((e) => ({ fromTaskId: e.from, toTaskId: e.to, type: e.type }));
     },
+    async getAncestorChain(taskId: string, maxDepth: number): Promise<string[]> {
+      const ancestors: string[] = [];
+      let current = taskId;
+      for (let i = 0; i < maxDepth; i++) {
+        let parent: string | undefined;
+        for (const key of edges) {
+          const parsed = parseKey(key);
+          if (parsed.from === current && parsed.type === "parent") {
+            parent = parsed.to;
+            break;
+          }
+        }
+        if (!parent) break;
+        ancestors.push(parent);
+        current = parent;
+      }
+      return ancestors;
+    },
   };
 }
 
