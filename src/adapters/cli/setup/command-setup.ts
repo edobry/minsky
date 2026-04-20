@@ -12,6 +12,7 @@ import {
   getPersistenceCustomizations,
 } from "../customizations/config-customizations";
 import { getToolsCustomizations } from "../customizations/tools-customizations";
+import { getMcpCustomizations } from "../customizations/mcp-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -41,6 +42,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const toolsConfig = getToolsCustomizations();
   cliFactory.customizeCategory(toolsConfig.category, toolsConfig.options);
+
+  const mcpConfig = getMcpCustomizations();
+  cliFactory.customizeCategory(mcpConfig.category, mcpConfig.options);
 }
 
 /**

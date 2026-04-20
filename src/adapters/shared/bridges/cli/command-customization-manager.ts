@@ -44,6 +44,8 @@ export interface CategoryCommandOptions {
   commandOptions?: Record<string, CliCommandOptions>;
   /** Whether to use category name as command prefix */
   usePrefix?: boolean;
+  /** Whether to suppress CLI auto-generation for this category (e.g., when the CLI wires the category manually) */
+  hidden?: boolean;
   /** Allow additional subcommand customization options */
   [key: string]: unknown;
 }

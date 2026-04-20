@@ -360,6 +360,19 @@ export function registerChangesetCommandsWithMcp(
 }
 
 /**
+ * Register MCP management commands with MCP (e.g., mcp.register)
+ */
+export function registerMcpCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.MCP],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -377,6 +390,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.INIT,
       CommandCategory.DEBUG,
       CommandCategory.PERSISTENCE,
+      CommandCategory.MCP,
     ],
     ...config,
   });

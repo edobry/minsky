@@ -18,6 +18,7 @@ import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
+import { registerMcpCommands } from "./mcp";
 
 /**
  * Register all shared commands in the shared command registry.
@@ -61,6 +62,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register validate commands (lint and typecheck)
   registerValidateCommands();
 
+  // Register MCP commands
+  registerMcpCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -79,4 +83,5 @@ export {
   registerToolsCommands,
   registerChangesetCommands,
   registerValidateCommands,
+  registerMcpCommands,
 };

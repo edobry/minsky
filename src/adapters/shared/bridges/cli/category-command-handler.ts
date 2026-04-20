@@ -56,6 +56,13 @@ export class CategoryCommandHandler {
 
     const customOptions = this.deps.customizationManager.getCategoryOptions(category);
 
+    // If the category is marked as hidden, skip CLI auto-generation.
+    // Used when a category's commands are wired into the CLI manually (e.g., mcp.register
+    // is added as a subcommand of the existing non-shared `mcp` commander command tree).
+    if (customOptions.hidden) {
+      return null;
+    }
+
     // Create the base category command
     const categoryCommand = this.createBaseCategoryCommand(category, customOptions);
 
