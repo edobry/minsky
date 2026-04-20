@@ -116,7 +116,15 @@ describe("detectInstalledClients", () => {
   });
 
   test("returned values are all ManagedClient members", () => {
-    const validClients = new Set(["cursor", "claude-desktop", "vscode"]);
+    const validClients = new Set([
+      "cursor",
+      "claude-desktop",
+      "vscode",
+      "windsurf",
+      "junie",
+      "codex",
+      "openhands",
+    ]);
     const clients = detectInstalledClients();
     for (const c of clients) {
       expect(validClients.has(c)).toBe(true);
