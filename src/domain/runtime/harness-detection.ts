@@ -16,7 +16,7 @@ export type AgentHarness = "claude-code" | "cursor" | "standalone";
  * The set of MCP client applications that Minsky can register itself with.
  * Extend this union as new clients are implemented.
  */
-export type ManagedClient = "cursor" | "claude-desktop" | "vscode";
+export type ManagedClient = "cursor" | "claude-desktop" | "vscode" | "windsurf" | "junie";
 
 /**
  * Detect the current agent harness from environment signals.
@@ -88,6 +88,14 @@ export function detectInstalledClients(): ManagedClient[] {
   if (existsSync(path.join(homedir(), ".vscode"))) {
     clients.push("vscode");
   }
+
+  // Windsurf: check for ~/.codeium/ directory
+  if (existsSync(path.join(homedir(), ".codeium"))) {
+    clients.push("windsurf");
+  }
+
+  // Junie (JetBrains): skip auto-detection — JetBrains detection is unreliable.
+  // Users can specify --client junie explicitly to register with Junie.
 
   return clients;
 }
