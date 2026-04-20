@@ -1,9 +1,25 @@
-import { RepositoryBackendType } from "../repository/index";
-
 /**
  * Pure utility functions for session domain logic.
  * No I/O, no side effects, deterministic.
+ *
+ * ## When to extract vs when DI injection is sufficient
+ *
+ * Extract a pure function when:
+ * - The logic is deterministic (same input → same output, no side effects)
+ * - It's embedded inside an async/I/O function but doesn't use any I/O itself
+ * - It's duplicated across multiple files (extraction eliminates copy-paste)
+ * - Testing it requires constructing a full service graph just to reach the logic
+ *
+ * Use DI injection instead when:
+ * - The logic inherently requires I/O (database reads, git commands, network)
+ * - The function's purpose IS orchestrating I/O operations
+ * - Swapping the implementation at runtime is needed (e.g., fake backends in tests)
+ *
+ * Rule of thumb: if you can write the function's tests without any mocks, it's a
+ * pure extraction candidate. If tests need mocks, it belongs behind a DI interface.
  */
+
+import { RepositoryBackendType } from "../repository/index";
 
 /**
  * Parse a git commit message into a PR title and body.
