@@ -35,18 +35,16 @@ const INSPECTOR_PORT = 5173;
 /**
  * Register all MCP tool adapters on the given command mapper.
  */
-function registerAllTools(
+async function registerAllTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
-): void {
-  // Guard: container must be initialized before tools are registered.
-  // Tools resolve dependencies lazily on invocation — if persistence isn't
-  // ready by then, users get cryptic "requires a persistence dependency" errors.
+): Promise<void> {
+  // Ensure the container is initialized before registering tools.
+  // MCP tool invocations bypass Commander's preAction hook, so initialization
+  // must happen here — making it impossible to register tools without persistence.
   if (container && !container.has("persistence")) {
-    throw new Error(
-      "registerAllTools called with an uninitialized container. " +
-        "Call container.initialize() before registering MCP tools."
-    );
+    await container.initialize();
+    log.debug("Container initialized for MCP server");
   }
 
   // Register debug tools first to ensure they're available for debugging
@@ -245,19 +243,12 @@ export function createStartCommand(
           httpConfig: serverConfig.httpConfig,
         });
 
-        // Initialize the DI container before registering tools — MCP commands
-        // bypass the CLI preAction hook, so persistence must be ready here.
-        if (container && !container.has("persistence")) {
-          await container.initialize();
-          log.debug("Container initialized for MCP server");
-        }
-
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
 
-        // Register tools via adapter-based approach
+        // Register tools via adapter-based approach (initializes container if needed)
         const commandMapper = new CommandMapper(server, server.getProjectContext());
-        registerAllTools(commandMapper, container);
+        await registerAllTools(commandMapper, container);
 
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
