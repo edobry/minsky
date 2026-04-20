@@ -303,7 +303,7 @@ export const sessionMigrateBackendCommandParams = {
     defaultValue: false,
   },
   to: {
-    schema: z.enum(["github", "local"]).default("github"),
+    schema: z.enum(["github"]).default("github"),
     description: "Target backend to migrate to (default: github)",
     required: false,
     defaultValue: "github",
@@ -470,7 +470,7 @@ export const sessionPrListCommandParams = {
     required: false,
   },
   backend: {
-    schema: z.enum(["github", "remote", "local"]),
+    schema: z.enum(["github"]),
     description: "Filter by repository backend type",
     required: false,
   },
@@ -511,7 +511,7 @@ export const sessionPrGetCommandParams = {
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
   backend: {
-    schema: z.enum(["github", "remote", "local"]),
+    schema: z.enum(["github"]),
     description: "Restrict to a specific repository backend type",
     required: false,
   },

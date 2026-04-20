@@ -45,7 +45,7 @@ export interface RepositoryBackendConfig {
   /**
    * The type of repository backend to use
    */
-  type: "local" | "remote" | "github";
+  type: "github";
 
   /**
    * Repository URL or path
