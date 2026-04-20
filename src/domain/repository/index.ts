@@ -467,7 +467,12 @@ export async function createRepositoryBackend(
       }
 
       const { GitHubBackend } = await import("./github");
-      return new GitHubBackend(config, sessionDB);
+      const { createTokenProvider } = await import("../auth");
+      const { getConfiguration } = await import("../configuration/index");
+      const cfg = getConfiguration();
+      const userToken = cfg.github?.token || "";
+      const tokenProvider = createTokenProvider(cfg.github || {}, userToken);
+      return new GitHubBackend(config, sessionDB, tokenProvider);
     }
 
     default:
