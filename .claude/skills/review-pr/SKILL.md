@@ -111,10 +111,25 @@ Classify the impact:
 
 ### 7. Post to GitHub
 
-Use `mcp__github__pull_request_review_write` to post the review:
+**Primary path:** Use `mcp__minsky__session_review_submit` when the PR is linked to a Minsky session. Extract the task ID from the branch name (e.g., `task/mt-847` → `mt#847`) and call:
+
+```
+mcp__minsky__session_review_submit
+  task: "mt#847"   (or sessionId if known)
+  body: "<full review body>"
+  event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"
+  comments: [{ path, line, body, side? }]   (optional, for line-level comments)
+```
+
+This posts the review under the configured bot/service-account identity.
+
+**Fallback:** If `mcp__minsky__session_review_submit` is unavailable or the PR is not linked to a Minsky session, use `mcp__github__pull_request_review_write` directly:
 
 - `method: "create"` with `event` to submit immediately
 - For line-level comments: create a pending review first, add comments with `add_comment_to_pending_review`, then `submit_pending`
+
+**Event selection (applies to both paths):**
+
 - Use `event: "APPROVE"` only if you are not the PR author and there are no blocking issues
 - Use `event: "COMMENT"` if you are the PR author or there are only non-blocking issues
 - Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria
