@@ -356,9 +356,9 @@ Service classes use tsyringe decorators:
 - `@injectable()` — marks a class for DI participation
 - `@inject("tokenName")` — injects a dependency by token on a constructor parameter
 
-Eight core services are currently decorated. Services with primitive constructor params
-(e.g., `workspacePath: string`) use `@injectable()` only; services whose constructor
-params match registered tokens also use `@inject()`.
+All service, adapter, and storage classes in `src/domain/` are decorated. Services with
+primitive constructor params (e.g., `workspacePath: string`) use `@injectable()` only;
+services whose constructor params match registered tokens also use `@inject()`.
 
 **Polyfill requirement**: `import "reflect-metadata"` must be loaded before any decorated
 class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (test preload).
