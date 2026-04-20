@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { AICompletionService, AIUsage } from "./types";
 import { ChangesetDetails } from "../changeset/adapter-interface";
 import { log } from "../../utils/logger";
@@ -73,6 +74,7 @@ export interface AIReviewOptions {
   maxTokens?: number;
 }
 
+@injectable()
 export class AIReviewService {
   constructor(private completionService: AICompletionService) {}
 

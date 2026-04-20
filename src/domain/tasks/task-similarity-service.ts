@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import type { Task } from "../tasks";
 import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
@@ -22,6 +23,7 @@ export interface TaskSearchResponse {
   degradedReason?: string;
 }
 
+@injectable()
 export class TaskSimilarityService {
   private searchService: SimilaritySearchService | null = null;
 

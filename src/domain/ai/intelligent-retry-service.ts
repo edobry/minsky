@@ -3,6 +3,7 @@
  * Provides enterprise-grade reliability for AI completion requests.
  */
 
+import { injectable } from "tsyringe";
 import { log } from "../../utils/logger";
 import { RateLimitError } from "./enhanced-error-types";
 
@@ -12,6 +13,7 @@ interface CircuitBreakerState {
   nextAttemptTime: number;
 }
 
+@injectable()
 export class IntelligentRetryService {
   private readonly maxRetries: number = 3;
   private readonly baseDelay: number = 1000; // 1 second

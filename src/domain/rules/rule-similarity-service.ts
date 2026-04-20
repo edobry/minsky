@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import type { SearchResult } from "../storage/vector/types";
 import { PersistenceProvider } from "../persistence/types";
 import type { SessionStorage } from "../persistence/types";
@@ -15,6 +16,7 @@ export interface RuleSimilarityServiceConfig {
 /**
  * RuleSimilarityService: embedding-based rule retrieval
  */
+@injectable()
 export class RuleSimilarityService {
   constructor(
     private readonly persistence: PersistenceProvider,

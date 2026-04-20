@@ -5,6 +5,8 @@
  * while preserving existing detection logic and capabilities.
  */
 
+import { injectable } from "tsyringe";
+
 /**
  * Task backend types supported by Minsky
  */
@@ -20,6 +22,7 @@ export interface BackendDetectionService {
   githubRemoteExists(workingDir: string): Promise<boolean>;
 }
 
+@injectable()
 export class DefaultBackendDetectionService implements BackendDetectionService {
   /**
    * Detect the most appropriate backend based on project structure.

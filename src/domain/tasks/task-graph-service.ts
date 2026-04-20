@@ -1,3 +1,4 @@
+import { injectable } from "tsyringe";
 import { and, eq, inArray, or } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
@@ -130,6 +131,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
   };
 }
 
+@injectable()
 export class TaskGraphService {
   private readonly repo: TaskRelationshipsRepository;
 
