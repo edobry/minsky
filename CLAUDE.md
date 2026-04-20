@@ -188,6 +188,11 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 - **The build must always be green** — if CI fails, investigate and fix before merging. Never bypass with the GitHub API.
 - **Tests must be hermetic** — no environment-dependent tests that pass locally but fail in CI. If a test needs local config/db/git, it's an integration test and must handle missing deps gracefully (not with `test.skipIf(isCI)`).
 
+## Hook Files
+
+- **All `.claude/hooks/*.ts` files must have execute permission** (`chmod +x`). The `Write` tool creates files with `644` by default — always run `chmod +x` after creating a hook file.
+- The pre-commit hook enforces this: commits with non-executable hook files are rejected.
+
 ## Code Style
 
 - TypeScript strict mode, double quotes, 2-space indent, 100-char line width
