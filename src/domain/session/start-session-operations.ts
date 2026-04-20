@@ -338,7 +338,14 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       throw gitError;
     }
 
-    // Install dependencies if not skipped
+    // Install dependencies (skipInstall is deprecated — warn if used)
+    if (skipInstall) {
+      log.cli(
+        "⚠️  DEPRECATED: --skip-install is deprecated and will be removed in a future release. " +
+          "Sessions without dependencies will fail typecheck hooks. " +
+          "If you have a use case for skipping install, please file an issue."
+      );
+    }
     if (!skipInstall) {
       try {
         const { success, error } = await installDependencies(sessionDir, {
