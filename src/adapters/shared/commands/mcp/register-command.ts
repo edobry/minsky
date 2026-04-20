@@ -47,6 +47,7 @@ export function registerMcpRegisterCommand(): void {
       name: "register",
       description: "Register Minsky as an MCP server with a supported client",
       parameters: mcpRegisterParams,
+      requiresSetup: false,
       execute: async (params, _ctx) => {
         try {
           // 1. Resolve the repo path

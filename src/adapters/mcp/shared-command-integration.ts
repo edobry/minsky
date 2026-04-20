@@ -14,6 +14,7 @@ import {
 } from "../shared/command-registry";
 import { log } from "../../utils/logger";
 import { z } from "zod";
+import { guardProjectSetup } from "../../domain/configuration/guard";
 
 /**
  * Convert shared command parameters to a Zod schema that MCP can use
@@ -176,6 +177,11 @@ export function registerSharedCommandsWithMcp(
 
             const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
+
+            // Guard: verify the project is initialized before executing non-exempt commands
+            if (command.requiresSetup !== false) {
+              guardProjectSetup(command.id);
+            }
 
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);

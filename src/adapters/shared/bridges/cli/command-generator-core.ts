@@ -20,6 +20,7 @@ import {
 } from "./command-customization-manager";
 import { type ParameterProcessor } from "./parameter-processor";
 import { type CommandResultFormatter } from "./result-formatter";
+import { guardProjectSetup } from "../../../../domain/configuration/guard";
 
 /**
  * CLI-specific execution context
@@ -181,6 +182,11 @@ export class CommandGeneratorCore {
 
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
+
+        // Guard: verify the project is initialized before executing non-exempt commands
+        if (commandDef.requiresSetup !== false) {
+          guardProjectSetup(commandDef.id);
+        }
 
         // Execute the command with parameters and context
         const result = await commandDef.execute(normalizedParams, context);

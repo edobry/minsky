@@ -50,6 +50,7 @@ export function registerSetupCommands() {
       description:
         "Set up developer-local configuration for Minsky (MCP registration + local config)",
       parameters: setupParams,
+      requiresSetup: false,
       execute: async (params, _ctx) => {
         try {
           const repoPath = params.repo || params.workspacePath || process.cwd();
