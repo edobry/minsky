@@ -199,7 +199,7 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 ### CI & Branch Protection
 
 - **Main branch is protected** — all PRs must pass CI checks (`build` + `Prevent Placeholder Tests`) before merging.
-- **Never merge with failing or pending checks** — always wait for `get_check_runs` to show all checks as `status: "completed"` with `conclusion: "success"` before merging.
+- **Never merge with failing or pending checks** — use the `orchestrate` skill's merge step (step 6) to wait for CI and merge.
 - **The build must always be green** — if CI fails, investigate and fix before merging. Never bypass with the GitHub API.
 - **Tests must be hermetic** — no environment-dependent tests that pass locally but fail in CI. If a test needs local config/db/git, it's an integration test and must handle missing deps gracefully (not with `test.skipIf(isCI)`).
 
