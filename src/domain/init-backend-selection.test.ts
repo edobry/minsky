@@ -49,7 +49,53 @@ describe("Init System Backend Selection", () => {
 
       const config = yamlParse(configContent!);
       expect(config.tasks.backend).toBe(backend);
+      // When mcp.enabled is false, no mcp section should appear in config
+      expect(config.mcp).toBeUndefined();
     }
+  });
+
+  test("should include mcp section in config when MCP is enabled", async () => {
+    const testRepo = "/tmp/test-repo";
+
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "cursor",
+        mcp: { enabled: true, transport: "stdio" },
+        overwrite: false,
+      },
+      mockFileSystem
+    );
+
+    const configPath = path.join(testRepo, ".minsky", "config.yaml");
+    expect(mockFileSystem.files.has(configPath)).toBe(true);
+
+    const config = yamlParse(mockFileSystem.files.get(configPath)!);
+    expect(config.mcp).toBeDefined();
+    expect(config.mcp.transport).toBe("stdio");
+  });
+
+  test("should include mcp section with port and host for SSE transport", async () => {
+    const testRepo = "/tmp/test-repo";
+
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "cursor",
+        mcp: { enabled: true, transport: "sse", port: 3000, host: "0.0.0.0" },
+        overwrite: false,
+      },
+      mockFileSystem
+    );
+
+    const configPath = path.join(testRepo, ".minsky", "config.yaml");
+    const config = yamlParse(mockFileSystem.files.get(configPath)!);
+    expect(config.mcp).toBeDefined();
+    expect(config.mcp.transport).toBe("sse");
+    expect(config.mcp.port).toBe(3000);
+    expect(config.mcp.host).toBe("0.0.0.0");
   });
 
   test("should create appropriate files for each backend type", async () => {
