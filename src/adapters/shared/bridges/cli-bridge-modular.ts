@@ -51,6 +51,7 @@ export class ModularCliCommandBridge {
   private resultFormatter: CommandResultFormatter;
   private commandGenerator: CommandGeneratorCore;
   private categoryHandler: CategoryCommandHandler;
+  private _container?: import("../../../composition/types").AppContainerInterface;
 
   constructor(config: ModularCliBridgeConfig = {}) {
     // Initialize components with dependency injection
@@ -73,6 +74,7 @@ export class ModularCliCommandBridge {
       customizationManager: this.customizationManager,
       parameterProcessor: this.parameterProcessor,
       resultFormatter: this.resultFormatter,
+      getContainer: () => this._container,
     };
     this.commandGenerator = createCommandGenerator(generatorDeps);
 
@@ -82,6 +84,13 @@ export class ModularCliCommandBridge {
       commandGenerator: this.commandGenerator,
     };
     this.categoryHandler = createCategoryCommandHandler(categoryDeps);
+  }
+
+  /**
+   * Set the DI container so execute handlers can access services via context.container.
+   */
+  setContainer(container: import("../../../composition/types").AppContainerInterface): void {
+    this._container = container;
   }
 
   /**

@@ -171,7 +171,9 @@ async function startHttpServer(
 /**
  * Create the MCP "start" subcommand.
  */
-export function createStartCommand(): Command {
+export function createStartCommand(
+  container?: import("../../composition/types").AppContainerInterface
+): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
   startCommand
@@ -237,10 +239,6 @@ export function createStartCommand(): Command {
 
         // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(server, server.getProjectContext());
-        const { getAppContainer } = await import(
-          "../../adapters/shared/bridges/cli/command-generator-core"
-        );
-        const container = getAppContainer();
         registerAllTools(commandMapper, container);
 
         // Launch inspector if requested
