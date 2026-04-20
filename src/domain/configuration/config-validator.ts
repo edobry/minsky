@@ -297,6 +297,3 @@ export class DefaultConfigValidator implements ConfigValidator {
     return postgresRegex.test(connectionString);
   }
 }
-
-// Export singleton instance
-export const configValidator = new DefaultConfigValidator();

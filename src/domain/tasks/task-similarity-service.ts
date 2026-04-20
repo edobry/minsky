@@ -200,11 +200,12 @@ export class TaskSimilarityService {
       const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
       if (typeof maxTokens === "number" && maxTokens > 0) {
         const effective = Math.max(1, maxTokens - buffer);
-        const { defaultTokenizerService } = await import("../ai/tokenizer-service");
-        const tokens = await defaultTokenizerService.tokenize(content, model, provider);
+        const { DefaultTokenizerService } = await import("../ai/tokenizer-service");
+        const tokenizerService = new DefaultTokenizerService();
+        const tokens = await tokenizerService.tokenize(content, model, provider);
         if (tokens.length > effective) {
           const trimmed = tokens.slice(0, effective);
-          content = await defaultTokenizerService.detokenize(trimmed, model, provider);
+          content = await tokenizerService.detokenize(trimmed, model, provider);
         }
       }
     } catch {

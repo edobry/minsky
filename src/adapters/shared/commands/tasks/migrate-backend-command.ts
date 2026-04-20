@@ -11,7 +11,7 @@ import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import {
-  _backendDetectionService,
+  DefaultBackendDetectionService,
   TaskBackend,
 } from "../../../../domain/configuration/backend-detection";
 import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
@@ -233,7 +233,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
 
   private async detectCurrentBackend(workspacePath: string): Promise<string> {
     // Use the backend detection service
-    const detectedBackend = await _backendDetectionService.detectBackend(workspacePath);
+    const detectedBackend = await new DefaultBackendDetectionService().detectBackend(workspacePath);
     return detectedBackend as string;
   }
 

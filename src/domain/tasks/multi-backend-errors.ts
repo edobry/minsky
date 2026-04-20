@@ -147,9 +147,6 @@ export class ConsoleMultiBackendLogger implements MultiBackendLogger {
   }
 }
 
-// Default logger instance for multi-backend operations
-export const logger = new ConsoleMultiBackendLogger();
-
 // Error recovery utilities
 export class ErrorRecovery {
   /**

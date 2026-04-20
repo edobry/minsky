@@ -321,8 +321,3 @@ export class DefaultTokenizerService implements TokenizerService {
     return this.createTiktokenTokenizer("cl100k_base");
   }
 }
-
-/**
- * Global instance for convenience
- */
-export const defaultTokenizerService = new DefaultTokenizerService();
