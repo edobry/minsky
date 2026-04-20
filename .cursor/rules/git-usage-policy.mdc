@@ -206,15 +206,5 @@ For surgical operations that fail:
 
 ## See Also
 
-- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
-- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
-
-
-## See Also
-
-- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
-- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
-
-
-- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
+- `orchestrate` skill: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.

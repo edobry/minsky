@@ -89,7 +89,7 @@ These principles improve not only testability but also maintainability, readabil
 # Testable Design
 
 ## Best Practices Cross-Reference
-- See also: domain-oriented-modules, minsky-workflow, tests, testing-boundaries
+- See also: domain-oriented-modules, orchestrate skill, tests, testing-boundaries
 - This rule governs: interface clarity, maintainability, and testability.
 
 ## Requirements (Revised)
