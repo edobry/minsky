@@ -21,11 +21,12 @@ import path from "path";
 
 describe("Interface-Agnostic Task Command Functions", () => {
   beforeAll(async () => {
-    const { defaultInstance: persistenceService } = await import("../persistence/service");
+    const { PersistenceService } = await import("../persistence/service");
     const { FakePersistenceProvider } = await import("../persistence/fake-persistence-provider");
     const { FakeSessionProvider } = await import("../session/fake-session-provider");
     const { setSharedSessionProvider } = await import("../session/session-provider-cache-seams");
 
+    const persistenceService = new PersistenceService();
     (persistenceService as any).provider = new FakePersistenceProvider();
     setSharedSessionProvider(new FakeSessionProvider());
 

@@ -9,6 +9,7 @@ import type { CommandExecutionContext, CommandParameterMap } from "../../command
 import { sharedCommandRegistry } from "../../command-registry";
 import { createLogger } from "../../../../utils/logger";
 import { CommonParameters } from "../../common-parameters";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 const log = createLogger();
 
@@ -110,6 +111,8 @@ export class ToolsSimilarCommand {
   readonly description = "Find tools similar to the given tool using embeddings";
   readonly parameters = toolsSimilarParams;
 
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {}
+
   /**
    * Enhance search results with tool details for better CLI output
    */
@@ -163,7 +166,7 @@ export class ToolsSimilarCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    const service = await createToolSimilarityService();
+    const service = await createToolSimilarityService({}, this.getPersistenceProvider!());
 
     const searchResults = await service.similarToTool(toolId, limit, threshold);
 
@@ -209,6 +212,8 @@ export class ToolsSearchCommand {
   readonly name = "search";
   readonly description = "Search for tools using natural language queries";
   readonly parameters = toolsSearchParams;
+
+  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {}
 
   /**
    * Enhance search results with tool details for better CLI output
@@ -263,7 +268,7 @@ export class ToolsSearchCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    const service = await createToolSimilarityService();
+    const service = await createToolSimilarityService({}, this.getPersistenceProvider!());
 
     // Immediate progress hint to stderr unless JSON/quiet
     if (!params.quiet && !params.json && ctx?.format !== "json") {
