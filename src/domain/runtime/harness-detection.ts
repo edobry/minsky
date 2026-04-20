@@ -56,7 +56,7 @@ export function hasNativeSubagentSupport(): boolean {
  *
  * Detection heuristics:
  * - cursor: ~/.cursor/ directory exists
- * - claude-desktop: TODO (~/Library/Application Support/Claude/ on macOS)
+ * - claude-desktop: config directory exists (platform-specific)
  * - vscode: TODO
  */
 export function detectInstalledClients(): ManagedClient[] {
@@ -67,7 +67,23 @@ export function detectInstalledClients(): ManagedClient[] {
     clients.push("cursor");
   }
 
-  // TODO: claude-desktop — check ~/Library/Application Support/Claude/ on macOS
+  // Claude Desktop: check for platform-specific config directory
+  const home = homedir();
+  let claudeConfigDir: string;
+  if (process.platform === "darwin") {
+    claudeConfigDir = path.join(home, "Library", "Application Support", "Claude");
+  } else if (process.platform === "win32") {
+    claudeConfigDir = path.join(
+      process.env.APPDATA || path.join(home, "AppData", "Roaming"),
+      "Claude"
+    );
+  } else {
+    claudeConfigDir = path.join(home, ".config", "Claude");
+  }
+  if (existsSync(claudeConfigDir)) {
+    clients.push("claude-desktop");
+  }
+
   // TODO: vscode — check ~/.vscode/ or platform-specific VS Code config dirs
 
   return clients;

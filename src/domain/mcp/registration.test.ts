@@ -4,7 +4,14 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import * as path from "path";
-import { CursorRegistrar, getRegistrar, registerWithClient } from "./registration";
+import * as os from "os";
+import {
+  CursorRegistrar,
+  ClaudeDesktopRegistrar,
+  McpServersJsonRegistrar,
+  getRegistrar,
+  registerWithClient,
+} from "./registration";
 import { createMockFs } from "../interfaces/mock-fs";
 import type { MockFs } from "../interfaces/mock-fs";
 
@@ -79,6 +86,70 @@ describe("CursorRegistrar", () => {
       );
     });
   });
+
+  test("mergeConfig is false (owns its file)", () => {
+    expect(registrar.mergeConfig).toBe(false);
+  });
+});
+
+describe("ClaudeDesktopRegistrar", () => {
+  const registrar = new ClaudeDesktopRegistrar();
+
+  describe("generateConfig — inherits McpServersJsonRegistrar logic", () => {
+    test("stdio transport produces correct JSON", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual(["mcp", "start"]);
+    });
+
+    test("httpStream transport includes correct args", () => {
+      const content = registrar.generateConfig("httpStream", 3000, "localhost");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "start",
+        "--http-stream",
+        "--port",
+        "3000",
+        "--host",
+        "localhost",
+      ]);
+    });
+  });
+
+  describe("configPath", () => {
+    test("returns OS-appropriate path (does not include projectRoot)", () => {
+      const configPath = registrar.configPath("/any-project-root");
+      // Should be under the user's home directory, not under the project root
+      expect(configPath).not.toContain("/any-project-root");
+      expect(configPath).toContain("claude_desktop_config.json");
+      expect(configPath).toContain("Claude");
+      // Should be an absolute path under homedir
+      expect(configPath.startsWith(os.homedir())).toBe(true);
+    });
+
+    test("config path ends with claude_desktop_config.json", () => {
+      const configPath = registrar.configPath("/irrelevant");
+      expect(configPath.endsWith("claude_desktop_config.json")).toBe(true);
+    });
+  });
+
+  test("mergeConfig is true (shares global config file)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+});
+
+describe("McpServersJsonRegistrar (abstract base)", () => {
+  test("CursorRegistrar is an instance of McpServersJsonRegistrar", () => {
+    expect(new CursorRegistrar()).toBeInstanceOf(McpServersJsonRegistrar);
+  });
+
+  test("ClaudeDesktopRegistrar is an instance of McpServersJsonRegistrar", () => {
+    expect(new ClaudeDesktopRegistrar()).toBeInstanceOf(McpServersJsonRegistrar);
+  });
 });
 
 describe("getRegistrar", () => {
@@ -88,15 +159,15 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("cursor");
   });
 
-  test("throws descriptive error for unsupported client", () => {
-    expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor'
-    );
+  test("returns ClaudeDesktopRegistrar for 'claude-desktop'", () => {
+    const r = getRegistrar("claude-desktop");
+    expect(r).toBeInstanceOf(ClaudeDesktopRegistrar);
+    expect(r.name).toBe("claude-desktop");
   });
 
-  test("throws descriptive error for 'claude-desktop'", () => {
-    expect(() => getRegistrar("claude-desktop")).toThrow(
-      'MCP client "claude-desktop" is not yet supported. Supported clients: cursor'
+  test("throws descriptive error for unsupported client", () => {
+    expect(() => getRegistrar("unknown")).toThrow(
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop'
     );
   });
 });
@@ -142,5 +213,70 @@ describe("registerWithClient", () => {
     const content = mockFs.files.get(path.join("/my-project", ".cursor", "mcp.json"))!;
     const parsed = JSON.parse(content);
     expect(parsed.mcpServers["minsky-server"].args).toContain("--sse");
+  });
+
+  describe("claude-desktop config merging", () => {
+    const registrar = new ClaudeDesktopRegistrar();
+
+    test("creates new file if config file does not exist", async () => {
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-desktop", mockFs);
+
+      const configPath = registrar.configPath("/any-root");
+      expect(mockFs.files.has(configPath)).toBe(true);
+      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+    });
+
+    test("merges minsky-server into existing config preserving other servers", async () => {
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: {
+          "other-server": {
+            command: "other",
+            args: ["run"],
+          },
+        },
+        someOtherKey: "preserved",
+      });
+      mockFs.files.set(configPath, existingConfig);
+      // Ensure the parent directory is recognized
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-desktop", mockFs);
+
+      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      // Existing server preserved
+      expect(parsed.mcpServers["other-server"]).toBeDefined();
+      // Minsky server added
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      // Other top-level keys preserved
+      expect(parsed.someOtherKey).toBe("preserved");
+    });
+
+    test("overwrites existing minsky-server entry when merging", async () => {
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: {
+          "minsky-server": {
+            command: "old-command",
+            args: ["old-args"],
+          },
+        },
+      });
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient(
+        "/any-root",
+        { transport: "httpStream", port: 4242 },
+        "claude-desktop",
+        mockFs
+      );
+
+      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
+      expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+    });
   });
 });

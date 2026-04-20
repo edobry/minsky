@@ -1,7 +1,7 @@
 /**
  * Shared MCP Register Command
  *
- * Registers Minsky as an MCP server with a supported client (e.g., Cursor).
+ * Registers Minsky as an MCP server with a supported client (e.g., Cursor, Claude Desktop).
  * Reads the project's MCP config from `.minsky/config.yaml` and generates
  * the appropriate harness-specific config file.
  */
@@ -33,7 +33,7 @@ const mcpRegisterParams = composeParams(
   {
     client: {
       schema: z.string().optional(),
-      description: "The MCP client to register with (e.g., cursor)",
+      description: "The MCP client to register with (e.g., cursor, claude-desktop)",
       required: false,
     },
   }
