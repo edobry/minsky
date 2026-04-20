@@ -172,18 +172,7 @@ export default [
 
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
-      "custom/no-ignored-command-context": [
-        "error",
-        {
-          allowedCommands: [
-            // These commands don't accept session params and genuinely don't need context
-            "git.log",
-            "git.search",
-            "git.diff",
-            "git.blame",
-          ],
-        },
-      ], // Prevent ignoring execution context in shared command handlers (mt#929)
+      "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

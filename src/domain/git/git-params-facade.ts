@@ -18,12 +18,12 @@ import type { EnhancedMergeResult } from "./conflict-detection";
  */
 export async function createPullRequestFromParams(
   params: {
-  session?: string;
-  repo?: string;
-  branch?: string;
-  taskId?: string;
-  debug?: boolean;
-  noStatusUpdate?: boolean;
+    session?: string;
+    repo?: string;
+    branch?: string;
+    taskId?: string;
+    debug?: boolean;
+    noStatusUpdate?: boolean;
   },
   deps?: GitOperationDependencies
 ): Promise<PrResult> {
@@ -56,10 +56,10 @@ export async function commitChangesFromParams(
  */
 export async function mergePrFromParams(
   params: {
-  prBranch: string;
-  repo?: string;
-  baseBranch?: string;
-  session?: string;
+    prBranch: string;
+    repo?: string;
+    baseBranch?: string;
+    session?: string;
   },
   deps?: GitOperationDependencies
 ): Promise<MergePrResult> {
@@ -73,10 +73,10 @@ export async function mergePrFromParams(
  */
 export async function cloneFromParams(
   params: {
-  url: string;
-  workdir: string; // Explicit workdir path
-  session?: string;
-  branch?: string;
+    url: string;
+    workdir: string; // Explicit workdir path
+    session?: string;
+    branch?: string;
   },
   deps?: GitOperationDependencies
 ): Promise<CloneResult> {
@@ -90,8 +90,8 @@ export async function cloneFromParams(
  */
 export async function branchFromParams(
   params: {
-  session: string;
-  name: string;
+    session: string;
+    name: string;
   },
   deps?: GitOperationDependencies
 ): Promise<BranchResult> {
@@ -123,13 +123,13 @@ export async function pushFromParams(
  */
 export async function mergeFromParams(
   params: {
-  sourceBranch: string;
-  targetBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
+    sourceBranch: string;
+    targetBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
 ): Promise<EnhancedMergeResult> {
@@ -143,12 +143,12 @@ export async function mergeFromParams(
  */
 export async function checkoutFromParams(
   params: {
-  branch: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
+    branch: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
 ): Promise<{
@@ -168,13 +168,13 @@ export async function checkoutFromParams(
  */
 export async function rebaseFromParams(
   params: {
-  baseBranch: string;
-  featureBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
+    baseBranch: string;
+    featureBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
   },
   deps?: GitOperationDependencies
 ): Promise<{

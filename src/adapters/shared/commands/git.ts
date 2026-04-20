@@ -387,14 +387,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { commitChangesFromParams } = await import("../../../domain/git");
 
-      const result = await commitChangesFromParams({
-        message: params!.message,
-        all: params!.all,
-        amend: params!.amend,
-        noStage: params!.noStage,
-        repo: params!.repo,
-        session: params!.session,
-      }, deps);
+      const result = await commitChangesFromParams(
+        {
+          message: params!.message,
+          all: params!.all,
+          amend: params!.amend,
+          noStage: params!.noStage,
+          repo: params!.repo,
+          session: params!.session,
+        },
+        deps
+      );
 
       return {
         success: true,
@@ -416,13 +419,16 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { pushFromParams } = await import("../../../domain/git");
 
-      const result = await pushFromParams({
-        repo: params!.repo,
-        session: params!.session,
-        remote: params!.remote,
-        force: params!.force,
-        debug: params!.debug,
-      }, deps);
+      const result = await pushFromParams(
+        {
+          repo: params!.repo,
+          session: params!.session,
+          remote: params!.remote,
+          force: params!.force,
+          debug: params!.debug,
+        },
+        deps
+      );
 
       return {
         success: result.pushed,
@@ -443,12 +449,15 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { cloneFromParams } = await import("../../../domain/git");
 
-      const result = await cloneFromParams({
-        url: params!.url,
-        workdir: params!.destination || ".",
-        session: params!.session,
-        branch: params!.branch,
-      }, deps);
+      const result = await cloneFromParams(
+        {
+          url: params!.url,
+          workdir: params!.destination || ".",
+          session: params!.session,
+          branch: params!.branch,
+        },
+        deps
+      );
 
       return {
         success: true,
@@ -470,10 +479,13 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { branchFromParams } = await import("../../../domain/git");
 
-      const result = await branchFromParams({
-        session: params!.session,
-        name: params!.name,
-      }, deps);
+      const result = await branchFromParams(
+        {
+          session: params!.session,
+          name: params!.name,
+        },
+        deps
+      );
 
       return {
         success: true,
@@ -495,14 +507,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { mergeFromParams } = await import("../../../domain/git");
 
-      const result = await mergeFromParams({
-        sourceBranch: params!.branch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoResolve,
-        conflictStrategy: params!.conflictStrategy,
-      }, deps);
+      const result = await mergeFromParams(
+        {
+          sourceBranch: params!.branch,
+          session: params!.session,
+          repo: params!.repo,
+          preview: params!.preview,
+          autoResolve: params!.autoResolve,
+          conflictStrategy: params!.conflictStrategy,
+        },
+        deps
+      );
 
       return {
         success: result.merged,
@@ -526,13 +541,16 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { checkoutFromParams } = await import("../../../domain/git");
 
-      const result = await checkoutFromParams({
-        branch: params!.branch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoStash, // Map autoStash to autoResolve for conflict handling
-      }, deps);
+      const result = await checkoutFromParams(
+        {
+          branch: params!.branch,
+          session: params!.session,
+          repo: params!.repo,
+          preview: params!.preview,
+          autoResolve: params!.autoStash, // Map autoStash to autoResolve for conflict handling
+        },
+        deps
+      );
 
       return {
         success: result!.switched,
@@ -556,14 +574,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const deps = await getGitDeps();
       const { rebaseFromParams } = await import("../../../domain/git");
 
-      const result = await rebaseFromParams({
-        baseBranch: params!.baseBranch,
-        session: params!.session,
-        repo: params!.repo,
-        preview: params!.preview,
-        autoResolve: params!.autoResolve,
-        conflictStrategy: params!.conflictStrategy,
-      }, deps);
+      const result = await rebaseFromParams(
+        {
+          baseBranch: params!.baseBranch,
+          session: params!.session,
+          repo: params!.repo,
+          preview: params!.preview,
+          autoResolve: params!.autoResolve,
+          conflictStrategy: params!.conflictStrategy,
+        },
+        deps
+      );
 
       return {
         success: result!.rebased,

@@ -11,10 +11,7 @@ import { writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { readTextFileSync } from "../../../utils/fs";
 import { dirname, join } from "path";
 import { getErrorMessage, ensureError } from "../../../errors/index";
-import {
-  sharedCommandRegistry,
-  CommandCategory,
-} from "../../shared/command-registry";
+import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
 import type { SessionRecord } from "../../../domain/session/session-db";
@@ -365,7 +362,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           }
 
           log.cli(
-            `Using PostgreSQL connection: ${connectionString.replace(/:\\/\\/[^:]+:[^@]+@/, "://***:***@")}`
+            `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
           );
           _targetPostgresConn = connectionString;
           targetConfig.postgres = { connectionString: connectionString };
@@ -464,7 +461,9 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           const { persistence: persistenceProvider } = getPersistenceDeps();
           validationResult = await validatePostgresBackend(persistenceProvider);
         } else {
-          const { getAvailableBackendsString } = await import("../../../domain/tasks/taskConstants");
+          const { getAvailableBackendsString } = await import(
+            "../../../domain/tasks/taskConstants"
+          );
           throw new Error(
             `Unknown backend: ${targetBackend}. Available backends: ${getAvailableBackendsString()}`
           );
