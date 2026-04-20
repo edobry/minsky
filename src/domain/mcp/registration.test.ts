@@ -9,6 +9,7 @@ import {
   CursorRegistrar,
   ClaudeDesktopRegistrar,
   McpServersJsonRegistrar,
+  VSCodeRegistrar,
   getRegistrar,
   registerWithClient,
 } from "./registration";
@@ -142,6 +143,75 @@ describe("ClaudeDesktopRegistrar", () => {
   });
 });
 
+describe("VSCodeRegistrar", () => {
+  const registrar = new VSCodeRegistrar();
+
+  describe("generateConfig", () => {
+    test("stdio transport produces correct JSON with 'servers' root key", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.servers).toBeDefined();
+      expect(parsed.mcpServers).toBeUndefined();
+      expect(parsed.servers["minsky-server"].command).toBe("minsky");
+      expect(parsed.servers["minsky-server"].args).toEqual(["mcp", "start"]);
+    });
+
+    test("httpStream transport includes correct args with port and host", () => {
+      const content = registrar.generateConfig("httpStream", 3000, "localhost");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.servers["minsky-server"].command).toBe("minsky");
+      expect(parsed.servers["minsky-server"].args).toEqual([
+        "mcp",
+        "start",
+        "--http-stream",
+        "--port",
+        "3000",
+        "--host",
+        "localhost",
+      ]);
+    });
+
+    test("sse transport includes correct args with port and host", () => {
+      const content = registrar.generateConfig("sse", 4000, "0.0.0.0");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.servers["minsky-server"].args).toEqual([
+        "mcp",
+        "start",
+        "--sse",
+        "--port",
+        "4000",
+        "--host",
+        "0.0.0.0",
+      ]);
+    });
+
+    test("uses 'servers' not 'mcpServers' — VS Code rejects mcpServers key", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers).toBeUndefined();
+      expect(parsed.servers).toBeDefined();
+    });
+  });
+
+  describe("configPath", () => {
+    test("returns correct .vscode/mcp.json path for given project root", () => {
+      expect(registrar.configPath("/project")).toBe(path.join("/project", ".vscode", "mcp.json"));
+    });
+  });
+
+  test("mergeConfig is false (workspace-scoped, Minsky owns the file)", () => {
+    expect(registrar.mergeConfig).toBe(false);
+  });
+
+  test("is NOT an instance of McpServersJsonRegistrar — direct implementor", () => {
+    expect(registrar).not.toBeInstanceOf(McpServersJsonRegistrar);
+  });
+});
+
 describe("McpServersJsonRegistrar (abstract base)", () => {
   test("CursorRegistrar is an instance of McpServersJsonRegistrar", () => {
     expect(new CursorRegistrar()).toBeInstanceOf(McpServersJsonRegistrar);
@@ -165,9 +235,15 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("claude-desktop");
   });
 
+  test("returns VSCodeRegistrar for 'vscode'", () => {
+    const r = getRegistrar("vscode");
+    expect(r).toBeInstanceOf(VSCodeRegistrar);
+    expect(r.name).toBe("vscode");
+  });
+
   test("throws descriptive error for unsupported client", () => {
     expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop'
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode'
     );
   });
 });

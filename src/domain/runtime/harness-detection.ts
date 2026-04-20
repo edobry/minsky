@@ -84,7 +84,10 @@ export function detectInstalledClients(): ManagedClient[] {
     clients.push("claude-desktop");
   }
 
-  // TODO: vscode — check ~/.vscode/ or platform-specific VS Code config dirs
+  // VS Code: check for ~/.vscode/ directory
+  if (existsSync(path.join(homedir(), ".vscode"))) {
+    clients.push("vscode");
+  }
 
   return clients;
 }

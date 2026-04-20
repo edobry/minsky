@@ -168,6 +168,46 @@ export class ClaudeDesktopRegistrar extends McpServersJsonRegistrar {
 }
 
 /**
+ * Registrar for the VS Code editor MCP client.
+ *
+ * VS Code uses a "servers" root key (not "mcpServers") in its MCP config.
+ * Config file is workspace-scoped at `.vscode/mcp.json`.
+ */
+export class VSCodeRegistrar implements ClientRegistrar {
+  readonly name = "vscode";
+  readonly mergeConfig = false; // workspace-scoped, Minsky owns the file
+
+  generateConfig(transport: string, port?: number, host?: string): string {
+    const resolvedPort = port || DEFAULT_DEV_PORT;
+    const resolvedHost = host || "localhost";
+
+    const args = ["mcp", "start"];
+    if (transport === "sse") {
+      args.push("--sse", "--port", String(resolvedPort), "--host", resolvedHost);
+    } else if (transport === "httpStream") {
+      args.push("--http-stream", "--port", String(resolvedPort), "--host", resolvedHost);
+    }
+
+    return JSON.stringify(
+      {
+        servers: {
+          "minsky-server": {
+            command: "minsky",
+            args,
+          },
+        },
+      },
+      undefined,
+      2
+    );
+  }
+
+  configPath(projectRoot: string): string {
+    return path.join(projectRoot, ".vscode", "mcp.json");
+  }
+}
+
+/**
  * Returns the registrar for the given client name.
  * Throws a descriptive error for unrecognized clients.
  */
@@ -177,9 +217,11 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new CursorRegistrar();
     case "claude-desktop":
       return new ClaudeDesktopRegistrar();
+    case "vscode":
+      return new VSCodeRegistrar();
     default:
       throw new Error(
-        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop`
+        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode`
       );
   }
 }
