@@ -12,7 +12,6 @@ import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 import { handleOctokitError } from "./github-error-handler";
 import {
   type GitHubContext,
-  requireGitHubToken,
   createOctokit,
   resolvePRNumber,
   findPRNumberForBranch,
@@ -58,14 +57,14 @@ export async function approvePullRequest(
   prIdentifier: string | number,
   reviewComment?: string
 ): Promise<ApprovalInfo> {
-  const prNumber = await resolvePRNumber(prIdentifier, gh, (branch) => {
-    const token = requireGitHubToken();
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
     const ok = createOctokit(token);
     return findPRNumberForBranch(branch, gh, ok);
   });
 
   try {
-    const githubToken = requireGitHubToken();
+    const githubToken = await gh.getToken();
     const octokit = createOctokit(githubToken);
 
     // Validate PR exists and is open
@@ -146,7 +145,7 @@ export async function getPullRequestApprovalStatus(
   }
 
   try {
-    const githubToken = requireGitHubToken();
+    const githubToken = await gh.getToken();
 
     const debugEnabled = (() => {
       try {

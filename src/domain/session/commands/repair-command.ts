@@ -15,12 +15,8 @@ import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
 import { taskIdToBranchName } from "../../tasks/task-id";
-import {
-  findPRNumberForBranch,
-  requireGitHubToken,
-  createOctokit,
-  type GitHubContext,
-} from "../../repository/github-pr-operations";
+import { findPRNumberForBranch, createOctokit } from "../../repository/github-pr-operations";
+import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -61,6 +57,8 @@ export interface RepairAction {
 export interface SessionRepairDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
+  /** Optional token provider for GitHub API authentication. Falls back to config when omitted. */
+  tokenProvider?: TokenProvider;
 }
 
 /**
@@ -93,7 +91,13 @@ export async function sessionRepair(
   }
 
   // Analyze session for issues
-  const issuesFound = await analyzeSessionIssues(sessionRecord, sessionDB, gitService, params);
+  const issuesFound = await analyzeSessionIssues(
+    sessionRecord,
+    sessionDB,
+    gitService,
+    params,
+    deps.tokenProvider
+  );
 
   log.cli(`🔍 Found ${issuesFound.length} potential issues in session '${sessionId}'`);
 
@@ -177,13 +181,19 @@ async function analyzeSessionIssues(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
   gitService: GitServiceInterface,
-  params: SessionRepairParameters
+  params: SessionRepairParameters,
+  tokenProvider?: TokenProvider
 ): Promise<RepairIssue[]> {
   const issues: RepairIssue[] = [];
 
   // Check PR state issues
   if (!params.backendSync || params.prState) {
-    const prIssues = await analyzePRStateIssues(sessionRecord, sessionDB, gitService);
+    const prIssues = await analyzePRStateIssues(
+      sessionRecord,
+      sessionDB,
+      gitService,
+      tokenProvider
+    );
     issues.push(...prIssues);
   }
 
@@ -200,7 +210,7 @@ async function analyzeSessionIssues(
  * Parse a GitHub URL into owner and repo components.
  * Supports both HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git).
  */
-function parseGitHubRepoUrl(repoUrl: string): GitHubContext | null {
+function parseGitHubRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   if (!repoUrl) return null;
 
   // SSH: git@github.com:owner/repo.git
@@ -224,7 +234,8 @@ function parseGitHubRepoUrl(repoUrl: string): GitHubContext | null {
 export async function analyzePRStateIssues(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
-  gitService: GitServiceInterface
+  gitService: GitServiceInterface,
+  tokenProvider?: TokenProvider
 ): Promise<RepairIssue[]> {
   const issues: RepairIssue[] = [];
 
@@ -274,12 +285,22 @@ export async function analyzePRStateIssues(
     try {
       const gh = parseGitHubRepoUrl(sessionRecord.repoUrl);
       if (gh) {
-        const token = requireGitHubToken();
+        // Use injected provider or fall back to config-based token
+        const resolvedTokenProvider =
+          tokenProvider ??
+          (() => {
+            const { getConfiguration } = require("../../configuration/index");
+            const config = getConfiguration();
+            const token = config.github?.token || "";
+            return new FallbackTokenProvider(token);
+          })();
+        const token = await resolvedTokenProvider.getServiceToken();
         const octokit = createOctokit(token);
         const branchName = taskIdToBranchName(sessionRecord.taskId);
 
         try {
-          const prNumber = await findPRNumberForBranch(branchName, gh, octokit);
+          const ghContext = { ...gh, getToken: () => resolvedTokenProvider.getServiceToken() };
+          const prNumber = await findPRNumberForBranch(branchName, ghContext, octokit);
           const prResponse = await octokit.rest.pulls.get({
             owner: gh.owner,
             repo: gh.repo,
@@ -317,7 +338,7 @@ export async function analyzePRStateIssues(
         }
       }
     } catch (error) {
-      // GitHub token missing or URL parsing failed — skip silently
+      // Token provider failed or URL parsing failed — skip silently
       log.debug("Could not check GitHub for missing PR", {
         session: sessionRecord.session,
         error,

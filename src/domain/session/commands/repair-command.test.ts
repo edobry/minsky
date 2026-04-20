@@ -29,14 +29,10 @@ function makeGitHubSession(overrides: Partial<SessionRecord> = {}): SessionRecor
 }
 
 // ---------------------------------------------------------------------------
-// We need to inject fake implementations of requireGitHubToken, createOctokit,
-// and findPRNumberForBranch. Since analyzePRStateIssues imports them at module
-// level, we use bun:test mock.module() — but the project disallows it.
-//
-// Instead, we rely on the fact that the module calls requireGitHubToken() at
-// runtime (not at import time), so we can control behaviour by ensuring the
-// environment variable is set or unset, and by passing a fake session with
-// a non-GitHub repoUrl for the "skip" paths.
+// We need to inject fake implementations of createOctokit and
+// findPRNumberForBranch. Since analyzePRStateIssues accepts an optional
+// TokenProvider via its deps parameter, we can control behaviour by passing
+// a fake session with a non-GitHub repoUrl for the "skip" paths.
 //
 // For the "detect missing PR" path we need to intercept the GitHub API calls.
 // The approach: provide a session where backendType !== "github" or where

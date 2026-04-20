@@ -12,8 +12,6 @@ import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { execGitWithTimeout } from "../../utils/git-exec";
-import { environmentMappings } from "../configuration/sources/environment";
-import { getUserConfigDir } from "../configuration/sources/user";
 import type { SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "./index";
 import {
@@ -29,29 +27,7 @@ import {
 export interface GitHubContext {
   owner: string;
   repo: string;
-}
-
-/**
- * Obtain a GitHub token from the configuration system or throw.
- */
-export function requireGitHubToken(): string {
-  const { getConfiguration } = require("../configuration/index");
-  const config = getConfiguration();
-  const githubToken = config.github.token;
-  if (!githubToken) {
-    const githubTokenEnvVars = Object.entries(environmentMappings)
-      .filter(([_, configPath]) => configPath === "github.token")
-      .map(([envVar, _]) => envVar);
-
-    const configFile = `${getUserConfigDir()}/config.yaml`;
-    const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
-
-    throw new MinskyError(
-      `GitHub token not found. Set ${primaryEnvVar} environment variable ` +
-        `or add token to ${configFile}`
-    );
-  }
-  return githubToken;
+  getToken: () => Promise<string>;
 }
 
 /**
@@ -145,7 +121,7 @@ export async function createPullRequest(
       timeout: 60000,
     });
 
-    const githubToken = requireGitHubToken();
+    const githubToken = await gh.getToken();
     const octokit = createOctokit(githubToken);
 
     const prResponse = await octokit.rest.pulls.create({
@@ -276,7 +252,7 @@ export async function updatePullRequest(
     } else {
       // Find PR via GitHub API using current git branch
       try {
-        const githubToken = requireGitHubToken();
+        const githubToken = await gh.getToken();
         if (!options.session) {
           throw new MinskyError("Session ID is required to update PR without explicit PR number");
         }
@@ -310,7 +286,7 @@ export async function updatePullRequest(
   }
 
   try {
-    const githubToken = requireGitHubToken();
+    const githubToken = await gh.getToken();
     const octokit = createOctokit(githubToken);
 
     const updateData: { title?: string; body?: string } = {};
@@ -372,7 +348,7 @@ export async function mergePullRequest(
   }
 
   try {
-    const githubToken = requireGitHubToken();
+    const githubToken = await gh.getToken();
     const octokit = createOctokit(githubToken);
 
     // Get the PR details first
@@ -440,7 +416,7 @@ export async function mergePullRequest(
       info.messageLower.includes("merge conflicts")
     ) {
       try {
-        const githubToken = requireGitHubToken();
+        const githubToken = await gh.getToken();
         const octokit = createOctokit(githubToken);
         const diagnosis = await diagnoseMergeBlockerFn(prNumber, octokit);
         handleMerge405or422(info, ctx, diagnosis);
@@ -500,7 +476,7 @@ export async function getPullRequestDetails(
     throw new MinskyError("Unable to resolve GitHub PR number for details retrieval");
   }
 
-  const githubToken = requireGitHubToken();
+  const githubToken = await gh.getToken();
   const octokit = createOctokit(githubToken);
 
   const prResp = await octokit.rest.pulls.get({
@@ -562,7 +538,7 @@ export async function getPullRequestDiff(
     throw new MinskyError("Unable to resolve GitHub PR number for diff retrieval");
   }
 
-  const githubToken = requireGitHubToken();
+  const githubToken = await gh.getToken();
   const octokit = new Octokit({
     auth: githubToken,
     log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },

@@ -7,7 +7,12 @@
 
 import { Octokit } from "@octokit/rest";
 import { log } from "../../utils/logger";
-import type { GitHubContext } from "./github-pr-operations";
+
+/** Minimal owner/repo context needed for check-run queries. */
+interface GitHubRepoRef {
+  owner: string;
+  repo: string;
+}
 
 // ── Public interfaces ────────────────────────────────────────────────────
 
@@ -79,7 +84,7 @@ function classifyCheckRun(run: RawCheckRun): "passed" | "failed" | "pending" {
  * Checks API) are included so that older CI integrations are not missed.
  */
 export async function getCheckRunsForRef(
-  gh: GitHubContext,
+  gh: GitHubRepoRef,
   headSha: string,
   octokit: Octokit
 ): Promise<ChecksResult> {
