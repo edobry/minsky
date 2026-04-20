@@ -19,7 +19,7 @@ When you run into errors, make sure to explicitly mention what you're doing and 
 # Don't Ignore Errors
 
 ## Best Practices Cross-Reference
-- See also: tests, minsky-workflow, rule-map.mdc
+- See also: tests, orchestrate skill
 - This rule governs: batch verification, verification checkpoints, and error correction.
 
 ## Requirements (Revised)

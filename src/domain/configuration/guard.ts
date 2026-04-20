@@ -1,0 +1,63 @@
+/**
+ * Project Setup Guard
+ *
+ * Provides a guard function that verifies a project has been properly initialized
+ * before commands are executed. Throws actionable errors when setup is incomplete.
+ */
+
+import { existsSync } from "fs";
+import * as path from "path";
+import { ValidationError } from "../../errors/index";
+
+/**
+ * Set of command IDs that are exempt from the project setup guard.
+ * These commands are responsible for initialization themselves, or are
+ * infrastructure commands that must work without a configured project.
+ */
+export const EXEMPT_COMMANDS = new Set(["init", "setup", "mcp.register"]);
+
+/**
+ * Dependencies for the project setup guard (injectable for testing).
+ */
+export interface GuardDeps {
+  existsSync: (path: string) => boolean;
+}
+
+/**
+ * Check whether the project at `repoPath` has been properly initialized.
+ *
+ * - Missing `.minsky/config.yaml` → error with "minsky init" guidance
+ * - Missing `.minsky/config.local.yaml` (when config.yaml exists) → error with "minsky setup" guidance
+ * - Both files present → no error
+ *
+ * @param repoPath - Path to the project root
+ * @param deps     - Injectable dependencies (defaults to real fs)
+ * @throws {ValidationError} When project setup is incomplete
+ */
+export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSync }): void {
+  const configPath = path.join(repoPath, ".minsky", "config.yaml");
+  const localConfigPath = path.join(repoPath, ".minsky", "config.local.yaml");
+
+  if (!deps.existsSync(configPath)) {
+    throw new ValidationError("This project hasn't been initialized. Run `minsky init` first.");
+  }
+
+  if (!deps.existsSync(localConfigPath)) {
+    throw new ValidationError("Developer setup incomplete. Run `minsky setup` first.");
+  }
+}
+
+/**
+ * Run the project setup guard unless the command is exempt.
+ *
+ * @param commandId - The command ID being executed
+ * @param repoPath  - Path to the project root (defaults to process.cwd())
+ * @param deps      - Injectable dependencies (defaults to real fs)
+ */
+export function guardProjectSetup(commandId: string, repoPath?: string, deps?: GuardDeps): void {
+  if (EXEMPT_COMMANDS.has(commandId)) {
+    return;
+  }
+
+  checkProjectSetup(repoPath ?? process.cwd(), deps);
+}
