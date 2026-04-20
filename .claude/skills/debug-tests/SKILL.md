@@ -21,13 +21,13 @@ Optional: test file path, error message, or description of failures. If omitted,
 
 Before attempting any fixes, categorize every failure by type:
 
-| Category | Symptoms |
-|----------|----------|
-| **Timeout/Infinite Loop** | Tests taking >30 seconds, timing out |
-| **Variable Naming** | "X is not defined" errors, underscore prefix mismatches |
-| **Mock Implementation** | Function signature mismatches, missing methods, `log.cli is not a function` |
-| **Property Naming** | `_status` vs `status`, `_session` vs `session` property mismatches |
-| **Data Structure** | Mock data not matching test expectations, object spread conflicts |
+| Category                  | Symptoms                                                                    |
+| ------------------------- | --------------------------------------------------------------------------- |
+| **Timeout/Infinite Loop** | Tests taking >30 seconds, timing out                                        |
+| **Variable Naming**       | "X is not defined" errors, underscore prefix mismatches                     |
+| **Mock Implementation**   | Function signature mismatches, missing methods, `log.cli is not a function` |
+| **Property Naming**       | `_status` vs `status`, `_session` vs `session` property mismatches          |
+| **Data Structure**        | Mock data not matching test expectations, object spread conflicts           |
 
 **Fix one category completely before moving to the next.** Never jump between different types of problems.
 
@@ -42,6 +42,7 @@ Before attempting any fixes, categorize every failure by type:
 **Variable naming mismatches can cause infinite test execution (4+ billion milliseconds).**
 
 Root causes:
+
 - Declaration/usage mismatch: `const _workspacePath = X` but code uses `workspacePath`
 - Parameter/reference mismatch: function parameter `_workspacePath` but usage `workspacePath`
 - Undefined variable references in loops or async operations
@@ -49,6 +50,7 @@ Root causes:
 Detection: Tests running >30 seconds before timing out.
 
 Decision tree:
+
 1. Is the variable defined with underscore but used without? -> Remove underscore from **definition**, not usage
 2. Is the variable intentionally unused? -> Only then is `_prefix` appropriate
 3. Never rename used variables to underscore-prefixed
@@ -58,6 +60,7 @@ Decision tree:
 Common patterns and solutions:
 
 **Logger mock failures** (`log.cli is not a function`):
+
 ```typescript
 import { createMockLogger } from "../utils/test-utils/logger-mock";
 const mockLog = createMockLogger();
@@ -96,21 +99,22 @@ Proven methodology (from Task #224):
 ### 8. Track progress quantitatively
 
 Track specific metrics, not vague descriptions:
+
 - Tests passing per category: "Rules Integration: 15/15 passing"
 - Overall success rates: "Integration tests: 42/45 passing (93%)"
 - Performance improvements: "4.3B ms -> 241ms execution time"
 
 ## Common bun:test issues
 
-| Issue | Solution |
-|-------|----------|
-| `mock.fn is not a function` | Use `jest.fn()` instead |
-| `mock.restoreAll is not a function` | Use `mock.restore()` |
-| `log.cli is not a function` | Use `createMockLogger()` from logger-mock.ts |
-| Tests timeout after 30+ seconds | Check for variable naming mismatches |
-| "X is not defined" errors | Apply variable naming decision tree (step 3) |
-| Property access errors | Check `_property` vs `property` naming |
-| Tests pass alone, fail in suite | Hunt down global `mock.module()` calls |
+| Issue                               | Solution                                     |
+| ----------------------------------- | -------------------------------------------- |
+| `mock.fn is not a function`         | Use `jest.fn()` instead                      |
+| `mock.restoreAll is not a function` | Use `mock.restore()`                         |
+| `log.cli is not a function`         | Use `createMockLogger()` from logger-mock.ts |
+| Tests timeout after 30+ seconds     | Check for variable naming mismatches         |
+| "X is not defined" errors           | Apply variable naming decision tree (step 3) |
+| Property access errors              | Check `_property` vs `property` naming       |
+| Tests pass alone, fail in suite     | Hunt down global `mock.module()` calls       |
 
 ## Verification protocol
 
