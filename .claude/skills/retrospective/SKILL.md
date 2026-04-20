@@ -34,7 +34,17 @@ Optional: a description of the incident, PR number, or task ID. If omitted, anal
 
 ## Process
 
-### Step 0: Triage — determine the appropriate response level
+### Step 0: Validate the premise
+
+**If the retrospective was triggered by a user correction or challenge** (not by your own observation of a failure):
+
+1. Re-read the actual tool outputs, file contents, or evidence relevant to the alleged mistake.
+2. If the action was justified and the user's premise is incorrect, say so clearly with evidence. Do NOT proceed with the retrospective. Do NOT apologize for correct behavior.
+3. Only proceed to Step 0.5 (triage) if you confirm an actual error occurred.
+
+This gate exists because sycophantic acceptance of false corrections produces false memories and pollutes the process artifact system. A retrospective built on a wrong premise is worse than no retrospective.
+
+### Step 0.5: Triage — determine the appropriate response level
 
 Before running the full retrospective, classify the severity of the failure:
 

@@ -16,15 +16,19 @@ import type { EnhancedMergeResult } from "./conflict-detection";
  * Interface-agnostic function to create a pull request
  * MODULARIZED: Delegates to modular operation
  */
-export async function createPullRequestFromParams(params: {
-  session?: string;
-  repo?: string;
-  branch?: string;
-  taskId?: string;
-  debug?: boolean;
-  noStatusUpdate?: boolean;
-}): Promise<PrResult> {
-  return await modularGitCommandsManager.createPullRequestFromParams(params);
+export async function createPullRequestFromParams(
+  params: {
+    session?: string;
+    repo?: string;
+    branch?: string;
+    taskId?: string;
+    debug?: boolean;
+    noStatusUpdate?: boolean;
+  },
+  deps?: GitOperationDependencies
+): Promise<PrResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.createPullRequestFromParams(params);
 }
 
 /**
@@ -50,39 +54,49 @@ export async function commitChangesFromParams(
  * Interface-agnostic function to merge a PR branch
  * MODULARIZED: Delegates to modular operation
  */
-export async function mergePrFromParams(params: {
-  prBranch: string;
-  repo?: string;
-  baseBranch?: string;
-  session?: string;
-}): Promise<MergePrResult> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.mergePrFromParams(params);
+export async function mergePrFromParams(
+  params: {
+    prBranch: string;
+    repo?: string;
+    baseBranch?: string;
+    session?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<MergePrResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.mergePrFromParams(params);
 }
 
 /**
  * Interface-agnostic function to clone a repository
  * MODULARIZED: Delegates to modular operation
  */
-export async function cloneFromParams(params: {
-  url: string;
-  workdir: string; // Explicit workdir path
-  session?: string;
-  branch?: string;
-}): Promise<CloneResult> {
-  return await modularGitCommandsManager.cloneFromParams(params);
+export async function cloneFromParams(
+  params: {
+    url: string;
+    workdir: string; // Explicit workdir path
+    session?: string;
+    branch?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<CloneResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.cloneFromParams(params);
 }
 
 /**
  * Interface-agnostic function to create a branch
  * MODULARIZED: Delegates to modular operation
  */
-export async function branchFromParams(params: {
-  session: string;
-  name: string;
-}): Promise<BranchResult> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.branchFromParams(params);
+export async function branchFromParams(
+  params: {
+    session: string;
+    name: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<BranchResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.branchFromParams(params);
 }
 
 /**
@@ -107,54 +121,63 @@ export async function pushFromParams(
  * Interface-agnostic function to merge branches with conflict detection
  * MODULARIZED: Delegates to modular operation
  */
-export async function mergeFromParams(params: {
-  sourceBranch: string;
-  targetBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<EnhancedMergeResult> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.mergeFromParams(params);
+export async function mergeFromParams(
+  params: {
+    sourceBranch: string;
+    targetBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<EnhancedMergeResult> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.mergeFromParams(params);
 }
 
 /**
  * Interface-agnostic function to checkout/switch branches with conflict detection
  * MODULARIZED: Delegates to modular operation
  */
-export async function checkoutFromParams(params: {
-  branch: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<{
+export async function checkoutFromParams(
+  params: {
+    branch: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<{
   workdir: string;
   switched: boolean;
   conflicts: boolean;
   conflictDetails?: string;
   warning?: { wouldLoseChanges: boolean; recommendedAction: string };
 }> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.checkoutFromParams(params);
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.checkoutFromParams(params);
 }
 
 /**
  * Interface-agnostic function to rebase branches with conflict detection
  * MODULARIZED: Delegates to modular operation
  */
-export async function rebaseFromParams(params: {
-  baseBranch: string;
-  featureBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<{
+export async function rebaseFromParams(
+  params: {
+    baseBranch: string;
+    featureBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<{
   workdir: string;
   rebased: boolean;
   conflicts: boolean;
@@ -165,6 +188,6 @@ export async function rebaseFromParams(params: {
     overallComplexity: string;
   };
 }> {
-  const { modularGitCommandsManager } = await import("./git-commands-modular");
-  return await modularGitCommandsManager.rebaseFromParams(params);
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.rebaseFromParams(params);
 }

@@ -42,47 +42,6 @@ export interface SessionUpdateParams {
 }
 
 /**
- * Pure session update domain function
- */
-export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
-  success: boolean;
-  message: string;
-}> {
-  if (!params.session) {
-    throw new MinskyError("Session parameter is required", "VALIDATION_ERROR");
-  }
-
-  log.debug("Pure session update command", { session: params.session });
-
-  const { updateSessionFromParams } = await import("../session.js");
-
-  try {
-    await updateSessionFromParams({
-      name: params.session,
-      branch: params.branch,
-      force: params.force ?? false,
-      dryRun: params.dryRun ?? false,
-      noStash: params.noStash ?? false,
-      noPush: params.noPush ?? false,
-      skipConflictCheck: params.skipConflictCheck ?? false,
-      skipIfAlreadyMerged: params.skipIfAlreadyMerged ?? false,
-      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
-    });
-
-    return {
-      success: true,
-      message: "Session updated successfully",
-    };
-  } catch (error) {
-    log.debug("Pure session update failed", {
-      error: error instanceof Error ? error.message : String(error),
-      session: params.session,
-    });
-    throw error;
-  }
-}
-
-/**
  * Pure domain interface for session approval
  */
 export interface SessionApproveParams {
