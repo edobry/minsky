@@ -15,12 +15,15 @@ import {
   getErrorMessage,
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
-import { requireGitHubToken, createOctokit } from "../../repository/github-pr-operations";
+import { createOctokit } from "../../repository/github-pr-operations";
 import { extractGitHubInfoFromUrl } from "../repository-backend-detection";
 import { getCheckRunsForRef, type ChecksResult } from "../../repository/github-pr-checks";
+import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 export interface SessionPrChecksDependencies {
   sessionDB: SessionProviderInterface;
+  /** Optional token provider for GitHub API authentication. Falls back to config when omitted. */
+  tokenProvider?: TokenProvider;
 }
 
 export interface SessionPrChecksParams {
@@ -88,8 +91,16 @@ export async function sessionPrChecks(
     }
     const gh = githubInfo;
 
-    // Authenticate
-    const token = requireGitHubToken();
+    // Authenticate — use injected provider or fall back to config
+    const tokenProvider =
+      deps.tokenProvider ??
+      (() => {
+        const { getConfiguration } = require("../../configuration/index");
+        const config = getConfiguration();
+        const token = config.github?.token || "";
+        return new FallbackTokenProvider(token);
+      })();
+    const token = await tokenProvider.getServiceToken();
     const octokit = createOctokit(token);
 
     /**

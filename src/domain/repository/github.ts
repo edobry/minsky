@@ -27,7 +27,6 @@ import {
   getPullRequestDetails as getPRDetails,
   getPullRequestDiff as getPRDiff,
   findPRNumberForBranch,
-  requireGitHubToken,
   createOctokit,
   type GitHubContext,
 } from "./github-pr-operations";
@@ -36,6 +35,7 @@ import {
   getPullRequestApprovalStatus as getApprovalStatus,
   diagnoseMergeBlocker,
 } from "./github-pr-approval";
+import { FallbackTokenProvider, type TokenProvider } from "../auth";
 
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
@@ -53,13 +53,19 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly repo?: string;
   private readonly sessionDB: SessionProviderInterface;
   private gitService: GitService;
+  private readonly tokenProvider: TokenProvider;
 
   /**
    * Create a new GitHubBackend instance
    * @param config Backend configuration
    * @param sessionDB Session provider for database operations
+   * @param tokenProvider Optional token provider for GitHub API authentication
    */
-  constructor(config: RepositoryBackendConfig, sessionDB: SessionProviderInterface) {
+  constructor(
+    config: RepositoryBackendConfig,
+    sessionDB: SessionProviderInterface,
+    tokenProvider?: TokenProvider
+  ) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
@@ -97,6 +103,26 @@ export class GitHubBackend implements RepositoryBackend {
     }
     this.sessionDB = sessionDB;
     this.gitService = new GitService(this.baseDir);
+
+    // Use the provided TokenProvider, or fall back to config-based token if available
+    if (tokenProvider) {
+      this.tokenProvider = tokenProvider;
+    } else if (config.github?.token) {
+      this.tokenProvider = new FallbackTokenProvider(config.github.token);
+    } else {
+      // Last resort: read from config system at token-request time
+      this.tokenProvider = new FallbackTokenProvider(
+        (() => {
+          try {
+            const { getConfiguration } = require("../configuration/index");
+            const cfg = getConfiguration();
+            return cfg.github?.token || "";
+          } catch {
+            return "";
+          }
+        })()
+      );
+    }
   }
 
   /**
@@ -533,7 +559,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
     if (!this.owner || !this.repo) {
       throw new MinskyError("GitHub owner and repo must be configured for PR operations");
     }
-    return { owner: this.owner, repo: this.repo };
+    return {
+      owner: this.owner,
+      repo: this.repo,
+      getToken: () => this.tokenProvider.getServiceToken(),
+    };
   }
 
   /**
@@ -541,7 +571,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
    */
   private async findPRNumberForBranch(branchName: string): Promise<number> {
     const gh = this.requireGitHubContext();
-    const token = requireGitHubToken();
+    const token = await this.tokenProvider.getServiceToken();
     const octokit = createOctokit(token);
     return findPRNumberForBranch(branchName, gh, octokit);
   }
