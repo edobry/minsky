@@ -15,11 +15,7 @@ import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
 import { taskIdToBranchName } from "../../tasks/task-id";
-import {
-  findPRNumberForBranch,
-  createOctokit,
-  type GitHubContext,
-} from "../../repository/github-pr-operations";
+import { findPRNumberForBranch, createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 export interface SessionRepairParameters {
@@ -214,7 +210,7 @@ async function analyzeSessionIssues(
  * Parse a GitHub URL into owner and repo components.
  * Supports both HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git).
  */
-function parseGitHubRepoUrl(repoUrl: string): GitHubContext | null {
+function parseGitHubRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   if (!repoUrl) return null;
 
   // SSH: git@github.com:owner/repo.git
@@ -303,7 +299,8 @@ export async function analyzePRStateIssues(
         const branchName = taskIdToBranchName(sessionRecord.taskId);
 
         try {
-          const prNumber = await findPRNumberForBranch(branchName, gh, octokit);
+          const ghContext = { ...gh, getToken: () => resolvedTokenProvider.getServiceToken() };
+          const prNumber = await findPRNumberForBranch(branchName, ghContext, octokit);
           const prResponse = await octokit.rest.pulls.get({
             owner: gh.owner,
             repo: gh.repo,
