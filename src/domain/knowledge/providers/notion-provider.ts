@@ -6,14 +6,12 @@
  */
 
 import type { KnowledgeDocument, KnowledgeSourceProvider, ListOptions } from "../types";
+import { IntelligentRetryService } from "../../ai/intelligent-retry-service";
+import { isRetryableAIError } from "../../ai/embedding-service-openai";
 
 // Notion API version
 const NOTION_API_VERSION = "2022-06-28";
 const NOTION_API_BASE = "https://api.notion.com/v1";
-
-// Rate limit: Notion allows 3 requests/second
-const REQUESTS_PER_SECOND = 3;
-const MIN_REQUEST_INTERVAL_MS = Math.ceil(1000 / REQUESTS_PER_SECOND);
 
 // ---------------------------------------------------------------------------
 // Notion API response shapes
@@ -92,24 +90,6 @@ interface NotionSearchResponse {
 // ---------------------------------------------------------------------------
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
-
-// ---------------------------------------------------------------------------
-// Simple token-bucket rate limiter
-// ---------------------------------------------------------------------------
-
-class RateLimiter {
-  private lastRequestTime = 0;
-
-  async throttle(): Promise<void> {
-    const now = Date.now();
-    const elapsed = now - this.lastRequestTime;
-    if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-      const delay = MIN_REQUEST_INTERVAL_MS - elapsed;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-    this.lastRequestTime = Date.now();
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Block rendering helpers
@@ -300,7 +280,7 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
   private readonly token: string;
   private readonly excludePatterns: string[];
   private readonly fetchFn: FetchFn;
-  private readonly rateLimiter: RateLimiter;
+  private readonly retryService: IntelligentRetryService;
 
   constructor(
     rootPageId: string,
@@ -309,6 +289,7 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
     options?: {
       excludePatterns?: string[];
       fetch?: FetchFn;
+      retryService?: IntelligentRetryService;
     }
   ) {
     this.rootPageId = rootPageId;
@@ -316,7 +297,8 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
     this.sourceName = sourceName;
     this.excludePatterns = options?.excludePatterns ?? [];
     this.fetchFn = options?.fetch ?? globalThis.fetch.bind(globalThis);
-    this.rateLimiter = new RateLimiter();
+    this.retryService =
+      options?.retryService ?? new IntelligentRetryService({ maxRetries: 3, baseDelay: 350 });
   }
 
   // -------------------------------------------------------------------------
@@ -360,7 +342,6 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
     let cursor: string | null = null;
 
     while (true) {
-      await this.rateLimiter.throttle();
       const body: Record<string, unknown> = {
         filter: { property: "object", value: "page" },
         sort: { timestamp: "last_edited_time", direction: "descending" },
@@ -439,7 +420,6 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
   // -------------------------------------------------------------------------
 
   private async getPage(pageId: string): Promise<NotionPage> {
-    await this.rateLimiter.throttle();
     return this.apiGet<NotionPage>(`/pages/${pageId}`);
   }
 
@@ -448,7 +428,6 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
     let cursor: string | null = null;
 
     while (true) {
-      await this.rateLimiter.throttle();
       const url = cursor
         ? `/blocks/${blockId}/children?start_cursor=${encodeURIComponent(cursor)}`
         : `/blocks/${blockId}/children`;
@@ -464,23 +443,35 @@ export class NotionKnowledgeProvider implements KnowledgeSourceProvider {
   }
 
   private async apiGet<T>(path: string): Promise<T> {
-    const resp = await this.fetchFn(`${NOTION_API_BASE}${path}`, {
-      method: "GET",
-      headers: this.buildHeaders(),
-    });
-    return this.handleResponse<T>(resp);
+    return this.retryService.execute(
+      async () => {
+        const resp = await this.fetchFn(`${NOTION_API_BASE}${path}`, {
+          method: "GET",
+          headers: this.buildHeaders(),
+        });
+        return this.handleResponse<T>(resp);
+      },
+      isRetryableAIError,
+      "notion"
+    );
   }
 
   private async apiPost<T>(path: string, body: unknown): Promise<T> {
-    const resp = await this.fetchFn(`${NOTION_API_BASE}${path}`, {
-      method: "POST",
-      headers: {
-        ...this.buildHeaders(),
-        "Content-Type": "application/json",
+    return this.retryService.execute(
+      async () => {
+        const resp = await this.fetchFn(`${NOTION_API_BASE}${path}`, {
+          method: "POST",
+          headers: {
+            ...this.buildHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        return this.handleResponse<T>(resp);
       },
-      body: JSON.stringify(body),
-    });
-    return this.handleResponse<T>(resp);
+      isRetryableAIError,
+      "notion"
+    );
   }
 
   private buildHeaders(): Record<string, string> {
