@@ -35,14 +35,6 @@ export function registerProvenanceCommands(_container?: AppContainerInterface): 
     async execute(params, context) {
       const { dryRun = false } = params;
 
-      // Check for ANTHROPIC_API_KEY upfront — fail clearly rather than silently.
-      if (!process.env.ANTHROPIC_API_KEY) {
-        throw new Error(
-          "ANTHROPIC_API_KEY is not set. " +
-            "The provenance.recompute command requires an Anthropic API key to evaluate transcripts."
-        );
-      }
-
       try {
         // Resolve the persistence provider from DI container or fall back to a
         // fresh PersistenceService (same pattern used by cli.ts).
