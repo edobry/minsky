@@ -25,6 +25,14 @@ import {
   type TaskSpecContentParams,
 } from "../../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
+import type { BasePersistenceProvider } from "../../persistence/types";
+
+function requirePersistence(provider: BasePersistenceProvider | undefined): BasePersistenceProvider {
+  if (!provider) {
+    throw new Error("persistenceProvider is required");
+  }
+  return provider;
+}
 
 /**
  * List tasks with given parameters
@@ -37,6 +45,7 @@ export async function listTasksFromParams(
   deps?: {
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<Task[]> {
   try {
@@ -59,6 +68,7 @@ export async function listTasksFromParams(
     const taskService = await createTaskService({
       workspacePath,
       backend: validParams.backend, // Use multi-backend mode when no backend specified
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     });
 
     // Get tasks with filters - delegate filtering to domain layer
@@ -89,6 +99,7 @@ export async function getTaskFromParams(
   deps?: {
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<Task> {
   const startTime = Date.now();
@@ -128,6 +139,7 @@ export async function getTaskFromParams(
     const taskService = await createTaskService({
       workspacePath,
       backend: validParams.backend, // Use multi-backend mode when no backend specified
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     });
     log.debug("[getTaskFromParams] Task service created");
 
@@ -165,6 +177,7 @@ export async function getTaskStatusFromParams(
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<string> {
   try {
@@ -191,6 +204,7 @@ export async function getTaskStatusFromParams(
     const taskService = await createTaskService({
       workspacePath,
       backend: validParams.backend, // Let service determine backend via detection/config
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     });
 
     // Get the task
@@ -227,6 +241,7 @@ export async function getTaskSpecContentFromParams(
     createConfiguredTaskService: (
       options: TaskServiceOptions
     ) => TaskServiceInterface | Promise<TaskServiceInterface>;
+    persistenceProvider?: BasePersistenceProvider;
   } = {
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
@@ -258,6 +273,7 @@ export async function getTaskSpecContentFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
+      persistenceProvider: requirePersistence(deps.persistenceProvider),
     });
 
     // Delegate to service which reads spec content from the backend

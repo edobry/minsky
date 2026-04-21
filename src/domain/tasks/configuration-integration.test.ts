@@ -11,12 +11,14 @@
 
 import { test, expect, describe } from "bun:test";
 import { createConfiguredTaskService } from "./taskService";
+import { FakePersistenceProvider } from "../persistence/fake-persistence-provider";
 
 describe("Configuration Integration", () => {
   test("createConfiguredTaskService should create a working service from workspace", async () => {
     const taskService = await createConfiguredTaskService({
       // eslint-disable-next-line custom/no-real-fs-in-tests -- integration test requires real config
       workspacePath: process.cwd(),
+      persistenceProvider: new FakePersistenceProvider(),
     });
 
     expect(taskService).toBeDefined();
@@ -30,6 +32,7 @@ describe("Configuration Integration", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: emptyDir,
+      persistenceProvider: new FakePersistenceProvider(),
     });
 
     expect(taskService).toBeDefined();
@@ -43,6 +46,7 @@ describe("Configuration Integration", () => {
       createConfiguredTaskService({
         workspacePath: "/mock/workspace",
         backend: "unknown-backend",
+        persistenceProvider: new FakePersistenceProvider(),
       })
     ).rejects.toThrow(/Unknown backend/);
   });

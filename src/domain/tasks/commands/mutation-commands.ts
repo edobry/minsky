@@ -26,6 +26,14 @@ import {
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import { validateStatusTransition } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
+import type { BasePersistenceProvider } from "../../persistence/types";
+
+function requirePersistence(provider: BasePersistenceProvider | undefined): BasePersistenceProvider {
+  if (!provider) {
+    throw new Error("persistenceProvider is required");
+  }
+  return provider;
+}
 
 /**
  * Set task status using the provided parameters
@@ -36,6 +44,7 @@ export async function setTaskStatusFromParams(
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<void> {
   try {
@@ -62,6 +71,7 @@ export async function setTaskStatusFromParams(
     const taskService = await createTaskService({
       workspacePath,
       backend: validParams.backend, // Let service determine backend via detection/config
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     });
 
     // Verify the task exists before setting status and get old status for commit message
@@ -113,6 +123,7 @@ export async function updateTaskFromParams(
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<Task> {
   try {
@@ -135,6 +146,7 @@ export async function updateTaskFromParams(
     const taskService = await createTaskService({
       workspacePath,
       backend: params.backend, // Let service determine backend via detection/config
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     });
 
     // Verify the task exists before updating
@@ -179,6 +191,7 @@ export async function createTaskFromParams(
     createConfiguredTaskService: (
       options: TaskServiceOptions
     ) => TaskServiceInterface | Promise<TaskServiceInterface>;
+    persistenceProvider?: BasePersistenceProvider;
   } = {
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
@@ -204,6 +217,7 @@ export async function createTaskFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
+      persistenceProvider: requirePersistence(deps.persistenceProvider),
     });
 
     // Create the task from title and spec content
@@ -237,6 +251,7 @@ export async function createTaskFromTitleAndSpec(
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
+    persistenceProvider?: BasePersistenceProvider;
   }
 ): Promise<Task> {
   // Validate params
@@ -257,6 +272,7 @@ export async function createTaskFromTitleAndSpec(
   const taskService = await createTaskService({
     workspacePath,
     backend: validParams.backend, // Let service determine backend via detection/config
+    persistenceProvider: requirePersistence(deps?.persistenceProvider),
   });
 
   // Handle spec content - from spec string only
@@ -276,6 +292,7 @@ export async function deleteTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     createConfiguredTaskService: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
+    persistenceProvider?: BasePersistenceProvider;
   } = {
     resolveRepoPath,
     createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
@@ -299,6 +316,7 @@ export async function deleteTaskFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
+      persistenceProvider: requirePersistence(deps.persistenceProvider),
     });
 
     // Get the task first to verify it exists and get details for commit message

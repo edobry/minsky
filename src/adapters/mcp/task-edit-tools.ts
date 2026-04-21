@@ -69,11 +69,11 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
  */
 function getTaskDeps(
   container?: import("../../composition/types").AppContainerInterface
-): TaskServiceDeps {
+): TaskServiceDeps | undefined {
   if (container?.has("persistence")) {
     return { persistenceProvider: container.get("persistence") };
   }
-  return {};
+  return undefined;
 }
 
 export function registerTaskEditTools(

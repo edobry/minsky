@@ -315,6 +315,7 @@ export function createStartCommand(
             const persistence = container?.has("persistence")
               ? container.get("persistence")
               : undefined;
+            if (!persistence) return;
             return triggerStartupEmbeddingSweep(persistence);
           })
           .catch(() => {}); // Embedding sweep is best-effort
