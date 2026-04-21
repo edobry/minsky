@@ -9,7 +9,10 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { sessionGet, sessionDelete } from "../session/commands";
+import {
+  getSessionImpl as sessionGet,
+  deleteSessionImpl as sessionDelete,
+} from "./session-lifecycle-operations";
 import { type SessionProviderInterface } from "../session";
 import { ResourceNotFoundError } from "../../errors/index";
 import { FakeSessionProvider } from "./fake-session-provider";

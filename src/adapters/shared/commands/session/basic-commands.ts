@@ -109,32 +109,23 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         );
       }
 
-      // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring startSessionImpl backward-compat shims
-      const { startSessionFromParams } = await import("../../../../domain/session");
+      const { SessionService } = await import("../../../../domain/session/session-service");
       const deps = await getDeps();
+      const service = new SessionService(deps);
 
-      const session = await startSessionFromParams(
-        {
-          name: params.name as string | undefined,
-          task: params.task as string | undefined,
-          description: params.description as string | undefined,
-          branch: params.branch as string | undefined,
-          repo: params.repo as string | undefined,
-          session: params.session as string | undefined,
-          json: (params.json as boolean | undefined) ?? false,
-          quiet: (params.quiet as boolean | undefined) ?? false,
-          noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
-          skipInstall: (params.skipInstall as boolean | undefined) ?? false,
-          packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
-        },
-        {
-          sessionDB: deps.sessionProvider,
-          gitService: deps.gitService,
-          taskService: deps.taskService,
-          workspaceUtils: deps.workspaceUtils,
-          getRepositoryBackend: deps.getRepositoryBackend,
-        }
-      );
+      const session = await service.start({
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+        description: params.description as string | undefined,
+        branch: params.branch as string | undefined,
+        repo: params.repo as string | undefined,
+        session: params.session as string | undefined,
+        json: (params.json as boolean | undefined) ?? false,
+        quiet: (params.quiet as boolean | undefined) ?? false,
+        noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
+        skipInstall: (params.skipInstall as boolean | undefined) ?? false,
+        packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+      });
 
       return {
         success: true,

@@ -19,7 +19,9 @@ The argument is a PR number (e.g., `/review-pr 328`) or a GitHub PR URL.
 
 ### 1. Gather context
 
-Fetch in parallel:
+Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the diff, and the task spec.
+
+If the session tool fails (e.g., no session exists for this PR), fall back to fetching in parallel:
 
 - PR metadata: `mcp__github__pull_request_read` with `method: "get"`
 - CI status: `mcp__github__pull_request_read` with `method: "get_check_runs"`
@@ -27,11 +29,22 @@ Fetch in parallel:
 
 ### 2. Identify the task
 
-Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/mt-671`). If there's an associated task, fetch its spec with `mcp__minsky__tasks_spec_get`. This is needed for step 6.
+Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/mt-671`). If the task spec was not already returned by step 1, fetch it with `mcp__minsky__tasks_spec_get`. This is needed for step 6.
 
 ### 3. Read the diff
 
-Use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
+If the diff was not already returned by step 1, use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
+
+**Proportionality rule:** For PRs with > 20 changed files, you MUST dispatch multiple `reviewer` agents (`.claude/agents/reviewer.md`) in parallel, each covering a distinct portion of the diff (~25 files per agent). Use `subagent_type: "reviewer"` when dispatching. A single read pass or a spot-check of selected files is NEVER acceptable for large PRs. The number of reviewer agents should scale with the diff size:
+
+- 1–20 files: Read the diff yourself (single pass is acceptable)
+- 21–50 files: Dispatch 2 reviewer agents
+- 51–100 files: Dispatch 4 reviewer agents
+- 100+ files: Dispatch 5+ reviewer agents
+
+Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
+
+**Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
 
 ### 4. Analyze changes
 
@@ -109,10 +122,25 @@ Classify the impact:
 
 ### 7. Post to GitHub
 
-Use `mcp__github__pull_request_review_write` to post the review:
+**Primary path:** Use `mcp__minsky__session_review_submit` when the PR is linked to a Minsky session. Extract the task ID from the branch name (e.g., `task/mt-847` → `mt#847`) and call:
+
+```
+mcp__minsky__session_review_submit
+  task: "mt#847"   (or sessionId if known)
+  body: "<full review body>"
+  event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"
+  comments: [{ path, line, body, side? }]   (optional, for line-level comments)
+```
+
+This posts the review under the configured bot/service-account identity.
+
+**Fallback:** If `mcp__minsky__session_review_submit` is unavailable or the PR is not linked to a Minsky session, use `mcp__github__pull_request_review_write` directly:
 
 - `method: "create"` with `event` to submit immediately
 - For line-level comments: create a pending review first, add comments with `add_comment_to_pending_review`, then `submit_pending`
+
+**Event selection (applies to both paths):**
+
 - Use `event: "APPROVE"` only if you are not the PR author and there are no blocking issues
 - Use `event: "COMMENT"` if you are the PR author or there are only non-blocking issues
 - Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria

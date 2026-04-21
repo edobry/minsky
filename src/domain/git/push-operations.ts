@@ -1,12 +1,11 @@
 import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
-import type { SessionRecord } from "../session/types";
 
 /**
- * Options for push operations
+ * Options for push operations.
+ * Session resolution must be done before calling pushImpl — pass resolved repoPath.
  */
 export interface PushOptions {
-  session?: string;
   repoPath?: string;
   remote?: string;
   force?: boolean;
@@ -29,46 +28,26 @@ export interface PushDependencies {
     command: string,
     options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (sessionId: string) => Promise<SessionRecord | null | undefined>;
-  getSessionWorkdir: (sessionId: string) => string;
 }
 
 /**
- * Push the current or session branch to a remote, supporting --session, --repo, --remote, and --force.
+ * Push the current branch to a remote, supporting --repo, --remote, and --force.
+ * Session resolution must happen at the adapter boundary before calling this.
  */
 export async function pushImpl(options: PushOptions, deps: PushDependencies): Promise<PushResult> {
   let workdir: string;
   let branch: string;
   const remote = options.remote || "origin";
 
-  // 1. Resolve workdir
-  if (options.session) {
-    const record = await deps.getSession(options.session);
-    if (!record) {
-      throw new Error(`Session '${options.session}' not found.`);
-    }
-    workdir = deps.getSessionWorkdir(options.session);
-    if (record.branch) {
-      // Prefer branch from session record to avoid extra git call
-      branch = record.branch;
-    } else {
-      // Get actual branch from git as fallback
-      const { stdout: branchOut } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = branchOut.trim();
-    }
-  } else if (options.repoPath) {
+  // Resolve workdir
+  if (options.repoPath) {
     workdir = options.repoPath;
-    // Get current branch from repo
     const { stdout: branchOut } = await deps.execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
     branch = branchOut.trim();
   } else {
-    // Try to infer from current directory
     workdir = validateProcess(process).cwd();
-    // Get current branch from cwd
     const { stdout: branchOut } = await deps.execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );

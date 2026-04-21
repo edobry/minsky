@@ -1,12 +1,6 @@
-/**
- * Test suite for session creation git clone consistency bug fix
- *
- * This tests the critical bug fix where session records were being added to the database
- * before git operations succeeded, causing inconsistent state when git operations failed.
- */
-
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { startSessionFromParams } from "./session";
+import { startSessionImpl } from "./session/start-session-operations";
+import type { SessionStartParameters } from "./schemas";
 import { ResourceNotFoundError } from "../errors";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import type { SessionProviderInterface } from "./session";
@@ -16,15 +10,25 @@ import type { WorkspaceUtilsInterface } from "./workspace";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
+import { RepositoryBackendType } from "./repository/index";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
+
+const TEST_REPO_URL = "https://github.com/edobry/minsky.git";
+
+function makeGetRepositoryBackend(repoUrl = TEST_REPO_URL) {
+  return async () => ({
+    repoUrl,
+    backendType: RepositoryBackendType.GITHUB as RepositoryBackendType,
+    github: { owner: "edobry", repo: "minsky" },
+  });
+}
 
 describe("Session Start Consistency Tests", () => {
   let mockSessionDB: SessionProviderInterface;
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
-  let mockResolveRepoPath: ReturnType<typeof mock>;
 
   // Create individual spies for call tracking
   let gitCloneSpy: ReturnType<typeof mock>;
@@ -57,8 +61,6 @@ describe("Session Start Consistency Tests", () => {
       resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace/path")),
     };
 
-    mockResolveRepoPath = mock(() => Promise.resolve("https://github.com/edobry/minsky.git"));
-
     // Create individual spies for call tracking
     gitCloneSpy = mock(() =>
       Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: TEST_UUID })
@@ -79,17 +81,16 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
-        // sessionId will be auto-generated from taskId
+        repo: TEST_REPO_URL,
       };
 
       // Act
-      await startSessionFromParams(params as any, {
+      await startSessionImpl(params as unknown as SessionStartParameters, {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: mockResolveRepoPath,
+        getRepositoryBackend: makeGetRepositoryBackend(),
         // Inject mock fs adapter to avoid real filesystem ops in tests
         fs: {
           exists: () => false,
@@ -119,17 +120,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -148,17 +149,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -177,17 +178,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -206,7 +207,7 @@ describe("Session Start Consistency Tests", () => {
       const sessionGetSpy = mock(() =>
         Promise.resolve({
           session: TEST_UUID,
-          repoUrl: "https://github.com/edobry/minsky.git",
+          repoUrl: TEST_REPO_URL,
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
           task: "md#160",
@@ -217,17 +218,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -247,7 +248,7 @@ describe("Session Start Consistency Tests", () => {
           {
             session: "different-session",
             taskId: "md#160", // Use qualified task ID format to match
-            repoUrl: "https://github.com/edobry/minsky.git",
+            repoUrl: TEST_REPO_URL,
             repoName: "local-minsky",
             createdAt: new Date().toISOString(),
             branch: "different-session",
@@ -258,17 +259,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -288,17 +289,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -322,17 +323,17 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act & Assert
       await expect(
-        startSessionFromParams(params as any, {
+        startSessionImpl(params as unknown as SessionStartParameters, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
+          getRepositoryBackend: makeGetRepositoryBackend(),
           fs: {
             exists: () => false,
             rm: async () => {},
@@ -354,16 +355,16 @@ describe("Session Start Consistency Tests", () => {
 
       const params = {
         task: "md#160",
-        repo: "https://github.com/edobry/minsky.git",
+        repo: TEST_REPO_URL,
       };
 
       // Act
-      const result = await startSessionFromParams(params as any, {
+      const result = await startSessionImpl(params as unknown as SessionStartParameters, {
         sessionDB: sessionDbMock,
         gitService: mockGitService,
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: mockResolveRepoPath,
+        getRepositoryBackend: makeGetRepositoryBackend(),
         fs: {
           exists: () => false,
           rm: async () => {},

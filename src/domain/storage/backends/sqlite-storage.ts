@@ -117,6 +117,36 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
       } catch (e) {
         // Column already exists
       }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN last_commit_hash TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN last_commit_message TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN commit_count INTEGER");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN status TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN agent_id TEXT");
+      } catch (e) {
+        // Column already exists
+      }
 
       this.initialized = true;
       log.debug("SQLite storage initialized with Drizzle ORM", { dbPath: this.dbPath });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionFromParams } from "./session";
+import { approveSessionPr } from "./session/session-approval-operations";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
@@ -78,8 +78,8 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test branch cleanup approval
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
-    expect(result.sessionId).toBe(TEST_SESSION_NAME);
+    const result = await approveSessionPr({ session: TEST_SESSION_NAME }, testDeps as any);
+    expect(result.session).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });
 
@@ -134,8 +134,8 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test graceful handling of cleanup failures
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
-    expect(result.sessionId).toBe(TEST_SESSION_NAME);
+    const result = await approveSessionPr({ session: TEST_SESSION_NAME }, testDeps as any);
+    expect(result.session).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });
 
@@ -191,8 +191,8 @@ describe("Session Approve Branch Cleanup", () => {
     };
 
     // Test already approved session
-    const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps as any);
-    expect(result.sessionId).toBe(TEST_SESSION_NAME);
+    const result = await approveSessionPr({ session: TEST_SESSION_NAME }, testDeps as any);
+    expect(result.session).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
   });
 });

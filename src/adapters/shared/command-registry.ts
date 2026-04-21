@@ -13,6 +13,15 @@ import {
   validateCommandRegistrationOptions,
 } from "../../schemas/command-registry";
 
+/** Brand symbol for validated command context (ADR-004 Phase 2) */
+declare const ValidatedBrand: unique symbol;
+
+/**
+ * Branded type ensuring execute() only accepts context that passed validate().
+ * Cannot be constructed directly — only returned by validate().
+ */
+export type ValidatedContext<C> = C & { readonly [ValidatedBrand]: true };
+
 /**
  * Command category enum
  *
@@ -100,6 +109,7 @@ export type CommandExecutionHandler<
 export interface CommandDefinition<
   T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
   R = unknown,
+  C = void,
 > {
   /** Unique command identifier */
   id: string;
@@ -112,7 +122,22 @@ export interface CommandDefinition<
   /** Command parameters definition */
   parameters: T;
   /** Command execution handler */
-  execute: CommandExecutionHandler<T, R>;
+  execute: (
+    parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
+    context: CommandExecutionContext,
+    validated?: ValidatedContext<C>
+  ) => Promise<R>;
+  /**
+   * Optional precondition validation. Runs before execute().
+   * Must throw on failure (ValidationError). Must not perform mutations.
+   * If defined, the framework guarantees it runs before execute().
+   * May return a ValidatedContext that is threaded through to execute(),
+   * or return void for simple guard-style validators.
+   */
+  validate?: (
+    parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
+    context: CommandExecutionContext
+  ) => Promise<ValidatedContext<C> | void>;
   /**
    * Whether this command requires the project to be initialized before execution.
    * Defaults to true. Set to false for commands like `init`, `setup`, and `mcp.register`
@@ -157,22 +182,34 @@ export type InferParams<T extends CommandParameterMap> = {
  * });
  * ```
  */
-export function defineCommand<T extends CommandParameterMap, R = unknown>(
-  def: CommandDefinition<T, R>
-): CommandDefinition<T, R> {
+export function defineCommand<T extends CommandParameterMap, R = unknown, C = void>(
+  def: CommandDefinition<T, R, C>
+): CommandDefinition<T, R, C> {
   return def;
 }
 
 /**
  * Shared command interface that preserves type information
  */
-export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = unknown> {
+export interface SharedCommand<
+  T extends CommandParameterMap = CommandParameterMap,
+  R = unknown,
+  C = void,
+> {
   id: string;
   category: CommandCategory;
   name: string;
   description: string;
   parameters: T;
-  execute: CommandExecutionHandler<T, R>;
+  execute: (
+    parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
+    context: CommandExecutionContext,
+    validated?: ValidatedContext<C>
+  ) => Promise<R>;
+  validate?: (
+    parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
+    context: CommandExecutionContext
+  ) => Promise<ValidatedContext<C> | void>;
   requiresSetup?: boolean;
 }
 

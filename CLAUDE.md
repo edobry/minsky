@@ -13,6 +13,7 @@ Prefer specialized subagent types over `general-purpose` when one fits:
 
 - **`subagent_type: "refactor"`** — Structural code changes (renaming, moving, eliminating layers, consolidating, extracting). Has built-in coherence verification: re-reads modified files end-to-end and reports stale comments, redundant siblings, dead exports, and orphan code. Use whenever the task is a refactor rather than feature work. _Why_: relying on a remembered "verify the result is coherent" rule is structurally weak; the verification belongs in the agent's identity, not in your prompt.
 - **`subagent_type: "verify-completion"`** — Task completion verification. Reads the task spec, checks each success criterion against the current codebase, returns structured pass/fail. Use before marking any task DONE. _Why_: the doer is biased toward "I did what was asked." A fresh agent objectively evaluates completion.
+- **`subagent_type: "reviewer"`** — Read-only PR review analysis. Reads a section of diff, verifies each change against actual source files, reports structured findings (blocking/non-blocking). Dispatched by `/review-pr` for large PRs (~25 files per agent). Cannot modify code. _Why_: reviews require reading 100% of the diff — reviewer agents enable parallel coverage without blowing the main context.
 - **`subagent_type: "Explore"`** — Codebase exploration and search.
 - **`subagent_type: "Plan"`** — Designing implementation plans before coding.
 - **`subagent_type: "general-purpose"`** — Fallback for work that doesn't fit a specialized type.
@@ -64,9 +65,10 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID
 6. **After merging a PR**, the local workspace is stale (merge happens on GitHub). A PostToolUse hook auto-pulls after `session_pr_merge`. If starting a fresh conversation after prior merges, verify the workspace is current before analyzing code.
 7. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
 8. All file operations in sessions MUST use absolute paths.
-9. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
-10. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
-11. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
+9. **NEVER use `skipInstall: true`** when starting sessions. Sessions without `node_modules` cannot pass typecheck hooks, blocking subagent completion. Always let deps install.
+10. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
+11. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+12. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
 
 ### Session lifecycle: one session, one merge
 

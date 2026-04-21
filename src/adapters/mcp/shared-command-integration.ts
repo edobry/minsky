@@ -175,12 +175,19 @@ export function registerSharedCommandsWithMcp(
               guardProjectSetup(command.id);
             }
 
+            // ADR-004: validate→execute pipeline
+            let validatedCtx: unknown;
+            if (command.validate) {
+              validatedCtx = await command.validate(parameters, context);
+            }
+
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
             log.debug(`[MCP] Parameters being passed:`, parameters);
             log.debug(`[MCP] Context being passed:`, { context });
 
-            const result = await command.execute(parameters, context);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await command.execute(parameters, context, validatedCtx as any);
 
             const duration = Date.now() - startTime;
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });
@@ -238,6 +245,19 @@ export function registerGitCommandsWithMcp(
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
     categories: [CommandCategory.GIT],
+    ...config,
+  });
+}
+
+/**
+ * Register repo exploration commands with MCP
+ */
+export function registerRepoCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.REPO],
     ...config,
   });
 }

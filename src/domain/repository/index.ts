@@ -257,6 +257,14 @@ export interface CIStatusOperations {
 export interface ReviewOperations {
   approve(prIdentifier: string | number, reviewComment?: string): Promise<ApprovalInfo>;
   getApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
+  submitReview?(
+    prIdentifier: string | number,
+    options: {
+      body: string;
+      event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+      comments?: Array<{ path: string; line: number; body: string; side?: "LEFT" | "RIGHT" }>;
+    }
+  ): Promise<{ reviewId: number; htmlUrl: string }>;
 }
 
 // Completely rewritten repository backend interface with flexible types

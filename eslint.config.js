@@ -19,12 +19,17 @@ import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
 import noIgnoredCommandContext from "./eslint-rules/no-ignored-command-context.js";
 import noDirectServiceConstruction from "./eslint-rules/no-direct-service-construction.js";
+import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
+import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
+import requireInjectable from "./eslint-rules/require-injectable.js";
 
 export default [
   js.configs.recommended,
   prettierConfig, // Disables ESLint rules that conflict with Prettier
   {
     ignores: [
+      // Exclude ESLint rule test fixtures (they intentionally violate rules)
+      "eslint-rules/__fixtures__/**",
       // Exclude other development/temporary files
       "test-tmp/**",
       "test-analysis/**",
@@ -114,6 +119,9 @@ export default [
           "no-from-params-in-adapters": noFromParamsInAdapters,
           "no-ignored-command-context": noIgnoredCommandContext,
           "no-direct-service-construction": noDirectServiceConstruction,
+          "no-validation-error-in-execute": noValidationErrorInExecute,
+          "no-domain-singleton": noDomainSingleton,
+          "require-injectable": requireInjectable,
         },
       },
     },
@@ -186,6 +194,38 @@ export default [
           ],
         },
       ], // Prevent direct construction of domain services in adapter layer (mt#911)
+      "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
+      "custom/no-domain-singleton": [
+        "error",
+        {
+          allowedNames: [
+            "ruleOperationRegistry",
+            "gitOperationRegistry",
+            "modularGitCommandsManager",
+            "defaultLoader",
+            "legacyConfig",
+            "log",
+            "EXEMPT_COMMANDS",
+            "testConfigManager",
+          ],
+        },
+      ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
+      "custom/require-injectable": [
+        "error",
+        {
+          allowedClasses: [
+            "FakeGitService",
+            "FakeTaskService",
+            "MemoryVectorStorage",
+            "SqliteStorage",
+            "SessionMigrationService",
+            "StorageError",
+            "StorageErrorClassifier",
+            "StorageErrorRecovery",
+            "StorageErrorMonitor",
+          ],
+        },
+      ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

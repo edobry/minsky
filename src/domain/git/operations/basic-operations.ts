@@ -120,7 +120,6 @@ export class PushOperation extends BaseGitOperation<PushParams, PushResult> {
 
   async executeOperation(params: PushParams, gitService: GitServiceInterface): Promise<PushResult> {
     const result = await gitService.push({
-      session: params.session,
       repoPath: params.repo,
       remote: params.remote,
       force: params.force,

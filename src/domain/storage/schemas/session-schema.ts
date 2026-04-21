@@ -5,8 +5,14 @@
  * It supports both SQLite and PostgreSQL databases with identical schemas.
  */
 
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import {
+  pgTable,
+  varchar,
+  timestamp,
+  text as pgText,
+  integer as pgInteger,
+} from "drizzle-orm/pg-core";
 import type { SessionRecord, PullRequestInfo } from "../../session/session-db";
 
 // SQLite Schema - Match existing database structure (camelCase column names)
@@ -30,6 +36,14 @@ export const sqliteSessions = sqliteTable("sessions", {
   // Backend configuration with automatic JSON parsing (will be added via migration)
   backendType: text("backendType"),
   pullRequest: text("pullRequest", { mode: "json" }).$type<PullRequestInfo>(),
+
+  // Session liveness tracking fields (will be added via migration)
+  lastActivityAt: text("last_activity_at"),
+  lastCommitHash: text("last_commit_hash"),
+  lastCommitMessage: text("last_commit_message"),
+  commitCount: integer("commit_count"),
+  status: text("status"),
+  agentId: text("agent_id"),
 });
 
 // PostgreSQL Schema
@@ -51,6 +65,14 @@ export const postgresSessions = pgTable("sessions", {
   // Backend configuration
   backendType: varchar("backend_type", { length: 50 }),
   pullRequest: pgText("pull_request"), // Store as JSON
+
+  // Session liveness tracking fields
+  lastActivityAt: pgText("last_activity_at"),
+  lastCommitHash: pgText("last_commit_hash"),
+  lastCommitMessage: pgText("last_commit_message"),
+  commitCount: pgInteger("commit_count"),
+  status: pgText("status"),
+  agentId: pgText("agent_id"),
 });
 
 // Type exports for better type inference
@@ -109,6 +131,14 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,
     pullRequest: record.pullRequest || null,
+
+    // Session liveness tracking fields
+    lastActivityAt: record.lastActivityAt || null,
+    lastCommitHash: record.lastCommitHash || null,
+    lastCommitMessage: record.lastCommitMessage || null,
+    commitCount: record.commitCount ?? null,
+    status: record.status || null,
+    agentId: record.agentId || null,
   };
 }
 
@@ -134,6 +164,14 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     // Backend configuration
     backendType: record.backendType || null,
     pullRequest: record.pullRequest ? JSON.stringify(record.pullRequest) : null,
+
+    // Session liveness tracking fields
+    lastActivityAt: record.lastActivityAt || null,
+    lastCommitHash: record.lastCommitHash || null,
+    lastCommitMessage: record.lastCommitMessage || null,
+    commitCount: record.commitCount ?? null,
+    status: record.status || null,
+    agentId: record.agentId || null,
   };
 }
 
@@ -156,5 +194,13 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     // Backend configuration
     backendType: (record.backendType || undefined) as "github" | undefined,
     pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
+
+    // Session liveness tracking fields
+    lastActivityAt: record.lastActivityAt || undefined,
+    lastCommitHash: record.lastCommitHash || undefined,
+    lastCommitMessage: record.lastCommitMessage || undefined,
+    commitCount: record.commitCount ?? undefined,
+    status: (record.status || undefined) as import("../../session/types").SessionStatus | undefined,
+    agentId: record.agentId || undefined,
   };
 }

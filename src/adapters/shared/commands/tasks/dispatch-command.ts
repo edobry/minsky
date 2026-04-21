@@ -63,7 +63,8 @@ export function createTasksDispatchCommand(
   getSessionProvider: () => Promise<
     import("../../../../domain/session/types").SessionProviderInterface
   >,
-  getTaskGraphService: () => TaskGraphService
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => import("../../../../domain/tasks/taskService").TaskServiceInterface
 ) {
   return {
     id: "tasks.dispatch",
@@ -114,9 +115,29 @@ export function createTasksDispatchCommand(
 
       // Step 3: Start a session for the task
       log.debug("[tasks.dispatch] Starting session", { taskId });
-      // eslint-disable-next-line custom/no-from-params-in-adapters -- same pattern as session.start command; full removal requires refactoring startSessionImpl shims
-      const { startSessionFromParams } = await import("../../../../domain/session");
-      const sessionResult = await startSessionFromParams({
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { createGitService } = await import("../../../../domain/git");
+      const { createWorkspaceUtils } = await import("../../../../domain/workspace");
+      const { getRepositoryBackendFromConfig } = await import(
+        "../../../../domain/session/repository-backend-detection"
+      );
+      const { getCurrentSession } = await import("../../../../domain/workspace");
+      const { execAsync } = await import("../../../../utils/exec");
+      const dispatchSessionProvider = await getSessionProvider();
+      const gitService = createGitService();
+      const taskService = getTaskService();
+
+      const service = new SessionService({
+        sessionProvider: dispatchSessionProvider,
+        gitService,
+        taskService,
+        workspaceUtils: createWorkspaceUtils(dispatchSessionProvider),
+        getCurrentSession: async (repoPath: string) =>
+          (await getCurrentSession(repoPath, execAsync, dispatchSessionProvider)) ?? null,
+        getRepositoryBackend: getRepositoryBackendFromConfig,
+      });
+
+      const sessionResult = await service.start({
         task: taskId,
         quiet: true,
         skipInstall: false,
@@ -145,7 +166,7 @@ export function createTasksDispatchCommand(
         "../../../../domain/session/resolve-session-directory"
       );
 
-      const sessionProvider = await getSessionProvider();
+      const sessionProvider = dispatchSessionProvider;
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 

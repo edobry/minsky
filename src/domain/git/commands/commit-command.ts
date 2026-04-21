@@ -1,39 +1,21 @@
-import type { SessionProviderInterface } from "../../session/types";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 
 /**
- * Commits changes from parameters
+ * Commits changes from parameters.
+ * Session must be resolved to a repo path before calling this function.
  */
-export async function commitChangesFromParams(
-  params: {
-    message: string;
-    session?: string;
-    repo?: string;
-    all?: boolean;
-    amend?: boolean;
-    noStage?: boolean;
-  },
-  deps: { sessionProvider: SessionProviderInterface }
-): Promise<{ commitHash: string; message: string }> {
+export async function commitChangesFromParams(params: {
+  message: string;
+  repo?: string;
+  all?: boolean;
+  amend?: boolean;
+  noStage?: boolean;
+}): Promise<{ commitHash: string; message: string }> {
   const gitService = createGitService();
 
-  let repoPath = params.repo;
-
-  if (params.session && !repoPath) {
-    const session = await deps.sessionProvider.getSession(params.session);
-
-    if (!session) {
-      throw new Error(`Session not found: ${params.session}`);
-    }
-
-    repoPath = await deps.sessionProvider.getSessionWorkdir(params.session);
-  }
-
   // Default to current directory if no repo specified
-  if (!repoPath) {
-    repoPath = process.cwd();
-  }
+  const repoPath = params.repo ?? process.cwd();
 
   // Stage changes if requested
   if (params.all && !params.noStage) {

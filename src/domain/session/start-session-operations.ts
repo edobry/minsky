@@ -283,10 +283,10 @@ async function executeMutations(
 
   // Warn on deprecated skipInstall flag
   if (skipInstall) {
-    log.cli(
-      "DEPRECATED: --skip-install is deprecated and will be removed in a future release. " +
-        "Sessions without dependencies will fail typecheck hooks. " +
-        "If you have a use case for skipping install, please file an issue."
+    log.warn(
+      "⚠️  DEPRECATED: --skip-install creates a broken workspace that CANNOT pass typecheck " +
+        "hooks or run tests. This flag will be removed in a future release. " +
+        "Remove skipInstall from your session_start call."
     );
   }
 

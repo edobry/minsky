@@ -136,20 +136,20 @@ export async function sessionCommit(
 
   const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
 
+  // Resolve session to repo path at this boundary
+  const workdir = await sessionProvider.getSessionWorkdir(params.session);
+
   try {
     // Commit changes using session-scoped git command
     let commitResult!: { commitHash: string; message: string };
     try {
-      commitResult = await commitChangesFromParams(
-        {
-          message: params.message,
-          session: params.session, // Always use session context
-          all: params.all,
-          amend: params.amend,
-          noStage: params.noStage,
-        },
-        { createGitService, sessionProvider }
-      );
+      commitResult = await commitChangesFromParams({
+        message: params.message,
+        repo: workdir,
+        all: params.all,
+        amend: params.amend,
+        noStage: params.noStage,
+      });
     } catch (commitErr: unknown) {
       // Handle "nothing to commit" gracefully — not an error condition
       if (commitErr instanceof NothingToCommitError) {
@@ -166,16 +166,12 @@ export async function sessionCommit(
     }
 
     // Always push changes in session context - commit and push should be atomic
-    const pushResult = await pushFromParams(
-      {
-        session: params.session, // Always use session context
-      },
-      { createGitService, sessionProvider }
-    );
+    const pushResult = await pushFromParams({
+      repo: workdir,
+    });
 
     // Collect commit metadata and changed files
     const gitService = createGitService();
-    const workdir = gitService.getSessionWorkdir(params.session);
 
     // Branch name
     let branch: string | undefined;

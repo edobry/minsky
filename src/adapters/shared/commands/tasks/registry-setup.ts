@@ -121,7 +121,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService, getTaskService),
     createTasksRouteCommand(getPersistenceProvider, getTaskRoutingService),
     // Dispatch (subtask + session + prompt in one call)
-    createTasksDispatchCommand(getPersistenceProvider, getSessionProvider, getTaskGraphService),
+    createTasksDispatchCommand(
+      getPersistenceProvider,
+      getSessionProvider,
+      getTaskGraphService,
+      getTaskService
+    ),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
     // Context commands (decompose, estimate, analyze)

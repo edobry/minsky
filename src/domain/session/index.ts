@@ -10,7 +10,8 @@ import type { SessionProviderInterface } from "./session-db-adapter";
 export type { SessionProviderInterface };
 
 // Export core session types
-export type { Session, SessionRecord } from "./types";
+export type { Session, SessionRecord, SessionLiveness } from "./types";
+export { SessionStatus, deriveSessionLiveness } from "./types";
 
 // Export core types from session-db
 export type { SessionDbState } from "./session-db";
@@ -30,3 +31,6 @@ export {
 
 // Export canonical session directory resolution utility
 export { resolveSessionDirectory } from "./resolve-session-directory";
+
+// Export read-only interfaces for ADR-004 validate() phase
+export type { ReadonlySessionProvider } from "./readonly-interfaces";

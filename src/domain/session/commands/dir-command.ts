@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { getSessionDirFromParams } from "../../session";
+// This file has been removed. Use getSessionDirImpl from session-lifecycle-operations directly.
+export {};

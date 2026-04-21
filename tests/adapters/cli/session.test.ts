@@ -7,8 +7,8 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { getSessionDirFromParams } from "../../../src/domain/session/commands/dir-command";
-import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
+import { getSessionDirImpl } from "../../../src/domain/session/session-lifecycle-operations";
+import { updateSessionImpl } from "../../../src/domain/session/session-update-operations";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import {
@@ -87,14 +87,14 @@ describe("Session CLI Commands", () => {
     mockFs.cleanup();
   });
 
-  describe("getSessionDirFromParams", () => {
+  describe("getSessionDirImpl", () => {
     test("should resolve session directory from session ID", async () => {
       const sessionPath = join(testData.tempDir, "sessions", "test-session");
 
       // Create the session directory using mock filesystem
       mockFs.ensureDirectoryExists(sessionPath);
 
-      const result = await getSessionDirFromParams(
+      const result = await getSessionDirImpl(
         { name: "test-session" },
         { sessionDB: mockSessionProvider }
       );
@@ -125,7 +125,7 @@ describe("Session CLI Commands", () => {
       mockSessionProviderWithTask.getSessionWorkdir = (_sessionId: string) =>
         Promise.resolve(sessionPath);
 
-      const result = await getSessionDirFromParams(
+      const result = await getSessionDirImpl(
         { task: "md#123" },
         { sessionDB: mockSessionProviderWithTask }
       );
@@ -159,7 +159,7 @@ describe("Session CLI Commands", () => {
         Promise.resolve(sessionPath);
 
       // For now, provide session ID explicitly to avoid complex auto-detection mocking
-      const result = await getSessionDirFromParams(
+      const result = await getSessionDirImpl(
         { name: "current-session" },
         { sessionDB: mockSessionProviderCurrent }
       );
@@ -170,7 +170,7 @@ describe("Session CLI Commands", () => {
     });
   });
 
-  describe("updateSessionFromParams", () => {
+  describe("updateSessionImpl", () => {
     test("should update session with new branch", async () => {
       const sessionPath = join(testData.tempDir, "test-repo", "sessions", "update-session");
 
@@ -192,7 +192,7 @@ describe("Session CLI Commands", () => {
       const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
       mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
-      const result = await updateSessionFromParams(
+      const result = await updateSessionImpl(
         {
           name: "update-session",
           branch: "new-branch",
@@ -243,7 +243,7 @@ describe("Session CLI Commands", () => {
       mockGitServiceWithCommands.hasUncommittedChanges = async () => false;
       mockGitServiceWithCommands.fetchDefaultBranch = async () => "main";
 
-      const result = await updateSessionFromParams(
+      const result = await updateSessionImpl(
         {
           name: "git-session",
           autoResolveDeleteConflicts: true,
