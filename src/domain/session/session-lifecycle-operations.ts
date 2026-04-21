@@ -9,7 +9,7 @@ import type {
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface, Session } from "./";
-import { deriveSessionLiveness } from "./types";
+import { deriveSessionLiveness, SessionStatus } from "./types";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors";
 import { rmSync, existsSync } from "node:fs";
@@ -197,6 +197,16 @@ export async function deleteSessionImpl(
       deleted: false,
       error: `${msg}. DB record preserved to prevent orphan directory.`,
     };
+  }
+
+  // Update status to CLOSED before deleting the record (best-effort)
+  try {
+    await deps.sessionDB.updateSession(resolvedSessionId, {
+      lastActivityAt: new Date().toISOString(),
+      status: SessionStatus.CLOSED,
+    });
+  } catch (e) {
+    log.debug("Failed to update session status to CLOSED before deletion", { error: e });
   }
 
   // Delete the session record from the database
