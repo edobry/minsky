@@ -37,6 +37,16 @@ function requirePersistence(
 }
 
 /**
+ * Factory signature for the test-injection seam. Persistence is NOT required
+ * here because test mocks don't use it — they return pre-built mock services.
+ * The real `createConfiguredTaskService` requires persistence and is called
+ * directly on the production path (not through this type).
+ */
+type InjectedTaskServiceFactory = (
+  options: Omit<TaskServiceOptions, "persistenceProvider">
+) => Promise<TaskServiceInterface>;
+
+/**
  * List tasks with given parameters
  * @param params Parameters for listing tasks
  * @param deps Optional dependencies for testing
@@ -45,7 +55,7 @@ function requirePersistence(
 export async function listTasksFromParams(
   params: TaskListParams,
   deps?: {
-    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
+    createConfiguredTaskService?: InjectedTaskServiceFactory;
     resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
   }
@@ -67,7 +77,7 @@ export async function listTasksFromParams(
       ? await deps.createConfiguredTaskService({
           workspacePath,
           backend: validParams.backend,
-        } as TaskServiceOptions)
+        })
       : await createConfiguredTaskServiceImpl({
           workspacePath,
           backend: validParams.backend,
@@ -100,7 +110,7 @@ export async function listTasksFromParams(
 export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: {
-    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
+    createConfiguredTaskService?: InjectedTaskServiceFactory;
     resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
   }
@@ -139,7 +149,7 @@ export async function getTaskFromParams(
       ? await deps.createConfiguredTaskService({
           workspacePath,
           backend: validParams.backend,
-        } as TaskServiceOptions)
+        })
       : await createConfiguredTaskServiceImpl({
           workspacePath,
           backend: validParams.backend,
@@ -179,7 +189,7 @@ export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
-    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
+    createConfiguredTaskService?: InjectedTaskServiceFactory;
     resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
   }
@@ -205,7 +215,7 @@ export async function getTaskStatusFromParams(
       ? await deps.createConfiguredTaskService({
           workspacePath,
           backend: validParams.backend,
-        } as TaskServiceOptions)
+        })
       : await createConfiguredTaskServiceImpl({
           workspacePath,
           backend: validParams.backend,
@@ -243,13 +253,10 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createConfiguredTaskService: (
-      options: TaskServiceOptions
-    ) => TaskServiceInterface | Promise<TaskServiceInterface>;
+    createConfiguredTaskService?: InjectedTaskServiceFactory;
     persistenceProvider?: BasePersistenceProvider;
   } = {
     resolveRepoPath,
-    createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
 ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
   try {
@@ -275,11 +282,16 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Create task service
-    const taskService = await deps.createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      ...(deps.persistenceProvider ? { persistenceProvider: deps.persistenceProvider } : {}),
-    } as TaskServiceOptions);
+    const taskService = deps.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: validParams.backend,
+        })
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: validParams.backend,
+          persistenceProvider: requirePersistence(deps.persistenceProvider),
+        });
 
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);
