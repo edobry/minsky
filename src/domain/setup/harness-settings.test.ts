@@ -60,11 +60,10 @@ describe("applyClaudeCodeSettings", () => {
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
     expect(parsed.model).toBe("sonnet");
-    expect(parsed.advisorModel).toBe("opus");
     expect(parsed.env?.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("60");
   });
 
-  test("reports all 3 recommended keys as changes on fresh file", async () => {
+  test("reports all recommended keys as changes on fresh file", async () => {
     const result = await applyClaudeCodeSettings(
       { homeDir: TEST_HOME, checkExists: claudeInstalled },
       mockFs
@@ -72,9 +71,8 @@ describe("applyClaudeCodeSettings", () => {
 
     const changeKeys = result.changes.map((c) => c.key);
     expect(changeKeys).toContain("model");
-    expect(changeKeys).toContain("advisorModel");
     expect(changeKeys).toContain("env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
-    expect(result.changes).toHaveLength(3);
+    expect(result.changes).toHaveLength(2);
   });
 
   test("changes show undefined 'from' for missing keys", async () => {
@@ -103,7 +101,6 @@ describe("applyClaudeCodeSettings", () => {
     expect(result.status).toBe("applied");
     const parsed = JSON.parse(mockFs.files.get(SETTINGS_PATH)!);
     expect(parsed.model).toBe("sonnet");
-    expect(parsed.advisorModel).toBe("opus");
     expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("60");
     expect(parsed.theme).toBe("dark");
     expect(parsed.fontSize).toBe(14);
@@ -126,7 +123,6 @@ describe("applyClaudeCodeSettings", () => {
       SETTINGS_PATH,
       JSON.stringify({
         model: "sonnet",
-        advisorModel: "opus",
         env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60" },
       })
     );
@@ -144,7 +140,6 @@ describe("applyClaudeCodeSettings", () => {
   test("idempotent: does not write file when already configured", async () => {
     const originalContent = JSON.stringify({
       model: "sonnet",
-      advisorModel: "opus",
       env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60" },
     });
     mockFs.files.set(SETTINGS_PATH, originalContent);
@@ -156,10 +151,7 @@ describe("applyClaudeCodeSettings", () => {
   });
 
   test("reports partial changes when only some settings differ", async () => {
-    mockFs.files.set(
-      SETTINGS_PATH,
-      JSON.stringify({ model: "sonnet", env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60" } })
-    );
+    mockFs.files.set(SETTINGS_PATH, JSON.stringify({ model: "sonnet" }));
     mockFs.directories.add(CLAUDE_DIR);
 
     const result = await applyClaudeCodeSettings(
@@ -169,10 +161,10 @@ describe("applyClaudeCodeSettings", () => {
 
     expect(result.status).toBe("applied");
     expect(result.changes).toHaveLength(1);
-    const [advisorChange] = result.changes;
-    expect(advisorChange!.key).toBe("advisorModel");
-    expect(advisorChange!.from).toBeUndefined();
-    expect(advisorChange!.to).toBe("opus");
+    const [envChange] = result.changes;
+    expect(envChange!.key).toBe("env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
+    expect(envChange!.from).toBeUndefined();
+    expect(envChange!.to).toBe("60");
   });
 
   test("reports change when existing model differs from recommended", async () => {
@@ -180,7 +172,6 @@ describe("applyClaudeCodeSettings", () => {
       SETTINGS_PATH,
       JSON.stringify({
         model: "opus",
-        advisorModel: "opus",
         env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60" },
       })
     );
@@ -230,7 +221,7 @@ describe("applyClaudeCodeSettings", () => {
     );
 
     expect(result.status).toBe("applied");
-    expect(result.changes).toHaveLength(3);
+    expect(result.changes).toHaveLength(2);
   });
 });
 
