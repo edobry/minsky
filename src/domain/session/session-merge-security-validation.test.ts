@@ -263,6 +263,11 @@ describe("Session Merge Security Validation", () => {
       const result = await mergeSessionPr(params, {
         sessionDB: mockSessionProvider,
         createRepositoryBackend: (_config: any) => Promise.resolve(mockRepositoryBackend as any),
+        taskService: {
+          setTaskStatus: async () => {},
+          getTaskStatus: async () => "IN-REVIEW",
+          getTask: async () => null,
+        } as any,
       });
 
       expect(result).toBeDefined();

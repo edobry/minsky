@@ -4,7 +4,7 @@ import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { TASK_STATUS } from "../tasks";
-import { createConfiguredTaskService } from "../tasks/taskService";
+import type { TaskServiceInterface } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionImpl, extractPrDescription } from "./session-update-operations";
 import {
@@ -29,6 +29,7 @@ export interface SessionPrDependencies {
   gitService: GitServiceInterface;
   createRepositoryBackend?: (sessionRecord: string) => Promise<RepositoryBackend>;
   persistenceProvider?: PersistenceProvider;
+  taskService?: TaskServiceInterface;
 }
 
 /**
@@ -376,11 +377,11 @@ Please provide a title for your pull request:
     if (!params.noStatusUpdate) {
       if (sessionRecord?.taskId) {
         try {
-          const taskService = await createConfiguredTaskService({
-            workspacePath: process.cwd(),
-            persistenceProvider: deps.persistenceProvider,
-          });
-          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          if (deps.taskService) {
+            await deps.taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          } else {
+            log.warn("No taskService in deps — skipping status update to IN-REVIEW");
+          }
           log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(`Failed to update task status: ${getErrorMessage(error)}`);

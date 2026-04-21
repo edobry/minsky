@@ -20,7 +20,7 @@ import {
   type MergeInfo,
   type MergePROptions,
 } from "../repository/index";
-import { createConfiguredTaskService, type TaskServiceInterface } from "../tasks/taskService";
+import type { TaskServiceInterface } from "../tasks/taskService";
 import { createGitService } from "../git";
 import type { GitServiceInterface } from "../git/types";
 import { TASK_STATUS } from "../tasks/taskConstants";
@@ -184,14 +184,11 @@ export async function mergeSessionPr(
     originalRepoPath = process.cwd();
   }
 
-  // Set up dependencies with proper task backend configuration
-  // Use createConfiguredTaskService to respect the configured backend (like GitHub Issues)
-  const taskService =
-    deps?.taskService ||
-    (await createConfiguredTaskService({
-      workspacePath: originalRepoPath,
-      persistenceProvider: deps?.persistenceProvider,
-    }));
+  // Use DI-provided taskService — callers must provide it
+  if (!deps?.taskService) {
+    throw new Error("taskService is required for merge operations — provide it via DI");
+  }
+  const taskService = deps.taskService;
   const gitService = deps?.gitService || createGitService();
 
   // Create repository backend for this session
