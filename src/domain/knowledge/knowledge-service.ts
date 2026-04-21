@@ -5,6 +5,7 @@
  * knowledge source provider for each configured source.
  */
 
+import { injectable } from "tsyringe";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import type { KnowledgeSourceConfig, KnowledgeSourceProvider, SyncReport } from "./types";
@@ -21,6 +22,7 @@ export interface KnowledgeServiceDeps {
   config: { knowledgeBases: KnowledgeSourceConfig[] };
 }
 
+@injectable()
 export class KnowledgeService {
   constructor(private deps: KnowledgeServiceDeps) {}
 
