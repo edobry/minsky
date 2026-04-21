@@ -29,6 +29,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
       let sessions = await service.list({
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
+        task: params.task as string | undefined,
       });
 
       try {

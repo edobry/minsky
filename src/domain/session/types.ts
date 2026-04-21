@@ -101,6 +101,8 @@ export interface Session {
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
+  /** Computed liveness status derived from lastActivityAt and session status */
+  liveness?: SessionLiveness;
   backendType?: "github" | "gitlab" | "bitbucket";
   github?: {
     owner?: string;
