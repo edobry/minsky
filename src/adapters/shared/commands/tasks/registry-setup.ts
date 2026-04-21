@@ -94,9 +94,9 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   } = require("./context-commands");
 
   return [
-    createTasksStatusGetCommand(getPersistenceProvider),
-    createTasksStatusSetCommand(getPersistenceProvider),
-    createTasksSpecCommand(getPersistenceProvider),
+    createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
+    createTasksStatusSetCommand(getPersistenceProvider, getTaskService),
+    createTasksSpecCommand(getPersistenceProvider, getTaskService),
     createTasksListCommand(getPersistenceProvider, getTaskGraphService),
     createTasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
