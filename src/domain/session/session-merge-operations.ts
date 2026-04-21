@@ -34,8 +34,12 @@ import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../pers
 import { ProvenanceService } from "../provenance/provenance-service";
 import { AuthorshipTier } from "../provenance/types";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
+import { AuthorshipJudge } from "../provenance/authorship-judge";
+import { TranscriptService } from "../provenance/transcript-service";
+import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
+import type { ResolvedConfig } from "../configuration/types";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -426,6 +430,52 @@ export async function mergeSessionPr(
       }
     } catch (labelError) {
       log.warn(`Failed to update authorship label at merge time: ${getErrorMessage(labelError)}`);
+    }
+  }
+
+  // Post-merge: AI-based tier judging (best-effort, non-fatal)
+  // Evaluates the session transcript to assign a final authorship tier, replacing
+  // the preliminary tier computed at PR creation time.
+  if (sessionRecord.pullRequest?.number && deps.persistenceProvider) {
+    try {
+      const provider = deps.persistenceProvider as SqlCapablePersistenceProvider;
+      if (typeof provider.getDatabaseConnection === "function") {
+        const db = await provider.getDatabaseConnection();
+        if (db) {
+          const transcriptService = new TranscriptService(db);
+          const transcript = await transcriptService.getTranscript(sessionIdToUse);
+          if (transcript && transcript.length > 0) {
+            const judgingCfg = getConfiguration() as ResolvedConfig;
+            const anthropicKey = (
+              judgingCfg as { ai?: { providers?: { anthropic?: { apiKey?: string } } } }
+            ).ai?.providers?.anthropic?.apiKey;
+            if (anthropicKey) {
+              const completionService = createCompletionService(judgingCfg);
+              const judge = new AuthorshipJudge(completionService);
+              const judgment = await judge.evaluateTranscript(transcript, {
+                taskOrigin: "human",
+                specAuthorship: "mixed",
+                initiationMode: "dispatched",
+              });
+              const provenanceService = new ProvenanceService(db);
+              await provenanceService.updateWithJudgment(
+                String(sessionRecord.pullRequest.number),
+                "pr",
+                judgment
+              );
+              log.cli(
+                `✍️  Authorship tier: ${judgment.tier} (${judgment.rationale.slice(0, 100)}...)`
+              );
+            } else {
+              log.debug("Skipping AI tier judging: ANTHROPIC_API_KEY not configured");
+            }
+          } else {
+            log.debug("Skipping AI tier judging: no transcript stored for session");
+          }
+        }
+      }
+    } catch (judgeError) {
+      log.warn(`Post-merge AI tier judging failed: ${getErrorMessage(judgeError)}`);
     }
   }
 

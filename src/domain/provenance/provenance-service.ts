@@ -25,6 +25,7 @@ import {
   type TierSignals,
   type Participant,
 } from "./types";
+import { AUTHORSHIP_POLICY_VERSION, type AuthorshipJudgment } from "./authorship-judge";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
 function toProvenanceRecord(row: typeof provenanceTable.$inferSelect): ProvenanceRecord {
@@ -150,5 +151,36 @@ export class ProvenanceService {
       .where(eq(provenanceTable.taskId, taskId));
 
     return rows.map(toProvenanceRecord);
+  }
+
+  /**
+   * Update a provenance record with AI-judged authorship fields.
+   *
+   * Called after AI-based transcript analysis completes (Phase 4).
+   * Updates the tier, rationale, and structured analysis fields in place.
+   */
+  async updateWithJudgment(
+    artifactId: string,
+    artifactType: ArtifactType,
+    judgment: AuthorshipJudgment
+  ): Promise<void> {
+    await this.db
+      .update(provenanceTable)
+      .set({
+        substantiveHumanInput: judgment.substantiveHumanInput,
+        trajectoryChanges: judgment.trajectoryChanges,
+        authorshipTier: judgment.tier,
+        tierRationale: judgment.rationale,
+        judgingModel: "claude-haiku-4-5-20251001",
+        policyVersion: AUTHORSHIP_POLICY_VERSION,
+        computedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(provenanceTable.artifactId, artifactId),
+          eq(provenanceTable.artifactType, artifactType)
+        )
+      );
   }
 }
