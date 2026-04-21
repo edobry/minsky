@@ -40,6 +40,7 @@ This directory contains comprehensive documentation for the Minsky development w
 
 - [**Bun Optimization Setup**](./bun-optimization-setup.md) - Disk space optimization configuration (recommended)
 - [**Repository Configuration**](./repository-configuration.md) - Repository backend configuration
+- [**GitHub App Bot Setup**](./github-app-bot-setup.md) - Configure GitHub App bot identity (`minsky-ai[bot]`) for automated PR reviews
 
 ## Architecture & Development
 

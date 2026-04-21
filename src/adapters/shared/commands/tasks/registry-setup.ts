@@ -99,10 +99,10 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   } = require("./context-commands");
 
   return [
-    createTasksStatusGetCommand(getPersistenceProvider),
-    createTasksStatusSetCommand(getPersistenceProvider),
-    createTasksSpecCommand(getPersistenceProvider),
-    createTasksListCommand(getPersistenceProvider, getTaskGraphService),
+    createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
+    createTasksStatusSetCommand(getPersistenceProvider, getTaskService),
+    createTasksSpecCommand(getPersistenceProvider, getTaskService),
+    createTasksListCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksGetCommand(
       getPersistenceProvider,
       getTaskGraphService,
@@ -111,7 +111,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     ),
     createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksEditCommand(getPersistenceProvider, getTaskService),
-    createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService),
+    createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     new TasksSimilarCommand(getPersistenceProvider, getTaskService),
     new TasksSearchCommand(getPersistenceProvider, getTaskService),
     new TasksIndexEmbeddingsCommand(getPersistenceProvider, getTaskService),

@@ -71,7 +71,10 @@ function getTaskDeps(
   container?: import("../../composition/types").AppContainerInterface
 ): TaskServiceDeps {
   if (container?.has("persistence")) {
-    return { persistenceProvider: container.get("persistence") };
+    return {
+      persistenceProvider: container.get("persistence"),
+      taskService: container.has("taskService") ? container.get("taskService") : undefined,
+    };
   }
   return {};
 }

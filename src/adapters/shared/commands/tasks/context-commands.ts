@@ -54,10 +54,13 @@ async function gatherTaskContext(
     const { getTaskSpecContentFromParams } = await import(
       "../../../../domain/tasks/commands/query-commands"
     );
-    const specResult = await getTaskSpecContentFromParams({
-      taskId,
-      workspace: process.cwd(),
-    });
+    const specResult = await getTaskSpecContentFromParams(
+      {
+        taskId,
+        workspace: process.cwd(),
+      },
+      { taskService }
+    );
     spec = specResult.content;
   } catch {
     // Spec not available

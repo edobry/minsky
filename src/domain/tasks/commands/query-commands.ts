@@ -35,6 +35,7 @@ import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 export async function listTasksFromParams(
   params: TaskListParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
@@ -43,23 +44,26 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Prefer injected main workspace path for tests; otherwise resolve from repo
-    const workspacePath =
-      (await deps?.resolveMainWorkspacePath?.()) ??
-      (await resolveRepoPath({
-        session: validParams.session,
-        repo: validParams.repo,
-      }));
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      // Prefer injected main workspace path for tests; otherwise resolve from repo
+      const workspacePath =
+        (await deps?.resolveMainWorkspacePath?.()) ??
+        (await resolveRepoPath({
+          session: validParams.session,
+          repo: validParams.repo,
+        }));
 
-    // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
+      const createTaskService =
+        deps?.createConfiguredTaskService ||
+        (async (options: TaskServiceOptions) => await createConfiguredTaskServiceImpl(options));
 
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Use multi-backend mode when no backend specified
-    });
+      taskService = await createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
 
     // Get tasks with filters - delegate filtering to domain layer
     let tasks = await taskService.listTasks({
@@ -87,6 +91,7 @@ export async function listTasksFromParams(
 export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
@@ -113,22 +118,24 @@ export async function getTaskFromParams(
     const validParams = taskGetParamsSchema.parse(paramsWithQualifiedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
-    // Resolve repository root and use it as workspace path (prefer injected main path)
-    const workspacePath = await (deps?.resolveMainWorkspacePath
-      ? deps.resolveMainWorkspacePath()
-      : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
-    log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      const workspacePath = await (deps?.resolveMainWorkspacePath
+        ? deps.resolveMainWorkspacePath()
+        : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
+      log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
 
-    // Create task service using dependency injection or default implementation
-    log.debug("[getTaskFromParams] About to create task service");
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
+      log.debug("[getTaskFromParams] About to create task service");
+      const createTaskService =
+        deps?.createConfiguredTaskService ||
+        (async (options: TaskServiceOptions) => await createConfiguredTaskServiceImpl(options));
 
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Use multi-backend mode when no backend specified
-    });
+      taskService = await createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
     log.debug("[getTaskFromParams] Task service created");
 
     // Get the task
@@ -162,6 +169,7 @@ export async function getTaskFromParams(
 export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
@@ -175,23 +183,25 @@ export async function getTaskStatusFromParams(
     // Validate params with Zod schema
     const validParams = taskStatusGetParamsSchema.parse(paramsWithQualifiedId);
 
-    // Resolve workspace path (prefer injected main path)
-    const workspacePath =
-      (await deps?.resolveMainWorkspacePath?.()) ??
-      (await (deps?.resolveRepoPath || resolveRepoPath)({
-        session: validParams.session,
-        repo: validParams.repo,
-      }));
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      const workspacePath =
+        (await deps?.resolveMainWorkspacePath?.()) ??
+        (await (deps?.resolveRepoPath || resolveRepoPath)({
+          session: validParams.session,
+          repo: validParams.repo,
+        }));
 
-    // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
+      const createTaskService =
+        deps?.createConfiguredTaskService ||
+        (async (options: TaskServiceOptions) => await createConfiguredTaskServiceImpl(options));
 
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Let service determine backend via detection/config
-    });
+      taskService = await createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
 
     // Get the task
     const task = await taskService.getTask(validParams.taskId);
@@ -223,8 +233,9 @@ export async function getTaskStatusFromParams(
 export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
-    resolveRepoPath: typeof resolveRepoPath;
-    createConfiguredTaskService: (
+    taskService?: TaskServiceInterface;
+    resolveRepoPath?: typeof resolveRepoPath;
+    createConfiguredTaskService?: (
       options: TaskServiceOptions
     ) => TaskServiceInterface | Promise<TaskServiceInterface>;
   } = {
@@ -240,25 +251,26 @@ export async function getTaskSpecContentFromParams(
     const taskIdString = Array.isArray(validParams.taskId)
       ? validParams.taskId[0]
       : validParams.taskId;
-    const taskId = taskIdString; // Use directly since we now only accept qualified IDs
+    const taskId = taskIdString;
 
-    // First get the repo path (needed for workspace resolution)
-    const _repoPath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
+    // Use DI-provided taskService when available
+    let taskService = deps.taskService;
+    if (!taskService) {
+      const resolveRepo = deps.resolveRepoPath || resolveRepoPath;
+      const workspacePath = await resolveRepo({
+        session: validParams.session,
+        repo: validParams.repo,
+      });
 
-    // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
+      const createTaskService =
+        deps.createConfiguredTaskService ||
+        (async (options: TaskServiceOptions) => await createConfiguredTaskServiceImpl(options));
 
-    // Create task service
-    const taskService = await deps.createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-    });
+      taskService = await createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
 
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);

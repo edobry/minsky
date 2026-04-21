@@ -12,6 +12,8 @@ When spawning subagents, use the appropriate model and type:
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `suggestedSubagentType` from the result.
 
+**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — same fix attempted 3+ times, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability.
+
 ## Task Lifecycle
 
 ```
@@ -69,6 +71,10 @@ All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `W
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - 10 custom ESLint rules enforce architectural patterns
+
+## Compact Instructions
+
+When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
 
 ## Key Architecture
 

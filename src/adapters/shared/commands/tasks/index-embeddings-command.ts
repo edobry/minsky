@@ -37,13 +37,16 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
 
     // If a specific task is provided, index just that one
     if (params.task) {
-      const task = await getTaskFromParams({
-        taskId: params.task,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-      });
+      const task = await getTaskFromParams(
+        {
+          taskId: params.task,
+          backend: params.backend,
+          repo: params.repo,
+          workspace: params.workspace,
+          session: params.session,
+        },
+        { taskService: this.getTaskService?.() }
+      );
       const { log } = await import("../../../../utils/logger");
       const changed = await service.indexTask(task.id);
       if (!(params.json || ctx.format === "json")) {
@@ -56,17 +59,20 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     }
 
     // Otherwise list and index up to limit
-    const tasks = await listTasksFromParams({
-      all: true,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-      json: true,
-      filter: undefined,
-      status: undefined,
-      limit: params.limit,
-    });
+    const tasks = await listTasksFromParams(
+      {
+        all: true,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+        json: true,
+        filter: undefined,
+        status: undefined,
+        limit: params.limit,
+      },
+      { taskService: this.getTaskService?.() }
+    );
 
     let indexed = 0;
     let skipped = 0;
