@@ -344,9 +344,22 @@ export async function mergeSessionPr(
         };
       }
 
-      // Build human identity placeholder for Tier 3 trailers
-      // We use the repo owner/token-derived user as a best-effort identity.
-      const humanIdentity: MergeIdentity | null = null;
+      // Resolve human identity for Tier 3 trailers via GitHub API
+      let humanIdentity: MergeIdentity | null = null;
+      try {
+        const humanToken = await tokenProvider.getUserToken();
+        if (humanToken) {
+          const { createOctokit } = await import("../repository/github-pr-operations");
+          const humanOctokit = createOctokit(humanToken);
+          const { data: user } = await humanOctokit.rest.users.getAuthenticated();
+          humanIdentity = {
+            login: user.login,
+            email: user.email || `${user.id}+${user.login}@users.noreply.github.com`,
+          };
+        }
+      } catch {
+        log.debug("Could not resolve human identity for Tier 3 trailers");
+      }
 
       const trailers = buildMergeTrailers(authorshipTier, botIdentity, humanIdentity);
       if (trailers) {
@@ -380,6 +393,41 @@ export async function mergeSessionPr(
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // Update authorship label at merge time if tier is known
+  const ghOwner = config.github?.owner;
+  const ghRepo = config.github?.repo;
+  if (
+    mergeOptions.authorshipTier != null &&
+    sessionRecord.pullRequest?.number &&
+    ghOwner &&
+    ghRepo
+  ) {
+    try {
+      const mergeCfg = getConfiguration();
+      const token = mergeCfg.github?.token ?? "";
+      if (token) {
+        const { createOctokit } = await import("../repository/github-pr-operations");
+        const octokit = createOctokit(token);
+        const { ensureAuthorshipLabelsExist, addAuthorshipLabel } = await import(
+          "../provenance/authorship-labels"
+        );
+        await ensureAuthorshipLabelsExist(octokit, ghOwner, ghRepo);
+        await addAuthorshipLabel(
+          octokit,
+          ghOwner,
+          ghRepo,
+          sessionRecord.pullRequest.number,
+          mergeOptions.authorshipTier
+        );
+        log.debug(
+          `Updated authorship label on PR #${sessionRecord.pullRequest.number} at merge time`
+        );
+      }
+    } catch (labelError) {
+      log.warn(`Failed to update authorship label at merge time: ${getErrorMessage(labelError)}`);
+    }
   }
 
   // Clean up local branches in main repository after successful merge
