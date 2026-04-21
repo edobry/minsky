@@ -8,7 +8,7 @@
  * tested without complex git operations.
  */
 import { describe, test, expect } from "bun:test";
-import { updateSessionFromParams } from "./session";
+import { updateSessionImpl } from "./session/session-update-operations";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";
@@ -17,14 +17,14 @@ import { FakeSessionProvider } from "./session/fake-session-provider";
 // Set up automatic mock cleanup
 setupTestMocks();
 
-describe("updateSessionFromParams - Basic Validation", () => {
+describe("updateSessionImpl - Basic Validation", () => {
   test("throws ValidationError when name is not provided", async () => {
     const mockEmptySessionProvider = new FakeSessionProvider();
 
     const mockGitService = new FakeGitService();
 
     await expect(
-      updateSessionFromParams(
+      updateSessionImpl(
         {
           name: undefined as any, // Invalid input
           task: undefined,
@@ -52,7 +52,7 @@ describe("updateSessionFromParams - Basic Validation", () => {
     const mockGitService = new FakeGitService();
 
     await expect(
-      updateSessionFromParams(
+      updateSessionImpl(
         {
           name: "nonexistent-session",
           noStash: false,

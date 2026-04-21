@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { getSessionDirFromParams } from "../../../src/domain/session";
+import { getSessionDirImpl } from "../../../src/domain/session/session-lifecycle-operations";
 import { createMock } from "../../../src/utils/test-utils/mocking";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import type { SessionTestData } from "./session-test-utilities";
@@ -41,7 +41,7 @@ describe("session dir command", () => {
     );
 
     // Act
-    const result = await getSessionDirFromParams(
+    const result = await getSessionDirImpl(
       {
         task: "md#160",
       },
@@ -70,7 +70,7 @@ describe("session dir command", () => {
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Act: Test with task ID without # prefix
-    await getSessionDirFromParams({ task: "md#160" }, { sessionDB: testData.mockSessionDB });
+    await getSessionDirImpl({ task: "md#160" }, { sessionDB: testData.mockSessionDB });
 
     // Assert: Should call with normalized task ID (qualified format)
     expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);

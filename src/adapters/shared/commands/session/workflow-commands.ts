@@ -79,29 +79,17 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging(
       "session.approve",
-      async (params: Record<string, unknown>, context) => {
-        // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
-        const { approveSessionFromParams } = await import("../../../../domain/session");
+      async (params: Record<string, unknown>, _context) => {
+        const { SessionService } = await import("../../../../domain/session/session-service");
         const deps = await getDeps();
+        const service = new SessionService(deps);
 
-        const result = await approveSessionFromParams(
-          {
-            session: params.name as string | undefined,
-            task: params.task as string | undefined,
-            repo: params.repo as string | undefined,
-            json: params.json as boolean | undefined,
-          },
-          {
-            sessionDB: deps.sessionProvider,
-            gitService: deps.gitService,
-            taskService: deps.taskService,
-            workspaceUtils: deps.workspaceUtils,
-            getCurrentSession: deps.getCurrentSession,
-            persistenceProvider: context.container?.has("persistence")
-              ? context.container.get("persistence")
-              : undefined,
-          }
-        );
+        const result = await service.approve({
+          session: params.name as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+        });
 
         return { success: true, result };
       }
@@ -338,32 +326,19 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     parameters: sessionApproveCommandParams,
     execute: withErrorLogging(
       "session.pr.approve",
-      async (params: Record<string, unknown>, context) => {
-        // eslint-disable-next-line custom/no-from-params-in-adapters -- passes deps from getDeps(); full removal requires refactoring approveSessionPr call chain
-        const { approveSessionFromParams } = await import("../../../../domain/session");
+      async (params: Record<string, unknown>, _context) => {
+        const { SessionService } = await import("../../../../domain/session/session-service");
         const deps = await getDeps();
+        const service = new SessionService(deps);
 
-        const result = await approveSessionFromParams(
-          {
-            session: params.name as string | undefined,
-            task: params.task as string | undefined,
-            repo: params.repo as string | undefined,
-            json: params.json as boolean | undefined,
-            reviewComment:
-              (params.comment as string | undefined) ||
-              (params.reviewComment as string | undefined),
-          },
-          {
-            sessionDB: deps.sessionProvider,
-            gitService: deps.gitService,
-            taskService: deps.taskService,
-            workspaceUtils: deps.workspaceUtils,
-            getCurrentSession: deps.getCurrentSession,
-            persistenceProvider: context.container?.has("persistence")
-              ? context.container.get("persistence")
-              : undefined,
-          }
-        );
+        const result = await service.approve({
+          session: params.name as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: params.json as boolean | undefined,
+          reviewComment:
+            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
+        });
 
         return { success: true, result };
       }

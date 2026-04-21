@@ -6,8 +6,7 @@ import { type GitServiceInterface } from "../git";
 import { TASK_STATUS } from "../tasks";
 import { createConfiguredTaskService } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
-import { updateSessionFromParams } from "../session";
-import { extractPrDescription } from "./session-update-operations";
+import { updateSessionImpl, extractPrDescription } from "./session-update-operations";
 import {
   createRepositoryBackendFromSessionUrl,
   getRepositoryBackendFromConfig,
@@ -238,8 +237,8 @@ Please provide a title for your pull request:
 
   try {
     // Use enhanced update with conflict detection options — pass deps through
-    // so updateSessionFromParams doesn't try to create its own sessionProvider.
-    await updateSessionFromParams(
+    // so updateSessionImpl doesn't try to create its own sessionProvider.
+    await updateSessionImpl(
       {
         name: sessionId,
         repo: params.repo,
@@ -251,8 +250,12 @@ Please provide a title for your pull request:
         skipConflictCheck: params.skipConflictCheck,
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipIfAlreadyMerged: true, // Automatically skip if changes already merged
-      },
-      { sessionDB: deps.sessionDB, gitService: deps.gitService }
+      } as import("../schemas").SessionUpdateParameters,
+      {
+        sessionDB: deps.sessionDB,
+        gitService: deps.gitService,
+        getCurrentSession: async () => undefined,
+      }
     );
     log.cli("✅ Session updated successfully");
   } catch (error) {

@@ -9,12 +9,14 @@
 
 import { describe, it, expect, mock } from "bun:test";
 import { first } from "../utils/array-safety";
-import { startSessionFromParams } from "./session";
+import { startSessionImpl } from "./session/start-session-operations";
+import type { SessionStartParameters } from "./schemas";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
+import { RepositoryBackendType } from "./repository/index";
 
 const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -57,8 +59,6 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
-    const mockResolveRepoPath = () => Promise.resolve("https://github.com/edobry/minsky.git");
-
     const params = {
       task: "md#160",
       repo: "https://github.com/edobry/minsky.git",
@@ -67,12 +67,16 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Act & Assert - Git clone failure should not leave session in database
     await expect(
-      startSessionFromParams(params as any, {
+      startSessionImpl(params as unknown as SessionStartParameters, {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: mockResolveRepoPath as any,
+        getRepositoryBackend: async () => ({
+          repoUrl: "https://github.com/edobry/minsky.git",
+          backendType: RepositoryBackendType.GITHUB,
+          github: { owner: "edobry", repo: "minsky" },
+        }),
       })
     ).rejects.toThrow(`destination path '${TEST_UUID}' already exists`);
 
@@ -120,8 +124,6 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = new FakeWorkspaceUtils();
 
-    const mockResolveRepoPath = () => Promise.resolve("https://github.com/edobry/minsky.git");
-
     const params = {
       task: "md#160",
       repo: "https://github.com/edobry/minsky.git",
@@ -129,12 +131,16 @@ describe("Session Git Clone Bug Regression Test", () => {
     };
 
     // Act
-    const result = await startSessionFromParams(params as any, {
+    const result = await startSessionImpl(params as unknown as SessionStartParameters, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      resolveRepoPath: mockResolveRepoPath as any,
+      getRepositoryBackend: async () => ({
+        repoUrl: "https://github.com/edobry/minsky.git",
+        backendType: RepositoryBackendType.GITHUB,
+        github: { owner: "edobry", repo: "minsky" },
+      }),
     });
 
     // Assert - Session should be created successfully

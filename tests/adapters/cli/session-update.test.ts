@@ -6,7 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
+import { updateSessionImpl } from "../../../src/domain/session/session-update-operations";
 import { FakeGitService } from "../../../src/domain/git/fake-git-service";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
@@ -61,7 +61,7 @@ describe("session update command", () => {
     const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
-    const result = await updateSessionFromParams(
+    const result = await updateSessionImpl(
       {
         name: "test-session",
         branch: "new-branch",
@@ -101,7 +101,7 @@ describe("session update command", () => {
     const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
-    const result = await updateSessionFromParams(
+    const result = await updateSessionImpl(
       {
         name: "missing-session",
         force: true,
@@ -146,7 +146,7 @@ describe("session update command", () => {
     const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
-    const result = await updateSessionFromParams(
+    const result = await updateSessionImpl(
       {
         name: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
         autoResolveDeleteConflicts: true,
@@ -186,7 +186,7 @@ describe("session update command", () => {
     const mockSessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
     mockSessionDB.getSessionWorkdir = async () => sessionPath;
 
-    const result = await updateSessionFromParams(
+    const result = await updateSessionImpl(
       {
         name: "force-session",
         force: true,
