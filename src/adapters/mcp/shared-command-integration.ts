@@ -404,6 +404,19 @@ export function registerKnowledgeCommandsWithMcp(
 }
 
 /**
+ * Register provenance commands with MCP
+ */
+export function registerProvenanceCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.PROVENANCE],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -423,6 +436,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.PERSISTENCE,
       CommandCategory.MCP,
       CommandCategory.KNOWLEDGE,
+      CommandCategory.PROVENANCE,
     ],
     ...config,
   });
