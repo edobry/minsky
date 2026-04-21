@@ -123,7 +123,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 
     // Enrich with parent info and build hierarchical view if requested
     let depthMap: Map<string, number> | undefined;
-    if (params.hierarchical && this.getPersistenceProvider) {
+    if (params.hierarchical) {
       try {
         const persistence = this.getPersistenceProvider();
         const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
@@ -188,7 +188,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 
     // Enrich with dependency status if requested
     let depsStatusMap: Map<string, { ready: boolean; blockedBy: string[] }> | undefined;
-    if (params.showDeps && this.getPersistenceProvider) {
+    if (params.showDeps) {
       try {
         const persistence = this.getPersistenceProvider();
         const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
@@ -303,7 +303,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       this.debug("Created task params", { taskParams });
 
       const task = await getTaskFromParams(taskParams, {
-        persistenceProvider: this.getPersistenceProvider?.(),
+        persistenceProvider: this.getPersistenceProvider(),
       });
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
@@ -316,7 +316,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
           }
         | undefined;
 
-      if (params.includeSubtasks && this.getPersistenceProvider) {
+      if (params.includeSubtasks) {
         try {
           const persistence = this.getPersistenceProvider();
           const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
@@ -383,7 +383,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         try {
           const specResult = await getTaskSpecContentFromParams(
             { ...this.createTaskParams(params), taskId: validatedTaskId },
-            { persistenceProvider: this.getPersistenceProvider?.() }
+            { persistenceProvider: this.getPersistenceProvider() }
           );
           extras.spec = specResult.content;
         } catch {
@@ -479,7 +479,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           githubRepo: params.githubRepo,
           tags,
         },
-        { persistenceProvider: this.getPersistenceProvider?.() }
+        { persistenceProvider: this.getPersistenceProvider() }
       );
 
       this.debug("Task created successfully");
@@ -489,32 +489,27 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const depsWarnings: string[] = [];
       if (params.dependsOn) {
         const deps = Array.isArray(params.dependsOn) ? params.dependsOn : [params.dependsOn];
-        if (this.getPersistenceProvider) {
-          try {
-            const persistence = this.getPersistenceProvider();
-            const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-            const { TaskGraphService } = await import(
-              "../../../../domain/tasks/task-graph-service"
-            );
-            const service = new TaskGraphService(db);
-            for (const dep of deps) {
-              try {
-                await service.addDependency(result.id, dep);
-                depsAdded.push(dep);
-              } catch (depErr) {
-                const msg = getErrorMessage(depErr);
-                depsWarnings.push(`Failed to add dependency ${dep}: ${msg}`);
-                log.warn(`[tasks.create] Failed to add dependency ${dep}: ${msg}`);
-              }
+        try {
+          const persistence = this.getPersistenceProvider();
+          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+          const { TaskGraphService } = await import(
+            "../../../../domain/tasks/task-graph-service"
+          );
+          const service = new TaskGraphService(db);
+          for (const dep of deps) {
+            try {
+              await service.addDependency(result.id, dep);
+              depsAdded.push(dep);
+            } catch (depErr) {
+              const msg = getErrorMessage(depErr);
+              depsWarnings.push(`Failed to add dependency ${dep}: ${msg}`);
+              log.warn(`[tasks.create] Failed to add dependency ${dep}: ${msg}`);
             }
-          } catch (providerErr) {
-            const msg = getErrorMessage(providerErr);
-            depsWarnings.push(`Could not connect to persistence for dependencies: ${msg}`);
-            log.warn(`[tasks.create] Could not connect to persistence for dependencies: ${msg}`);
           }
-        } else {
-          depsWarnings.push("No persistence provider available; dependencies were not recorded");
-          log.warn("[tasks.create] No persistence provider; skipping dependsOn");
+        } catch (providerErr) {
+          const msg = getErrorMessage(providerErr);
+          depsWarnings.push(`Could not connect to persistence for dependencies: ${msg}`);
+          log.warn(`[tasks.create] Could not connect to persistence for dependencies: ${msg}`);
         }
       }
 
@@ -522,34 +517,24 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       let parentSet = false;
       const parentWarnings: string[] = [];
       if (params.parent) {
-        if (this.getPersistenceProvider) {
-          try {
-            const persistence = this.getPersistenceProvider();
-            const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-            const { TaskGraphService } = await import(
-              "../../../../domain/tasks/task-graph-service"
-            );
-            const service = new TaskGraphService(db);
-            await service.addParent(result.id, params.parent);
-            parentSet = true;
-          } catch (parentErr) {
-            const msg = getErrorMessage(parentErr);
-            parentWarnings.push(`Failed to set parent ${params.parent}: ${msg}`);
-            log.warn(`[tasks.create] Failed to set parent ${params.parent}: ${msg}`);
-          }
-        } else {
-          parentWarnings.push("No persistence provider available; parent was not set");
-          log.warn("[tasks.create] No persistence provider; skipping parent");
+        try {
+          const persistence = this.getPersistenceProvider();
+          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
+          const { TaskGraphService } = await import(
+            "../../../../domain/tasks/task-graph-service"
+          );
+          const service = new TaskGraphService(db);
+          await service.addParent(result.id, params.parent);
+          parentSet = true;
+        } catch (parentErr) {
+          const msg = getErrorMessage(parentErr);
+          parentWarnings.push(`Failed to set parent ${params.parent}: ${msg}`);
+          log.warn(`[tasks.create] Failed to set parent ${params.parent}: ${msg}`);
         }
       }
 
       // Fire-and-forget embedding indexing for the newly created task
-      autoIndexTaskEmbedding(
-        result.id,
-        this.getPersistenceProvider
-          ? { getPersistenceProvider: this.getPersistenceProvider }
-          : undefined
-      );
+      autoIndexTaskEmbedding(result.id, { getPersistenceProvider: this.getPersistenceProvider });
 
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;
