@@ -144,7 +144,22 @@ export class SessionWorkspaceService {
       contentLength: content.length,
     });
 
-    return this.workspaceBackend.writeFile(workspace.workspaceDir, validatedPath, content);
+    const result = await this.workspaceBackend.writeFile(
+      workspace.workspaceDir,
+      validatedPath,
+      content
+    );
+
+    // Update session activity state after successful write (best-effort)
+    try {
+      await this.sessionProvider.updateSession(workspace.session, {
+        lastActivityAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      // Activity tracking is best-effort — don't fail the file operation
+    }
+
+    return result;
   }
 
   /**

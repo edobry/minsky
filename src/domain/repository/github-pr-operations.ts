@@ -23,6 +23,7 @@ import {
 } from "./github-error-handler";
 import type { AuthorshipTier } from "../provenance/types";
 import { ensureAuthorshipLabelsExist, addAuthorshipLabel } from "../provenance/authorship-labels";
+import { SessionStatus } from "../session/types";
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -168,6 +169,8 @@ export async function createPullRequest(
         if (sessionRecord) {
           const updatedSession = {
             ...sessionRecord,
+            lastActivityAt: new Date().toISOString(),
+            status: SessionStatus.PR_OPEN,
             pullRequest: {
               number: pr.number,
               url: pr.html_url,
