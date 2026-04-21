@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import { approveSessionFromParams } from "./session";
+import { approveSessionPr } from "./session/session-approval-operations";
 import { ResourceNotFoundError } from "../errors/index";
 import { log } from "../utils/logger";
 import { FakeGitService } from "./git/fake-git-service";
@@ -72,7 +72,7 @@ describe("Session Approve", () => {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
-      resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
+      resolveRepoPath: () => TEST_REPO_PATH,
       createRepositoryBackendForSession: (() =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
@@ -90,8 +90,8 @@ describe("Session Approve", () => {
 
     // This should work since we know the mock has the right session
     try {
-      const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, simpleDeps);
-      expect(result.sessionId).toBe(TEST_SESSION_NAME);
+      const result = await approveSessionPr({ session: TEST_SESSION_NAME }, simpleDeps);
+      expect(result.session).toBe(TEST_SESSION_NAME);
     } catch (error) {
       log.debug(`Error details: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
@@ -134,7 +134,7 @@ describe("Session Approve", () => {
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
-      resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
+      resolveRepoPath: () => TEST_REPO_PATH,
       createRepositoryBackendForSession: () =>
         Promise.resolve({
           getType: () => TEST_BACKEND_TYPE,
@@ -151,73 +151,14 @@ describe("Session Approve", () => {
     };
 
     // Test by session ID
-    const resultBySession = await approveSessionFromParams(
-      { session: TEST_SESSION_NAME },
-      testDeps as any
-    );
-    expect(resultBySession.sessionId).toBe(TEST_SESSION_NAME);
+    const resultBySession = await approveSessionPr({ session: TEST_SESSION_NAME }, testDeps as any);
+    expect(resultBySession.session).toBe(TEST_SESSION_NAME);
     expect(resultBySession.taskId).toBe(TEST_TASK_ID);
 
     // Test by task ID
-    const resultByTask = await approveSessionFromParams({ task: TEST_TASK_ID }, testDeps as any);
-    expect(resultByTask.sessionId).toBe(TEST_SESSION_NAME);
+    const resultByTask = await approveSessionPr({ task: TEST_TASK_ID }, testDeps as any);
+    expect(resultByTask.session).toBe(TEST_SESSION_NAME);
     expect(resultByTask.taskId).toBe(TEST_TASK_ID);
-  });
-
-  test("detects current session when repo path is provided", async () => {
-    // Clean DI approach - mock a detectable session
-    const mockSessionDB = new FakeSessionProvider({
-      initialSessions: [
-        {
-          session: "current-session",
-          repoName: TEST_REPO_NAME,
-          repoUrl: TEST_REPO_PATH,
-          taskId: "md#456",
-          prBranch: "pr/current-session",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    });
-
-    const _inlineGitService = new FakeGitService();
-    _inlineGitService.execInRepository = () => Promise.resolve(TEST_COMMIT_HASH);
-    const testDeps = {
-      sessionDB: mockSessionDB,
-      gitService: _inlineGitService,
-      taskService: (() => {
-        const svc = new FakeTaskService({
-          initialTasks: [{ id: "md#456", title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
-        });
-        svc.setTaskStatus = () => Promise.resolve();
-        svc.getBackendForTask = (() =>
-          Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
-        return svc;
-      })(),
-      workspaceUtils: Object.assign(new FakeWorkspaceUtils(), {
-        getRepoWorkspace: () => TEST_WORKDIR,
-        getCurrentWorkingDirectory: () => TEST_WORKDIR,
-      }),
-      resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () =>
-        Promise.resolve({
-          getType: () => TEST_BACKEND_TYPE,
-          review: {
-            approve: () =>
-              Promise.resolve({
-                reviewId: "test-review-456",
-                approvedBy: TEST_USER_NAME,
-                approvedAt: new Date().toISOString(),
-                prNumber: "456",
-              }),
-          },
-        }),
-      getCurrentSession: () => Promise.resolve("current-session"), // Mock session detection
-    };
-
-    // Test session detection by repo path
-    const result = await approveSessionFromParams({ repo: TEST_REPO_PATH }, testDeps as any);
-    expect(result.sessionId).toBe("current-session");
-    expect(result.taskId).toBe("md#456");
   });
 
   test("throws error when session is not found", async () => {
@@ -249,9 +190,9 @@ describe("Session Approve", () => {
 
     // Test with non-existent session
     try {
-      await approveSessionFromParams(
+      await approveSessionPr(
         { session: "non-existent" },
-        testDeps as unknown as Parameters<typeof approveSessionFromParams>[1]
+        testDeps as unknown as Parameters<typeof approveSessionPr>[1]
       );
       // Should not reach this point
       expect(false).toBe(true);

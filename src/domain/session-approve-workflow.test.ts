@@ -2,7 +2,7 @@
  * SESSION APPROVAL WORKFLOW TESTS
  *
  * What this file tests:
- * - Session approval workflow via approveSessionFromParams function
+ * - Session approval workflow via approveSessionPr function
  * - Integration between session management, git operations, and task status updates
  * - End-to-end session approval process including PR merging and cleanup
  *
@@ -18,7 +18,7 @@
  * @refactored Eliminated interface mismatches and local mock objects
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { approveSessionFromParams } from "./session";
+import { approveSessionPr } from "./session/session-approval-operations";
 
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";
@@ -111,14 +111,14 @@ describe("Session Approve Workflow", () => {
   });
 
   test("successfully approves and merges a PR branch with task ID", async () => {
-    const result = await approveSessionFromParams(
+    const result = await approveSessionPr(
       { session: "test-session" }, // Fixed: use 'session' instead of '_session'
       {
         gitService: mockGitService,
         taskService: mockTaskService,
         sessionDB: mockSessionDB,
         workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: () => Promise.resolve("/test/repo/path"),
+        resolveRepoPath: () => "/test/repo/path",
         createRepositoryBackendForSession: (() =>
           Promise.resolve({
             getType: () => "test-backend",
@@ -136,7 +136,7 @@ describe("Session Approve Workflow", () => {
     );
 
     // Verify results (fixed interface expectations for new approval-only function)
-    expect(result.sessionId).toBe("test-session"); // Function returns sessionId, not session
+    expect(result.session).toBe("test-session");
     expect(result.taskId).toBe("md#025"); // Use qualified task ID format
     expect(result.approvalInfo).toBeDefined();
     expect(result.approvalInfo.reviewId).toBe("test-review-025");
@@ -150,14 +150,14 @@ describe("Session Approve Workflow", () => {
 
   test("throws ValidationError when session parameter is missing", async () => {
     await expect(
-      approveSessionFromParams(
+      approveSessionPr(
         {},
         {
           gitService: mockGitService,
           taskService: mockTaskService,
           sessionDB: mockSessionDB,
           workspaceUtils: mockWorkspaceUtils,
-          createRepositoryBackend: mock((sessionRecord: any) =>
+          createRepositoryBackendForSession: mock((sessionRecord: any) =>
             Promise.resolve({
               getType: () => "local",
               pr: {
@@ -185,7 +185,7 @@ describe("Session Approve Workflow", () => {
     failingGitService.execInRepository = failingExecSpy as any;
 
     await expect(
-      approveSessionFromParams(
+      approveSessionPr(
         { session: "test-session" }, // Fixed: use 'session' instead of '_session'
         {
           gitService: failingGitService,

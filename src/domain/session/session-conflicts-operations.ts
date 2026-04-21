@@ -8,7 +8,7 @@
 import { analyzeConflictRegions } from "../git/conflict-analysis-operations";
 import { getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface } from "./index";
-import { getSessionDirFromParams } from "../session";
+import { getSessionDirImpl } from "./session-lifecycle-operations";
 import { getCurrentWorkingDirectory } from "../../utils/process";
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
@@ -73,12 +73,18 @@ export async function scanSessionConflicts(
 
     if (params.name) {
       // Get specific session by name
-      const sessionDir = await getSessionDirFromParams({ session: params.name });
+      const sessionDir = await getSessionDirImpl(
+        { name: params.name },
+        { sessionDB: sessionProvider }
+      );
       sessionPath = sessionDir;
       actualSessionId = params.name;
     } else if (params.task) {
       // Get session by task ID
-      const sessionDir = await getSessionDirFromParams({ task: params.task });
+      const sessionDir = await getSessionDirImpl(
+        { task: params.task },
+        { sessionDB: sessionProvider }
+      );
       sessionPath = sessionDir;
       // Derive session ID from the resolved path (works for both UUID and legacy formats)
       actualSessionId = sessionPath.split("/").pop() || params.task;

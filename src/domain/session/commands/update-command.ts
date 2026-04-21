@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { updateSessionFromParams, updateSessionFromParams as updateSession } from "../../session";
+// This file has been removed. Use updateSessionImpl from session-update-operations directly.
+export {};

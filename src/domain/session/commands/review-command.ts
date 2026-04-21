@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { sessionReviewFromParams as sessionReview } from "../../session";
+// This file has been removed. Use sessionReviewImpl from session-review-operations directly.
+export {};

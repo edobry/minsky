@@ -1,12 +1,12 @@
 import { describe, test, expect, mock } from "bun:test";
-import { sessionReviewFromParams } from "./session";
+import { sessionReviewImpl } from "./session/session-review-operations";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
-describe("sessionReviewFromParams", () => {
+describe("sessionReviewImpl", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
     const getSessionSpy = mock((name: unknown) =>
@@ -52,7 +52,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test the sessionReview functionality
-    const result = await sessionReviewFromParams({ session: "testSession" }, deps as any);
+    const result = await sessionReviewImpl({ session: "testSession" }, deps as any);
 
     // Verify calls with individual spies
     expect(getSessionSpy).toHaveBeenCalledWith("testSession");
@@ -120,7 +120,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test by task ID
-    const result = await sessionReviewFromParams({ task: "md#123" }, deps as any);
+    const result = await sessionReviewImpl({ task: "md#123" }, deps as any);
 
     // Verify calls with individual spies
     expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("md#123");
@@ -155,7 +155,7 @@ describe("sessionReviewFromParams", () => {
 
     // Test error case
     try {
-      await sessionReviewFromParams({ repo: "/test/repo/path" }, deps as any);
+      await sessionReviewImpl({ repo: "/test/repo/path" }, deps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
@@ -184,7 +184,7 @@ describe("sessionReviewFromParams", () => {
 
     // Test with non-existent session
     try {
-      await sessionReviewFromParams({ session: "non-existent-session" }, deps as any);
+      await sessionReviewImpl({ session: "non-existent-session" }, deps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {

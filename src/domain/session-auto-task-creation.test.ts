@@ -5,8 +5,9 @@
  * with the --description parameter.
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { startSessionFromParams, type SessionProviderInterface } from "./session";
-import type { SessionStartParams } from "../schemas/session";
+import { startSessionImpl } from "./session/start-session-operations";
+import type { SessionStartParameters } from "./schemas";
+import type { SessionProviderInterface } from "./session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
@@ -17,16 +18,21 @@ import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeWorkspaceUtils } from "./workspace/fake-workspace-utils";
 
+const TEST_REPO_URL = "https://github.com/test/repo.git";
+
+function makeGetRepositoryBackend(repoUrl = TEST_REPO_URL) {
+  return async () => ({
+    repoUrl,
+    backendType: RepositoryBackendType.GITHUB as RepositoryBackendType,
+    github: { owner: "test", repo: "repo" },
+  });
+}
+
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
-  let _mockResolveRepoPath: (params: any) => Promise<string>;
-  let mockResolveRepositoryAndBackend: () => Promise<{
-    repoUrl: string;
-    backendType: RepositoryBackendType;
-  }>;
   let createTaskSpy: any;
 
   beforeEach(async () => {
@@ -75,31 +81,21 @@ describe("Session Auto-Task Creation", () => {
 
     // Mock workspace utils using FakeWorkspaceUtils
     mockWorkspaceUtils = new FakeWorkspaceUtils();
-
-    // Mock resolve repo path
-    _mockResolveRepoPath = () => Promise.resolve("test-repo");
-
-    // Mock resolve repository and backend
-    mockResolveRepositoryAndBackend = () =>
-      Promise.resolve({
-        repoUrl: "https://github.com/test/repo.git",
-        backendType: RepositoryBackendType.GITHUB,
-      });
   });
 
   test("should auto-create task when description is provided", async () => {
     const params = {
-      repo: "https://github.com/test/repo.git",
+      repo: TEST_REPO_URL,
       description: "Fix the authentication bug", // Provided for auto-creation
       // No taskId or sessionId provided - both should be auto-generated
     };
 
-    const result = await startSessionFromParams(params as unknown as SessionStartParams, {
+    const result = await startSessionImpl(params as unknown as SessionStartParameters, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      resolveRepositoryAndBackend: mockResolveRepositoryAndBackend,
+      getRepositoryBackend: makeGetRepositoryBackend(),
     });
 
     // Verify session was created with task ID (qualified format)
@@ -113,16 +109,16 @@ describe("Session Auto-Task Creation", () => {
   test("should not auto-create task when task ID is provided", async () => {
     const params = {
       task: "md#001",
-      repo: "https://github.com/test/repo.git",
+      repo: TEST_REPO_URL,
       // sessionId will be auto-generated from taskId
     };
 
-    await startSessionFromParams(params as unknown as SessionStartParams, {
+    await startSessionImpl(params as unknown as SessionStartParameters, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      resolveRepositoryAndBackend: mockResolveRepositoryAndBackend,
+      getRepositoryBackend: makeGetRepositoryBackend(),
     });
 
     // Since task ID was provided, the auto-creation flow shouldn't be used
@@ -132,17 +128,17 @@ describe("Session Auto-Task Creation", () => {
   test("should use session ID when provided with description", async () => {
     const params = {
       name: "custom-session",
-      repo: "https://github.com/test/repo.git",
+      repo: TEST_REPO_URL,
       description: "Fix the authentication bug", // Provided for auto-creation
       // No task provided - should auto-create from description
     };
 
-    const result = await startSessionFromParams(params as unknown as SessionStartParams, {
+    const result = await startSessionImpl(params as unknown as SessionStartParameters, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      resolveRepositoryAndBackend: mockResolveRepositoryAndBackend,
+      getRepositoryBackend: makeGetRepositoryBackend(),
     });
 
     // Verify session ID is the provided name, not auto-generated
