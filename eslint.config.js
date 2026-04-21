@@ -27,6 +27,8 @@ export default [
   prettierConfig, // Disables ESLint rules that conflict with Prettier
   {
     ignores: [
+      // Exclude ESLint rule test fixtures (they intentionally violate rules)
+      "eslint-rules/__fixtures__/**",
       // Exclude other development/temporary files
       "test-tmp/**",
       "test-analysis/**",
@@ -179,7 +181,7 @@ export default [
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
       "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
-      "custom/no-validation-error-in-execute": "warn", // ADR-004: ValidationError belongs in validate(), not execute()
+      "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
       "custom/no-domain-singleton": [
         "error",
         {

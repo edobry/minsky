@@ -19,7 +19,9 @@ The argument is a PR number (e.g., `/review-pr 328`) or a GitHub PR URL.
 
 ### 1. Gather context
 
-Fetch in parallel:
+Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the diff, and the task spec.
+
+If the session tool fails (e.g., no session exists for this PR), fall back to fetching in parallel:
 
 - PR metadata: `mcp__github__pull_request_read` with `method: "get"`
 - CI status: `mcp__github__pull_request_read` with `method: "get_check_runs"`
@@ -27,11 +29,11 @@ Fetch in parallel:
 
 ### 2. Identify the task
 
-Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/mt-671`). If there's an associated task, fetch its spec with `mcp__minsky__tasks_spec_get`. This is needed for step 6.
+Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/mt-671`). If the task spec was not already returned by step 1, fetch it with `mcp__minsky__tasks_spec_get`. This is needed for step 6.
 
 ### 3. Read the diff
 
-Use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
+If the diff was not already returned by step 1, use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
 
 ### 4. Analyze changes
 
