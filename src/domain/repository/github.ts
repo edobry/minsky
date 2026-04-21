@@ -622,10 +622,18 @@ Repository: https://github.com/${this.owner}/${this.repo}
         return updatePR(gh, options, () => this.getSessionDB());
       },
 
-      merge: async (prIdentifier: string | number, _session?: string): Promise<MergeInfo> => {
+      merge: async (
+        prIdentifier: string | number,
+        _session?: string,
+        options?: import("./index").MergePROptions
+      ): Promise<MergeInfo> => {
         const gh = this.requireGitHubContext();
-        return mergePR(gh, prIdentifier, (prNum: number, octokit: Octokit) =>
-          diagnoseMergeBlocker(gh, prNum, octokit)
+        return mergePR(
+          gh,
+          prIdentifier,
+          (prNum: number, octokit: Octokit) => diagnoseMergeBlocker(gh, prNum, octokit),
+          options?.mergeTrailers,
+          options?.tokenOverride
         );
       },
 
