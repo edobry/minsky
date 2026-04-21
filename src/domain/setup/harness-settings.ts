@@ -21,7 +21,6 @@ import { deepMergeConfigs } from "../configuration/deep-merge";
  */
 export const CLAUDE_CODE_RECOMMENDED_SETTINGS: Record<string, unknown> = {
   model: "sonnet",
-  advisorModel: "opus",
   env: {
     CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60",
   },
