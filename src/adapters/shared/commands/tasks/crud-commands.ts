@@ -423,7 +423,8 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskGraphService?: () => TaskGraphService
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -528,7 +529,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       autoIndexTaskEmbedding(
         result.id,
         this.getPersistenceProvider
-          ? { getPersistenceProvider: this.getPersistenceProvider }
+          ? {
+              getPersistenceProvider: this.getPersistenceProvider,
+              getTaskService: this.getTaskService,
+            }
           : undefined
       );
 
@@ -715,8 +719,10 @@ export const createTasksGetCommand = (
 
 export const createTasksCreateCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskGraphService?: () => TaskGraphService
-): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider, getTaskGraphService);
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
+): TasksCreateCommand =>
+  new TasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksDeleteCommand = (
   getPersistenceProvider?: () => PersistenceProvider,

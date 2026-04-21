@@ -5,8 +5,8 @@
  * a single MCP tool for streamlined subagent dispatch.
  */
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import {
   detectAgentHarness,
@@ -62,7 +62,8 @@ export function createTasksDispatchCommand(
   getPersistenceProvider: () => PersistenceProvider,
   getSessionProvider: () => Promise<
     import("../../../../domain/session/types").SessionProviderInterface
-  >
+  >,
+  getTaskGraphService: () => TaskGraphService
 ) {
   return {
     id: "tasks.dispatch",
@@ -103,10 +104,7 @@ export function createTasksDispatchCommand(
       // Step 2: Add parent edge if parentTaskId provided
       if (p.parentTaskId) {
         try {
-          const persistence = getPersistenceProvider();
-          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-          const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-          const service = new TaskGraphService(db);
+          const service = getTaskGraphService();
           await service.addParent(taskId, p.parentTaskId);
           log.debug("[tasks.dispatch] Parent edge added", { taskId, parent: p.parentTaskId });
         } catch (err) {

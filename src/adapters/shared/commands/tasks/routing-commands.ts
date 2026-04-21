@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import type { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
 // Re-export RouteStep for callers that reference it from this file
@@ -75,7 +76,8 @@ const tasksRouteParams = {
  */
 export function createTasksAvailableCommand(
   getPersistenceProvider: () => PersistenceProvider,
-  getTaskRoutingService: () => TaskRoutingService
+  getTaskRoutingService: () => TaskRoutingService,
+  getTaskService: () => TaskServiceInterface
 ) {
   return {
     id: "tasks.available",
@@ -124,14 +126,7 @@ export function createTasksAvailableCommand(
 
       // Fall back to listing tasks without dependency scoring
       if (!dependencyDataAvailable) {
-        // Since we don't have SQL, we manually list tasks without dependency scoring
-        const { createConfiguredTaskService } = await import(
-          "../../../../domain/tasks/taskService"
-        );
-        const fallbackTaskService = await createConfiguredTaskService({
-          workspacePath: process.cwd(),
-          persistenceProvider: provider,
-        });
+        const fallbackTaskService = getTaskService();
 
         const allTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,

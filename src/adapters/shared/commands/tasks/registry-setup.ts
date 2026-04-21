@@ -99,12 +99,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksSpecCommand(getPersistenceProvider),
     createTasksListCommand(getPersistenceProvider, getTaskGraphService),
     createTasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
-    createTasksCreateCommand(getPersistenceProvider, getTaskGraphService),
-    createTasksEditCommand(getPersistenceProvider),
+    createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksEditCommand(getPersistenceProvider, getTaskService),
     createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService),
-    new TasksSimilarCommand(getPersistenceProvider),
-    new TasksSearchCommand(getPersistenceProvider),
-    new TasksIndexEmbeddingsCommand(getPersistenceProvider),
+    new TasksSimilarCommand(getPersistenceProvider, getTaskService),
+    new TasksSearchCommand(getPersistenceProvider, getTaskService),
+    new TasksIndexEmbeddingsCommand(getPersistenceProvider, getTaskService),
     new TasksEmbeddingsStatusCommand(),
     new TasksEmbeddingsRepairCommand(),
     createTasksMigrateBackendCommand(),
@@ -118,15 +118,15 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksChildrenCommand(getTaskGraphService),
     createTasksParentCommand(getTaskGraphService),
     // Routing commands
-    createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService),
+    createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService, getTaskService),
     createTasksRouteCommand(getPersistenceProvider, getTaskRoutingService),
     // Dispatch (subtask + session + prompt in one call)
     createTasksDispatchCommand(getPersistenceProvider, getSessionProvider, getTaskGraphService),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
     // Context commands (decompose, estimate, analyze)
-    createTasksDecomposeCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
-    createTasksEstimateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
-    createTasksAnalyzeCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksDecomposeCommand(getTaskGraphService, getTaskService),
+    createTasksEstimateCommand(getTaskGraphService, getTaskService),
+    createTasksAnalyzeCommand(getTaskGraphService, getTaskService),
   ];
 }

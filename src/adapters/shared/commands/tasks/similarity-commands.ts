@@ -3,7 +3,7 @@ import type { CommandExecutionContext } from "../../command-registry";
 import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -35,7 +35,10 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly description = "Find tasks similar to the given task using embeddings";
   readonly parameters = tasksSimilarParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -65,13 +68,16 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const { createConfiguredTaskService } = await import(
-          "../../../../domain/tasks/taskService"
-        );
-        const taskService = await createConfiguredTaskService({
-          workspacePath: process.cwd(),
-          persistenceProvider: this.getPersistenceProvider?.(),
-        });
+        const taskService = this.getTaskService?.();
+        if (!taskService) {
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: "(No task service)",
+            status: "UNKNOWN",
+          });
+          continue;
+        }
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -111,13 +117,10 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for similarity search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    if (!this.getPersistenceProvider)
+      throw new Error("Persistence provider required for similarity search");
+    if (!this.getTaskService) throw new Error("Task service required for similarity search");
+    const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
     const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
@@ -162,7 +165,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly description = "Search for tasks similar to a natural language query";
   readonly parameters = tasksSearchParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -192,13 +198,16 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const { createConfiguredTaskService } = await import(
-          "../../../../domain/tasks/taskService"
-        );
-        const taskService = await createConfiguredTaskService({
-          workspacePath: process.cwd(),
-          persistenceProvider: this.getPersistenceProvider?.(),
-        });
+        const taskService = this.getTaskService?.();
+        if (!taskService) {
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: "(No task service)",
+            status: "UNKNOWN",
+          });
+          continue;
+        }
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -238,13 +247,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for task search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    if (!this.getPersistenceProvider)
+      throw new Error("Persistence provider required for task search");
+    if (!this.getTaskService) throw new Error("Task service required for task search");
+    const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
 
     // Immediate progress hint to stderr unless JSON/quiet
     try {
@@ -345,7 +351,8 @@ import { getConfiguration } from "../../../../domain/configuration";
 import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(
-  persistenceProvider: import("../../../../domain/persistence/types").BasePersistenceProvider
+  persistenceProvider: import("../../../../domain/persistence/types").BasePersistenceProvider,
+  taskService: TaskServiceInterface
 ): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
   const model = cfg.embeddings?.model || "text-embedding-3-small";
@@ -369,12 +376,6 @@ export async function createTaskSimilarityService(
     resolvedProvider as import("../../../../domain/persistence/types").VectorCapablePersistenceProvider
   ).getVectorStorage(dimension);
 
-  // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
-  const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-  const taskService = await createConfiguredTaskService({
-    workspacePath: process.cwd(),
-    persistenceProvider: resolvedProvider,
-  });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
