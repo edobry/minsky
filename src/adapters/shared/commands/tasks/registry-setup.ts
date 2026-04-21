@@ -118,13 +118,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksChildrenCommand(getTaskGraphService),
     createTasksParentCommand(getTaskGraphService),
     // Routing commands
-    createTasksAvailableCommand(getPersistenceProvider, getTaskGraphService, getTaskRoutingService),
-    createTasksRouteCommand(
-      getPersistenceProvider,
-      getTaskGraphService,
-      getTaskRoutingService,
-      getTaskService
-    ),
+    createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService),
+    createTasksRouteCommand(getPersistenceProvider, getTaskRoutingService),
     // Dispatch (subtask + session + prompt in one call)
     createTasksDispatchCommand(getPersistenceProvider, getSessionProvider, getTaskGraphService),
     // Orchestrate (find dispatchable subtasks for a parent)

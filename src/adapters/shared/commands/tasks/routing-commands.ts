@@ -1,10 +1,10 @@
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import { TaskRoutingService, type RouteStep } from "../../../../domain/tasks/task-routing-service";
-import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
+import type { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
+
+// Re-export RouteStep for callers that reference it from this file
+export type { RouteStep } from "../../../../domain/tasks/task-routing-service";
 
 // Parameter definitions for available tasks command
 const tasksAvailableParams = {
@@ -73,7 +73,10 @@ const tasksRouteParams = {
 /**
  * Command to show all tasks currently available to work on (unblocked)
  */
-export function createTasksAvailableCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksAvailableCommand(
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskRoutingService: () => TaskRoutingService
+) {
   return {
     id: "tasks.available",
     name: "available",
@@ -87,24 +90,15 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-        persistenceProvider: provider,
-      });
-
       // Track whether we have dependency data available
       let dependencyDataAvailable = true;
       let availableTasks;
 
       // Try to use the full routing service with dependency graph
       const hasSql = provider.capabilities.sql;
-      const db = hasSql
-        ? ((await provider.getDatabaseConnection?.()) as PostgresJsDatabase)
-        : undefined;
 
-      if (hasSql && db) {
-        const graphService = new TaskGraphService(db);
-        const routingService = new TaskRoutingService(graphService, taskService);
+      if (hasSql) {
+        const routingService = getTaskRoutingService();
 
         try {
           availableTasks = await routingService.findAvailableTasks({
@@ -130,7 +124,16 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
 
       // Fall back to listing tasks without dependency scoring
       if (!dependencyDataAvailable) {
-        const allTasks = await taskService.listTasks({
+        // Since we don't have SQL, we manually list tasks without dependency scoring
+        const { createConfiguredTaskService } = await import(
+          "../../../../domain/tasks/taskService"
+        );
+        const fallbackTaskService = await createConfiguredTaskService({
+          workspacePath: process.cwd(),
+          persistenceProvider: provider,
+        });
+
+        const allTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,
         });
 
@@ -154,7 +157,7 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
       }
 
       // Filter by readiness score (default 0.5 = shows partially-ready tasks)
-      const readyTasks = availableTasks.filter(
+      const readyTasks = (availableTasks ?? []).filter(
         (task) => task.readinessScore >= params.minReadiness
       );
 
@@ -229,7 +232,10 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
 /**
  * Command to generate implementation route to a target task
  */
-export function createTasksRouteCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksRouteCommand(
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskRoutingService: () => TaskRoutingService
+) {
   return {
     id: "tasks.route",
     name: "route",
@@ -242,18 +248,7 @@ export function createTasksRouteCommand(getPersistenceProvider: () => Persistenc
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
-      const db = (await provider.getDatabaseConnection?.()) as PostgresJsDatabase | undefined;
-
-      if (!db) {
-        throw new Error("Failed to get database connection from persistence provider");
-      }
-
-      const graphService = new TaskGraphService(db);
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-        persistenceProvider: provider,
-      });
-      const routingService = new TaskRoutingService(graphService, taskService);
+      const routingService = getTaskRoutingService();
 
       let route;
       try {
@@ -287,7 +282,7 @@ export function createTasksRouteCommand(getPersistenceProvider: () => Persistenc
       }
 
       // Group steps by depth for phase visualization
-      const stepsByDepth = new Map<number, RouteStep[]>();
+      const stepsByDepth = new Map<number, typeof route.steps>();
       for (const step of route.steps) {
         if (!stepsByDepth.has(step.depth)) {
           stepsByDepth.set(step.depth, []);
