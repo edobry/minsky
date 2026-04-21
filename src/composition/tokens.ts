@@ -16,6 +16,8 @@ export const TOKENS = {
   taskService: "taskService",
   workspaceUtils: "workspaceUtils",
   repositoryBackend: "repositoryBackend",
+  taskGraphService: "taskGraphService",
+  taskRoutingService: "taskRoutingService",
 } as const;
 
 export type TokenKey = keyof typeof TOKENS;
