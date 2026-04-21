@@ -13,6 +13,7 @@ import { exit } from "../../utils/process";
 
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
+import { registerRepoTools } from "../../adapters/mcp/repo";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
@@ -72,6 +73,7 @@ async function registerAllTools(
   registerPersistenceTools(commandMapper, container);
 
   registerGitTools(commandMapper, container);
+  registerRepoTools(commandMapper, container);
 
   registerInitTools(commandMapper, container);
   registerRulesTools(commandMapper, container);
