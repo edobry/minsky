@@ -378,7 +378,12 @@ Please provide a title for your pull request:
         try {
           const taskService = await createConfiguredTaskService({
             workspacePath: process.cwd(),
-            persistenceProvider: deps.persistenceProvider,
+            persistenceProvider: (() => {
+              if (!deps.persistenceProvider) {
+                throw new Error("persistenceProvider is required in session PR deps");
+              }
+              return deps.persistenceProvider;
+            })(),
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);

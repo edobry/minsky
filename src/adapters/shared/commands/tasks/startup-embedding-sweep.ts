@@ -11,14 +11,13 @@ const STARTUP_SWEEP_CONCURRENCY = 2;
  *   Required — callers must pass it from the container.
  */
 export async function triggerStartupEmbeddingSweep(
-  persistenceProvider?: BasePersistenceProvider
+  persistenceProvider: BasePersistenceProvider
 ): Promise<void> {
   // Check config gate
   const { getConfiguration } = await import("../../../../domain/configuration");
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
-  if (!persistenceProvider) return;
   if (!persistenceProvider.capabilities.sql) return;
 
   // Find tasks missing embeddings

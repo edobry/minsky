@@ -48,7 +48,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -110,7 +110,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     if (!currentTask) {
@@ -209,7 +209,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
           ? await resolveRepoPath({ repo: params.repo }, { sessionProvider: sessionDB })
           : await resolveMainWorkspacePath(sessionDB),
         backend: params.backend,
-        persistenceProvider: this.getPersistenceProvider?.(),
+        persistenceProvider: this.getPersistenceProvider(),
       });
 
       // Access internal multi-backend methods via a typed extension interface
@@ -491,7 +491,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
  * Factory function for creating the edit command
  */
 export function createTasksEditCommand(
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksEditCommand {
   return new TasksEditCommand(getPersistenceProvider);
 }

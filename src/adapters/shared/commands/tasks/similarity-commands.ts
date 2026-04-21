@@ -35,7 +35,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly description = "Find tasks similar to the given task using embeddings";
   readonly parameters = tasksSimilarParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -70,7 +70,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
         );
         const taskService = await createConfiguredTaskService({
           workspacePath: process.cwd(),
-          persistenceProvider: this.getPersistenceProvider?.(),
+          persistenceProvider: this.getPersistenceProvider(),
         });
         const task = await taskService.getTask(result.id);
 
@@ -111,13 +111,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for similarity search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    const service = await this.createService(this.getPersistenceProvider());
     const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
@@ -162,7 +156,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly description = "Search for tasks similar to a natural language query";
   readonly parameters = tasksSearchParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -197,7 +191,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
         );
         const taskService = await createConfiguredTaskService({
           workspacePath: process.cwd(),
-          persistenceProvider: this.getPersistenceProvider?.(),
+          persistenceProvider: this.getPersistenceProvider(),
         });
         const task = await taskService.getTask(result.id);
 
@@ -238,13 +232,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for task search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    const service = await this.createService(this.getPersistenceProvider());
 
     // Immediate progress hint to stderr unless JSON/quiet
     try {

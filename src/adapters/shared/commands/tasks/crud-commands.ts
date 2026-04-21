@@ -76,7 +76,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly description = "List tasks with optional filtering";
   readonly parameters = tasksListParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -108,7 +108,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         limit: params.limit,
         tags,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
@@ -278,7 +278,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   readonly description = "Get details of a specific task";
   readonly parameters = tasksGetParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -433,7 +433,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
   readonly description = "Create a new task";
   readonly parameters = tasksCreateParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -620,7 +620,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly description = "Delete a task";
   readonly parameters = tasksDeleteParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -644,11 +644,11 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         taskId: validatedTaskId,
         force: params.force ?? false,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     // Clean up parent-child edges for the deleted task (D7: orphan children)
-    if (result.success && this.getPersistenceProvider) {
+    if (result.success) {
       try {
         const persistence = this.getPersistenceProvider();
         const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
@@ -696,7 +696,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         ...this.createTaskParams(params),
         taskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     // Guard against null task to avoid accessing properties on null
@@ -721,17 +721,17 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
  * Factory functions for creating command instances
  */
 export const createTasksListCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksListCommand => new TasksListCommand(getPersistenceProvider);
 
 export const createTasksGetCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksGetCommand => new TasksGetCommand(getPersistenceProvider);
 
 export const createTasksCreateCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider);
 
 export const createTasksDeleteCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider);

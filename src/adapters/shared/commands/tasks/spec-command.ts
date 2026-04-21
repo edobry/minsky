@@ -27,7 +27,7 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
   readonly description = "Get task specification content";
   readonly parameters = tasksSpecParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -45,7 +45,7 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
         taskId: validatedTaskId,
         section: params.section,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     this.debug("Task specification retrieved successfully");
@@ -70,5 +70,5 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
  * Factory function for creating command instance
  */
 export const createTasksSpecCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksSpecCommand => new TasksSpecCommand(getPersistenceProvider);

@@ -38,7 +38,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
   readonly description = "Get the status of a task";
   readonly parameters = tasksStatusGetParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -55,7 +55,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     this.debug("Task status retrieved successfully");
@@ -78,7 +78,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
   readonly description = "Set the status of a task";
   readonly parameters = tasksStatusSetParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
     super();
   }
 
@@ -96,7 +96,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
     this.debug("Previous status retrieved successfully");
 
@@ -128,7 +128,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         taskId: validatedTaskId,
         status,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider() }
     );
 
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
@@ -189,9 +189,9 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
  * Factory functions for creating command instances
  */
 export const createTasksStatusGetCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksStatusGetCommand => new TasksStatusGetCommand(getPersistenceProvider);
 
 export const createTasksStatusSetCommand = (
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider: () => PersistenceProvider
 ): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider);

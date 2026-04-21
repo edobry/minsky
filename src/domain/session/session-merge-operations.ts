@@ -182,7 +182,12 @@ export async function mergeSessionPr(
     deps?.taskService ||
     (await createConfiguredTaskService({
       workspacePath: originalRepoPath,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: (() => {
+        if (!deps?.persistenceProvider) {
+          throw new Error("persistenceProvider is required in SessionMergeDependencies");
+        }
+        return deps.persistenceProvider;
+      })(),
     }));
   const gitService = deps?.gitService || createGitService();
 

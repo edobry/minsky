@@ -59,7 +59,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   registerAiCommands();
 
   // Register tools commands
-  registerToolsCommands();
+  registerToolsCommands(container);
 
   // Register changeset commands
   registerChangesetCommands();
