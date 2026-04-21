@@ -10,6 +10,7 @@ import { readTextFile } from "../../../utils/fs";
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
+  persistenceProvider?: import("../../persistence/types").PersistenceProvider;
 }
 
 /**
@@ -109,6 +110,7 @@ export async function sessionPr(
       {
         sessionDB,
         gitService,
+        persistenceProvider: deps.persistenceProvider,
       },
       options
     );
