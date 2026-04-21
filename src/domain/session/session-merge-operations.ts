@@ -45,7 +45,8 @@ export function validateSessionApprovedForMerge(
     if (!sessionRecord.pullRequest) {
       throw new ValidationError(
         `❌ MERGE REJECTED: Session "${sessionId}" has no GitHub pull request.\n` +
-          `   Create or repair the PR first with 'minsky session pr create' or 'minsky session pr get'`
+          `   Create a PR with 'minsky session pr create', or if a PR already exists on GitHub,\n` +
+          `   repair the linkage with 'minsky session repair --pr-state'`
       );
     }
     // Approval and mergeability are delegated to the GitHub backend in mergeSessionPr()
