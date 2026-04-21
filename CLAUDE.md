@@ -57,18 +57,19 @@ Subagents have limited tool-call budgets and context windows. They cannot detect
 
 Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID>/` (branch names follow `task/<backend>-<id>` format). The correct working pattern:
 
-1. **ALL work goes through sessions** — even small fixes. Never edit main workspace directly.
-2. **Main agent** orchestrates: create tasks, start sessions, launch subagents, review PRs, merge.
-3. **Subagents** do the full workflow in session directories: edit code → `mcp__minsky__session_commit` → `mcp__minsky__session_pr_create`. They do NOT merge — that happens after review.
-4. **Before creating a PR**, always ensure the session is up-to-date with main. `mcp__minsky__session_pr_create` automatically calls `session_update` (which rebases the session on latest main) before creating the PR — this prevents merge-induced formatting drift and ensures clean fast-forward merges. You can also call `mcp__minsky__session_update` explicitly before committing if needed.
-5. **Main agent reviews** the PR using the `/review-pr` skill, which verifies findings against the actual codebase and posts the review to GitHub. Never merge without a posted GitHub review.
-6. **After merging a PR**, the local workspace is stale (merge happens on GitHub). A PostToolUse hook auto-pulls after `session_pr_merge`. If starting a fresh conversation after prior merges, verify the workspace is current before analyzing code.
-7. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
-8. All file operations in sessions MUST use absolute paths.
-9. **NEVER use `skipInstall: true`** when starting sessions. Sessions without `node_modules` cannot pass typecheck hooks, blocking subagent completion. Always let deps install.
-10. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
-11. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
-12. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
+1. **ALL code changes go through sessions** — even small fixes. Never edit main workspace directly. Investigation/planning happens before the session (reading main workspace is fine).
+2. **Before starting a session**, the task must go through PLANNING → READY. Pick up the task (`status_set PLANNING`), investigate the codebase, update the spec with findings, then set to READY when planning is complete. Only then call `session_start`.
+3. **Main agent** orchestrates: create tasks, plan, start sessions, launch subagents, review PRs, merge.
+4. **Subagents** do the full workflow in session directories: edit code → `mcp__minsky__session_commit` → `mcp__minsky__session_pr_create`. They do NOT merge — that happens after review.
+5. **Before creating a PR**, always ensure the session is up-to-date with main. `mcp__minsky__session_pr_create` automatically calls `session_update` (which rebases the session on latest main) before creating the PR — this prevents merge-induced formatting drift and ensures clean fast-forward merges. You can also call `mcp__minsky__session_update` explicitly before committing if needed.
+6. **Main agent reviews** the PR using the `/review-pr` skill, which verifies findings against the actual codebase and posts the review to GitHub. Never merge without a posted GitHub review.
+7. **After merging a PR**, the local workspace is stale (merge happens on GitHub). A PostToolUse hook auto-pulls after `session_pr_merge`. If starting a fresh conversation after prior merges, verify the workspace is current before analyzing code.
+8. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
+9. All file operations in sessions MUST use absolute paths.
+10. **NEVER use `skipInstall: true`** when starting sessions. Sessions without `node_modules` cannot pass typecheck hooks, blocking subagent completion. Always let deps install.
+11. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
+12. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+13. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
 
 ### Session lifecycle: one session, one merge
 
