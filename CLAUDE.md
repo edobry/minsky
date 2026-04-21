@@ -70,6 +70,10 @@ All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `W
 - Max 400 lines per file (warn), 1500 (error)
 - 10 custom ESLint rules enforce architectural patterns
 
+## Compact Instructions
+
+When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+
 ## Key Architecture
 
 - Clean architecture: Domain → Adapters → Infrastructure
