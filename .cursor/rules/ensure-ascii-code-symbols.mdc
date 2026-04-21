@@ -1,9 +1,24 @@
 ---
 name: Ensure ASCII Code Symbols
-description: "REQUIRED: Generated code symbols (variables, functions, etc.) MUST use standard ASCII characters only. Prohibits non-ASCII in symbols."
-globs: ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.rb", "**/*.php", "**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp"]
+description: 'REQUIRED: Generated code symbols (variables, functions, etc.) MUST use standard ASCII characters only. Prohibits non-ASCII in symbols.'
+globs:
+  - '**/*.ts'
+  - '**/*.js'
+  - '**/*.tsx'
+  - '**/*.jsx'
+  - '**/*.py'
+  - '**/*.go'
+  - '**/*.java'
+  - '**/*.cs'
+  - '**/*.rb'
+  - '**/*.php'
+  - '**/*.c'
+  - '**/*.cpp'
+  - '**/*.h'
+  - '**/*.hpp'
 alwaysApply: true
-tags: [typescript]
+tags:
+  - typescript
 ---
 # Rule: Ensure ASCII Code Symbols
 
@@ -35,4 +50,4 @@ function 안녕하세요() { // Korean in function name
 function helloWorld() {
   let pi = 3.14;
   const OPTION_A = "value";
-} 
+}

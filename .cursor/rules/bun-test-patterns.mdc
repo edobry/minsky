@@ -1,7 +1,8 @@
 ---
 description: Use this when doing stuff
 alwaysApply: false
-tags: [testing]
+tags:
+  - testing
 ---
 # Bun Test Patterns
 

@@ -1,8 +1,8 @@
 ---
-description: Use this when deciding where to put code, or when refactoring modules or moving functions around
-globs:
+description: 'Use this when deciding where to put code, or when refactoring modules or moving functions around'
 alwaysApply: false
-tags: [architecture]
+tags:
+  - architecture
 ---
 # Domain-Oriented Module Organization
 

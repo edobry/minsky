@@ -37,6 +37,10 @@ function createMockTarget(
       return `${workspacePath}/mock-${id}.md`;
     },
 
+    listOutputFiles(_rules: Rule[], options: TargetOptions, workspacePath: string): string[] {
+      return [options.outputPath || `${workspacePath}/mock-${id}.md`];
+    },
+
     async compile(
       rules: Rule[],
       options: TargetOptions,

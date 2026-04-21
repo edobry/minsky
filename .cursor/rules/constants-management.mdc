@@ -1,8 +1,8 @@
 ---
 description: Use when defining or refactoring string constants or identifiers. Apply when strings are duplicated or represent domain concepts.
-globs:
 alwaysApply: false
-tags: [code-style]
+tags:
+  - code-style
 ---
 # Constants Management
 

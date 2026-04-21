@@ -1,8 +1,9 @@
 ---
-description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
-globs:
+description: 'Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation'
 alwaysApply: false
-tags: [code-style, testing]
+tags:
+  - code-style
+  - testing
 ---
 # CLI Testing
 

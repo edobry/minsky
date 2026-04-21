@@ -1,7 +1,8 @@
 ---
-tags: [workflow]
 description: Delegates to the verify-completion subagent for objective task completion verification
 alwaysApply: false
+tags:
+  - workflow
 ---
 # Completion Verification Protocol
 

@@ -116,6 +116,7 @@ export interface CompileRulesResult {
   success: boolean;
   check?: boolean;
   stale?: boolean;
+  staleFile?: string;
   dryRun?: boolean;
   content?: string;
   filesWritten?: string[];

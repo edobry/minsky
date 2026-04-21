@@ -1,8 +1,5 @@
 ---
-description: Use when writing or refactoring import statements. Prefer static imports over dynamic imports.
-globs: **/*.ts, **/*.tsx, **/*.js, **/*.jsx
-alwaysApply: false
-tags: [typescript]
+{}
 ---
 # Disallow Dynamic Imports
 

@@ -1,8 +1,8 @@
 ---
 description: Use for test execution requirements and verification protocols. Apply after implementing tests per testing-boundaries
-globs:
 alwaysApply: false
-tags: [testing]
+tags:
+  - testing
 ---
 # Test Execution and Verification
 

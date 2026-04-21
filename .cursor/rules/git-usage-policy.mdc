@@ -1,7 +1,7 @@
 ---
-tags: [workflow]
+tags:
+  - workflow
 ---
-
 # Git Usage Policy
 
 General best practices for Git usage in the Minsky project. For safety protocols around destructive operations, see the `git-safety` skill.

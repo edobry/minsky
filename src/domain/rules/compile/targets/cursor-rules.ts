@@ -71,6 +71,12 @@ export const cursorRulesTarget: CompileTarget = {
     return join(workspacePath, ".cursor", "rules");
   },
 
+  listOutputFiles(rules: Rule[], options: TargetOptions, workspacePath: string): string[] {
+    const outputDir = options.outputPath || this.defaultOutputPath(workspacePath);
+    const { files } = buildCursorRulesContent(rules, outputDir);
+    return files.map((f) => f.path);
+  },
+
   async compile(
     rules: Rule[],
     options: TargetOptions,

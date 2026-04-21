@@ -1,9 +1,13 @@
 ---
 name: operational-safety-dry-run-first
 description: REQUIRED principle for destructive operations; default to dry-run and require explicit --execute to apply
-globs: ["src/**/*.ts", "src/**/*.md", "**/package.json"]
+globs:
+  - src/**/*.ts
+  - src/**/*.md
+  - '**/package.json'
 alwaysApply: true
-tags: [safety]
+tags:
+  - safety
 ---
 # Operational Safety: Dry-Run First
 

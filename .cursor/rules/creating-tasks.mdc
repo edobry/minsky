@@ -1,7 +1,7 @@
 ---
-tags: [minsky]
+tags:
+  - minsky
 ---
-
 # Task Creation Process
 
 ## ⚠️ MANDATORY: Use the Minsky CLI for Task Creation
