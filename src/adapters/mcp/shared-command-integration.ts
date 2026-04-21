@@ -176,8 +176,9 @@ export function registerSharedCommandsWithMcp(
             }
 
             // ADR-004: validate→execute pipeline
+            let validatedCtx: unknown;
             if (command.validate) {
-              await command.validate(parameters, context);
+              validatedCtx = await command.validate(parameters, context);
             }
 
             // Execute the shared command (no timeout - debug actual hang)
@@ -185,7 +186,8 @@ export function registerSharedCommandsWithMcp(
             log.debug(`[MCP] Parameters being passed:`, parameters);
             log.debug(`[MCP] Context being passed:`, { context });
 
-            const result = await command.execute(parameters, context);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await command.execute(parameters, context, validatedCtx as any);
 
             const duration = Date.now() - startTime;
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });

@@ -30,3 +30,6 @@ export {
 
 // Export canonical session directory resolution utility
 export { resolveSessionDirectory } from "./resolve-session-directory";
+
+// Export read-only interfaces for ADR-004 validate() phase
+export type { ReadonlySessionProvider } from "./readonly-interfaces";

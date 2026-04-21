@@ -18,6 +18,9 @@ import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js"
 import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
 import noIgnoredCommandContext from "./eslint-rules/no-ignored-command-context.js";
+import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
+import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
+import requireInjectable from "./eslint-rules/require-injectable.js";
 
 export default [
   js.configs.recommended,
@@ -112,6 +115,9 @@ export default [
           "no-singleton-reach-in": noSingletonReachIn,
           "no-from-params-in-adapters": noFromParamsInAdapters,
           "no-ignored-command-context": noIgnoredCommandContext,
+          "no-validation-error-in-execute": noValidationErrorInExecute,
+          "no-domain-singleton": noDomainSingleton,
+          "require-injectable": requireInjectable,
         },
       },
     },
@@ -173,6 +179,38 @@ export default [
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
       "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
+      "custom/no-validation-error-in-execute": "warn", // ADR-004: ValidationError belongs in validate(), not execute()
+      "custom/no-domain-singleton": [
+        "error",
+        {
+          allowedNames: [
+            "ruleOperationRegistry",
+            "gitOperationRegistry",
+            "modularGitCommandsManager",
+            "defaultLoader",
+            "legacyConfig",
+            "log",
+            "EXEMPT_COMMANDS",
+            "testConfigManager",
+          ],
+        },
+      ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
+      "custom/require-injectable": [
+        "error",
+        {
+          allowedClasses: [
+            "FakeGitService",
+            "FakeTaskService",
+            "MemoryVectorStorage",
+            "SqliteStorage",
+            "SessionMigrationService",
+            "StorageError",
+            "StorageErrorClassifier",
+            "StorageErrorRecovery",
+            "StorageErrorMonitor",
+          ],
+        },
+      ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

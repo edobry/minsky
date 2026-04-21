@@ -12,6 +12,7 @@
  * @see mt#923 — Phase 1: provenance chain data model
  */
 
+import { injectable } from "tsyringe";
 import { eq, and } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -71,6 +72,7 @@ export function computePreliminaryTier(signals: TierSignals): AuthorshipTier {
   return AuthorshipTier.CO_AUTHORED;
 }
 
+@injectable()
 export class ProvenanceService {
   constructor(private readonly db: PostgresJsDatabase) {}
 
