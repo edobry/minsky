@@ -72,8 +72,8 @@ describe("TaskRoutingService", () => {
       // task-e should be fully available (no dependencies)
       const independentTask = availableTasks.find((task) => task.taskId === "task-e");
       expect(independentTask).toBeDefined();
-      expect(independentTask!.readinessScore).toBe(1.0);
-      expect(independentTask!.blockedBy).toEqual([]);
+      expect(independentTask?.readinessScore).toBe(1.0);
+      expect(independentTask?.blockedBy).toEqual([]);
     });
 
     test("calculates partial readiness for tasks with mixed dependencies", async () => {
@@ -85,14 +85,14 @@ describe("TaskRoutingService", () => {
       // task-b depends on task-a (which is DONE) - should be 100% ready
       const taskB = availableTasks.find((task) => task.taskId === "task-b");
       expect(taskB).toBeDefined();
-      expect(taskB!.readinessScore).toBe(1.0);
-      expect(taskB!.blockedBy).toEqual([]);
+      expect(taskB?.readinessScore).toBe(1.0);
+      expect(taskB?.blockedBy).toEqual([]);
 
       // task-c depends on task-a (which is DONE) - should be 100% ready
       const taskC = availableTasks.find((task) => task.taskId === "task-c");
       expect(taskC).toBeDefined();
-      expect(taskC!.readinessScore).toBe(1.0);
-      expect(taskC!.blockedBy).toEqual([]);
+      expect(taskC?.readinessScore).toBe(1.0);
+      expect(taskC?.blockedBy).toEqual([]);
     });
 
     test("identifies blocked tasks with pending dependencies", async () => {
@@ -104,9 +104,9 @@ describe("TaskRoutingService", () => {
       // task-d depends on task-b and task-c (both TODO) - should have blockers
       const taskD = availableTasks.find((task) => task.taskId === "task-d");
       expect(taskD).toBeDefined();
-      expect(taskD!.readinessScore).toBe(0.0); // Both dependencies are pending
-      expect(taskD!.blockedBy).toContain("task-b");
-      expect(taskD!.blockedBy).toContain("task-c");
+      expect(taskD?.readinessScore).toBe(0.0); // Both dependencies are pending
+      expect(taskD?.blockedBy).toContain("task-b");
+      expect(taskD?.blockedBy).toContain("task-c");
     });
 
     test("filters tasks by status correctly", async () => {
@@ -220,17 +220,17 @@ describe("TaskRoutingService", () => {
       // task-a should be deepest (foundation)
       const stepA = route.steps.find((step) => step.taskId === "task-a");
       expect(stepA).toBeDefined();
-      expect(stepA!.depth).toBe(2); // Deepest dependency
+      expect(stepA?.depth).toBe(2); // Deepest dependency
 
       // task-b and task-c should be intermediate
       const stepB = route.steps.find((step) => step.taskId === "task-b");
       const stepC = route.steps.find((step) => step.taskId === "task-c");
-      expect(stepB!.depth).toBe(1);
-      expect(stepC!.depth).toBe(1);
+      expect(stepB?.depth).toBe(1);
+      expect(stepC?.depth).toBe(1);
 
       // task-d should be the target (depth 0)
       const stepD = route.steps.find((step) => step.taskId === "task-d");
-      expect(stepD!.depth).toBe(0);
+      expect(stepD?.depth).toBe(0);
     });
 
     test("throws error for non-existent target task", async () => {

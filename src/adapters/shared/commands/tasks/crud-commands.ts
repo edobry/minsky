@@ -154,7 +154,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
             if (!childrenMap.has(task.parentTaskId)) {
               childrenMap.set(task.parentTaskId, []);
             }
-            childrenMap.get(task.parentTaskId)!.push(task);
+            childrenMap.get(task.parentTaskId)?.push(task);
           } else {
             rootTasks.push(task);
           }
@@ -163,8 +163,9 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         // Flatten tree back to ordered array with depth tracked separately
         const orderedTasks: typeof tasks = [];
         depthMap = new Map<string, number>();
+        const localDepthMap = depthMap;
         const addWithChildren = (task: (typeof tasks)[0], depth: number) => {
-          depthMap!.set(task.id, depth);
+          localDepthMap.set(task.id, depth);
           orderedTasks.push(task);
           const children = childrenMap.get(task.id) ?? [];
           for (const child of children) {
@@ -200,7 +201,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         const depMap = new Map<string, string[]>();
         for (const edge of depEdges) {
           if (!depMap.has(edge.fromTaskId)) depMap.set(edge.fromTaskId, []);
-          depMap.get(edge.fromTaskId)!.push(edge.toTaskId);
+          depMap.get(edge.fromTaskId)?.push(edge.toTaskId);
         }
 
         // Check which deps are unmet (not DONE/CLOSED)

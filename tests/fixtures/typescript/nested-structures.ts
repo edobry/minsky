@@ -25,6 +25,7 @@ export class DatabaseManager {
       const connection = new this.Connection(`db://${name}`);
       this.connections.set(name, connection);
     }
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return this.connections.get(name)!;
   }
 

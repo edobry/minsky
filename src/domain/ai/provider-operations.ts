@@ -126,7 +126,7 @@ export async function refreshSingleProvider(
   log.info(`Refreshing models for provider: ${provider}`);
   try {
     await cacheService.refreshProvider(provider, {
-      apiKey: providerConfig.apiKey!,
+      apiKey: providerConfig.apiKey,
       baseURL: providerConfig.baseURL,
     });
     log.cli(`✓ Successfully refreshed models for ${provider}`);

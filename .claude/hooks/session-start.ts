@@ -10,6 +10,7 @@ if (process.env.CLAUDE_CODE_REMOTE !== "true") {
   process.exit(0);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 process.chdir(process.env.CLAUDE_PROJECT_DIR!);
 
 // Install Node dependencies if node_modules is missing or incomplete

@@ -180,7 +180,7 @@ export async function execInRepositoryImpl(
   command: string
 ): Promise<string> {
   try {
-    const { stdout } = await execAsync(command!, { cwd: workdir });
+    const { stdout } = await execAsync(command, { cwd: workdir });
     return stdout;
   } catch (error) {
     log.debug("Command execution failed", {

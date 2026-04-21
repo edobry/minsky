@@ -11,7 +11,8 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
 
   function parseKey(key: string): { from: string; to: string; type: RelationshipType } {
     const parts = key.split("→");
-    return { from: parts[0]!, to: parts[1]!, type: parts[2]! as RelationshipType };
+    if (parts.length < 3) throw new Error(`Invalid edge key: ${key}`);
+    return { from: parts[0] as string, to: parts[1] as string, type: parts[2] as RelationshipType };
   }
 
   return {
@@ -338,11 +339,11 @@ describe("TaskGraphService (in-memory)", () => {
       ]);
       const deps = await svc.getAllRelationships("depends");
       expect(deps).toHaveLength(1);
-      expect(deps[0]!.type).toBe("depends");
+      expect(deps[0]?.type).toBe("depends");
 
       const parents = await svc.getAllRelationships("parent");
       expect(parents).toHaveLength(1);
-      expect(parents[0]!.type).toBe("parent");
+      expect(parents[0]?.type).toBe("parent");
     });
 
     it("getRelationshipsForTasks filters by task IDs and type", async () => {

@@ -47,8 +47,8 @@ describe("Cache-before-init detection", () => {
     expect(getStorageMethod).toBeDefined();
 
     // Verify: "this.storage = storage" appears AFTER "await storage.initialize()"
-    const initIdx = getStorageMethod!.indexOf("await storage.initialize()");
-    const assignIdx = getStorageMethod!.indexOf("this.storage = storage");
+    const initIdx = getStorageMethod?.indexOf("await storage.initialize()") ?? -1;
+    const assignIdx = getStorageMethod?.indexOf("this.storage = storage") ?? -1;
     expect(initIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(initIdx);
@@ -62,14 +62,14 @@ describe("Cache-before-init detection", () => {
     )?.[0];
     expect(method).toBeDefined();
 
-    const initIdx = method!.indexOf("await provider.initialize()");
-    const assignIdx = method!.indexOf("this.provider = provider");
+    const initIdx = method?.indexOf("await provider.initialize()") ?? -1;
+    const assignIdx = method?.indexOf("this.provider = provider") ?? -1;
     expect(initIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(initIdx);
 
     // Verify: catch block nulls provider
-    const catchBlock = method!.match(/catch[\s\S]*?throw error/)?.[0];
+    const catchBlock = method?.match(/catch[\s\S]*?throw error/)?.[0];
     expect(catchBlock).toContain("this.provider = null");
   });
 
@@ -79,13 +79,13 @@ describe("Cache-before-init detection", () => {
     const method = source.match(/async initialize\(deps[\s\S]*?throw error;\s*\}\s*\}/)?.[0];
     expect(method).toBeDefined();
 
-    const verifyIdx = method!.indexOf("await sql`SELECT 1`");
-    const assignIdx = method!.indexOf("this.sql = sql");
+    const verifyIdx = method?.indexOf("await sql`SELECT 1`") ?? -1;
+    const assignIdx = method?.indexOf("this.sql = sql") ?? -1;
     expect(verifyIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(verifyIdx);
 
-    const catchBlock = method!.match(/catch[\s\S]*?throw error/)?.[0];
+    const catchBlock = method?.match(/catch[\s\S]*?throw error/)?.[0];
     expect(catchBlock).toContain("this.sql = null");
     expect(catchBlock).toContain("this.db = null");
   });
@@ -108,7 +108,7 @@ describe("Error swallowing prevention", () => {
       const methodBody = source.match(methodRegex)?.[1];
       expect(methodBody).toBeDefined();
 
-      const hasCatchWithDefault = methodBody!.includes("catch") && methodBody!.includes(badReturn);
+      const hasCatchWithDefault = methodBody?.includes("catch") && methodBody?.includes(badReturn);
       expect(hasCatchWithDefault).toBe(false);
     }
   });

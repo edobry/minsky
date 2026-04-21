@@ -110,6 +110,7 @@ describe("Knowledge Commands", () => {
       const cmd = registry.getCommand(SEARCH_CMD);
       expect(cmd).toBeDefined();
 
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({ query: "test query" }, {})) as {
         results: unknown[];
         backend: string;
@@ -144,6 +145,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({ query: "nothing" }, {})) as {
         results: unknown[];
         backend: string;
@@ -167,6 +169,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({ query: "test" }, {})) as {
         results: unknown[];
         backend: string;
@@ -198,6 +201,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SOURCES_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({}, {})) as { sources: unknown[] };
 
       expect(result.sources).toHaveLength(1);
@@ -216,6 +220,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SOURCES_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({}, {})) as { sources: unknown[] };
 
       expect(result.sources).toHaveLength(0);
@@ -244,6 +249,7 @@ describe("Knowledge Commands", () => {
 
       const cmd = registry.getCommand(FETCH_CMD);
       await expect(
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         cmd!.execute({ source: "nonexistent-source", documentId: "doc-1" }, {})
       ).rejects.toThrow('Knowledge source not found: "nonexistent-source"');
     });
@@ -266,6 +272,7 @@ describe("Knowledge Commands", () => {
 
       const cmd = registry.getCommand(FETCH_CMD);
       await expect(
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         cmd!.execute({ source: "test-source", documentId: "doc-1" }, {})
       ).rejects.toThrow("API token not found.");
     });
@@ -299,9 +306,11 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({}, {})) as { reports: SyncReport[] };
 
       expect(result.reports).toHaveLength(1);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const firstReport = result.reports[0]!;
       expect(firstReport.sourceName).toBe("my-notion");
       expect(firstReport.added).toBe(3);
@@ -323,11 +332,13 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({ source: "my-notion", force: false }, {})) as {
         reports: SyncReport[];
       };
 
       expect(result.reports).toHaveLength(1);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       expect(result.reports[0]!.sourceName).toBe("my-notion");
     });
 
@@ -351,6 +362,7 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SYNC_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await cmd!.execute({ force: true }, {});
 
       expect(capturedOptions?.force).toBe(true);

@@ -54,6 +54,12 @@ export class PostgresPersistenceProvider
     this.config = config;
   }
 
+  /** Returns the postgres config — guaranteed non-null by the constructor. */
+  private get pgConfig(): NonNullable<PersistenceConfig["postgres"]> {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return this.config.postgres!;
+  }
+
   /**
    * Initialize PostgreSQL connection
    */
@@ -62,7 +68,7 @@ export class PostgresPersistenceProvider
       return;
     }
 
-    const pgConfig = this.config.postgres!;
+    const pgConfig = this.pgConfig;
     // Track whether we created the connection (vs injected) for cleanup
     let createdSql: ReturnType<typeof postgres> | null = null;
 
@@ -140,9 +146,9 @@ export class PostgresPersistenceProvider
     const { PostgresStorage } = require("../../storage/backends/postgres-storage");
     const storage = new PostgresStorage(
       {
-        connectionString: this.config.postgres!.connectionString,
-        maxConnections: this.config.postgres!.maxConnections || 10,
-        connectTimeout: this.config.postgres!.connectTimeout || 30,
+        connectionString: this.pgConfig.connectionString,
+        maxConnections: this.pgConfig.maxConnections || 10,
+        connectTimeout: this.pgConfig.connectTimeout || 30,
       },
       this // Pass provider so storage reuses our connections
     );

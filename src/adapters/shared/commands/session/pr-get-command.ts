@@ -68,7 +68,7 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
 
         if ((pullRequest as { description?: string }).description) {
           output.push("", "Description:");
-          output.push((pullRequest as { description?: string }).description!);
+          output.push((pullRequest as { description?: string }).description ?? "");
         }
 
         if (pullRequest.filesChanged) {

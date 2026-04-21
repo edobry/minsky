@@ -527,11 +527,11 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   }
 
   private groupErrorsByType(details: MigrationDetail[]): Record<string, MigrationDetail[]> {
-    const groups: Record<string, MigrationDetail[]> = {
-      "Missing spec files": [],
-      "Already migrated": [],
-      "File system issues": [],
-      "Other errors": [],
+    const groups = {
+      "Missing spec files": [] as MigrationDetail[],
+      "Already migrated": [] as MigrationDetail[],
+      "File system issues": [] as MigrationDetail[],
+      "Other errors": [] as MigrationDetail[],
     };
 
     details
@@ -540,13 +540,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         const error = detail.error || "";
 
         if (error.includes("Spec file not found") || error.includes("may already be migrated")) {
-          groups["Already migrated"]!.push(detail);
+          groups["Already migrated"].push(detail);
         } else if (error.includes("spec file") || error.includes("not found")) {
-          groups["Missing spec files"]!.push(detail);
+          groups["Missing spec files"].push(detail);
         } else if (error.includes("symbolic links") || error.includes("permissions")) {
-          groups["File system issues"]!.push(detail);
+          groups["File system issues"].push(detail);
         } else {
-          groups["Other errors"]!.push(detail);
+          groups["Other errors"].push(detail);
         }
       });
 
@@ -703,7 +703,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         if (!failureGroups[key]) {
           failureGroups[key] = [];
         }
-        failureGroups[key]!.push(failure);
+        failureGroups[key].push(failure);
       });
 
       for (const [reason, failures] of Object.entries(failureGroups)) {

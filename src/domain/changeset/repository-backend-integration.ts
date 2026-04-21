@@ -149,6 +149,7 @@ export class MultiRepositoryChangesetService {
       this.services.set(key, service);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return this.services.get(key)!;
   }
 

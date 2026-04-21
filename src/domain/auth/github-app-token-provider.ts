@@ -67,6 +67,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
     }
 
     if (this.isTokenValid()) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.cachedToken!.token;
     }
 

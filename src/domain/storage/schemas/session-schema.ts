@@ -11,7 +11,9 @@ import type { SessionRecord, PullRequestInfo } from "../../session/session-db";
 
 // SQLite Schema - Match existing database structure (camelCase column names)
 export const sqliteSessions = sqliteTable("sessions", {
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   session: text("session")!.primaryKey(),
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   repoName: text("repoName")!.notNull(),
   repoUrl: text("repoUrl"),
   createdAt: text("createdAt").notNull(),
@@ -32,8 +34,11 @@ export const sqliteSessions = sqliteTable("sessions", {
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   session: varchar("session", { length: 255 })!.primaryKey(),
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   repoName: varchar("repo_name", { length: 255 })!.notNull(),
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }),
@@ -90,9 +95,9 @@ function coerceToDate(input: unknown): Date {
  */
 export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
     createdAt: record.createdAt,
     taskId: record.taskId || null,
 
@@ -115,9 +120,9 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
  */
 export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl || "",
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl || "",
     createdAt: coerceToDate(record.createdAt),
     taskId: record.taskId || null,
 
@@ -137,9 +142,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
  */
 export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId || undefined,
 

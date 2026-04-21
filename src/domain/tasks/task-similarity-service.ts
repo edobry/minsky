@@ -154,6 +154,7 @@ export class TaskSimilarityService {
     // Skip if up-to-date
     try {
       if (typeof this.vectorStorage.getMetadata === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const meta = await this.vectorStorage.getMetadata!(taskId);
         const storedHash = meta?.content_hash || meta?.contentHash;
         const storedModel = meta?.model;

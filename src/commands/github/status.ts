@@ -115,7 +115,7 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
       } else if (hasAutoDetection) {
         // No explicit config, but auto-detection works
         log.cli("✅ Using auto-detection from git remote");
-        log.cli(`   Auto-detected: ${repoConfig!.owner}/${repoConfig!.repo}`);
+        log.cli(`   Auto-detected: ${repoConfig?.owner}/${repoConfig?.repo}`);
         if (verbose) {
           log.cli("   Explicit configuration not required when auto-detection works");
         }

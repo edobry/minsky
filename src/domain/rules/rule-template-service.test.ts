@@ -468,10 +468,10 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
 
       expect(cliResult.success).toBe(true);
       const cliRule = cliResult.rules[0] as unknown as Record<string, unknown>;
-      expect(cliRule!.globs).toEqual(["**/*.cli.ts"]);
-      expect(cliRule!.alwaysApply).toBe(true);
-      expect(cliRule!.tags).toContain("cli");
-      expect(cliRule!.tags).toContain("custom");
+      expect(cliRule?.globs).toEqual(["**/*.cli.ts"]);
+      expect(cliRule?.alwaysApply).toBe(true);
+      expect(cliRule?.tags).toContain("cli");
+      expect(cliRule?.tags).toContain("custom");
 
       // Test MCP metadata
       const mcpResult = await service.generateRules({
@@ -482,10 +482,10 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
 
       expect(mcpResult.success).toBe(true);
       const mcpRule = mcpResult.rules[0] as unknown as Record<string, unknown>;
-      expect(mcpRule!.globs).toEqual(["**/*.mcp.ts"]);
-      expect(mcpRule!.alwaysApply).toBe(false);
-      expect(mcpRule!.tags).toContain("mcp");
-      expect(mcpRule!.tags).toContain("custom");
+      expect(mcpRule?.globs).toEqual(["**/*.mcp.ts"]);
+      expect(mcpRule?.alwaysApply).toBe(false);
+      expect(mcpRule?.tags).toContain("mcp");
+      expect(mcpRule?.tags).toContain("custom");
     });
   });
 
@@ -506,7 +506,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config!.interface).toBe("cli");
+      expect(result.config?.interface).toBe("cli");
       expect(first(result.rules).content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
@@ -526,7 +526,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config!.interface).toBe("mcp");
+      expect(result.config?.interface).toBe("mcp");
       expect(first(result.rules).content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
     });
 
@@ -546,7 +546,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       expect(result.success).toBe(true);
-      expect(result.config!.interface).toBe("hybrid");
+      expect(result.config?.interface).toBe("hybrid");
       // Should prefer CLI by default (preferMcp: false)
       expect(first(result.rules).content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
@@ -605,7 +605,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       expect(first(result.rules).content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
 
       // Verify that dryRun: false was respected (files would be created in real scenario)
-      expect(result.config!.interface).toBe("cli");
+      expect(result.config?.interface).toBe("cli");
     });
   });
 });

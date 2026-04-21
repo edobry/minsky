@@ -101,16 +101,16 @@ describe("Git Conflicts Command", () => {
   describe("Command Parameters Schema", () => {
     test("should have correct parameter definitions", () => {
       expect(conflictsCommandParams.format).toBeDefined();
-      expect(conflictsCommandParams.format!.schema).toBeDefined();
-      expect(conflictsCommandParams.format!.defaultValue).toBe("json");
-      expect(conflictsCommandParams.format!.required).toBe(false);
+      expect(conflictsCommandParams.format?.schema).toBeDefined();
+      expect(conflictsCommandParams.format?.defaultValue).toBe("json");
+      expect(conflictsCommandParams.format?.required).toBe(false);
 
       expect(conflictsCommandParams.context).toBeDefined();
-      expect(conflictsCommandParams.context!.defaultValue).toBe(3);
-      expect(conflictsCommandParams.context!.required).toBe(false);
+      expect(conflictsCommandParams.context?.defaultValue).toBe(3);
+      expect(conflictsCommandParams.context?.required).toBe(false);
 
       expect(conflictsCommandParams.files).toBeDefined();
-      expect(conflictsCommandParams.files!.required).toBe(false);
+      expect(conflictsCommandParams.files?.required).toBe(false);
     });
   });
 });

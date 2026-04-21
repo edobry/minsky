@@ -103,6 +103,7 @@ export async function resolveLanguageModel(
   const cacheKey = `${resolvedProvider}:${resolvedModel}`;
 
   if (providerModels.has(cacheKey)) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return providerModels.get(cacheKey)!;
   }
 

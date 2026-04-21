@@ -158,6 +158,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Got spec content from interactive editor");
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       updates.spec = newSpecContent!;
     }
 

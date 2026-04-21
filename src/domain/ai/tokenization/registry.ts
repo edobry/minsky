@@ -68,6 +68,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
     // Check for explicit preference
     const preferredTokenizer = this.preferences.get(modelId);
     if (preferredTokenizer && this.tokenizers.has(preferredTokenizer)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const tokenizer = this.tokenizers.get(preferredTokenizer)!;
       if (tokenizer.supportsModel(modelId)) {
         log.debug(`Using preferred tokenizer for ${modelId}: ${preferredTokenizer}`);

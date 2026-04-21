@@ -82,14 +82,18 @@ export class SessionDbHealthMonitor {
         sessionDbConfig = config["sessiondb"] as SessionDbConfig;
       }
 
+      if (!sessionDbConfig) {
+        throw new Error("No SessionDB configuration available");
+      }
+
       // Check backend health
-      const backendHealth = await this.checkBackendHealth(sessionDbConfig!);
+      const backendHealth = await this.checkBackendHealth(sessionDbConfig);
 
       // Analyze performance metrics
       const performance = this.analyzePerformance();
 
       // Check storage-specific metrics
-      const storage = await this.checkStorageMetrics(sessionDbConfig!);
+      const storage = await this.checkStorageMetrics(sessionDbConfig);
 
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
@@ -238,16 +242,17 @@ export class SessionDbHealthMonitor {
       try {
         // Check database integrity
         const integrityResult = db.pragma("integrity_check");
-        status.details!.integrityCheck = integrityResult[0].integrity_check === "ok";
+        if (status.details)
+          status.details.integrityCheck = integrityResult[0].integrity_check === "ok";
 
         // Get database info
         const pageCount = db.pragma("page_count", { simple: true });
         const pageSize = db.pragma("page_size", { simple: true });
-        status.details!.databaseSize = pageCount * pageSize;
+        if (status.details) status.details.databaseSize = pageCount * pageSize;
 
         // Check WAL mode
         const journalMode = db.pragma("journal_mode", { simple: true });
-        status.details!.journalMode = journalMode;
+        if (status.details) status.details.journalMode = journalMode;
 
         if (journalMode !== "wal") {
           status.warnings?.push("Consider enabling WAL mode for better performance");
@@ -255,7 +260,7 @@ export class SessionDbHealthMonitor {
 
         // Check for locks
         const busyTimeout = db.pragma("busy_timeout", { simple: true });
-        status.details!.busyTimeout = busyTimeout;
+        if (status.details) status.details.busyTimeout = busyTimeout;
       } finally {
         db.close();
       }
@@ -272,31 +277,37 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     try {
-      const sql = postgres(config.connectionString!, { max: 1 });
+      if (!config.connectionString) {
+        status.warnings?.push("PostgreSQL connection string is not configured");
+        return;
+      }
+      const sql = postgres(config.connectionString, { max: 1 });
 
       try {
         // Check server version
         const versionResult = await sql`SELECT version()`;
-        status.details!.serverVersion = first(versionResult, "pg version query").version;
+        if (status.details)
+          status.details.serverVersion = first(versionResult, "pg version query").version;
 
         // Check connection count
         const connectionsResult = await sql`
           SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'
         `;
-        status.details!.activeConnections = parseInt(
-          first(connectionsResult, "pg connections query").active_connections
-        );
+        if (status.details)
+          status.details.activeConnections = parseInt(
+            first(connectionsResult, "pg connections query").active_connections
+          );
 
         // Check database size
         const sizeResult = await sql`
           SELECT pg_size_pretty(pg_database_size(current_database())) as size
         `;
-        status.details!.databaseSize = first(sizeResult, "pg size query").size;
+        if (status.details) status.details.databaseSize = first(sizeResult, "pg size query").size;
 
         // Check for locks
         const locksResult = await sql`SELECT count(*) as locks FROM pg_locks WHERE NOT granted`;
         const lockCount = parseInt(first(locksResult, "pg locks query").locks);
-        status.details!.blockedQueries = lockCount;
+        if (status.details) status.details.blockedQueries = lockCount;
 
         if (lockCount > 0) {
           status.warnings?.push(`${lockCount} blocked queries detected`);

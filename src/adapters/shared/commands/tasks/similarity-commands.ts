@@ -111,7 +111,13 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(this.getPersistenceProvider!());
+    const service = await this.createService(
+      (() => {
+        if (!this.getPersistenceProvider)
+          throw new Error("Persistence provider required for similarity search");
+        return this.getPersistenceProvider();
+      })()
+    );
     const response = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
@@ -232,7 +238,13 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    const service = await this.createService(this.getPersistenceProvider!());
+    const service = await this.createService(
+      (() => {
+        if (!this.getPersistenceProvider)
+          throw new Error("Persistence provider required for task search");
+        return this.getPersistenceProvider();
+      })()
+    );
 
     // Immediate progress hint to stderr unless JSON/quiet
     try {

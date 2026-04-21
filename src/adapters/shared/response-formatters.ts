@@ -193,8 +193,9 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
 
     // Format each item
     if (this.itemFormatter) {
+      const formatter = this.itemFormatter;
       items.forEach((item, index) => {
-        output += `${index + 1}. ${this.itemFormatter!(item)}\n`;
+        output += `${index + 1}. ${formatter(item)}\n`;
       });
     } else {
       items.forEach((item, index) => {

@@ -113,8 +113,8 @@ describe("Session PR Title Duplication Bug Tests", () => {
     const result = await extractPrDescriptionCurrent("task285", mockGitService, testDir);
 
     expect(result).not.toBeNull();
-    expect(result!.title).toBe(originalTitle);
-    expect(result!.body).toBe(originalBody);
+    expect(result?.title).toBe(originalTitle);
+    expect(result?.body).toBe(originalBody);
   });
 
   test("should reproduce title duplication when body accidentally contains title", async () => {
@@ -136,9 +136,9 @@ describe("Session PR Title Duplication Bug Tests", () => {
     const result = await extractPrDescriptionCurrent("task285", mockGitService, testDir);
 
     expect(result).not.toBeNull();
-    expect(result!.title).toBe(originalTitle);
+    expect(result?.title).toBe(originalTitle);
     // This demonstrates the bug: body contains the title duplicated
-    expect(result!.body).toContain(originalTitle);
+    expect(result?.body).toContain(originalTitle);
   });
 
   test("should fix title duplication with improved parsing", async () => {
@@ -160,12 +160,12 @@ describe("Session PR Title Duplication Bug Tests", () => {
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
 
     expect(result).not.toBeNull();
-    expect(result!.title).toBe(originalTitle);
+    expect(result?.title).toBe(originalTitle);
     // Fixed version should remove the duplicated title from body
-    expect(result!.body).toBe(
+    expect(result?.body).toBe(
       "This PR fixes the issue where titles are duplicated in PR descriptions."
     );
-    expect(result!.body).not.toContain(TEST_ENTITIES.TASK_TITLE_285);
+    expect(result?.body).not.toContain(TEST_ENTITIES.TASK_TITLE_285);
   });
 
   test("should handle empty body without duplication", async () => {
@@ -184,8 +184,8 @@ describe("Session PR Title Duplication Bug Tests", () => {
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
 
     expect(result).not.toBeNull();
-    expect(result!.title).toBe(originalTitle);
-    expect(result!.body).toBe("");
+    expect(result?.title).toBe(originalTitle);
+    expect(result?.body).toBe("");
   });
 
   test("should handle multiline body with potential title duplication", async () => {
@@ -206,9 +206,9 @@ describe("Session PR Title Duplication Bug Tests", () => {
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
 
     expect(result).not.toBeNull();
-    expect(result!.title).toBe(originalTitle);
+    expect(result?.title).toBe(originalTitle);
     // The fixed version filters out empty lines, so expect the filtered result
-    expect(result!.body).toBe(
+    expect(result?.body).toBe(
       "## Summary\nThis PR fixes the title duplication issue.\n## Changes\n- Fixed extractPrDescription parsing"
     );
   });

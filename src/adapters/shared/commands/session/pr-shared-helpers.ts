@@ -13,11 +13,11 @@ export function parseConventionalTitle(title: string): {
   if (match) {
     if (match.length === 4) {
       const [, type, scope, rest] = match;
-      return { type: type!.toLowerCase(), scope, title: rest ?? "" };
+      return { type: type?.toLowerCase(), scope, title: rest ?? "" };
     }
     if (match.length === 3) {
       const [, type, rest] = match;
-      return { type: type!.toLowerCase(), title: rest ?? "" };
+      return { type: type?.toLowerCase(), title: rest ?? "" };
     }
   }
   return { title };

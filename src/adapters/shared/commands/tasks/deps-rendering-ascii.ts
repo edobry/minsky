@@ -43,23 +43,25 @@ export async function generateDependencyTree(
       lines.push("⬅️  Dependencies (this task depends on):");
       for (let i = 0; i < dependencies.length; i++) {
         const dep = dependencies[i];
+        if (!dep) continue;
         const isLast = i === dependencies.length - 1;
         const connector = isLast ? "└── " : "├── ";
 
         try {
-          const depTask = await taskService.getTask(dep!);
+          const depTask = await taskService.getTask(dep);
           const title = depTask?.title || "Unknown";
           const status = depTask?.status || "Unknown";
           lines.push(`  ${connector}${dep}: ${title} (${status})`);
 
           // Recursively show dependencies if within depth limit
           if (maxDepth > 1) {
-            const subDeps = await graphService.listDependencies(dep!);
+            const subDeps = await graphService.listDependencies(dep);
             for (let j = 0; j < subDeps.length && j < 3; j++) {
               const subDep = subDeps[j];
+              if (!subDep) continue;
               const subConnector = isLast ? "    └── " : "│   └── ";
               try {
-                const subDepTask = await taskService.getTask(subDep!);
+                const subDepTask = await taskService.getTask(subDep);
                 lines.push(`  ${subConnector}${subDep}: ${subDepTask?.title || "Unknown"}`);
               } catch {
                 lines.push(`  ${subConnector}${subDep}: [Task not found]`);
@@ -82,11 +84,12 @@ export async function generateDependencyTree(
       lines.push("➡️  Dependents (tasks that depend on this):");
       for (let i = 0; i < dependents.length; i++) {
         const dependent = dependents[i];
+        if (!dependent) continue;
         const isLast = i === dependents.length - 1;
         const connector = isLast ? "└── " : "├── ";
 
         try {
-          const depTask = await taskService.getTask(dependent!);
+          const depTask = await taskService.getTask(dependent);
           const title = depTask?.title || "Unknown";
           const status = depTask?.status || "Unknown";
           lines.push(`  ${connector}${dependent}: ${title} (${status})`);
@@ -239,13 +242,13 @@ export async function generateDependencyGraph(
       if (!dependenciesMap.has(fromTaskId)) {
         dependenciesMap.set(fromTaskId, []);
       }
-      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+      dependenciesMap.get(fromTaskId)?.push(toTaskId);
 
       // Track dependents: toTaskId has fromTaskId as dependent
       if (!dependentsMap.has(toTaskId)) {
         dependentsMap.set(toTaskId, []);
       }
-      dependentsMap.get(toTaskId)!.push(fromTaskId);
+      dependentsMap.get(toTaskId)?.push(fromTaskId);
     });
 
     // Filter tasks to only those with actual relationships

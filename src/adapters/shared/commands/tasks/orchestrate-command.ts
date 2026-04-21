@@ -152,7 +152,7 @@ export function createTasksOrchestrateCommand(getPersistenceProvider: () => Pers
           `  tasks_dispatch(parentTaskId: "${parentTaskId}", title: "...", instructions: "...")`
         );
         lines.push("Or start a session directly for an existing subtask:");
-        lines.push(`  session_start(task: "${dispatchable[0]!.taskId}")`);
+        lines.push(`  session_start(task: "${dispatchable[0]?.taskId}")`);
       }
 
       return {

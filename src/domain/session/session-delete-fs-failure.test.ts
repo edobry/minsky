@@ -66,7 +66,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
     // DB record should still exist
     const record = await sessionDB.getSession(SESSION_ID);
     expect(record).not.toBeNull();
-    expect(record!.session).toBe(SESSION_ID);
+    expect(record?.session).toBe(SESSION_ID);
 
     // deleteSession should NOT have been called
     expect(sessionDB.deleteSession).not.toHaveBeenCalled();

@@ -52,7 +52,8 @@ export class ModularGitCommandsManager {
 
   private getOperations(): ReturnType<typeof createAllGitOperations> {
     this.initializeOperations();
-    return this.operations!;
+    // initializeOperations() guarantees this.operations is set
+    return this.operations as ReturnType<typeof createAllGitOperations>;
   }
 
   /**
@@ -191,7 +192,11 @@ export class ModularGitCommandsManager {
     params: TParams
   ): Promise<TResult> {
     this.initializeOperations();
-    return await this.operationRegistry!.execute<TParams, TResult>(operationName, params);
+    // initializeOperations() guarantees this.operationRegistry is set
+    return await (this.operationRegistry as GitOperationRegistry).execute<TParams, TResult>(
+      operationName,
+      params
+    );
   }
 
   /**
@@ -199,7 +204,8 @@ export class ModularGitCommandsManager {
    */
   getOperationNames(): string[] {
     this.initializeOperations();
-    return this.operationRegistry!.getOperationNames();
+    // initializeOperations() guarantees this.operationRegistry is set
+    return (this.operationRegistry as GitOperationRegistry).getOperationNames();
   }
 
   /**
@@ -207,7 +213,8 @@ export class ModularGitCommandsManager {
    */
   getOperationRegistry(): GitOperationRegistry {
     this.initializeOperations();
-    return this.operationRegistry!;
+    // initializeOperations() guarantees this.operationRegistry is set
+    return this.operationRegistry as GitOperationRegistry;
   }
 }
 

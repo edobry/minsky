@@ -159,9 +159,9 @@ describe("Rule Type Classification", () => {
 
       expect(result.type).toBe(RuleType.ALWAYS_APPLY);
       expect(result.warnings).toHaveLength(1);
-      expect(result.warnings![0]).toContain("multiple classification properties");
-      expect(result.warnings![0]).toContain("[alwaysApply, globs, description]");
-      expect(result.warnings![0]).toContain("Current priority: alwaysApply");
+      expect(result.warnings?.[0]).toContain("multiple classification properties");
+      expect(result.warnings?.[0]).toContain("[alwaysApply, globs, description]");
+      expect(result.warnings?.[0]).toContain("Current priority: alwaysApply");
     });
 
     it("should warn when globs and description are both present", () => {
@@ -176,8 +176,8 @@ describe("Rule Type Classification", () => {
 
       expect(result.type).toBe(RuleType.AUTO_ATTACHED);
       expect(result.warnings).toHaveLength(1);
-      expect(result.warnings![0]).toContain("[globs, description]");
-      expect(result.warnings![0]).toContain("Current priority: globs");
+      expect(result.warnings?.[0]).toContain("[globs, description]");
+      expect(result.warnings?.[0]).toContain("Current priority: globs");
     });
 
     it("should not warn for rules with single classification property", () => {
@@ -224,7 +224,7 @@ describe("Rule Type Classification", () => {
       // alwaysApply: false doesn't count as classification property
       expect(result.type).toBe(RuleType.AUTO_ATTACHED);
       expect(result.warnings).toHaveLength(1);
-      expect(result.warnings![0]).toContain("[globs, description]");
+      expect(result.warnings?.[0]).toContain("[globs, description]");
     });
   });
 });

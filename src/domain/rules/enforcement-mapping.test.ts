@@ -25,7 +25,7 @@ describe("getEnforcement", () => {
   it("returned mapping contains well-formed mechanisms", () => {
     const result = getEnforcement(TEMPLATE_LITERALS_RULE_ID);
     expect(result).toBeDefined();
-    const mechanism = first(result!.mechanisms);
+    const mechanism = first(result?.mechanisms ?? []);
     expect(mechanism.type).toBe("eslint");
     expect(typeof mechanism.name).toBe("string");
     expect(mechanism.name.length).toBeGreaterThan(0);

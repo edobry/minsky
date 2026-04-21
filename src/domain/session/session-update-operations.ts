@@ -167,6 +167,7 @@ export async function updateSessionImpl(
     try {
       // Fetch latest changes
       log.debug("Fetching latest changes", { workdir, remote: remote || "origin" });
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await deps.gitService.fetchLatest!(workdir, remote || "origin");
       log.debug("Latest changes fetched");
 

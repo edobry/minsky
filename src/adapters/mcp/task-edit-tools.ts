@@ -188,10 +188,11 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
+        const persistenceContainer = container?.has("persistence") ? container : undefined;
         autoIndexTaskEmbedding(
           typedArgs.taskId,
-          container?.has("persistence")
-            ? { getPersistenceProvider: () => container!.get("persistence") }
+          persistenceContainer
+            ? { getPersistenceProvider: () => persistenceContainer.get("persistence") }
             : undefined
         );
 
@@ -287,10 +288,11 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
+        const persistenceContainer2 = container?.has("persistence") ? container : undefined;
         autoIndexTaskEmbedding(
           typedArgs.taskId,
-          container?.has("persistence")
-            ? { getPersistenceProvider: () => container!.get("persistence") }
+          persistenceContainer2
+            ? { getPersistenceProvider: () => persistenceContainer2.get("persistence") }
             : undefined
         );
 

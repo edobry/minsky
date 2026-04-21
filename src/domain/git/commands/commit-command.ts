@@ -37,13 +37,17 @@ export async function commitChangesFromParams(
 
   // Stage changes if requested
   if (params.all && !params.noStage) {
-    await gitService.stageAll!(repoPath);
+    if (!gitService.stageAll) throw new Error("Git service does not support stageAll operation");
+    await gitService.stageAll(repoPath);
   } else if (!params.noStage) {
-    await gitService.stageModified!(repoPath);
+    if (!gitService.stageModified)
+      throw new Error("Git service does not support stageModified operation");
+    await gitService.stageModified(repoPath);
   }
 
   // Commit changes
-  const commitHash = await gitService.commit!(params.message, repoPath, params.amend);
+  if (!gitService.commit) throw new Error("Git service does not support commit operation");
+  const commitHash = await gitService.commit(params.message, repoPath, params.amend);
 
   log.debug("Changes committed successfully", {
     commitHash,

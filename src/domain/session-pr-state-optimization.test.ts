@@ -183,12 +183,12 @@ describe("PR State Optimization (Task #275)", () => {
       await updatePrStateOnCreation(sessionId, mockSessionDB as SessionProviderInterface);
 
       const session = await mockSessionDB.getSession(sessionId);
-      expect(session!.prState).toBeDefined();
-      expect(session!.prState!.branchName).toBe("pr/new-pr-session");
-      expect(session!.prState!.exists).toBe(true);
-      expect(session!.prState!.createdAt).toBeDefined();
-      expect(session!.prState!.lastChecked).toBeDefined();
-      expect(session!.prState!.mergedAt).toBeUndefined();
+      expect(session?.prState).toBeDefined();
+      expect(session?.prState?.branchName).toBe("pr/new-pr-session");
+      expect(session?.prState?.exists).toBe(true);
+      expect(session?.prState?.createdAt).toBeDefined();
+      expect(session?.prState?.lastChecked).toBeDefined();
+      expect(session?.prState?.mergedAt).toBeUndefined();
     });
   });
 
@@ -211,8 +211,8 @@ describe("PR State Optimization (Task #275)", () => {
       await updatePrStateOnMerge(sessionId, mockSessionDB as SessionProviderInterface);
 
       const session = await mockSessionDB.getSession(sessionId);
-      expect(session!.prState!.exists).toBe(false);
-      expect(session!.prState!.mergedAt).toBeDefined();
+      expect(session?.prState?.exists).toBe(false);
+      expect(session?.prState?.mergedAt).toBeDefined();
     });
 
     test("should handle missing PR state gracefully", async () => {

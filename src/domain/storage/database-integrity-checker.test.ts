@@ -81,6 +81,7 @@ const createMockFs = (): SyncFsLike =>
         if (!mockFileSystem.has(path)) {
           throw new Error(`ENOENT: no such file or directory, open '${path}'`);
         }
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const data = mockFileSystem.get(path)!;
 
         // Handle binary reading for SQLite format detection

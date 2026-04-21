@@ -106,6 +106,7 @@ export async function approveSessionImpl(
         });
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const task = await taskService.getTask!(taskIdToUse);
       if (!task) {
         // Task doesn't exist - provide clear, concise error

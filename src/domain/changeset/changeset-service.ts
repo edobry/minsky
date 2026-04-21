@@ -56,6 +56,7 @@ export class ChangesetService {
 
     // Check if we already have an adapter for this platform
     if (this.adapters.has(platform)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.adapters.get(platform)!;
     }
 

@@ -128,7 +128,7 @@ describe("GitHubAppTokenProvider", () => {
 
     it("header encodes alg RS256 and typ JWT", () => {
       const jwt = makeProvider().generateJwt();
-      const headerJson = Buffer.from(jwt.split(".")[0]!, "base64url").toString("utf8");
+      const headerJson = Buffer.from(jwt.split(".")[0] ?? "", "base64url").toString("utf8");
       const header = JSON.parse(headerJson) as { alg: string; typ: string };
       expect(header.alg).toBe("RS256");
       expect(header.typ).toBe("JWT");
@@ -137,7 +137,7 @@ describe("GitHubAppTokenProvider", () => {
     it("payload contains iss equal to appId", () => {
       const provider = makeProvider({ appId: 99999 });
       const jwt = provider.generateJwt();
-      const payloadJson = Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8");
+      const payloadJson = Buffer.from(jwt.split(".")[1] ?? "", "base64url").toString("utf8");
       const payload = JSON.parse(payloadJson) as { iss: number; iat: number; exp: number };
       expect(payload.iss).toBe(99999);
       expect(payload.exp).toBeGreaterThan(payload.iat);

@@ -131,7 +131,7 @@ export const ErrorContextComponent: ContextComponent = {
       for (const error of allErrors) {
         // Group by file
         if (!errorsByFile[error.file]) errorsByFile[error.file] = [];
-        errorsByFile[error.file]!.push(error);
+        errorsByFile[error.file]?.push(error);
 
         // Group by category
         const category = error.category || "other";
@@ -256,7 +256,7 @@ export const ErrorContextComponent: ContextComponent = {
     // File-specific errors (if user prompt specified or few files)
     const relevantFiles = errorInputs.recentErrors
       ? Object.keys(errorInputs.errorsByFile).filter((file) =>
-          errorInputs.recentErrors!.some((e) => e.file === file)
+          errorInputs.recentErrors?.some((e) => e.file === file)
         )
       : Object.keys(errorInputs.errorsByFile).slice(0, 3);
 
