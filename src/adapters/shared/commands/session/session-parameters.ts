@@ -69,6 +69,11 @@ export const commonSessionParams = {
 export const sessionListCommandParams = {
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  task: {
+    schema: z.string(),
+    description: "Filter sessions by task ID (e.g. 'mt#283' or '283')",
+    required: false,
+  },
   since: {
     schema: z.string(),
     description: "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
