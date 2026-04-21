@@ -17,6 +17,7 @@ import {
   type RepositoryBackendConfig,
 } from "../repository/index";
 import type { SessionRecord } from "./types";
+import { SessionStatus } from "./types";
 import { assertSessionMutable } from "./session-mutability";
 import type { ApprovalInfo } from "../repository/approval-types";
 import type { GitServiceInterface } from "../git/types";
@@ -197,6 +198,16 @@ export async function approveSessionPr(
   }
 
   const approvalInfo = await repositoryBackend.review.approve(prIdentifier, params.reviewComment);
+
+  // Update session activity state after successful approval
+  try {
+    await sessionDB.updateSession(sessionIdToUse, {
+      lastActivityAt: new Date().toISOString(),
+      status: SessionStatus.PR_APPROVED,
+    });
+  } catch (e) {
+    log.debug("Failed to update session activity state on PR approve", { error: e });
+  }
 
   // Note: Repository backend handles approval storage:
   // - GitHub backend: stores approval in GitHub

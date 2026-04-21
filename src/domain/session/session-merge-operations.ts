@@ -26,6 +26,7 @@ import type { GitServiceInterface } from "../git/types";
 import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
+import { SessionStatus } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
@@ -483,6 +484,16 @@ export async function mergeSessionPr(
         log.cli(`⚠️  Warning: ${errorMsg}`);
       }
     }
+  }
+
+  // Update session activity state to MERGED before cleanup
+  try {
+    await sessionDB.updateSession(sessionIdToUse, {
+      lastActivityAt: new Date().toISOString(),
+      status: SessionStatus.MERGED,
+    });
+  } catch (e) {
+    log.debug("Failed to update session activity state on PR merge", { error: e });
   }
 
   // Session cleanup after successful merge (default: enabled)
