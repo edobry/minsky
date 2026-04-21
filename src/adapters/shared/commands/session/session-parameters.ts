@@ -648,6 +648,26 @@ export const sessionPrReviewSubmitCommandParams = {
 };
 
 /**
+ * Session exec command parameters
+ * Executes a shell command in a session's working directory
+ */
+export const sessionExecCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  command: {
+    schema: z.string().min(1),
+    description: "Shell command to execute",
+    required: true,
+  },
+  timeout: {
+    schema: z.number().int().positive().max(120000).optional(),
+    description: "Timeout in milliseconds (default: 30000, max: 120000)",
+    required: false,
+  },
+};
+
+/**
  * Session repair command parameters
  * Repairs various session state issues
  */
