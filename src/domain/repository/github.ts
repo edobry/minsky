@@ -692,18 +692,14 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const gh = this.requireGitHubContext();
         return getApprovalStatus(gh, prIdentifier);
       },
-    };
-  }
 
-  /**
-   * Submit a review on a GitHub pull request.
-   * Posts under the bot/service-account identity when one is configured.
-   */
-  async submitReview(
-    prIdentifier: string | number,
-    options: SubmitReviewOptions
-  ): Promise<SubmitReviewResult> {
-    const gh = this.requireGitHubContext();
-    return submitReviewImpl(gh, prIdentifier, options);
+      submitReview: async (
+        prIdentifier: string | number,
+        options: SubmitReviewOptions
+      ): Promise<SubmitReviewResult> => {
+        const gh = this.requireGitHubContext();
+        return submitReviewImpl(gh, prIdentifier, options);
+      },
+    };
   }
 }
