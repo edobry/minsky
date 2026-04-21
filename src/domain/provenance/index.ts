@@ -14,6 +14,7 @@ export {
   type Participant,
   type ParticipantRole,
   type ProvenanceRecord,
+  type RecomputeSummary,
   type SpecAuthorship,
   type TaskOrigin,
   type TierSignals,

@@ -22,6 +22,7 @@ import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
 import { registerKnowledgeCommands } from "./knowledge";
+import { registerProvenanceCommands } from "./provenance";
 
 /**
  * Register all shared commands in the shared command registry.
@@ -77,6 +78,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register knowledge commands
   registerKnowledgeCommands();
 
+  // Register provenance commands
+  registerProvenanceCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -99,4 +103,5 @@ export {
   registerMcpCommands,
   registerKnowledgeCommands,
   registerRepoCommands,
+  registerProvenanceCommands,
 };
