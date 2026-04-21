@@ -12,6 +12,8 @@ When spawning subagents, use the appropriate model and type:
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `suggestedSubagentType` from the result.
 
+**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — same fix attempted 3+ times, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability.
+
 ## Task Lifecycle
 
 ```
