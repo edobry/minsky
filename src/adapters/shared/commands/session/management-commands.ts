@@ -4,6 +4,7 @@
  * Factories for session management operations (delete, update, migrate-backend).
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { ValidationError } from "../../../../errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionDeleteCommandParams,
@@ -19,6 +20,15 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
     name: "delete",
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
+    validate: async (params: Record<string, unknown>) => {
+      const name = params.name as string | undefined;
+      const task = params.task as string | undefined;
+      if (!name && !task) {
+        throw new ValidationError(
+          "Session identifier required. Provide either --name (session ID) or --task (task ID)."
+        );
+      }
+    },
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("../../../../domain/session/session-service");
       const deps = await getDeps();

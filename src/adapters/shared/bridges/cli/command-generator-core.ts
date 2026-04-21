@@ -169,6 +169,11 @@ export class CommandGeneratorCore {
           guardProjectSetup(commandDef.id);
         }
 
+        // ADR-004: validate→execute pipeline
+        if (commandDef.validate) {
+          await commandDef.validate(normalizedParams, context);
+        }
+
         // Execute the command with parameters and context
         const result = await commandDef.execute(normalizedParams, context);
 

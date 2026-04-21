@@ -175,6 +175,11 @@ export function registerSharedCommandsWithMcp(
               guardProjectSetup(command.id);
             }
 
+            // ADR-004: validate→execute pipeline
+            if (command.validate) {
+              await command.validate(parameters, context);
+            }
+
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
             log.debug(`[MCP] Parameters being passed:`, parameters);
