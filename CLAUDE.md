@@ -47,6 +47,8 @@ Use MCP tools for all operations — never shell out to git/gh CLI:
 - `mcp__minsky__rules_*` — project rules
 - `mcp__minsky__persistence_*` — database operations
 
+**Use `session_exec` for running commands in sessions** from the main agent context. Instead of `SESSION=... && cd "$SESSION" && <command>`, use the MCP tool: `mcp__minsky__session_exec(task: "mt#123", command: "git status")`. This resolves the session directory automatically.
+
 ## Build & Test
 
 - **Runtime**: Bun (not Node.js)
