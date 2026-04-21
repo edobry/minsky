@@ -212,7 +212,8 @@ const persistenceMigrateRegistration = defineCommand({
 
         // Get sessions through SessionProviderInterface
         // PersistenceService should already be initialized at CLI startup
-        const sessionProvider = context.container!.get("sessionProvider");
+        if (!context.container) throw new Error("No container in command context");
+        const sessionProvider = context.container.get("sessionProvider");
         const sessions = await sessionProvider.listSessions();
         sourceData = { sessions, baseDir: getMinskyStateDir() };
         sourceCount = sessions.length;
@@ -343,7 +344,8 @@ const persistenceMigrateRegistration = defineCommand({
 
       // Use SessionProviderInterface for data migration
       // PersistenceService should already be initialized at CLI startup
-      const sessionProvider2 = context.container!.get("sessionProvider");
+      if (!context.container) throw new Error("No container in command context");
+      const sessionProvider2 = context.container.get("sessionProvider");
       const sessions = await sessionProvider2.listSessions();
 
       const sourceState = {

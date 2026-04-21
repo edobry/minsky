@@ -202,7 +202,7 @@ export async function gitFetchWithTimeout(
   options: GitExecOptions = {}
 ): Promise<GitExecResult> {
   const command = branch ? `fetch ${remote} ${branch}` : `fetch ${remote}`;
-  return execGitWithTimeout("fetch", command!, {
+  return execGitWithTimeout("fetch", command, {
     ...options,
     context: [
       ...(options.context || []),
@@ -218,7 +218,7 @@ export async function gitPushWithTimeout(
   options: GitExecOptions = {}
 ): Promise<GitExecResult> {
   const command = branch ? `push ${remote} ${branch}` : `push ${remote}`;
-  return execGitWithTimeout("push", command!, {
+  return execGitWithTimeout("push", command, {
     ...options,
     context: [
       ...(options.context || []),
@@ -234,7 +234,7 @@ export async function gitPullWithTimeout(
   options: GitExecOptions = {}
 ): Promise<GitExecResult> {
   const command = branch ? `pull ${remote} ${branch}` : `pull ${remote}`;
-  return execGitWithTimeout("pull", command!, {
+  return execGitWithTimeout("pull", command, {
     ...options,
     context: [
       ...(options.context || []),

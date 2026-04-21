@@ -71,8 +71,11 @@ export const PROVIDER_FETCHER_REGISTRY = {
   morph: MorphModelFetcher,
 
   // Missing fetchers — null! to satisfy the satisfies constraint; guarded at runtime by hasProviderFetcher()
+
   google: null!, // TODO: Implement GoogleModelFetcher
+
   cohere: null!, // TODO: Implement CohereModelFetcher
+
   mistral: null!, // TODO: Implement MistralModelFetcher
 } as const satisfies EnsureCompleteRegistry<ProviderFetcherRegistry>;
 

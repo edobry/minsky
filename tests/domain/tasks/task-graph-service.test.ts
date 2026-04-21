@@ -11,7 +11,8 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
 
   function parseKey(key: string): { from: string; to: string; type: RelationshipType } {
     const parts = key.split("→");
-    return { from: parts[0]!, to: parts[1]!, type: parts[2]! as RelationshipType };
+    if (parts.length < 3) throw new Error(`Invalid edge key: ${key}`);
+    return { from: parts[0] as string, to: parts[1] as string, type: parts[2] as RelationshipType };
   }
 
   return {

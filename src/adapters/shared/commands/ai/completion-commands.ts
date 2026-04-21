@@ -182,7 +182,7 @@ export function registerCompletionCommands(): void {
             `Failed to read file ${filePath}: ` +
               `${error instanceof Error ? error.message : String(error)}`
           );
-          exit(1);
+          return { success: false, error: "Failed to read file" };
         }
 
         const config = getResolvedConfig();
@@ -190,7 +190,7 @@ export function registerCompletionCommands(): void {
 
         const result = await executeFastApply(config, {
           filePath,
-          originalContent: originalContent!,
+          originalContent,
           instructions,
           codeEdit,
           provider,
@@ -200,7 +200,7 @@ export function registerCompletionCommands(): void {
         if (dryRun) {
           log.cli("🔍 Dry run - showing proposed changes:");
           log.cli("\n--- Original ---");
-          log.cli(originalContent!);
+          log.cli(originalContent);
           log.cli("\n--- Edited ---");
           log.cli(result.editedContent);
           log.cli(

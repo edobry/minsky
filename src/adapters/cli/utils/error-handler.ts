@@ -104,9 +104,10 @@ export function handleCliError(error: unknown): never {
     // Show the most relevant issue message and hint about expected format
     const firstIssue = (error as ZodError).issues?.[0];
     const issueMessage = firstIssue?.message || normalizedError.message || "Invalid input";
+    const firstIssuePath = firstIssue?.path;
     const issuePath =
-      Array.isArray(firstIssue?.path) && firstIssue!.path.length > 0
-        ? ` (field: ${firstIssue!.path.join(".")})`
+      Array.isArray(firstIssuePath) && firstIssuePath.length > 0
+        ? ` (field: ${firstIssuePath.join(".")})`
         : "";
 
     log.cliError(`Validation error: ${issueMessage}${issuePath}`);
