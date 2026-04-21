@@ -113,7 +113,7 @@ src/domain/
 | `rules`         | Markdown rule files with frontmatter; compilation to AI assistant formats                                    |
 | `git`           | Low-level git operations shared across domains                                                               |
 | `configuration` | Hierarchical config loading (defaults → project → user → env)                                                |
-| `repository`    | PR backend abstraction (GitHub, local)                                                                       |
+| `repository`    | Forge backend abstraction (GitHub; GitLab/Bitbucket planned)                                                 |
 | `persistence`   | PostgreSQL provider with optional pgvector capabilities                                                      |
 | `changeset`     | Structured change tracking for session diffs                                                                 |
 | `knowledge`     | External knowledge source integration (Notion, Confluence, Google Docs), ingestion pipeline, semantic search |
@@ -185,7 +185,7 @@ interface SessionRecord {
   repoUrl: string; // Clone URL
   createdAt: string; // ISO timestamp
   taskId?: string; // Plain task ID (e.g., "283", no "#" prefix)
-  backendType?: "local" | "remote" | "github";
+  backendType?: "github" | "gitlab" | "bitbucket";
   prState?: {
     // Performance cache for PR branch status
     branchName: string;
@@ -410,7 +410,7 @@ includes per-key source tracking (which source set each value).
 
 ```yaml
 repository:
-  backend: github # "github" | "gitlab" | "local"
+  backend: github # "github" | "gitlab" | "bitbucket"
   url: https://...
   github:
     owner: edobry
@@ -444,16 +444,19 @@ Earlier versions derived the backend from the clone URL at session creation time
 patterns). This was fragile across machines and CI environments. ADR-003 moves the decision to
 project-level config, set once at `minsky init`.
 
-### Current backends
+### Current architecture
 
-| Backend  | Description                                                    |
-| -------- | -------------------------------------------------------------- |
-| `github` | GitHub API via `@octokit/rest`; creates GitHub PRs and reviews |
-| `local`  | Local git operations only; no remote PR API                    |
+The repository backend implements `ForgeBackend` (extends `RepositoryBackend`) with three sub-interfaces:
 
-The active backend is read from `.minsky/config.yaml` (`repository.backend`). All session PR
-operations (create, approve, merge) route through `RepositoryBackendInterface`, which is
-resolved by `getRepositoryBackendFromConfig()` at runtime.
+| Sub-interface          | Methods                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| `backend.pr`           | `create`, `update`, `merge`, `get`, `getDiff`              |
+| `backend.ci`           | `getChecksForRef`, `getChecksForPR`                        |
+| `backend.review`       | `approve`, `getApprovalStatus`, `submitReview`             |
+
+Currently only GitHub is implemented (`GitHubBackend`). GitLab and Bitbucket are recognized in config/detection but throw "not yet implemented" at runtime.
+
+The active backend is read from `.minsky/config.yaml` (`repository.backend`). All session operations route through the sub-interfaces, which are resolved by `createRepositoryBackend()` at runtime.
 
 Source: `src/domain/repository/`
 
