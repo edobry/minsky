@@ -253,12 +253,7 @@ describe("Session Database BaseDir Bug", () => {
 
     // Clone path BEFORE fix (what caused the bug)
     // This simulates the old getSessionWorkdir that included repoName
-    const clonePathOld = join(
-      mockBaseDir,
-      sessionRecord.repoName,
-      "sessions",
-      "test-session"
-    );
+    const clonePathOld = join(mockBaseDir, sessionRecord.repoName, "sessions", "test-session");
 
     // Clone path AFTER fix (what it should be now)
     const clonePathFixed = join(mockBaseDir, "sessions", "test-session");
