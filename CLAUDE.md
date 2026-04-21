@@ -65,9 +65,10 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/<UUID
 6. **After merging a PR**, the local workspace is stale (merge happens on GitHub). A PostToolUse hook auto-pulls after `session_pr_merge`. If starting a fresh conversation after prior merges, verify the workspace is current before analyzing code.
 7. **When merging multiple PRs sequentially**, each merge may cause conflicts in remaining PRs. Update remaining sessions (`session_update`) after each merge, or resolve conflicts with `session_search_replace` on the conflict markers.
 8. All file operations in sessions MUST use absolute paths.
-9. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
-10. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
-11. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
+9. **NEVER use `skipInstall: true`** when starting sessions. Sessions without `node_modules` cannot pass typecheck hooks, blocking subagent completion. Always let deps install.
+10. **NEVER use bare git CLI** (`git add`, `git commit`, `git push`, `git pull`, `git -C`). Always use MCP tools. Shell `#` in task paths causes parsing issues and permission prompts.
+11. **Always quote all Bash arguments** containing `#`, `$`, or special chars if Bash is unavoidable.
+12. **If MCP session tools fail** (e.g., mt#722 causes session records to vanish), and you must fall back to bare git for commit/push/PR creation, you MUST replicate the safety steps that the MCP tools would have performed: `git fetch origin main && git rebase origin/main` before pushing, to prevent merge conflicts that block CI. A PR with conflicts will not trigger CI — GitHub silently skips it.
 
 ### Session lifecycle: one session, one merge
 
