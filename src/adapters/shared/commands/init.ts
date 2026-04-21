@@ -83,6 +83,29 @@ export function registerInitCommands() {
       description: "Initialize a project for Minsky",
       parameters: initParams,
       requiresSetup: false,
+      validate: async (params: Record<string, unknown>) => {
+        const backend = params.backend as string | undefined;
+        const githubOwner = params.githubOwner as string | undefined;
+        const githubRepo = params.githubRepo as string | undefined;
+
+        if (!backend && !isInteractive()) {
+          throw new ValidationError(
+            `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MINSKY} or ${TaskBackend.GITHUB_ISSUES}`
+          );
+        }
+
+        if (backend === TaskBackend.GITHUB_ISSUES && !githubOwner && !isInteractive()) {
+          throw new ValidationError(
+            "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
+          );
+        }
+
+        if (backend === TaskBackend.GITHUB_ISSUES && !githubRepo && !isInteractive()) {
+          throw new ValidationError(
+            "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
+          );
+        }
+      },
       execute: async (params, _ctx) => {
         try {
           // Map CLI params to domain params
@@ -106,12 +129,7 @@ export function registerInitCommands() {
           // Interactive backend selection if not provided
           let backend = params.backend;
           if (!backend) {
-            // Check if we're in an interactive environment
-            if (!isInteractive()) {
-              throw new ValidationError(
-                `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MINSKY} or ${TaskBackend.GITHUB_ISSUES}`
-              );
-            }
+            // isInteractive() is guaranteed true here (validate() enforced non-interactive check)
 
             const selectedBackend = await select({
               message: "Select a task backend:",
@@ -139,12 +157,7 @@ export function registerInitCommands() {
 
           if (backend === TaskBackend.GITHUB_ISSUES) {
             if (!githubOwner) {
-              if (!isInteractive()) {
-                throw new ValidationError(
-                  "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
-                );
-              }
-
+              // isInteractive() is guaranteed true here (validate() enforced non-interactive check)
               const ownerInput = await text({
                 message: "Enter GitHub repository owner:",
                 placeholder: "e.g., octocat",
@@ -165,12 +178,7 @@ export function registerInitCommands() {
             }
 
             if (!githubRepo) {
-              if (!isInteractive()) {
-                throw new ValidationError(
-                  "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
-                );
-              }
-
+              // isInteractive() is guaranteed true here (validate() enforced non-interactive check)
               const repoInput = await text({
                 message: "Enter GitHub repository name:",
                 placeholder: "e.g., my-project",
