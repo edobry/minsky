@@ -47,6 +47,21 @@ export async function stageModifiedImpl(execAsync: ExecAsyncFn, repoPath?: strin
 }
 
 /**
+ * Stage a specific set of files. Paths are POSIX shell-quoted and passed after
+ * `--` so entries starting with a dash are not interpreted as options.
+ */
+export async function stageFilesImpl(
+  execAsync: ExecAsyncFn,
+  files: string[],
+  repoPath?: string
+): Promise<void> {
+  if (files.length === 0) return;
+  const workdir = repoPath || process.cwd();
+  const quoted = files.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(" ");
+  await execAsync(`git -C ${workdir} add -- ${quoted}`);
+}
+
+/**
  * Commit staged changes
  */
 export async function commitImpl(
