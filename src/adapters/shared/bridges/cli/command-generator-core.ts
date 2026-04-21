@@ -170,12 +170,14 @@ export class CommandGeneratorCore {
         }
 
         // ADR-004: validate→execute pipeline
+        let validatedCtx: unknown;
         if (commandDef.validate) {
-          await commandDef.validate(normalizedParams, context);
+          validatedCtx = await commandDef.validate(normalizedParams, context);
         }
 
         // Execute the command with parameters and context
-        const result = await commandDef.execute(normalizedParams, context);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await commandDef.execute(normalizedParams, context, validatedCtx as any);
 
         // Handle output
         this.handleCommandOutput(result, commandDef, options, context);
