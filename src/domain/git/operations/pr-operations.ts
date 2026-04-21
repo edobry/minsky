@@ -44,7 +44,10 @@ export class CreatePullRequestOperation extends BaseGitOperation<
     params: CreatePullRequestParams,
     gitService: GitServiceInterface
   ): Promise<PrResult> {
-    const result = await gitService.pr!({
+    if (!gitService.pr) {
+      throw new Error("Git service does not support pull request creation");
+    }
+    const result = await gitService.pr({
       session: params.session,
       repoPath: params.repo,
       branch: params.branch,
@@ -76,7 +79,10 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
     params: MergePrParams,
     gitService: GitServiceInterface
   ): Promise<MergePrResult> {
-    const result = await gitService.mergePr!({
+    if (!gitService.mergePr) {
+      throw new Error("Git service does not support pull request merging");
+    }
+    const result = await gitService.mergePr({
       prBranch: params.prBranch,
       repoPath: params.repo,
       baseBranch: params.baseBranch,
@@ -96,8 +102,13 @@ export class MergePrOperation extends BaseGitOperation<MergePrParams, MergePrRes
 /**
  * Factory functions for creating PR operations
  */
-export const createCreatePullRequestOperation = (deps?: GitOperationDependencies) =>
-  new CreatePullRequestOperation(deps!);
+export const createCreatePullRequestOperation = (deps?: GitOperationDependencies) => {
+  if (!deps)
+    throw new Error("GitOperationDependencies required for createCreatePullRequestOperation");
+  return new CreatePullRequestOperation(deps);
+};
 
-export const createMergePrOperation = (deps?: GitOperationDependencies) =>
-  new MergePrOperation(deps!);
+export const createMergePrOperation = (deps?: GitOperationDependencies) => {
+  if (!deps) throw new Error("GitOperationDependencies required for createMergePrOperation");
+  return new MergePrOperation(deps);
+};

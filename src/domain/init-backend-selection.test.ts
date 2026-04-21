@@ -47,7 +47,7 @@ describe("Init System Backend Selection", () => {
       const configContent = mockFileSystem.files.get(configPath);
       expect(configContent).toBeDefined();
 
-      const config = yamlParse(configContent!);
+      const config = yamlParse(configContent ?? "");
       expect(config.tasks.backend).toBe(backend);
       // When mcp.enabled is false, no mcp section should appear in config
       expect(config.mcp).toBeUndefined();
@@ -71,7 +71,7 @@ describe("Init System Backend Selection", () => {
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
     expect(mockFileSystem.files.has(configPath)).toBe(true);
 
-    const config = yamlParse(mockFileSystem.files.get(configPath)!);
+    const config = yamlParse(mockFileSystem.files.get(configPath) ?? "");
     expect(config.mcp).toBeDefined();
     expect(config.mcp.transport).toBe("stdio");
   });
@@ -91,7 +91,7 @@ describe("Init System Backend Selection", () => {
     );
 
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
-    const config = yamlParse(mockFileSystem.files.get(configPath)!);
+    const config = yamlParse(mockFileSystem.files.get(configPath) ?? "");
     expect(config.mcp).toBeDefined();
     expect(config.mcp.transport).toBe("sse");
     expect(config.mcp.port).toBe(3000);
@@ -117,7 +117,7 @@ describe("Init System Backend Selection", () => {
 
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
     expect(mockFileSystem.files.has(configPath)).toBe(true);
-    const minskyConfig = yamlParse(mockFileSystem.files.get(configPath)!);
+    const minskyConfig = yamlParse(mockFileSystem.files.get(configPath) ?? "");
     expect(minskyConfig.tasks.backend).toBe("minsky");
 
     // Test github-issues backend (no files needed - uses GitHub API)
@@ -137,7 +137,7 @@ describe("Init System Backend Selection", () => {
     // Should not create task files, only config
     const ghConfigPath = path.join(testRepo, ".minsky", "config.yaml");
     expect(mockFileSystem.files.has(ghConfigPath)).toBe(true);
-    const ghConfig = yamlParse(mockFileSystem.files.get(ghConfigPath)!);
+    const ghConfig = yamlParse(mockFileSystem.files.get(ghConfigPath) ?? "");
     expect(ghConfig.tasks.backend).toBe("github-issues");
   });
 

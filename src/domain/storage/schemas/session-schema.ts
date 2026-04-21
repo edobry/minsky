@@ -12,6 +12,7 @@ import type { SessionRecord, PullRequestInfo } from "../../session/session-db";
 // SQLite Schema - Match existing database structure (camelCase column names)
 export const sqliteSessions = sqliteTable("sessions", {
   session: text("session")!.primaryKey(),
+
   repoName: text("repoName")!.notNull(),
   repoUrl: text("repoUrl"),
   createdAt: text("createdAt").notNull(),
@@ -33,7 +34,9 @@ export const sqliteSessions = sqliteTable("sessions", {
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
   session: varchar("session", { length: 255 })!.primaryKey(),
+
   repoName: varchar("repo_name", { length: 255 })!.notNull(),
+
   repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }),

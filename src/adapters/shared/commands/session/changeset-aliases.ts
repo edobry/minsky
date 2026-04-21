@@ -93,7 +93,8 @@ async function executeSessionChangesetList(
     if (!params.all) {
       try {
         const { execAsync } = await import("../../../../utils/exec");
-        const sessionDB = ctx!.container!.get("sessionProvider");
+        if (!ctx?.container) throw new Error("No container in command context");
+        const sessionDB = ctx.container.get("sessionProvider");
         const currentSessionId = await getCurrentSession(process.cwd(), execAsync, sessionDB);
         if (currentSessionId) {
           sessionFilter = currentSessionId;
@@ -198,7 +199,8 @@ async function executeSessionChangesetGet(
     if (!changesetId) {
       try {
         const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
-        const sessionDB2 = ctx!.container!.get("sessionProvider");
+        if (!ctx?.container) throw new Error("No container in command context");
+        const sessionDB2 = ctx.container.get("sessionProvider");
         const currentSessionId = await getCurrentSession(process.cwd(), execAsyncFn, sessionDB2);
         if (currentSessionId) {
           const sessionProvider = sessionDB2;

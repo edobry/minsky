@@ -440,7 +440,7 @@ describe("registerWithClient", () => {
   test("written content is valid JSON with correct structure", async () => {
     await registerWithClient("/my-project", { transport: "stdio" }, "cursor", mockFs);
 
-    const content = mockFs.files.get(path.join("/my-project", ".cursor", "mcp.json"))!;
+    const content = mockFs.files.get(path.join("/my-project", ".cursor", "mcp.json")) ?? "";
     const parsed = JSON.parse(content);
     expect(parsed.mcpServers).toBeDefined();
     expect(parsed.mcpServers["minsky-server"]).toBeDefined();
@@ -461,7 +461,7 @@ describe("registerWithClient", () => {
       registerWithClient("/my-project", { transport: "sse", port: 9000 }, "cursor", mockFs, true)
     ).resolves.toBeUndefined();
 
-    const content = mockFs.files.get(path.join("/my-project", ".cursor", "mcp.json"))!;
+    const content = mockFs.files.get(path.join("/my-project", ".cursor", "mcp.json")) ?? "";
     const parsed = JSON.parse(content);
     expect(parsed.mcpServers["minsky-server"].args).toContain("--sse");
   });
@@ -474,7 +474,7 @@ describe("registerWithClient", () => {
 
       const configPath = registrar.configPath("/any-root");
       expect(mockFs.files.has(configPath)).toBe(true);
-      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       expect(parsed.mcpServers["minsky-server"]).toBeDefined();
     });
 
@@ -495,7 +495,7 @@ describe("registerWithClient", () => {
 
       await registerWithClient("/any-root", { transport: "stdio" }, "claude-desktop", mockFs);
 
-      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       // Existing server preserved
       expect(parsed.mcpServers["other-server"]).toBeDefined();
       // Minsky server added
@@ -525,7 +525,7 @@ describe("registerWithClient", () => {
         mockFs
       );
 
-      const parsed = JSON.parse(mockFs.files.get(configPath)!);
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
       expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
     });
@@ -540,7 +540,7 @@ describe("registerWithClient", () => {
 
       await registerWithClient("/my-project", { transport: "stdio" }, "codex", mockFs);
 
-      const result = mockFs.files.get(configPath)!;
+      const result = mockFs.files.get(configPath) ?? "";
       // Existing content preserved
       expect(result).toContain('model = "gpt-4"');
       expect(result).toContain('approval_mode = "suggest"');
@@ -556,7 +556,7 @@ describe("registerWithClient", () => {
 
       await registerWithClient("/my-project", { transport: "stdio" }, "codex", mockFs);
 
-      const result = mockFs.files.get(configPath)!;
+      const result = mockFs.files.get(configPath) ?? "";
       // Old content replaced entirely
       expect(result).not.toContain('command = "old"');
       expect(result).toContain(TOML_COMMAND_MINSKY);
@@ -572,7 +572,7 @@ describe("registerWithClient", () => {
 
       await registerWithClient("/my-project", { transport: "stdio" }, "openhands", mockFs);
 
-      const result = mockFs.files.get(configPath)!;
+      const result = mockFs.files.get(configPath) ?? "";
       // Existing content preserved
       expect(result).toContain("[core]");
       expect(result).toContain('workspace_base = "/workspace"');
@@ -589,7 +589,7 @@ describe("registerWithClient", () => {
 
       await registerWithClient("/my-project", { transport: "stdio" }, "openhands", mockFs);
 
-      const result = mockFs.files.get(configPath)!;
+      const result = mockFs.files.get(configPath) ?? "";
       expect(result).not.toContain('command = "old"');
       expect(result).toContain(TOML_COMMAND_MINSKY);
     });

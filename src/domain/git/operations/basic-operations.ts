@@ -193,12 +193,22 @@ export class CommitOperation extends BaseGitOperation<
  * Factory functions for creating basic operations
  */
 
-export const createCloneOperation = (deps?: GitOperationDependencies) => new CloneOperation(deps!);
+export const createCloneOperation = (deps?: GitOperationDependencies) => {
+  if (!deps) throw new Error("GitOperationDependencies required for createCloneOperation");
+  return new CloneOperation(deps);
+};
 
-export const createBranchOperation = (deps?: GitOperationDependencies) =>
-  new BranchOperation(deps!);
+export const createBranchOperation = (deps?: GitOperationDependencies) => {
+  if (!deps) throw new Error("GitOperationDependencies required for createBranchOperation");
+  return new BranchOperation(deps);
+};
 
-export const createPushOperation = (deps?: GitOperationDependencies) => new PushOperation(deps!);
+export const createPushOperation = (deps?: GitOperationDependencies) => {
+  if (!deps) throw new Error("GitOperationDependencies required for createPushOperation");
+  return new PushOperation(deps);
+};
 
-export const createCommitOperation = (deps?: GitOperationDependencies) =>
-  new CommitOperation(deps!);
+export const createCommitOperation = (deps?: GitOperationDependencies) => {
+  if (!deps) throw new Error("GitOperationDependencies required for createCommitOperation");
+  return new CommitOperation(deps);
+};
