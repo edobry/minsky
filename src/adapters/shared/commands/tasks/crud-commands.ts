@@ -79,7 +79,8 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskGraphService?: () => TaskGraphService
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -112,7 +113,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         limit: params.limit,
         tags,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
@@ -306,6 +307,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       const task = await getTaskFromParams(taskParams, {
         persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
       });
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
@@ -371,7 +373,10 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         try {
           const specResult = await getTaskSpecContentFromParams(
             { ...this.createTaskParams(params), taskId: validatedTaskId },
-            { persistenceProvider: this.getPersistenceProvider?.() }
+            {
+              persistenceProvider: this.getPersistenceProvider?.(),
+              taskService: this.getTaskService?.(),
+            }
           );
           extras.spec = specResult.content;
         } catch {
@@ -471,7 +476,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           githubRepo: params.githubRepo,
           tags,
         },
-        { persistenceProvider: this.getPersistenceProvider?.() }
+        {
+          persistenceProvider: this.getPersistenceProvider?.(),
+          taskService: this.getTaskService?.(),
+        }
       );
 
       this.debug("Task created successfully");
@@ -607,7 +615,8 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskGraphService?: () => TaskGraphService
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -632,7 +641,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         taskId: validatedTaskId,
         force: params.force ?? false,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Clean up parent-child edges for the deleted task (D7: orphan children)
@@ -681,7 +690,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         ...this.createTaskParams(params),
         taskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Guard against null task to avoid accessing properties on null
@@ -707,8 +716,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
  */
 export const createTasksListCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskGraphService?: () => TaskGraphService
-): TasksListCommand => new TasksListCommand(getPersistenceProvider, getTaskGraphService);
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
+): TasksListCommand =>
+  new TasksListCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksGetCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
@@ -726,5 +737,7 @@ export const createTasksCreateCommand = (
 
 export const createTasksDeleteCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskGraphService?: () => TaskGraphService
-): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider, getTaskGraphService);
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
+): TasksDeleteCommand =>
+  new TasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
