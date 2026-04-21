@@ -212,6 +212,11 @@ quality gates in order from fastest to slowest:
 6. **Secret scanning** — gitleaks (~2–3s)
 7. **Unit tests** — full test suite (~15–30s)
 8. **ESLint rule tests** — tests for the custom lint rules
+9. **Rules compile staleness check** — runs `minsky rules compile --check` for each
+   opted-in target (AGENTS.md, CLAUDE.md, `.cursor/rules/`). If a compiled output is
+   out of date relative to the source rules, the commit is blocked with a message
+   naming the stale file. Remediation: run `bun run minsky rules compile --target <target>`
+   and re-stage the regenerated output.
 
 The **commit-msg** hook validates commit message format (Conventional Commits style:
 `type(scope): description`).

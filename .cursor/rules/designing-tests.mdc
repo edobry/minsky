@@ -1,5 +1,10 @@
 ---
-{}
+description: 'Guidelines for writing effective, maintainable tests with proper isolation, data management, and thorough coverage'
+globs:
+  - '**/*.test.ts'
+alwaysApply: false
+tags:
+  - testing
 ---
 # Designing Tests
 
