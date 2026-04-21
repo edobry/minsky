@@ -231,8 +231,8 @@ describe("Session Database BaseDir Bug", () => {
     expect(correctWorkdir).not.toBe(incorrectWorkdir);
   });
 
-  it("should demonstrate the LocalGitBackend vs SessionDB path inconsistency", async () => {
-    // This test shows the REAL bug: LocalGitBackend and SessionDB use different path structures
+  it("should demonstrate the clone path vs SessionDB path inconsistency", async () => {
+    // This test shows the REAL bug: the clone path and SessionDB path used different structures
 
     // Session database path (what session dir command returns)
     const mockBaseDir = "/test/minsky";
@@ -251,27 +251,27 @@ describe("Session Database BaseDir Bug", () => {
     sessionState.sessions = [sessionRecord];
     const sessionDbPath = getSessionWorkdirFn(sessionState, "test-session");
 
-    // LocalGitBackend path BEFORE fix (what caused the bug)
+    // Clone path BEFORE fix (what caused the bug)
     // This simulates the old getSessionWorkdir that included repoName
-    const localGitBackendPathOld = join(
+    const clonePathOld = join(
       mockBaseDir,
       sessionRecord.repoName,
       "sessions",
       "test-session"
     );
 
-    // LocalGitBackend path AFTER fix (what it should be now)
-    const localGitBackendPathFixed = join(mockBaseDir, "sessions", "test-session");
+    // Clone path AFTER fix (what it should be now)
+    const clonePathFixed = join(mockBaseDir, "sessions", "test-session");
 
     // Show the inconsistency that caused the bug
     expect(sessionDbPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
-    expect(localGitBackendPathOld).toBe("/test/minsky/test-repo/sessions/test-session");
-    expect(localGitBackendPathFixed).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
+    expect(clonePathOld).toBe("/test/minsky/test-repo/sessions/test-session");
+    expect(clonePathFixed).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
 
     // The old paths were different (causing posix_spawn error)
-    expect(sessionDbPath).not.toBe(localGitBackendPathOld);
+    expect(sessionDbPath).not.toBe(clonePathOld);
 
     // The fixed paths should be the same (fixing the bug)
-    expect(sessionDbPath).toBe(localGitBackendPathFixed);
+    expect(sessionDbPath).toBe(clonePathFixed);
   });
 });
