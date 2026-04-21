@@ -87,3 +87,16 @@ export interface TierSignals {
   specAuthorship?: SpecAuthorship;
   initiationMode?: InitiationMode;
 }
+
+/** Summary returned by ProvenanceService.recomputeAll(). */
+export interface RecomputeSummary {
+  total: number;
+  recomputed: number;
+  tierChanged: number;
+  skippedNoTranscript: number;
+  errors: number;
+  /** Distribution of final tiers: "1" | "2" | "3" → count */
+  tierDistribution: Record<string, number>;
+  /** Only populated in dry-run mode. */
+  changes?: Array<{ artifactId: string; oldTier: number | null; newTier: number }>;
+}
