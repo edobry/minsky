@@ -448,11 +448,11 @@ project-level config, set once at `minsky init`.
 
 The repository backend implements `ForgeBackend` (extends `RepositoryBackend`) with three sub-interfaces:
 
-| Sub-interface          | Methods                                                    |
-| ---------------------- | ---------------------------------------------------------- |
-| `backend.pr`           | `create`, `update`, `merge`, `get`, `getDiff`              |
-| `backend.ci`           | `getChecksForRef`, `getChecksForPR`                        |
-| `backend.review`       | `approve`, `getApprovalStatus`, `submitReview`             |
+| Sub-interface    | Methods                                        |
+| ---------------- | ---------------------------------------------- |
+| `backend.pr`     | `create`, `update`, `merge`, `get`, `getDiff`  |
+| `backend.ci`     | `getChecksForRef`, `getChecksForPR`            |
+| `backend.review` | `approve`, `getApprovalStatus`, `submitReview` |
 
 Currently only GitHub is implemented (`GitHubBackend`). GitLab and Bitbucket are recognized in config/detection but throw "not yet implemented" at runtime.
 
