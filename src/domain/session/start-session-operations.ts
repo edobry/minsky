@@ -19,6 +19,7 @@ import type { SessionProviderInterface, SessionRecord, Session } from "../sessio
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
+import { SessionStatus } from "./types";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -310,6 +311,8 @@ async function executeMutations(
     taskId,
     backendType,
     branch: branchName,
+    lastActivityAt: new Date().toISOString(),
+    status: SessionStatus.CREATED,
   };
 
   let sessionAdded = false;
