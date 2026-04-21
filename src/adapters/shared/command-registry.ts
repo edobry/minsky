@@ -114,6 +114,12 @@ export interface CommandDefinition<
   /** Command execution handler */
   execute: CommandExecutionHandler<T, R>;
   /**
+   * Optional precondition validation. Runs before execute().
+   * Must throw on failure (ValidationError). Must not perform mutations.
+   * If defined, the framework guarantees it runs before execute().
+   */
+  validate?: CommandExecutionHandler<T, void>;
+  /**
    * Whether this command requires the project to be initialized before execution.
    * Defaults to true. Set to false for commands like `init`, `setup`, and `mcp.register`
    * that are responsible for initialization themselves.
@@ -173,6 +179,7 @@ export interface SharedCommand<T extends CommandParameterMap = CommandParameterM
   description: string;
   parameters: T;
   execute: CommandExecutionHandler<T, R>;
+  validate?: CommandExecutionHandler<T, void>;
   requiresSetup?: boolean;
 }
 
