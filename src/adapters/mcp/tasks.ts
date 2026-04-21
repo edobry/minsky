@@ -17,12 +17,10 @@ export function registerTaskTools(
     "Exposing task commands via shared command integration (commands already registered during CLI init)"
   );
 
-  // Register new task-specific editing tools (tasks.edit_file, tasks.search_replace)
+  // Register task spec editing tools (tasks.spec.patch, tasks.spec.search_replace)
   registerTaskEditTools(commandMapper, container);
 
-  // Use the bridge integration to expose already-registered task commands
-  // Note: Shared commands are already registered during CLI initialization,
-  // so we just need to expose them via MCP without re-registering
+  // Expose shared-registry task commands via MCP
   registerTaskCommandsWithMcp(commandMapper, {
     container,
     debug: true,
@@ -38,15 +36,7 @@ export function registerTaskTools(
       },
       "tasks.edit": {
         description:
-          "Edit task title and/or specification content with basic operations. Supports: title updates, complete spec replacement from content or file. For advanced editing with patterns, use tasks.spec.edit instead.",
-      },
-      "tasks.spec.edit": {
-        description:
-          "Edit task specification using familiar file editing patterns. Works exactly like session.edit_file but operates on task specs in-memory with backend delegation. Use '// ... existing code ...' markers for precise edits.",
-      },
-      "tasks.spec.search_replace": {
-        description:
-          "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
+          "Edit task title and/or specification content with basic operations. Supports: title updates, complete spec replacement from content or file. For marker-based patching, use tasks.spec.patch instead.",
       },
       "tasks.spec.get": {
         description: "Get the specification for a task",

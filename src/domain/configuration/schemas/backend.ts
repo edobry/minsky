@@ -57,6 +57,26 @@ export const repositoryGitHubConfigSchema = z.object({
 });
 
 /**
+ * Repository GitLab-specific configuration (config-plumbing only; runtime not yet implemented)
+ */
+export const repositoryGitLabConfigSchema = z.object({
+  projectId: z.string().optional(),
+  projectPath: z.string().optional(),
+  token: z.string().optional(),
+  baseUrl: z.string().optional(),
+});
+
+/**
+ * Repository Bitbucket-specific configuration (config-plumbing only; runtime not yet implemented)
+ */
+export const repositoryBitbucketConfigSchema = z.object({
+  workspace: z.string().optional(),
+  repoSlug: z.string().optional(),
+  token: z.string().optional(),
+  baseUrl: z.string().optional(),
+});
+
+/**
  * Repository backend configuration
  *
  * Stores the project-level repository backend type and associated settings,
@@ -66,6 +86,8 @@ export const repositoryConfigSchema = z.looseObject({
   backend: enumSchemas.repoBackendType.optional(),
   url: z.string().optional(),
   github: repositoryGitHubConfigSchema.optional(),
+  gitlab: repositoryGitLabConfigSchema.optional(),
+  bitbucket: repositoryBitbucketConfigSchema.optional(),
 });
 
 // Type exports
@@ -74,6 +96,8 @@ export type GitHubIssuesBackendConfig = z.infer<typeof githubIssuesBackendConfig
 export type BackendConfig = z.infer<typeof backendConfigSchema>;
 export type BackendFullConfig = z.infer<typeof backendFullConfigSchema>;
 export type RepositoryGitHubConfig = z.infer<typeof repositoryGitHubConfigSchema>;
+export type RepositoryGitLabConfig = z.infer<typeof repositoryGitLabConfigSchema>;
+export type RepositoryBitbucketConfig = z.infer<typeof repositoryBitbucketConfigSchema>;
 export type RepositoryConfig = z.infer<typeof repositoryConfigSchema>;
 
 /**

@@ -126,11 +126,14 @@ export function registerKnowledgeResources(
           );
         }
 
-        const token = sourceConfig.auth.token;
+        const token =
+          sourceConfig.auth.token ??
+          (sourceConfig.auth.tokenEnvVar ? process.env[sourceConfig.auth.tokenEnvVar] : undefined);
         if (!token) {
-          throw new Error(
-            `API token not found. Provide "auth.token" in the knowledge base configuration.`
-          );
+          const hint = sourceConfig.auth.tokenEnvVar
+            ? `Set the "${sourceConfig.auth.tokenEnvVar}" environment variable or provide a direct "token" value.`
+            : `Provide a direct "token" value in the auth configuration.`;
+          throw new Error(`API token not found. ${hint}`);
         }
 
         let provider;

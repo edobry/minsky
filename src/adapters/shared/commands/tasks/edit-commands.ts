@@ -136,7 +136,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
 
     // Handle spec content update
     if (params.spec || params.specFile || params.specContent) {
-      let newSpecContent: string | undefined;
+      let newSpecContent: string;
 
       if (params.specContent) {
         // Direct content
@@ -158,7 +158,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Got spec content from interactive editor");
       }
 
-      updates.spec = newSpecContent;
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updates.spec = newSpecContent!;
     }
 
     // Handle tags update
@@ -195,7 +196,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
       const { resolveRepoPath } = await import("../../../../domain/repo-utils");
       const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
-      if (!ctx?.container) throw new Error("No container in command context");
+      if (!ctx?.container) {
+        throw new Error(
+          "DI container not available in execution context. " +
+            "Ensure the container is passed through createMCPCommand() → createStartCommand() → registerAllTools()."
+        );
+      }
       const sessionDB = ctx.container.get("sessionProvider");
 
       const service = await createConfiguredTaskService({

@@ -274,6 +274,11 @@ describe("isRetryableAIError", () => {
     expect(isRetryableAIError(err)).toBe(false);
   });
 
+  it("returns true for 502 Bad Gateway", () => {
+    const err = new Error("502 Bad Gateway");
+    expect(isRetryableAIError(err)).toBe(true);
+  });
+
   it("returns true for 503 Service Unavailable", () => {
     const err = new Error("503 Service Unavailable");
     expect(isRetryableAIError(err)).toBe(true);

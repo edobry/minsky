@@ -1,14 +1,21 @@
 import { z } from "zod";
 
 /**
- * Authentication configuration for a knowledge source
+ * Authentication configuration for a knowledge source.
+ * At least one of `token` or `tokenEnvVar` must be provided.
  */
-const knowledgeSourceAuthSchema = z.object({
-  /** Direct API token value */
-  token: z.string(),
-  /** Optional email (used by some providers like Confluence) */
-  email: z.string().optional(),
-});
+const knowledgeSourceAuthSchema = z
+  .object({
+    /** Direct API token value (takes precedence over tokenEnvVar) */
+    token: z.string().optional(),
+    /** Environment variable containing the API token */
+    tokenEnvVar: z.string().optional(),
+    /** Optional environment variable for email (used by some providers like Confluence) */
+    emailEnvVar: z.string().optional(),
+  })
+  .refine((data) => data.token !== undefined || data.tokenEnvVar !== undefined, {
+    message: "At least one of 'token' or 'tokenEnvVar' must be provided",
+  });
 
 /**
  * Sync schedule and behavior configuration

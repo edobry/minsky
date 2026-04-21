@@ -613,7 +613,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
           workdir,
           options.session,
           options.draft || false,
-          () => this.getSessionDB()
+          () => this.getSessionDB(),
+          options.authorshipTier
         );
       },
 

@@ -3,11 +3,7 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { normalizeRepoName } from "./repo-utils";
 import { execAsync } from "../utils/exec";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-  type SessionRecord,
-} from "./session";
+import { type SessionProviderInterface, type SessionRecord } from "./session";
 
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
@@ -114,7 +110,10 @@ export class GitService implements GitServiceInterface {
 
   private async getSessionDb(): Promise<SessionProviderInterface> {
     if (!this.sessionDb) {
-      this.sessionDb = await createSessionProvider({ dbPath: process.cwd() });
+      throw new Error(
+        "GitService has no sessionProvider. " +
+          "Pass sessionProvider via constructor deps or use the DI container."
+      );
     }
     return this.sessionDb;
   }

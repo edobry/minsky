@@ -35,10 +35,26 @@ const INSPECTOR_PORT = 5173;
 /**
  * Register all MCP tool adapters on the given command mapper.
  */
-function registerAllTools(
+async function registerAllTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
-): void {
+): Promise<void> {
+  // Ensure the container is initialized before registering tools.
+  // MCP tool invocations bypass Commander's preAction hook, so initialization
+  // must happen here — making it impossible to register tools without persistence.
+  if (container && !container.has("persistence")) {
+    await container.initialize();
+    log.debug("Container initialized for MCP server");
+  }
+
+  // Health check: verify critical dependencies are available after init
+  if (container && !container.has("sessionProvider")) {
+    log.error(
+      "MCP startup health check failed: sessionProvider not available after container init. " +
+        "Session tools will fail. Check database connectivity."
+    );
+  }
+
   // Register debug tools first to ensure they're available for debugging
   registerDebugTools(commandMapper, container);
 
@@ -238,9 +254,9 @@ export function createStartCommand(
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
 
-        // Register tools via adapter-based approach
+        // Register tools via adapter-based approach (initializes container if needed)
         const commandMapper = new CommandMapper(server, server.getProjectContext());
-        registerAllTools(commandMapper, container);
+        await registerAllTools(commandMapper, container);
 
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);

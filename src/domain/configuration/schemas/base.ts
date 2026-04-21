@@ -96,8 +96,8 @@ export const enumSchemas = {
   }),
 
   // Repository backend types (distinct from task backendType)
-  repoBackendType: z.enum(["github", "gitlab", "local"], {
-    error: "Repository backend must be one of: github, gitlab, local",
+  repoBackendType: z.enum(["github", "gitlab", "bitbucket", "local"], {
+    error: "Repository backend must be one of: github, gitlab, bitbucket, local",
   }),
 } as const;
 

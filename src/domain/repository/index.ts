@@ -48,7 +48,7 @@ export interface RepositoryBackendConfig {
   /**
    * The type of repository backend to use
    */
-  type: "github";
+  type: "github" | "gitlab" | "bitbucket";
 
   /**
    * Repository URL or path
@@ -215,6 +215,8 @@ export interface CreatePROptions {
   baseBranch: string;
   session?: string;
   draft?: boolean;
+  /** Optional authorship tier — when provided, the corresponding label is applied to the PR. */
+  authorshipTier?: import("../provenance/types").AuthorshipTier;
 }
 
 export interface UpdatePROptions {
@@ -355,9 +357,19 @@ export async function createRepositoryBackend(
       return new GitHubBackend(config, sessionDB, tokenProvider);
     }
 
+    case RepositoryBackendType.GITLAB:
+      throw new Error(
+        "GitLab backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+      );
+
+    case RepositoryBackendType.BITBUCKET:
+      throw new Error(
+        "Bitbucket backend is not yet implemented. Only GitHub is currently supported for PR/CI/review operations."
+      );
+
     default:
       throw new Error(
-        `Unsupported repository backend type: ${config.type}. Only "github" is supported.`
+        `Unsupported repository backend type: ${config.type}. Only "github" is currently supported for PR/CI/review operations.`
       );
   }
 }

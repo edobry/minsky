@@ -93,7 +93,9 @@ async function executeSessionChangesetList(
     if (!params.all) {
       try {
         const { execAsync } = await import("../../../../utils/exec");
-        if (!ctx?.container) throw new Error("No container in command context");
+        if (!ctx?.container) {
+          throw new Error("DI container not available in execution context");
+        }
         const sessionDB = ctx.container.get("sessionProvider");
         const currentSessionId = await getCurrentSession(process.cwd(), execAsync, sessionDB);
         if (currentSessionId) {
@@ -199,7 +201,9 @@ async function executeSessionChangesetGet(
     if (!changesetId) {
       try {
         const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
-        if (!ctx?.container) throw new Error("No container in command context");
+        if (!ctx?.container) {
+          throw new Error("DI container not available in execution context");
+        }
         const sessionDB2 = ctx.container.get("sessionProvider");
         const currentSessionId = await getCurrentSession(process.cwd(), execAsyncFn, sessionDB2);
         if (currentSessionId) {
@@ -344,7 +348,8 @@ export function registerSessionChangesetCommands(): void {
         // Delegate to existing session.pr.create
         const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
         if (prCreateCommand) {
-          return await prCreateCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prCreateCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.create command not available");
       },
@@ -362,7 +367,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
         if (prApproveCommand) {
-          return await prApproveCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prApproveCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.approve command not available");
       },
@@ -380,7 +386,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
         if (prMergeCommand) {
-          return await prMergeCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prMergeCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.merge command not available");
       },
@@ -398,7 +405,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prEditCommand = sharedCommandRegistry.getCommand("session.pr.edit");
         if (prEditCommand) {
-          return await prEditCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prEditCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.edit command not available");
       },
@@ -416,7 +424,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prCreateCommand = sharedCommandRegistry.getCommand("session.pr.create");
         if (prCreateCommand) {
-          return await prCreateCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prCreateCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.create command not available");
       },
@@ -433,7 +442,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
         if (prApproveCommand) {
-          return await prApproveCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prApproveCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.approve command not available");
       },
@@ -450,7 +460,8 @@ export function registerSessionChangesetCommands(): void {
       execute: async (params, ctx) => {
         const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
         if (prMergeCommand) {
-          return await prMergeCommand.execute(params, ctx);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          return await prMergeCommand.execute(params, ctx!);
         }
         throw new Error("session.pr.merge command not available");
       },
