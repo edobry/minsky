@@ -106,16 +106,16 @@ src/domain/
 
 ### Subdomains
 
-| Subdomain       | Responsibility                                                             |
-| --------------- | -------------------------------------------------------------------------- |
-| `session`       | Isolated git workspaces tied to tasks; lifecycle from `start` to `approve` |
-| `tasks`         | Task CRUD with pluggable backends (GitHub Issues, Minsky DB)               |
-| `rules`         | Markdown rule files with frontmatter; compilation to AI assistant formats  |
-| `git`           | Low-level git operations shared across domains                             |
-| `configuration` | Hierarchical config loading (defaults → project → user → env)              |
-| `repository`    | PR backend abstraction (GitHub, local)                                     |
-| `persistence`   | PostgreSQL provider with optional pgvector capabilities                    |
-| `changeset`     | Structured change tracking for session diffs                               |
+| Subdomain       | Responsibility                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `session`       | Isolated git workspaces tied to tasks; lifecycle from `start` to `approve`                                   |
+| `tasks`         | Task CRUD with pluggable backends (GitHub Issues, Minsky DB)                                                 |
+| `rules`         | Markdown rule files with frontmatter; compilation to AI assistant formats                                    |
+| `git`           | Low-level git operations shared across domains                                                               |
+| `configuration` | Hierarchical config loading (defaults → project → user → env)                                                |
+| `repository`    | PR backend abstraction (GitHub, local)                                                                       |
+| `persistence`   | PostgreSQL provider with optional pgvector capabilities                                                      |
+| `changeset`     | Structured change tracking for session diffs                                                                 |
 | `knowledge`     | External knowledge source integration (Notion, Confluence, Google Docs), ingestion pipeline, semantic search |
 
 Formal concept definitions: `src/domain/concepts.md`
@@ -538,12 +538,12 @@ Notion source is configured.
 
 Four commands registered under `CommandCategory.KNOWLEDGE` expose knowledge operations:
 
-| Command              | Description                                              |
-| -------------------- | -------------------------------------------------------- |
-| `knowledge.search`   | Semantic search over indexed documents via vector query  |
-| `knowledge.fetch`    | Live-fetch a single document from a source by ID         |
-| `knowledge.sources`  | List configured knowledge sources and their sync status  |
-| `knowledge.sync`     | Sync one or all sources into the vector index            |
+| Command             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| `knowledge.search`  | Semantic search over indexed documents via vector query |
+| `knowledge.fetch`   | Live-fetch a single document from a source by ID        |
+| `knowledge.sources` | List configured knowledge sources and their sync status |
+| `knowledge.sync`    | Sync one or all sources into the vector index           |
 
 Source: `src/adapters/shared/commands/knowledge/index.ts`
 
@@ -551,11 +551,11 @@ Source: `src/adapters/shared/commands/knowledge/index.ts`
 
 Knowledge content is also accessible as MCP Resources (passive reads, no tool call required):
 
-| URI pattern                              | Description                                      |
-| ---------------------------------------- | ------------------------------------------------ |
-| `knowledge://sources`                    | Lists all configured sources and sync schedules  |
-| `knowledge://{sourceName}`               | Lists metadata for a specific source             |
-| `knowledge://{sourceName}/{documentId}`  | Live-fetches a single document                   |
+| URI pattern                             | Description                                     |
+| --------------------------------------- | ----------------------------------------------- |
+| `knowledge://sources`                   | Lists all configured sources and sync schedules |
+| `knowledge://{sourceName}`              | Lists metadata for a specific source            |
+| `knowledge://{sourceName}/{documentId}` | Live-fetches a single document                  |
 
 Source: `src/adapters/mcp/knowledge-resources.ts`
 
@@ -566,12 +566,12 @@ Knowledge sources are declared in `.minsky/config.yaml` under the `knowledgeBase
 ```yaml
 knowledgeBases:
   - name: my-docs
-    type: notion          # "notion" | "confluence" | "google-docs"
+    type: notion # "notion" | "confluence" | "google-docs"
     rootPageId: <page-id> # Notion-specific: root of the page tree to index
     auth:
-      tokenEnvVar: NOTION_API_TOKEN   # env var holding the API token
+      tokenEnvVar: NOTION_API_TOKEN # env var holding the API token
     sync:
-      schedule: on-demand  # "on-demand" | "startup" | "daily"
+      schedule: on-demand # "on-demand" | "startup" | "daily"
       maxDepth: 5
       excludePatterns:
         - "**/Archive/**"
