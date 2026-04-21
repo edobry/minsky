@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { select, isCancel, cancel } from "@clack/prompts";
+import { select, confirm, isCancel, cancel } from "@clack/prompts";
 import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
@@ -17,6 +17,7 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { performSetup } from "../../../domain/setup";
+import { applyHarnessSettings } from "../../../domain/setup/harness-settings";
 import { detectInstalledClients } from "../../../domain/runtime/harness-detection";
 import { ValidationError } from "../../../errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
@@ -36,6 +37,11 @@ const setupParams = composeParams(
     client: {
       schema: z.string().optional(),
       description: "MCP client to register with (e.g. cursor)",
+      required: false,
+    },
+    skipAgentSettings: {
+      schema: z.boolean().optional(),
+      description: "Skip applying recommended agent performance settings",
       required: false,
     },
   }
@@ -93,9 +99,56 @@ export function registerSetupCommands() {
 
           const result = await performSetup({ repoPath, client, overwrite });
 
+          // Apply recommended agent performance settings unless skipped
+          const agentSettingsMessages: string[] = [];
+          if (!params.skipAgentSettings) {
+            // Dry-run first to see what would change
+            const preview = await applyHarnessSettings({ dryRun: true });
+            const toApply = preview.filter((r) => r.status === "applied");
+
+            if (toApply.length > 0 && isInteractive()) {
+              // Show what will be changed and prompt
+              const changeLines = toApply.flatMap((r) =>
+                r.changes.map(
+                  (c) =>
+                    `  ${r.harness}: ${c.key}: ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)}`
+                )
+              );
+              const shouldApply = await confirm({
+                message: `Apply recommended agent performance settings?\n${changeLines.join("\n")}`,
+                initialValue: true,
+              });
+
+              if (!isCancel(shouldApply) && shouldApply) {
+                const applied = await applyHarnessSettings({ dryRun: false });
+                for (const r of applied) {
+                  if (r.status === "applied") {
+                    agentSettingsMessages.push(
+                      `Agent settings applied for ${r.harness} (${r.settingsPath})`
+                    );
+                  }
+                }
+              } else {
+                agentSettingsMessages.push("Agent settings skipped.");
+              }
+            } else {
+              // Non-interactive or nothing to apply
+              for (const r of preview) {
+                if (r.status === "already-configured") {
+                  agentSettingsMessages.push(`Agent settings already configured for ${r.harness}.`);
+                } else if (r.status === "not-detected") {
+                  // Silently skip undetected harnesses
+                }
+              }
+            }
+          }
+
+          const agentSettingsSuffix =
+            agentSettingsMessages.length > 0 ? `\n${agentSettingsMessages.join("\n")}` : "";
+
           return {
             success: result.success,
-            message: result.message,
+            message: result.message + agentSettingsSuffix,
             localConfigPath: result.localConfigPath,
             harnessConfigPath: result.harnessConfigPath,
             client: result.client,
