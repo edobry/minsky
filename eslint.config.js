@@ -52,6 +52,8 @@ export default [
       "*.tmp",
       // Exclude Claude Code agent worktrees
       ".claude/worktrees/**",
+      // Exclude ESLint rule test fixtures (intentionally contain rule violations)
+      "eslint-rules/__fixtures__/**",
     ],
   },
   {

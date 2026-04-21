@@ -18,6 +18,7 @@ import {
   type RepositoryBackend,
   type RepositoryBackendConfig,
   type MergeInfo,
+  type MergePROptions,
 } from "../repository/index";
 import { createConfiguredTaskService, type TaskServiceInterface } from "../tasks/taskService";
 import { createGitService } from "../git";
@@ -28,7 +29,12 @@ import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
-import type { PersistenceProvider } from "../persistence/types";
+import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
+import { ProvenanceService } from "../provenance/provenance-service";
+import { AuthorshipTier } from "../provenance/types";
+import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
+import { createTokenProvider } from "../auth";
+import { getConfiguration } from "../configuration/index";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -290,10 +296,139 @@ export async function mergeSessionPr(
     throw new ValidationError("No PR identifier available for merge");
   }
 
-  const mergeInfo = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse);
+  // ── Tier-aware merge options ────────────────────────────────────────────
+  // Look up the provenance record to determine authorship tier, then select
+  // the appropriate token and build git trailers for the merge commit.
+  // All of this is best-effort: any failure degrades gracefully to the
+  // default (no trailers, default token) — it must never break the merge.
+  const mergeOptions: MergePROptions = {};
+  try {
+    const prNumber =
+      sessionRecord.backendType === "github" && sessionRecord.pullRequest
+        ? sessionRecord.pullRequest.number
+        : undefined;
+
+    // Resolve provenance tier (requires SQL-capable persistence + a numeric PR number)
+    let authorshipTier: AuthorshipTier | null = null;
+    if (prNumber !== undefined && deps.persistenceProvider) {
+      const provider = deps.persistenceProvider as SqlCapablePersistenceProvider;
+      if (typeof provider.getDatabaseConnection === "function") {
+        const db = await provider.getDatabaseConnection();
+        if (db) {
+          const provenanceService = new ProvenanceService(db);
+          const provenance = await provenanceService.getProvenanceForArtifact(
+            String(prNumber),
+            "pr"
+          );
+          if (provenance?.authorshipTier != null) {
+            authorshipTier = provenance.authorshipTier;
+            log.debug(`Tier-aware merge: tier=${authorshipTier} for PR #${prNumber}`);
+          }
+        }
+      }
+    }
+
+    if (authorshipTier !== null) {
+      // Build token provider from config (same pattern as createRepositoryBackend)
+      const cfg = getConfiguration();
+      const userToken = cfg.github?.token ?? "";
+      const githubCfg = cfg.github ?? {};
+      const tokenProvider = createTokenProvider(githubCfg, userToken);
+      const serviceIdentity = await tokenProvider.getServiceIdentity();
+
+      // Build bot identity for trailers (only when a service account is configured)
+      let botIdentity: MergeIdentity | null = null;
+      if (serviceIdentity) {
+        botIdentity = {
+          login: serviceIdentity.login,
+          email: `${serviceIdentity.login}@users.noreply.github.com`,
+        };
+      }
+
+      // Resolve human identity for Tier 3 trailers via GitHub API
+      let humanIdentity: MergeIdentity | null = null;
+      try {
+        const humanToken = await tokenProvider.getUserToken();
+        if (humanToken) {
+          const { createOctokit } = await import("../repository/github-pr-operations");
+          const humanOctokit = createOctokit(humanToken);
+          const { data: user } = await humanOctokit.rest.users.getAuthenticated();
+          humanIdentity = {
+            login: user.login,
+            email: user.email || `${user.id}+${user.login}@users.noreply.github.com`,
+          };
+        }
+      } catch {
+        log.debug("Could not resolve human identity for Tier 3 trailers");
+      }
+
+      const trailers = buildMergeTrailers(authorshipTier, botIdentity, humanIdentity);
+      if (trailers) {
+        mergeOptions.mergeTrailers = trailers;
+      }
+
+      // Token routing:
+      // - Default GitHubContext.getToken() calls tokenProvider.getServiceToken()
+      // - With App configured: getServiceToken() returns the App installation token
+      // - Tier 1/2: the merge should be attributed to the human, so override with getUserToken
+      // - Tier 3: the merge is agent-authored, so the default (service token) is correct
+      if (serviceIdentity && tokenProvider.isServiceAccountConfigured()) {
+        if (
+          authorshipTier === AuthorshipTier.HUMAN_AUTHORED ||
+          authorshipTier === AuthorshipTier.CO_AUTHORED
+        ) {
+          mergeOptions.tokenOverride = () => tokenProvider.getUserToken();
+        }
+        // Tier 3: no override — default service token is correct
+      }
+
+      mergeOptions.authorshipTier = authorshipTier;
+    }
+  } catch (tierError) {
+    log.warn(
+      `Tier-aware merge setup failed (falling back to default): ${getErrorMessage(tierError)}`
+    );
+  }
+
+  const mergeInfo = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse, mergeOptions);
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // Update authorship label at merge time if tier is known
+  const ghOwner = config.github?.owner;
+  const ghRepo = config.github?.repo;
+  if (
+    mergeOptions.authorshipTier != null &&
+    sessionRecord.pullRequest?.number &&
+    ghOwner &&
+    ghRepo
+  ) {
+    try {
+      const mergeCfg = getConfiguration();
+      const token = mergeCfg.github?.token ?? "";
+      if (token) {
+        const { createOctokit } = await import("../repository/github-pr-operations");
+        const octokit = createOctokit(token);
+        const { ensureAuthorshipLabelsExist, addAuthorshipLabel } = await import(
+          "../provenance/authorship-labels"
+        );
+        await ensureAuthorshipLabelsExist(octokit, ghOwner, ghRepo);
+        await addAuthorshipLabel(
+          octokit,
+          ghOwner,
+          ghRepo,
+          sessionRecord.pullRequest.number,
+          mergeOptions.authorshipTier
+        );
+        log.debug(
+          `Updated authorship label on PR #${sessionRecord.pullRequest.number} at merge time`
+        );
+      }
+    } catch (labelError) {
+      log.warn(`Failed to update authorship label at merge time: ${getErrorMessage(labelError)}`);
+    }
   }
 
   // Clean up local branches in main repository after successful merge
