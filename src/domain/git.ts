@@ -242,8 +242,6 @@ export class GitService implements GitServiceInterface {
     await this.ensureBaseDir();
     return pushImpl(options, {
       execAsync,
-      getSession: async (sessionId: string) => (await this.getSessionDb()).getSession(sessionId),
-      getSessionWorkdir: (sessionId: string) => this.getSessionWorkdir(sessionId),
     });
   }
 

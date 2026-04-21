@@ -464,7 +464,6 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        session: sessionId,
         repoPath: workdir,
         remote: "origin",
       });

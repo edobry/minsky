@@ -20,7 +20,6 @@ import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
 import { execAsync } from "../../../utils/exec";
 import type { AppContainerInterface } from "../../../composition/types";
-import type { GitOperationDependencies } from "../../../domain/git/operations/base-git-operation";
 
 /**
  * Parameters for the commit command
@@ -358,23 +357,25 @@ const blameCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Helper to resolve session to repo path at the adapter boundary.
+ * Uses the container's sessionProvider if available.
+ */
+async function resolveSessionToRepo(
+  session: string | undefined,
+  repo: string | undefined,
+  container?: AppContainerInterface
+): Promise<string | undefined> {
+  if (session && !repo && container?.has("sessionProvider")) {
+    const sessionProvider = container.get("sessionProvider");
+    return await sessionProvider.getSessionWorkdir(session);
+  }
+  return repo;
+}
+
+/**
  * Register the git commands in the shared command registry
  */
 export function registerGitCommands(container?: AppContainerInterface): void {
-  // Lazy-deps closure — matches session commands pattern (mt#929)
-  let cachedDeps: GitOperationDependencies | null = null;
-  const getGitDeps = async (): Promise<GitOperationDependencies> => {
-    if (cachedDeps) return cachedDeps;
-    const { createGitService } = await import("../../../domain/git/git-service-factory");
-    cachedDeps = {
-      createGitService,
-      sessionProvider: container?.has("sessionProvider")
-        ? container.get("sessionProvider")
-        : undefined,
-    };
-    return cachedDeps;
-  };
-
   // Register git commit command
   sharedCommandRegistry.registerCommand({
     id: "git.commit",
@@ -384,20 +385,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: commitCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.commit command", { params });
-      const deps = await getGitDeps();
       const { commitChangesFromParams } = await import("../../../domain/git");
 
-      const result = await commitChangesFromParams(
-        {
-          message: params.message,
-          all: params.all,
-          amend: params.amend,
-          noStage: params.noStage,
-          repo: params.repo,
-          session: params.session,
-        },
-        deps
-      );
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await commitChangesFromParams({
+        message: params.message,
+        all: params.all,
+        amend: params.amend,
+        noStage: params.noStage,
+        repo,
+      });
 
       return {
         success: true,
@@ -416,19 +414,16 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pushCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
-      const deps = await getGitDeps();
       const { pushFromParams } = await import("../../../domain/git");
 
-      const result = await pushFromParams(
-        {
-          repo: params.repo,
-          session: params.session,
-          remote: params.remote,
-          force: params.force,
-          debug: params.debug,
-        },
-        deps
-      );
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await pushFromParams({
+        repo,
+        remote: params.remote,
+        force: params.force,
+        debug: params.debug,
+      });
 
       return {
         success: result.pushed,
@@ -446,18 +441,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: cloneCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.clone command", { params });
-      const deps = await getGitDeps();
       const { cloneFromParams } = await import("../../../domain/git");
 
-      const result = await cloneFromParams(
-        {
-          url: params.url,
-          workdir: params.destination || ".",
-          session: params.session,
-          branch: params.branch,
-        },
-        deps
-      );
+      const result = await cloneFromParams({
+        url: params.url,
+        workdir: params.destination || ".",
+        session: params.session,
+        branch: params.branch,
+      });
 
       return {
         success: true,
@@ -476,16 +467,12 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: branchCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.branch command", { params });
-      const deps = await getGitDeps();
       const { branchFromParams } = await import("../../../domain/git");
 
-      const result = await branchFromParams(
-        {
-          session: params.session,
-          name: params.name,
-        },
-        deps
-      );
+      const result = await branchFromParams({
+        session: params.session,
+        name: params.name,
+      });
 
       return {
         success: true,
@@ -504,20 +491,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: mergeCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.merge command", { params });
-      const deps = await getGitDeps();
       const { mergeFromParams } = await import("../../../domain/git");
 
-      const result = await mergeFromParams(
-        {
-          sourceBranch: params.branch,
-          session: params.session,
-          repo: params.repo,
-          preview: params.preview,
-          autoResolve: params.autoResolve,
-          conflictStrategy: params.conflictStrategy,
-        },
-        deps
-      );
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await mergeFromParams({
+        sourceBranch: params.branch,
+        repo,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
+      });
 
       return {
         success: result.merged,
@@ -529,7 +513,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     },
   });
 
-  // Register git checkout command - NEW
+  // Register git checkout command
   sharedCommandRegistry.registerCommand({
     id: "git.checkout",
     category: CommandCategory.GIT,
@@ -538,19 +522,16 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: checkoutCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.checkout command", { params });
-      const deps = await getGitDeps();
       const { checkoutFromParams } = await import("../../../domain/git");
 
-      const result = await checkoutFromParams(
-        {
-          branch: params.branch,
-          session: params.session,
-          repo: params.repo,
-          preview: params.preview,
-          autoResolve: params.autoStash, // Map autoStash to autoResolve for conflict handling
-        },
-        deps
-      );
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await checkoutFromParams({
+        branch: params.branch,
+        repo,
+        preview: params.preview,
+        autoResolve: params.autoStash,
+      });
 
       return {
         success: result.switched,
@@ -562,7 +543,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     },
   });
 
-  // Register git rebase command - NEW
+  // Register git rebase command
   sharedCommandRegistry.registerCommand({
     id: "git.rebase",
     category: CommandCategory.GIT,
@@ -571,20 +552,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: rebaseCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.rebase command", { params });
-      const deps = await getGitDeps();
       const { rebaseFromParams } = await import("../../../domain/git");
 
-      const result = await rebaseFromParams(
-        {
-          baseBranch: params.baseBranch,
-          session: params.session,
-          repo: params.repo,
-          preview: params.preview,
-          autoResolve: params.autoResolve,
-          conflictStrategy: params.conflictStrategy,
-        },
-        deps
-      );
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await rebaseFromParams({
+        baseBranch: params.baseBranch,
+        repo,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
+      });
 
       return {
         success: result.rebased,

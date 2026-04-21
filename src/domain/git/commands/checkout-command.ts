@@ -1,22 +1,18 @@
-import type { SessionProviderInterface } from "../../session/types";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import { execGitWithTimeout } from "../../../utils/git-exec";
 
 /**
- * Checkout a branch from parameters
+ * Checkout a branch from parameters.
+ * Session must be resolved to a repo path before calling this function.
  */
-export async function checkoutFromParams(
-  params: {
-    branch: string;
-    session?: string;
-    repo?: string;
-    preview?: boolean;
-    autoResolve?: boolean;
-    conflictStrategy?: string;
-  },
-  deps: { sessionProvider: SessionProviderInterface }
-): Promise<{
+export async function checkoutFromParams(params: {
+  branch: string;
+  repo?: string;
+  preview?: boolean;
+  autoResolve?: boolean;
+  conflictStrategy?: string;
+}): Promise<{
   workdir: string;
   switched: boolean;
   conflicts: boolean;
@@ -25,22 +21,8 @@ export async function checkoutFromParams(
 }> {
   const gitService = createGitService();
 
-  let repoPath = params.repo;
-
-  if (params.session && !repoPath) {
-    const session = await deps.sessionProvider.getSession(params.session);
-
-    if (!session) {
-      throw new Error(`Session not found: ${params.session}`);
-    }
-
-    repoPath = await deps.sessionProvider.getSessionWorkdir(params.session);
-  }
-
   // Default to current directory if no repo specified
-  if (!repoPath) {
-    repoPath = process.cwd();
-  }
+  const repoPath = params.repo ?? process.cwd();
 
   // Check if there are uncommitted changes
   const hasUncommittedChanges = await gitService.hasUncommittedChanges(repoPath);

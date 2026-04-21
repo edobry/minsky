@@ -9,18 +9,14 @@ import { ValidationError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import { type GitServiceInterface } from "../types";
-import { resolveSessionDirectory } from "../../session/resolve-session-directory";
-import type { SessionProviderInterface } from "../../session/index";
 
 /**
- * Common dependencies for git operations
+ * Common dependencies for git operations.
+ * Session resolution is NOT done here — callers must resolve session to repo path
+ * at the adapter boundary before invoking operations.
  */
 export interface GitOperationDependencies {
-  createGitService: (options?: {
-    baseDir?: string;
-    sessionProvider?: SessionProviderInterface;
-  }) => GitServiceInterface;
-  sessionProvider?: SessionProviderInterface;
+  createGitService: (options?: { baseDir?: string }) => GitServiceInterface;
 }
 
 /**
@@ -63,25 +59,8 @@ export abstract class BaseGitOperation<TParams, TResult> {
       // Validate parameters if schema provided
       const validParams = this.validateParams(params);
 
-      // Create git service with sessionProvider so it doesn't need to create its own
-      const gitService = this.deps.createGitService({
-        sessionProvider: this.deps.sessionProvider,
-      });
-
-      // Resolve session to repo path if session is provided but repo is not
-      const baseParams = validParams as BaseGitOperationParams;
-      if (baseParams.session && !baseParams.repo) {
-        if (!this.deps.sessionProvider) {
-          throw new Error(
-            `sessionProvider is required to resolve session '${baseParams.session}' but was not provided to ${this.getOperationName()}`
-          );
-        }
-        const workdir = await resolveSessionDirectory(
-          baseParams.session,
-          this.deps.sessionProvider
-        );
-        (validParams as Record<string, unknown>).repo = workdir;
-      }
+      // Create git service
+      const gitService = this.deps.createGitService();
 
       // Execute the operation
       return await this.executeOperation(validParams, gitService);
