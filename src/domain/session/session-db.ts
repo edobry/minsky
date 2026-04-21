@@ -6,6 +6,7 @@
 import { join } from "path";
 import { getMinskyStateDir } from "../../utils/paths";
 import { elementAt } from "../../utils/array-safety";
+import type { SessionStatus } from "./types";
 
 /**
  * PR commit information
@@ -75,6 +76,12 @@ export interface SessionRecord {
   createdAt: string;
   taskId?: string;
   backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
+  lastActivityAt?: string;
+  lastCommitHash?: string;
+  lastCommitMessage?: string;
+  commitCount?: number;
+  status?: SessionStatus;
+  agentId?: string;
   prState?: {
     branchName: string;
     exists?: boolean;

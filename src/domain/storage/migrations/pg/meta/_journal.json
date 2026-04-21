@@ -141,6 +141,13 @@
       "when": 1745107200000,
       "tag": "0021_provenance_chain",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1745193600000,
+      "tag": "0022_session_liveness_fields",
+      "breakpoints": true
     }
   ]
 }
