@@ -166,14 +166,9 @@ export class ToolsSimilarCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    const service = await createToolSimilarityService(
-      {},
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for tool similarity search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    if (!this.getPersistenceProvider)
+      throw new Error("Persistence provider required for tool similarity search");
+    const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
     const searchResults = await service.similarToTool(toolId, limit, threshold);
 
@@ -275,14 +270,9 @@ export class ToolsSearchCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    const service = await createToolSimilarityService(
-      {},
-      (() => {
-        if (!this.getPersistenceProvider)
-          throw new Error("Persistence provider required for tool search");
-        return this.getPersistenceProvider();
-      })()
-    );
+    if (!this.getPersistenceProvider)
+      throw new Error("Persistence provider required for tool search");
+    const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
     // Immediate progress hint to stderr unless JSON/quiet
     if (!params.quiet && !params.json && ctx?.format !== "json") {

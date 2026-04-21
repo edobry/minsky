@@ -33,7 +33,9 @@ export const _sessionRecordSchema = z.object({
 /**
  * Schema for session list parameters
  */
-export const sessionListParamsSchema = commonCommandOptionsSchema;
+export const sessionListParamsSchema = commonCommandOptionsSchema.extend({
+  task: taskIdSchema.optional().describe("Filter sessions by task ID"),
+});
 
 /**
  * Type for session list parameters

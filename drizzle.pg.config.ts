@@ -50,6 +50,7 @@ export default {
     "./src/domain/storage/schemas/rule-embeddings.ts",
     "./src/domain/storage/schemas/task-relationships.ts",
     "./src/domain/storage/schemas/provenance-schema.ts",
+    "./src/domain/storage/schemas/transcript-schema.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",

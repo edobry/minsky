@@ -9,6 +9,7 @@ import type {
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface, Session } from "./";
+import { deriveSessionLiveness, SessionStatus } from "./types";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors";
 import { rmSync, existsSync } from "node:fs";
@@ -40,7 +41,10 @@ export async function getSessionImpl(
     });
 
     // Get the session details using the resolved session ID
-    return deps.sessionDB.getSession(resolvedContext.sessionId) as Promise<Session | null>;
+    const session = await deps.sessionDB.getSession(resolvedContext.sessionId);
+    if (!session) return null;
+    const liveness = deriveSessionLiveness(session);
+    return { ...session, liveness } as Session;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
@@ -57,12 +61,24 @@ export async function getSessionImpl(
  * Using proper dependency injection for better testability
  */
 export async function listSessionsImpl(
-  _params: SessionListParams,
+  params: SessionListParams,
   deps: {
     sessionDB: SessionProviderInterface;
   }
 ): Promise<Session[]> {
-  return deps.sessionDB.listSessions() as Promise<Session[]>;
+  const sessions = await deps.sessionDB.listSessions();
+  let result = sessions.map((s) => ({ ...s, liveness: deriveSessionLiveness(s) })) as Session[];
+
+  // Filter by task ID if provided
+  if (params.task) {
+    const normalizedTaskId = params.task.replace(/^mt#/, "");
+    result = result.filter((s) => {
+      const sessionTaskId = s.taskId?.replace(/^mt#/, "");
+      return sessionTaskId === normalizedTaskId;
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -181,6 +197,16 @@ export async function deleteSessionImpl(
       deleted: false,
       error: `${msg}. DB record preserved to prevent orphan directory.`,
     };
+  }
+
+  // Update status to CLOSED before deleting the record (best-effort)
+  try {
+    await deps.sessionDB.updateSession(resolvedSessionId, {
+      lastActivityAt: new Date().toISOString(),
+      status: SessionStatus.CLOSED,
+    });
+  } catch (e) {
+    log.debug("Failed to update session status to CLOSED before deletion", { error: e });
   }
 
   // Delete the session record from the database

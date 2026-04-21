@@ -573,7 +573,7 @@ knowledgeBases:
     type: notion # "notion" | "confluence" | "google-docs"
     rootPageId: <page-id> # Notion-specific: root of the page tree to index
     auth:
-      tokenEnvVar: NOTION_API_TOKEN # env var holding the API token
+      token: <api-token> # direct API token value
     sync:
       schedule: on-demand # "on-demand" | "startup" | "daily"
       maxDepth: 5
@@ -582,8 +582,8 @@ knowledgeBases:
 ```
 
 The `KnowledgeSourceConfig` type is defined in `src/domain/knowledge/types.ts`. Auth tokens can
-be provided inline (`token:`) or via an environment variable (`tokenEnvVar:`); the env-var form
-is recommended for secrets.
+be provided directly (`token:`) or via an environment variable name (`tokenEnvVar:`); at least one
+must be set. Direct `token:` is the standard pattern, matching how GitHub auth works.
 
 ---
 
