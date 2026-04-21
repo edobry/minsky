@@ -23,7 +23,13 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
   }
 
   async execute(params: TasksIndexEmbeddingsParams, ctx: CommandExecutionContext) {
-    const service = await createTaskSimilarityService(this.getPersistenceProvider!());
+    const service = await createTaskSimilarityService(
+      (() => {
+        if (!this.getPersistenceProvider)
+          throw new Error("Persistence provider required for indexing embeddings");
+        return this.getPersistenceProvider();
+      })()
+    );
 
     // If a specific task is provided, index just that one
     if (params.task) {

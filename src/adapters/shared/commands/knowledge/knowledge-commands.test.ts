@@ -300,7 +300,8 @@ describe("Knowledge Commands", () => {
       const result = (await cmd?.execute({}, {})) as { reports: SyncReport[] };
 
       expect(result.reports).toHaveLength(1);
-      const firstReport = result.reports[0]!;
+      const firstReport = result.reports[0];
+      if (!firstReport) throw new Error("Expected first report to exist");
       expect(firstReport.sourceName).toBe("my-notion");
       expect(firstReport.added).toBe(3);
     });

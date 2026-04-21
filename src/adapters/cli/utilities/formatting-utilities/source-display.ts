@@ -74,7 +74,7 @@ export function formatEffectiveValueSources(
     if (!valuesBySource[valueInfo.source]) {
       valuesBySource[valueInfo.source] = [];
     }
-    valuesBySource[valueInfo.source]!.push({
+    valuesBySource[valueInfo.source]?.push({
       path,
       value: valueInfo.value,
     });

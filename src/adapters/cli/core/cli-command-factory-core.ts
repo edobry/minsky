@@ -68,7 +68,7 @@ export class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    this.cliBridge.registerCommandCustomization(commandId!, options);
+    this.cliBridge.registerCommandCustomization(commandId, options);
   }
 
   /**

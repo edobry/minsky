@@ -6,6 +6,23 @@ import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput
  * Provides Cursor's core system instructions for AI assistants.
  * This replicates the exact system instructions from Cursor's context.
  */
+
+function getContextualFocus(userPrompt: string): string {
+  if (userPrompt.includes("security") || userPrompt.includes("auth")) {
+    return "Pay special attention to security best practices and authentication flows.";
+  }
+  if (userPrompt.includes("test") || userPrompt.includes("testing")) {
+    return "Focus on testing strategies, test quality, and comprehensive coverage.";
+  }
+  if (userPrompt.includes("performance") || userPrompt.includes("optimization")) {
+    return "Prioritize performance optimization and efficient code patterns.";
+  }
+  if (userPrompt.includes("error") || userPrompt.includes("debug")) {
+    return "Focus on error handling, debugging strategies, and robust code.";
+  }
+  return "";
+}
+
 export const SystemInstructionsComponent: ContextComponent = {
   id: "system-instructions",
   name: "System Instructions",
@@ -22,25 +39,11 @@ export const SystemInstructionsComponent: ContextComponent = {
       mainGoal:
         "Your main goal is to follow the USER's instructions at each message, denoted by the <user_query> tag.",
       userPrompt,
-      contextualFocus: this.getContextualFocus!(userPrompt),
+      contextualFocus: getContextualFocus(userPrompt),
     };
   },
 
-  getContextualFocus(userPrompt: string): string {
-    if (userPrompt.includes("security") || userPrompt.includes("auth")) {
-      return "Pay special attention to security best practices and authentication flows.";
-    }
-    if (userPrompt.includes("test") || userPrompt.includes("testing")) {
-      return "Focus on testing strategies, test quality, and comprehensive coverage.";
-    }
-    if (userPrompt.includes("performance") || userPrompt.includes("optimization")) {
-      return "Prioritize performance optimization and efficient code patterns.";
-    }
-    if (userPrompt.includes("error") || userPrompt.includes("debug")) {
-      return "Focus on error handling, debugging strategies, and robust code.";
-    }
-    return "";
-  },
+  getContextualFocus,
 
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
     let content = `You are an AI coding assistant, powered by Claude Sonnet 4. You operate in Cursor.

@@ -150,6 +150,7 @@ export const ToolSchemasComponent: ContextComponent = {
 
           const toolSimilarityService = await createToolSimilarityService(
             {},
+
             context.persistenceProvider!
           );
 

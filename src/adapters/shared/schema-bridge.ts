@@ -122,7 +122,7 @@ export function getSchemaDescription(
   if (
     "description" in schema &&
     typeof schema.description === "string" &&
-    (schema as { description?: string }).description!.length > 0
+    (schema.description as string).length > 0
   ) {
     description = schema.description;
   } else if (
