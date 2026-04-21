@@ -20,11 +20,13 @@ import {
   taskSpecContentParamsSchema,
 } from "../schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
+import type { TaskServiceInterface } from "./tasks/taskService";
 
 // ---- Dependency injection types ----
 
 export interface TaskServiceDeps {
   persistenceProvider?: PersistenceProvider;
+  taskService?: TaskServiceInterface;
 }
 
 // ---- Re-exports from sub-modules ----
@@ -57,11 +59,13 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
     log.debug("tasks.list using multi-backend mode (no default backend)");
   }
 
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
 
   log.debug("tasks.list created TaskService", {
     backend: taskService.listBackends?.().find((b) => b.prefix === backend)?.name || "default",
@@ -92,11 +96,13 @@ export async function getTaskFromParams(params: Record<string, unknown>, deps?: 
     log.debug("tasks.get using multi-backend mode (no default backend)");
   }
 
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
 
   log.debug("tasks.get created TaskService", {
     backend: taskService.listBackends?.().find((b) => b.prefix === backend)?.name || "default",
@@ -118,11 +124,13 @@ export async function getTaskStatusFromParams(
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.get params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: validParams.backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
   log.debug("tasks.status.get created TaskService", {
     backend:
       taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
@@ -137,11 +145,13 @@ export async function setTaskStatusFromParams(
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: validParams.backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
   log.debug("tasks.status.set created TaskService", {
     backend:
       taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
@@ -156,11 +166,13 @@ export async function updateTaskFromParams(
 ) {
   const workspacePath = process.cwd();
   log.debug("tasks.update params", { backend: params.backend });
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: params.backend as string | undefined,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: params.backend as string | undefined,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
   log.debug("tasks.update created TaskService", {
     backend:
       taskService.listBackends?.().find((b) => b.prefix === params.backend)?.name || "default",
@@ -196,11 +208,13 @@ export async function createTaskFromTitleAndSpec(
   const workspacePath = process.cwd();
   log.debug("tasks.createTitleSpec params", { backend: validParams.backend });
 
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: validParams.backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
 
   log.debug("tasks.createTitleSpec created TaskService", {
     backend:
@@ -222,11 +236,13 @@ export async function deleteTaskFromParams(
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.delete params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: validParams.backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
   log.debug("tasks.delete created TaskService", {
     backend:
       taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
@@ -243,11 +259,13 @@ export async function getTaskSpecContentFromParams(
   const workspacePath = process.cwd();
   log.debug("tasks.spec params", { backend: validParams.backend });
 
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    backend: validParams.backend,
-    persistenceProvider: deps?.persistenceProvider,
-  });
+  const taskService =
+    deps?.taskService ??
+    (await createConfiguredTaskService({
+      workspacePath,
+      backend: validParams.backend,
+      persistenceProvider: deps?.persistenceProvider,
+    }));
   log.debug("tasks.spec created TaskService", {
     backend:
       taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
