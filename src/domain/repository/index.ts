@@ -226,10 +226,23 @@ export interface UpdatePROptions {
   session?: string;
 }
 
+export interface MergePROptions {
+  /** Authorship tier from provenance — used to select the correct token and build trailers. */
+  authorshipTier?: import("../provenance/types").AuthorshipTier;
+  /** Git trailers string to append to the merge commit message (e.g. built by buildMergeTrailers). */
+  mergeTrailers?: string;
+  /** Override the token used for the merge API call. When absent, the default GitHubContext token is used. */
+  tokenOverride?: () => Promise<string>;
+}
+
 export interface PullRequestOperations {
   create(options: CreatePROptions): Promise<PRInfo>;
   update(options: UpdatePROptions): Promise<PRInfo>;
-  merge(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
+  merge(
+    prIdentifier: string | number,
+    session?: string,
+    options?: MergePROptions
+  ): Promise<MergeInfo>;
   get(options: { prIdentifier?: string | number; session?: string }): Promise<{
     number?: number | string;
     url?: string;

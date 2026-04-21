@@ -12,6 +12,7 @@ describe("autoIndexTaskEmbedding", () => {
         throw new Error("No embedding provider configured");
       },
       getPersistenceProvider: () => ({}) as any,
+      getTaskService: () => ({}) as any,
     };
 
     // Should not throw - fire-and-forget pattern swallows errors
@@ -53,6 +54,7 @@ describe("autoIndexTaskEmbedding", () => {
         },
       }),
       getPersistenceProvider: () => ({}) as any,
+      getTaskService: () => ({}) as any,
     };
 
     autoIndexTaskEmbedding("mt#777", deps);

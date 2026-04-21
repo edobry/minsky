@@ -7,8 +7,8 @@
  * standalone-future contexts.
  */
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import {
   type TaskContext,
@@ -38,17 +38,11 @@ const taskContextParams = {
  */
 async function gatherTaskContext(
   taskId: string,
-  similarLimit: number,
-  getPersistenceProvider: () => PersistenceProvider
+  _similarLimit: number,
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
 ): Promise<TaskContext> {
-  const persistence = getPersistenceProvider();
-
-  // Get task details
-  const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-  const taskService = await createConfiguredTaskService({
-    workspacePath: process.cwd(),
-    persistenceProvider: persistence,
-  });
+  const taskService = getTaskService();
 
   const task = await taskService.getTask(taskId);
   const title = task?.title ?? "(unknown)";
@@ -69,17 +63,14 @@ async function gatherTaskContext(
     // Spec not available
   }
 
-  // Get graph info (children, deps, parent)
+  // Get graph info (children, deps, parent) via injected graph service
   const children: TaskContext["children"] = [];
   let dependencies: string[] = [];
   let dependents: string[] = [];
   let parent: string | undefined;
 
-  const hasSql = persistence.capabilities.sql;
-  if (hasSql) {
-    const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-    const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-    const service = new TaskGraphService(db);
+  try {
+    const service = getTaskGraphService();
 
     // Children
     const childIds = await service.listChildren(taskId);
@@ -102,6 +93,8 @@ async function gatherTaskContext(
 
     // Parent
     parent = (await service.getParent(taskId)) ?? undefined;
+  } catch {
+    // Graph service unavailable — return context without graph info
   }
 
   // Similar tasks — skipped in context gathering (requires DI-wired
@@ -125,7 +118,8 @@ async function gatherTaskContext(
 function createContextCommand(
   type: TaskPromptType,
   description: string,
-  getPersistenceProvider: () => PersistenceProvider
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
 ) {
   return {
     id: `tasks.${type}`,
@@ -138,7 +132,12 @@ function createContextCommand(
 
       log.debug(`[tasks.${type}] Gathering context`, { taskId });
 
-      const context = await gatherTaskContext(taskId, similarLimit, getPersistenceProvider);
+      const context = await gatherTaskContext(
+        taskId,
+        similarLimit,
+        getTaskGraphService,
+        getTaskService
+      );
 
       const generators = {
         decompose: generateDecomposePrompt,
@@ -163,26 +162,38 @@ function createContextCommand(
   };
 }
 
-export function createTasksDecomposeCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksDecomposeCommand(
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+) {
   return createContextCommand(
     "decompose",
     "Gather task context and generate a decomposition prompt for creating subtasks",
-    getPersistenceProvider
+    getTaskGraphService,
+    getTaskService
   );
 }
 
-export function createTasksEstimateCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksEstimateCommand(
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+) {
   return createContextCommand(
     "estimate",
     "Gather task context and generate an estimation prompt for complexity/effort",
-    getPersistenceProvider
+    getTaskGraphService,
+    getTaskService
   );
 }
 
-export function createTasksAnalyzeCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksAnalyzeCommand(
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+) {
   return createContextCommand(
     "analyze",
     "Gather task context and generate an analysis prompt for spec completeness and readiness",
-    getPersistenceProvider
+    getTaskGraphService,
+    getTaskService
   );
 }

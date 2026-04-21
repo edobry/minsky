@@ -26,4 +26,6 @@ export {
   tierToLabel,
   ensureAuthorshipLabelsExist,
   addAuthorshipLabel,
+  buildMergeTrailers,
+  type MergeIdentity,
 } from "./authorship-labels";

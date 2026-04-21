@@ -40,6 +40,24 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     }
     return container.get("sessionProvider");
   };
+  const getTaskGraphService = () => {
+    if (!container?.has("taskGraphService")) {
+      throw new Error("TaskGraphService not available. Ensure the DI container is initialized.");
+    }
+    return container.get("taskGraphService");
+  };
+  const getTaskRoutingService = () => {
+    if (!container?.has("taskRoutingService")) {
+      throw new Error("TaskRoutingService not available. Ensure the DI container is initialized.");
+    }
+    return container.get("taskRoutingService");
+  };
+  const getTaskService = () => {
+    if (!container?.has("taskService")) {
+      throw new Error("TaskService not available. Ensure the DI container is initialized.");
+    }
+    return container.get("taskService");
+  };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
@@ -79,36 +97,41 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksStatusGetCommand(getPersistenceProvider),
     createTasksStatusSetCommand(getPersistenceProvider),
     createTasksSpecCommand(getPersistenceProvider),
-    createTasksListCommand(getPersistenceProvider),
-    createTasksGetCommand(getPersistenceProvider),
-    createTasksCreateCommand(getPersistenceProvider),
-    createTasksEditCommand(getPersistenceProvider),
-    createTasksDeleteCommand(getPersistenceProvider),
-    new TasksSimilarCommand(getPersistenceProvider),
-    new TasksSearchCommand(getPersistenceProvider),
-    new TasksIndexEmbeddingsCommand(getPersistenceProvider),
+    createTasksListCommand(getPersistenceProvider, getTaskGraphService),
+    createTasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksEditCommand(getPersistenceProvider, getTaskService),
+    createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService),
+    new TasksSimilarCommand(getPersistenceProvider, getTaskService),
+    new TasksSearchCommand(getPersistenceProvider, getTaskService),
+    new TasksIndexEmbeddingsCommand(getPersistenceProvider, getTaskService),
     new TasksEmbeddingsStatusCommand(),
     new TasksEmbeddingsRepairCommand(),
     createTasksMigrateBackendCommand(),
     // Dependency management commands
-    createTasksDepsAddCommand(getPersistenceProvider),
-    createTasksDepsRmCommand(getPersistenceProvider),
-    createTasksDepsListCommand(getPersistenceProvider),
-    createTasksDepsTreeCommand(getPersistenceProvider),
-    createTasksDepsGraphCommand(getPersistenceProvider),
+    createTasksDepsAddCommand(getTaskGraphService),
+    createTasksDepsRmCommand(getTaskGraphService),
+    createTasksDepsListCommand(getTaskGraphService),
+    createTasksDepsTreeCommand(getTaskGraphService, getTaskService),
+    createTasksDepsGraphCommand(getTaskGraphService, getTaskService),
     // Parent-child (subtask) commands
-    createTasksChildrenCommand(getPersistenceProvider),
-    createTasksParentCommand(getPersistenceProvider),
+    createTasksChildrenCommand(getTaskGraphService),
+    createTasksParentCommand(getTaskGraphService),
     // Routing commands
-    createTasksAvailableCommand(getPersistenceProvider),
-    createTasksRouteCommand(getPersistenceProvider),
+    createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService, getTaskService),
+    createTasksRouteCommand(getPersistenceProvider, getTaskRoutingService),
     // Dispatch (subtask + session + prompt in one call)
-    createTasksDispatchCommand(getPersistenceProvider, getSessionProvider),
+    createTasksDispatchCommand(
+      getPersistenceProvider,
+      getSessionProvider,
+      getTaskGraphService,
+      getTaskService
+    ),
     // Orchestrate (find dispatchable subtasks for a parent)
-    createTasksOrchestrateCommand(getPersistenceProvider),
+    createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
     // Context commands (decompose, estimate, analyze)
-    createTasksDecomposeCommand(getPersistenceProvider),
-    createTasksEstimateCommand(getPersistenceProvider),
-    createTasksAnalyzeCommand(getPersistenceProvider),
+    createTasksDecomposeCommand(getTaskGraphService, getTaskService),
+    createTasksEstimateCommand(getTaskGraphService, getTaskService),
+    createTasksAnalyzeCommand(getTaskGraphService, getTaskService),
   ];
 }

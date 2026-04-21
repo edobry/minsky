@@ -12,6 +12,50 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import { AuthorshipTier } from "./types";
 
+// ── Merge trailer types ─────────────────────────────────────────────────────
+
+/**
+ * Identity information used to build git merge trailers.
+ */
+export interface MergeIdentity {
+  login: string;
+  email: string;
+}
+
+/**
+ * Build git trailer strings to append to a merge commit message, based on authorship tier.
+ *
+ * - Tier 1 (HUMAN_AUTHORED): `Assisted-by: {bot}` — bot assisted, human drove
+ * - Tier 2 (CO_AUTHORED):    `Co-Authored-By: {bot}` — equal contribution
+ * - Tier 3 (AGENT_AUTHORED): `Co-Authored-By: {human}\nApproved-by: {human}` — agent drove, human approved
+ *
+ * @returns A string starting with `\n\n` ready to append to a commit message, or `""` if inputs
+ *          are insufficient to produce any trailers.
+ */
+export function buildMergeTrailers(
+  tier: AuthorshipTier,
+  botIdentity: MergeIdentity | null,
+  humanIdentity: MergeIdentity | null
+): string {
+  switch (tier) {
+    case AuthorshipTier.HUMAN_AUTHORED: {
+      if (!botIdentity) return "";
+      return `\n\nAssisted-by: ${botIdentity.login} <${botIdentity.email}>`;
+    }
+    case AuthorshipTier.CO_AUTHORED: {
+      if (!botIdentity) return "";
+      return `\n\nCo-Authored-By: ${botIdentity.login} <${botIdentity.email}>`;
+    }
+    case AuthorshipTier.AGENT_AUTHORED: {
+      if (!humanIdentity) return "";
+      return (
+        `\n\nCo-Authored-By: ${humanIdentity.login} <${humanIdentity.email}>` +
+        `\nApproved-by: ${humanIdentity.login} <${humanIdentity.email}>`
+      );
+    }
+  }
+}
+
 // ── Label name constants ────────────────────────────────────────────────────
 
 export const LABEL_HUMAN_AUTHORED = "authorship/human-authored";

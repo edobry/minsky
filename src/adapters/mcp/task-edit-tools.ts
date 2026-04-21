@@ -192,7 +192,10 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         autoIndexTaskEmbedding(
           typedArgs.taskId,
           persistenceContainer
-            ? { getPersistenceProvider: () => persistenceContainer.get("persistence") }
+            ? {
+                getPersistenceProvider: () => persistenceContainer.get("persistence"),
+                getTaskService: () => persistenceContainer.get("taskService"),
+              }
             : undefined
         );
 
@@ -292,7 +295,10 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         autoIndexTaskEmbedding(
           typedArgs.taskId,
           persistenceContainer2
-            ? { getPersistenceProvider: () => persistenceContainer2.get("persistence") }
+            ? {
+                getPersistenceProvider: () => persistenceContainer2.get("persistence"),
+                getTaskService: () => persistenceContainer2.get("taskService"),
+              }
             : undefined
         );
 

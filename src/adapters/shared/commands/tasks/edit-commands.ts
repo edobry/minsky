@@ -12,6 +12,7 @@ import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams } from "../../../../domain/tasks";
 import type { Task } from "../../../../domain/tasks/types";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { promises as fs } from "fs";
 import { readTextFile } from "../../../../utils/fs";
 import { spawn } from "child_process";
@@ -48,7 +49,10 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -192,25 +196,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     this.debug("Applying updates to task");
 
     try {
-      // Get the appropriate backend for this task
-      const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-      const { resolveRepoPath } = await import("../../../../domain/repo-utils");
-      const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
-      if (!ctx?.container) {
+      // Get the appropriate backend for this task using the DI-injected task service
+      if (!this.getTaskService) {
         throw new Error(
-          "DI container not available in execution context. " +
-            "Ensure the container is passed through createMCPCommand() → createStartCommand() → registerAllTools()."
+          "TaskService not available. " +
+            "Ensure the DI container is initialized with a taskService factory."
         );
       }
-      const sessionDB = ctx.container.get("sessionProvider");
-
-      const service = await createConfiguredTaskService({
-        workspacePath: params.repo
-          ? await resolveRepoPath({ repo: params.repo }, { sessionProvider: sessionDB })
-          : await resolveMainWorkspacePath(sessionDB),
-        backend: params.backend,
-        persistenceProvider: this.getPersistenceProvider?.(),
-      });
+      const service = this.getTaskService();
 
       // Access internal multi-backend methods via a typed extension interface
       type ServiceWithBackendAccess = typeof service & {
@@ -265,7 +258,10 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         autoIndexTaskEmbedding(
           validatedTaskId,
           this.getPersistenceProvider
-            ? { getPersistenceProvider: this.getPersistenceProvider }
+            ? {
+                getPersistenceProvider: this.getPersistenceProvider,
+                getTaskService: this.getTaskService,
+              }
             : undefined
         );
       }
@@ -491,7 +487,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
  * Factory function for creating the edit command
  */
 export function createTasksEditCommand(
-  getPersistenceProvider?: () => PersistenceProvider
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskService?: () => TaskServiceInterface
 ): TasksEditCommand {
-  return new TasksEditCommand(getPersistenceProvider);
+  return new TasksEditCommand(getPersistenceProvider, getTaskService);
 }

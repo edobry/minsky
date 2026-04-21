@@ -12,6 +12,7 @@ import {
   createSessionStartCommand,
   createSessionDirCommand,
   createSessionSearchCommand,
+  createSessionExecCommand,
 } from "./session/basic-commands";
 import {
   createSessionDeleteCommand,
@@ -70,6 +71,7 @@ export async function registerSessionCommands(
     createSessionStartCommand(getDeps),
     createSessionDirCommand(getDeps),
     createSessionSearchCommand(getDeps),
+    createSessionExecCommand(getDeps),
 
     // Management
     createSessionDeleteCommand(getDeps),
