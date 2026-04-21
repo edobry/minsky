@@ -137,7 +137,8 @@ export const sessionStartCommandParams = {
   },
   skipInstall: {
     schema: z.boolean(),
-    description: "Skip dependency installation",
+    description:
+      "⚠️ DEPRECATED — DO NOT USE. Skips dependency installation, creating a workspace that cannot pass typecheck hooks or run tests. Will be removed in a future release.",
     required: false,
     defaultValue: false,
   },
