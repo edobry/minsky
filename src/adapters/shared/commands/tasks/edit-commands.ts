@@ -114,7 +114,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider?.() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     if (!currentTask) {

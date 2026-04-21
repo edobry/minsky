@@ -96,7 +96,7 @@ export function createTasksDispatchCommand(
           spec: p.description || p.instructions,
           workspace: process.cwd(),
         },
-        { persistenceProvider: getPersistenceProvider() }
+        { persistenceProvider: getPersistenceProvider(), taskService: getTaskService() }
       );
 
       const taskId = taskResult.id;

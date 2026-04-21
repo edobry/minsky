@@ -329,6 +329,8 @@ export const TOKENS = {
   sessionDeps: "sessionDeps",
   gitService: "gitService",
   taskService: "taskService",
+  taskGraphService: "taskGraphService",
+  taskRoutingService: "taskRoutingService",
   workspaceUtils: "workspaceUtils",
   repositoryBackend: "repositoryBackend",
 } as const;
@@ -345,6 +347,8 @@ interface AppServices {
   sessionDeps: SessionDeps;
   gitService: GitServiceInterface;
   taskService: TaskServiceInterface;
+  taskGraphService: TaskGraphService;
+  taskRoutingService: TaskRoutingService;
   workspaceUtils: WorkspaceUtilsInterface;
   repositoryBackend: { repoUrl; backendType; github? };
 }
