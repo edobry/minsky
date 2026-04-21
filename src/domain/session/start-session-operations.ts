@@ -19,6 +19,7 @@ import type { SessionProviderInterface, SessionRecord, Session } from "../sessio
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
+import { SessionStatus } from "./types";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -283,10 +284,10 @@ async function executeMutations(
 
   // Warn on deprecated skipInstall flag
   if (skipInstall) {
-    log.cli(
-      "DEPRECATED: --skip-install is deprecated and will be removed in a future release. " +
-        "Sessions without dependencies will fail typecheck hooks. " +
-        "If you have a use case for skipping install, please file an issue."
+    log.warn(
+      "⚠️  DEPRECATED: --skip-install creates a broken workspace that CANNOT pass typecheck " +
+        "hooks or run tests. This flag will be removed in a future release. " +
+        "Remove skipInstall from your session_start call."
     );
   }
 
@@ -310,6 +311,8 @@ async function executeMutations(
     taskId,
     backendType,
     branch: branchName,
+    lastActivityAt: new Date().toISOString(),
+    status: SessionStatus.CREATED,
   };
 
   let sessionAdded = false;

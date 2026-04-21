@@ -18,6 +18,8 @@ import type { GitServiceInterface } from "../domain/git/types";
 import type { TaskServiceInterface } from "../domain/tasks/taskService";
 import type { WorkspaceUtilsInterface } from "../domain/workspace";
 import type { RepositoryBackendType } from "../domain/repository";
+import type { TaskGraphService } from "../domain/tasks/task-graph-service";
+import type { TaskRoutingService } from "../domain/tasks/task-routing-service";
 
 /**
  * The complete set of services managed by the DI container.
@@ -52,6 +54,12 @@ export interface AppServices {
     backendType: RepositoryBackendType;
     github?: { owner: string; repo: string };
   };
+
+  /** Task dependency graph operations (SQL-backed). */
+  taskGraphService: TaskGraphService;
+
+  /** Task routing and availability scoring. */
+  taskRoutingService: TaskRoutingService;
 }
 
 /** A service key — one of the keys of AppServices. */

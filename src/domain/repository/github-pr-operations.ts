@@ -23,6 +23,7 @@ import {
 } from "./github-error-handler";
 import type { AuthorshipTier } from "../provenance/types";
 import { ensureAuthorshipLabelsExist, addAuthorshipLabel } from "../provenance/authorship-labels";
+import { SessionStatus } from "../session/types";
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -168,6 +169,8 @@ export async function createPullRequest(
         if (sessionRecord) {
           const updatedSession = {
             ...sessionRecord,
+            lastActivityAt: new Date().toISOString(),
+            status: SessionStatus.PR_OPEN,
             pullRequest: {
               number: pr.number,
               url: pr.html_url,
@@ -356,7 +359,9 @@ export async function updatePullRequest(
 export async function mergePullRequest(
   gh: GitHubContext,
   prIdentifier: string | number,
-  diagnoseMergeBlockerFn: (prNumber: number, octokit: Octokit) => Promise<string>
+  diagnoseMergeBlockerFn: (prNumber: number, octokit: Octokit) => Promise<string>,
+  mergeTrailers?: string,
+  tokenOverride?: () => Promise<string>
 ): Promise<MergeInfo> {
   const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
   if (isNaN(prNumber)) {
@@ -364,7 +369,7 @@ export async function mergePullRequest(
   }
 
   try {
-    const githubToken = await gh.getToken();
+    const githubToken = await (tokenOverride ? tokenOverride() : gh.getToken());
     const octokit = createOctokit(githubToken);
 
     // Get the PR details first
@@ -386,13 +391,16 @@ export async function mergePullRequest(
       );
     }
 
+    const baseMessage = pr.body || "";
+    const commitMessage = mergeTrailers ? baseMessage + mergeTrailers : baseMessage;
+
     const mergeResponse = await octokit.rest.pulls.merge({
       owner: gh.owner,
       repo: gh.repo,
       pull_number: prNumber,
       merge_method: "merge",
       commit_title: pr.title || `Merge pull request #${prNumber} from ${pr.head.ref}`,
-      commit_message: pr.body || "",
+      commit_message: commitMessage,
     });
 
     const merge = mergeResponse.data;

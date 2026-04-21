@@ -67,6 +67,20 @@ export async function createCliContainer(): Promise<AppContainerInterface> {
     });
   });
 
+  container.register("taskGraphService", async (c) => {
+    const { TaskGraphService } = await import("../domain/tasks/task-graph-service");
+    const persistence = c.get(
+      "persistence"
+    ) as import("../domain/persistence/types").SqlCapablePersistenceProvider;
+    const db = await persistence.getDatabaseConnection();
+    return new TaskGraphService(db as import("drizzle-orm/postgres-js").PostgresJsDatabase);
+  });
+
+  container.register("taskRoutingService", async (c) => {
+    const { TaskRoutingService } = await import("../domain/tasks/task-routing-service");
+    return new TaskRoutingService(c.get("taskGraphService"), c.get("taskService"));
+  });
+
   container.register("workspaceUtils", async (c) => {
     const { createWorkspaceUtils } = await import("../domain/workspace");
     return createWorkspaceUtils(c.get("sessionProvider"));

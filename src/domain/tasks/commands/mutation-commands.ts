@@ -28,7 +28,9 @@ import { validateStatusTransition } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
-function requirePersistence(provider: BasePersistenceProvider | undefined): BasePersistenceProvider {
+function requirePersistence(
+  provider: BasePersistenceProvider | undefined
+): BasePersistenceProvider {
   if (!provider) {
     throw new Error("persistenceProvider is required");
   }
@@ -64,15 +66,16 @@ export async function setTaskStatusFromParams(
       }));
 
     // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
-
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Let service determine backend via detection/config
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    });
+    const taskService = deps?.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: validParams.backend,
+        } as TaskServiceOptions)
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: validParams.backend,
+          persistenceProvider: requirePersistence(deps?.persistenceProvider),
+        });
 
     // Verify the task exists before setting status and get old status for commit message
     const task = await taskService.getTask(validParams.taskId);
@@ -139,15 +142,16 @@ export async function updateTaskFromParams(
       }));
 
     // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
-
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: params.backend, // Let service determine backend via detection/config
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    });
+    const taskService = deps?.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: params.backend,
+        } as TaskServiceOptions)
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: params.backend,
+          persistenceProvider: requirePersistence(deps?.persistenceProvider),
+        });
 
     // Verify the task exists before updating
     const existingTask = await taskService.getTask(qualifiedTaskId);
@@ -217,8 +221,8 @@ export async function createTaskFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps.persistenceProvider),
-    });
+      ...(deps.persistenceProvider ? { persistenceProvider: deps.persistenceProvider } : {}),
+    } as TaskServiceOptions);
 
     // Create the task from title and spec content
     const specContent = validParams.spec || validParams.description || "";
@@ -266,14 +270,16 @@ export async function createTaskFromTitleAndSpec(
     }));
 
   // Create task service
-  const createTaskService =
-    deps?.createConfiguredTaskService ||
-    (async (options) => await createConfiguredTaskServiceImpl(options));
-  const taskService = await createTaskService({
-    workspacePath,
-    backend: validParams.backend, // Let service determine backend via detection/config
-    persistenceProvider: requirePersistence(deps?.persistenceProvider),
-  });
+  const taskService = deps?.createConfiguredTaskService
+    ? await deps.createConfiguredTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      } as TaskServiceOptions)
+    : await createConfiguredTaskServiceImpl({
+        workspacePath,
+        backend: validParams.backend,
+        persistenceProvider: requirePersistence(deps?.persistenceProvider),
+      });
 
   // Handle spec content - from spec string only
   const specContent = validParams.spec || "";
@@ -316,8 +322,8 @@ export async function deleteTaskFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps.persistenceProvider),
-    });
+      ...(deps.persistenceProvider ? { persistenceProvider: deps.persistenceProvider } : {}),
+    } as TaskServiceOptions);
 
     // Get the task first to verify it exists and get details for commit message
     const task = await taskService.getTask(validParams.taskId);

@@ -18,6 +18,7 @@ import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js"
 import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
 import noIgnoredCommandContext from "./eslint-rules/no-ignored-command-context.js";
+import noDirectServiceConstruction from "./eslint-rules/no-direct-service-construction.js";
 import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
 import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
@@ -52,6 +53,8 @@ export default [
       "*.tmp",
       // Exclude Claude Code agent worktrees
       ".claude/worktrees/**",
+      // Exclude ESLint rule test fixtures (intentionally contain rule violations)
+      "eslint-rules/__fixtures__/**",
     ],
   },
   {
@@ -117,6 +120,7 @@ export default [
           "no-singleton-reach-in": noSingletonReachIn,
           "no-from-params-in-adapters": noFromParamsInAdapters,
           "no-ignored-command-context": noIgnoredCommandContext,
+          "no-direct-service-construction": noDirectServiceConstruction,
           "no-validation-error-in-execute": noValidationErrorInExecute,
           "no-domain-singleton": noDomainSingleton,
           "require-injectable": requireInjectable,
@@ -181,6 +185,17 @@ export default [
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
       "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
+      "custom/no-direct-service-construction": [
+        "error",
+        {
+          allowedFiles: [
+            // Similarity service factory needs runtime params (model, dimension)
+            "**/src/adapters/shared/commands/tasks/similarity-commands.ts",
+            // Migration command needs dual task services for source + target
+            "**/src/adapters/shared/commands/tasks/migrate-backend-command.ts",
+          ],
+        },
+      ], // Prevent direct construction of domain services in adapter layer (mt#911)
       "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
       "custom/no-domain-singleton": [
         "error",

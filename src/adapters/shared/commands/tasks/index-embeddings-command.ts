@@ -5,6 +5,7 @@ import { tasksIndexEmbeddingsParams } from "./task-parameters";
 import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks/taskCommands";
 import { elementAt } from "../../../../utils/array-safety";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
@@ -18,12 +19,18 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
   readonly description = "Generate and store embeddings for tasks";
   readonly parameters = tasksIndexEmbeddingsParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskService: () => TaskServiceInterface
+  ) {
     super();
   }
 
   async execute(params: TasksIndexEmbeddingsParams, ctx: CommandExecutionContext) {
-    const service = await createTaskSimilarityService(this.getPersistenceProvider());
+    const service = await createTaskSimilarityService(
+      this.getPersistenceProvider(),
+      this.getTaskService()
+    );
 
     // If a specific task is provided, index just that one
     if (params.task) {

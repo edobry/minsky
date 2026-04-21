@@ -51,17 +51,6 @@ export function registerSetupCommands() {
         "Set up developer-local configuration for Minsky (MCP registration + local config)",
       parameters: setupParams,
       requiresSetup: false,
-      validate: async (params: Record<string, unknown>) => {
-        const client = params.client as string | undefined;
-        if (!client) {
-          const installedClients = detectInstalledClients();
-          if (installedClients.length > 1 && !isInteractive()) {
-            throw new ValidationError(
-              `Multiple MCP clients detected (${installedClients.join(", ")}). Use --client to specify one.`
-            );
-          }
-        }
-      },
       execute: async (params, _ctx) => {
         try {
           const repoPath = params.repo || params.workspacePath || process.cwd();
@@ -80,7 +69,12 @@ export function registerSetupCommands() {
               client = installedClients[0];
             } else {
               // Multiple clients detected — prompt if interactive
-              // isInteractive() is guaranteed true here (validate() enforced non-interactive check)
+              if (!isInteractive()) {
+                // eslint-disable-next-line custom/no-validation-error-in-execute
+                throw new ValidationError(
+                  `Multiple MCP clients detected (${installedClients.join(", ")}). Use --client to specify one.`
+                );
+              }
 
               const selectedClient = await select({
                 message: "Select an MCP client to register Minsky with:",

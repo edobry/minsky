@@ -262,6 +262,7 @@ describe("Session Merge Security Validation", () => {
       // This should succeed and call the repository backend
       const result = await mergeSessionPr(params, {
         sessionDB: mockSessionProvider,
+        persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
         createRepositoryBackend: (_config: any) => Promise.resolve(mockRepositoryBackend as any),
       });
 
@@ -270,9 +271,11 @@ describe("Session Merge Security Validation", () => {
       expect(result.taskId).toBe("task-999");
 
       // Repository backend should be called for approved sessions
+      // Third argument is MergePROptions (empty object when no provenance record available)
       expect(newMerge).toHaveBeenCalledWith(
         "pr/approved-session",
-        SESSION_TEST_PATTERNS.APPROVED_SESSION
+        SESSION_TEST_PATTERNS.APPROVED_SESSION,
+        {}
       );
     });
   });

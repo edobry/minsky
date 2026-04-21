@@ -33,7 +33,9 @@ export const _sessionRecordSchema = z.object({
 /**
  * Schema for session list parameters
  */
-export const sessionListParamsSchema = commonCommandOptionsSchema;
+export const sessionListParamsSchema = commonCommandOptionsSchema.extend({
+  task: taskIdSchema.optional().describe("Filter sessions by task ID"),
+});
 
 /**
  * Type for session list parameters
@@ -70,7 +72,9 @@ export const sessionStartParamsSchema = z
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
-    skipInstall: flagSchema("Skip automatic dependency installation"),
+    skipInstall: flagSchema(
+      "⚠️ DEPRECATED — DO NOT USE. Skips dependency installation, creating a workspace that cannot pass typecheck hooks or run tests. Will be removed in a future release."
+    ),
     packageManager: z
       .enum(["bun", "npm", "yarn", "pnpm"] as const)
       .optional()

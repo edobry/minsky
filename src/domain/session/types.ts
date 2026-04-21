@@ -3,6 +3,15 @@ import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
 
+export enum SessionStatus {
+  CREATED = "CREATED",
+  ACTIVE = "ACTIVE",
+  PR_OPEN = "PR_OPEN",
+  PR_APPROVED = "PR_APPROVED",
+  MERGED = "MERGED",
+  CLOSED = "CLOSED",
+}
+
 /**
  * Core session record interface
  *
@@ -18,6 +27,12 @@ export interface SessionRecord {
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
+  lastActivityAt?: string;
+  lastCommitHash?: string;
+  lastCommitMessage?: string;
+  commitCount?: number;
+  status?: SessionStatus;
+  agentId?: string;
   /** Git branch name created for this session */
   branch?: string;
   prState?: {
@@ -48,6 +63,29 @@ export interface SessionRecord {
   };
 }
 
+export type SessionLiveness = "healthy" | "idle" | "stale" | "orphaned";
+
+export function deriveSessionLiveness(
+  record: Pick<SessionRecord, "lastActivityAt" | "status" | "createdAt">,
+  options?: { idleThresholdMs?: number; staleThresholdMs?: number }
+): SessionLiveness {
+  const idleMs = options?.idleThresholdMs ?? 30 * 60 * 1000; // 30 min
+  const staleMs = options?.staleThresholdMs ?? 2 * 60 * 60 * 1000; // 2 hours
+
+  const activityTime = record.lastActivityAt || record.createdAt;
+  if (!activityTime) return "stale";
+
+  const elapsed = Date.now() - new Date(activityTime).getTime();
+
+  if (record.status === SessionStatus.MERGED || record.status === SessionStatus.CLOSED) {
+    return "healthy"; // terminal states are always "healthy" — they're done
+  }
+
+  if (elapsed > staleMs) return "stale";
+  if (elapsed > idleMs) return "idle";
+  return "healthy";
+}
+
 /**
  * Session interface for external use
  *
@@ -63,6 +101,8 @@ export interface Session {
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
+  /** Computed liveness status derived from lastActivityAt and session status */
+  liveness?: SessionLiveness;
   backendType?: "github" | "gitlab" | "bitbucket";
   github?: {
     owner?: string;

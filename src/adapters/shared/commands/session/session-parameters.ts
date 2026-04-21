@@ -69,6 +69,11 @@ export const commonSessionParams = {
 export const sessionListCommandParams = {
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  task: {
+    schema: z.string(),
+    description: "Filter sessions by task ID (e.g. 'mt#283' or '283')",
+    required: false,
+  },
   since: {
     schema: z.string(),
     description: "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
@@ -137,7 +142,8 @@ export const sessionStartCommandParams = {
   },
   skipInstall: {
     schema: z.boolean(),
-    description: "Skip dependency installation",
+    description:
+      "⚠️ DEPRECATED — DO NOT USE. Skips dependency installation, creating a workspace that cannot pass typecheck hooks or run tests. Will be removed in a future release.",
     required: false,
     defaultValue: false,
   },
@@ -605,6 +611,64 @@ export const sessionPrChecksCommandParams = {
     description: "Polling interval in seconds when --wait is enabled (default: 30)",
     required: false,
     defaultValue: 30,
+  },
+};
+
+/**
+ * Session PR Review Submit command parameters
+ * Submits a GitHub PR review through Minsky using the bot identity
+ */
+export const sessionPrReviewSubmitCommandParams = {
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  body: {
+    schema: z.string().min(1),
+    description: "Review body text (overall comment)",
+    required: true,
+  },
+  event: {
+    schema: z.enum(["APPROVE", "COMMENT", "REQUEST_CHANGES"]),
+    description: "Review event type: APPROVE, COMMENT, or REQUEST_CHANGES",
+    required: true,
+  },
+  comments: {
+    schema: z.array(
+      z.object({
+        path: z.string(),
+        line: z.number().int().positive(),
+        body: z.string().min(1),
+        side: z.enum(["LEFT", "RIGHT"]).optional(),
+      })
+    ),
+    description: "Optional inline line-level comments",
+    required: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session exec command parameters
+ * Executes a shell command in a session's working directory
+ */
+export const sessionExecCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  command: {
+    schema: z.string().min(1),
+    description: "Shell command to execute",
+    required: true,
+  },
+  timeout: {
+    schema: z.number().int().positive().max(120000).optional(),
+    description: "Timeout in milliseconds (default: 30000, max: 120000)",
+    required: false,
   },
 };
 

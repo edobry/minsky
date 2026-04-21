@@ -11,6 +11,7 @@ import {
   sessionStartCommandParams,
   sessionDirCommandParams,
   sessionSearchCommandParams,
+  sessionExecCommandParams,
 } from "./session-parameters";
 
 export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -28,6 +29,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
       let sessions = await service.list({
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
+        task: params.task as string | undefined,
       });
 
       try {
@@ -207,6 +209,54 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
         totalSessions: sessions.length,
         limit,
       };
+    }),
+  };
+}
+
+export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefinition {
+  return {
+    id: "session.exec",
+    category: CommandCategory.SESSION,
+    name: "exec",
+    description: "Execute a shell command in a session's working directory",
+    parameters: sessionExecCommandParams,
+    execute: withErrorLogging("session.exec", async (params: Record<string, unknown>) => {
+      const { executeCommand } = await import("../../../../utils/exec");
+      const { SessionService } = await import("../../../../domain/session/session-service");
+      const deps = await getDeps();
+      const service = new SessionService(deps);
+
+      const workdir = await service.getDir({
+        name: params.name as string | undefined,
+        task: params.task as string | undefined,
+        repo: params.repo as string | undefined,
+      });
+
+      const timeout = Math.min((params.timeout as number | undefined) ?? 30000, 120000);
+
+      try {
+        const { stdout, stderr } = await executeCommand(params.command as string, {
+          cwd: workdir,
+          timeout,
+        });
+        return {
+          success: true,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          workdir,
+          exitCode: 0,
+        };
+      } catch (error) {
+        const execError = error as { code?: number; stdout?: string; stderr?: string };
+        return {
+          success: false,
+          stdout: (execError.stdout ?? "").trim(),
+          stderr: (execError.stderr ?? "").trim(),
+          exitCode: execError.code ?? 1,
+          workdir,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }),
   };
 }

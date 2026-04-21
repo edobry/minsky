@@ -16,8 +16,9 @@ import {
   tasksCreateParams,
   tasksDeleteParams,
 } from "./task-parameters";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { log } from "../../../../utils/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 
@@ -76,7 +77,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly description = "List tasks with optional filtering";
   readonly parameters = tasksListParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskGraphService: () => TaskGraphService
+  ) {
     super();
   }
 
@@ -125,10 +129,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     let depthMap: Map<string, number> | undefined;
     if (params.hierarchical) {
       try {
-        const persistence = this.getPersistenceProvider();
-        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-        const service = new TaskGraphService(db);
+        const service = this.getTaskGraphService();
         const taskIds = tasks.map((t) => t.id);
         const parentEdges = await service.getRelationshipsForTasks(taskIds, "parent");
 
@@ -186,10 +187,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     let depsStatusMap: Map<string, { ready: boolean; blockedBy: string[] }> | undefined;
     if (params.showDeps) {
       try {
-        const persistence = this.getPersistenceProvider();
-        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-        const service = new TaskGraphService(db);
+        const service = this.getTaskGraphService();
         const taskIds = tasks.map((t) => t.id);
         const depEdges = await service.getRelationshipsForTasks(taskIds, "depends");
 
@@ -274,7 +272,11 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   readonly description = "Get details of a specific task";
   readonly parameters = tasksGetParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskGraphService: () => TaskGraphService,
+    private readonly getTaskService: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -314,29 +316,15 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       if (params.includeSubtasks) {
         try {
-          const persistence = this.getPersistenceProvider();
-          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-          const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-          const service = new TaskGraphService(db);
+          const service = this.getTaskGraphService();
           const childIds = await service.listChildren(validatedTaskId);
 
           if (childIds.length > 0) {
-            const { createConfiguredTaskService } = await import(
-              "../../../../domain/tasks/taskService"
-            );
-            const { resolveRepoPath } = await import(
-              "../../../../domain/tasks/commands/shared-helpers"
-            );
-            const taskBaseParams = this.createTaskParams(params);
-            const workspacePath = await resolveRepoPath({
-              session: taskBaseParams.session as string | undefined,
-              repo: taskBaseParams.repo as string | undefined,
-            });
-            const childTaskService = await createConfiguredTaskService({
-              workspacePath,
-              backend: taskBaseParams.backend as string | undefined,
-              persistenceProvider: persistence,
-            });
+            const childTaskService = this.getTaskService
+              ? this.getTaskService()
+              : (() => {
+                  throw new Error("TaskService not available for subtask enrichment");
+                })();
             const childTasks = await childTaskService.getTasks(childIds);
 
             // Build a map for quick lookup; unresolved IDs fall back to "(unknown)"
@@ -429,7 +417,11 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
   readonly description = "Create a new task";
   readonly parameters = tasksCreateParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskGraphService: () => TaskGraphService,
+    private readonly getTaskService: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -486,12 +478,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       if (params.dependsOn) {
         const deps = Array.isArray(params.dependsOn) ? params.dependsOn : [params.dependsOn];
         try {
-          const persistence = this.getPersistenceProvider();
-          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-          const { TaskGraphService } = await import(
-            "../../../../domain/tasks/task-graph-service"
-          );
-          const service = new TaskGraphService(db);
+          const service = this.getTaskGraphService();
           for (const dep of deps) {
             try {
               await service.addDependency(result.id, dep);
@@ -504,8 +491,8 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           }
         } catch (providerErr) {
           const msg = getErrorMessage(providerErr);
-          depsWarnings.push(`Could not connect to persistence for dependencies: ${msg}`);
-          log.warn(`[tasks.create] Could not connect to persistence for dependencies: ${msg}`);
+          depsWarnings.push(`Could not add dependencies: ${msg}`);
+          log.warn(`[tasks.create] Could not add dependencies: ${msg}`);
         }
       }
 
@@ -514,12 +501,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const parentWarnings: string[] = [];
       if (params.parent) {
         try {
-          const persistence = this.getPersistenceProvider();
-          const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-          const { TaskGraphService } = await import(
-            "../../../../domain/tasks/task-graph-service"
-          );
-          const service = new TaskGraphService(db);
+          const service = this.getTaskGraphService();
           await service.addParent(result.id, params.parent);
           parentSet = true;
         } catch (parentErr) {
@@ -530,7 +512,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       }
 
       // Fire-and-forget embedding indexing for the newly created task
-      autoIndexTaskEmbedding(result.id, { getPersistenceProvider: this.getPersistenceProvider });
+      autoIndexTaskEmbedding(result.id, {
+        getPersistenceProvider: this.getPersistenceProvider,
+        getTaskService: this.getTaskService,
+      });
 
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;
@@ -601,7 +586,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly description = "Delete a task";
   readonly parameters = tasksDeleteParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskGraphService: () => TaskGraphService
+  ) {
     super();
   }
 
@@ -631,10 +619,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
     // Clean up parent-child edges for the deleted task (D7: orphan children)
     if (result.success) {
       try {
-        const persistence = this.getPersistenceProvider();
-        const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-        const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-        const service = new TaskGraphService(db);
+        const service = this.getTaskGraphService();
 
         // Remove this task's parent edge (if it was a child)
         await service.removeParent(validatedTaskId);
@@ -702,17 +687,25 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
  * Factory functions for creating command instances
  */
 export const createTasksListCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksListCommand => new TasksListCommand(getPersistenceProvider);
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskGraphService: () => TaskGraphService
+): TasksListCommand => new TasksListCommand(getPersistenceProvider, getTaskGraphService);
 
 export const createTasksGetCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksGetCommand => new TasksGetCommand(getPersistenceProvider);
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+): TasksGetCommand =>
+  new TasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksCreateCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksCreateCommand => new TasksCreateCommand(getPersistenceProvider);
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+): TasksCreateCommand =>
+  new TasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksDeleteCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider);
+  getPersistenceProvider: () => PersistenceProvider,
+  getTaskGraphService: () => TaskGraphService
+): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider, getTaskGraphService);

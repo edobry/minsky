@@ -13,6 +13,7 @@ import { exit } from "../../utils/process";
 
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
+import { registerRepoTools } from "../../adapters/mcp/repo";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
@@ -72,6 +73,7 @@ async function registerAllTools(
   registerPersistenceTools(commandMapper, container);
 
   registerGitTools(commandMapper, container);
+  registerRepoTools(commandMapper, container);
 
   registerInitTools(commandMapper, container);
   registerRulesTools(commandMapper, container);
@@ -312,11 +314,11 @@ export function createStartCommand(
         // Fire-and-forget background embedding sweep for missing tasks
         import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
           .then(({ triggerStartupEmbeddingSweep }) => {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            if (!persistence) return;
-            return triggerStartupEmbeddingSweep(persistence);
+            if (!container) return;
+            return triggerStartupEmbeddingSweep(
+              container.get("persistence"),
+              container.get("taskService")
+            );
           })
           .catch(() => {}); // Embedding sweep is best-effort
 

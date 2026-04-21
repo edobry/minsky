@@ -69,11 +69,11 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
  */
 function getTaskDeps(
   container?: import("../../composition/types").AppContainerInterface
-): TaskServiceDeps | undefined {
-  if (container?.has("persistence")) {
-    return { persistenceProvider: container.get("persistence") };
+): TaskServiceDeps {
+  if (!container) {
+    throw new Error("DI container required for task operations — persistence is not optional");
   }
-  return undefined;
+  return { persistenceProvider: container.get("persistence") };
 }
 
 export function registerTaskEditTools(
@@ -191,6 +191,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         if (container) {
           autoIndexTaskEmbedding(typedArgs.taskId, {
             getPersistenceProvider: () => container.get("persistence"),
+            getTaskService: () => container.get("taskService"),
           });
         }
 
@@ -289,6 +290,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         if (container) {
           autoIndexTaskEmbedding(typedArgs.taskId, {
             getPersistenceProvider: () => container.get("persistence"),
+            getTaskService: () => container.get("taskService"),
           });
         }
 

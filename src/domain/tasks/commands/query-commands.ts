@@ -27,7 +27,9 @@ import {
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
-function requirePersistence(provider: BasePersistenceProvider | undefined): BasePersistenceProvider {
+function requirePersistence(
+  provider: BasePersistenceProvider | undefined
+): BasePersistenceProvider {
   if (!provider) {
     throw new Error("persistenceProvider is required");
   }
@@ -61,15 +63,16 @@ export async function listTasksFromParams(
       }));
 
     // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
-
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Use multi-backend mode when no backend specified
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    });
+    const taskService = deps?.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: validParams.backend,
+        } as TaskServiceOptions)
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: validParams.backend,
+          persistenceProvider: requirePersistence(deps?.persistenceProvider),
+        });
 
     // Get tasks with filters - delegate filtering to domain layer
     let tasks = await taskService.listTasks({
@@ -132,15 +135,16 @@ export async function getTaskFromParams(
 
     // Create task service using dependency injection or default implementation
     log.debug("[getTaskFromParams] About to create task service");
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
-
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Use multi-backend mode when no backend specified
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    });
+    const taskService = deps?.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: validParams.backend,
+        } as TaskServiceOptions)
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: validParams.backend,
+          persistenceProvider: requirePersistence(deps?.persistenceProvider),
+        });
     log.debug("[getTaskFromParams] Task service created");
 
     // Get the task
@@ -197,15 +201,16 @@ export async function getTaskStatusFromParams(
       }));
 
     // Create task service using dependency injection or default implementation
-    const createTaskService =
-      deps?.createConfiguredTaskService ||
-      (async (options) => await createConfiguredTaskServiceImpl(options));
-
-    const taskService = await createTaskService({
-      workspacePath,
-      backend: validParams.backend, // Let service determine backend via detection/config
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    });
+    const taskService = deps?.createConfiguredTaskService
+      ? await deps.createConfiguredTaskService({
+          workspacePath,
+          backend: validParams.backend,
+        } as TaskServiceOptions)
+      : await createConfiguredTaskServiceImpl({
+          workspacePath,
+          backend: validParams.backend,
+          persistenceProvider: requirePersistence(deps?.persistenceProvider),
+        });
 
     // Get the task
     const task = await taskService.getTask(validParams.taskId);
@@ -273,8 +278,8 @@ export async function getTaskSpecContentFromParams(
     const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps.persistenceProvider),
-    });
+      ...(deps.persistenceProvider ? { persistenceProvider: deps.persistenceProvider } : {}),
+    } as TaskServiceOptions);
 
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);

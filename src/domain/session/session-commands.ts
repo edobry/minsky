@@ -265,6 +265,25 @@ export async function sessionCommit(
       });
     }
 
+    // Update session activity state after successful commit+push
+    try {
+      const { SessionStatus } = await import("./types");
+      const currentSession = await sessionProvider.getSession(params.session);
+      const newCommitCount = (currentSession?.commitCount ?? 0) + 1;
+      await sessionProvider.updateSession(params.session, {
+        lastActivityAt: new Date().toISOString(),
+        lastCommitHash: commitResult.commitHash,
+        lastCommitMessage: params.message,
+        commitCount: newCommitCount,
+        status:
+          currentSession?.status === SessionStatus.CREATED
+            ? SessionStatus.ACTIVE
+            : currentSession?.status,
+      });
+    } catch (e) {
+      log.debug("Failed to update session activity state", { error: e });
+    }
+
     return {
       success: true,
       commitHash: commitResult.commitHash,

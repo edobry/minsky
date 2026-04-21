@@ -7,6 +7,7 @@
 
 import type { AppContainerInterface } from "../../../composition/types";
 import { registerGitCommands } from "./git";
+import { registerRepoCommands } from "./repo";
 import { registerTasksCommands } from "./tasks";
 import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
@@ -30,6 +31,9 @@ import { registerKnowledgeCommands } from "./knowledge";
 export async function registerAllSharedCommands(container?: AppContainerInterface): Promise<void> {
   // Register git commands — pass container for DI migration (mt#929)
   registerGitCommands(container);
+
+  // Register repo exploration commands
+  registerRepoCommands();
 
   // Register tasks commands
   registerTasksCommands(container);
@@ -94,4 +98,5 @@ export {
   registerValidateCommands,
   registerMcpCommands,
   registerKnowledgeCommands,
+  registerRepoCommands,
 };

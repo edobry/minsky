@@ -129,17 +129,38 @@
       "breakpoints": true
     },
     {
+      "idx": 18,
+      "version": "7",
+      "when": 1776499200000,
+      "tag": "0018_add_planning_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776585600000,
+      "tag": "0019_add_ready_status",
+      "breakpoints": true
+    },
+    {
       "idx": 20,
       "version": "7",
-      "when": 1745020800000,
+      "when": 1776672000000,
       "tag": "0020_knowledge_embeddings",
       "breakpoints": true
     },
     {
       "idx": 21,
       "version": "7",
-      "when": 1745107200000,
+      "when": 1776758400000,
       "tag": "0021_provenance_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1776844800000,
+      "tag": "0022_session_liveness_fields",
       "breakpoints": true
     }
   ]
