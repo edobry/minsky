@@ -35,6 +35,17 @@ Extract the task ID from the PR title or branch name (e.g., `mt#671` from `task/
 
 If the diff was not already returned by step 1, use `mcp__github__pull_request_read` with `method: "get_diff"`. For large diffs, the result will be saved to a file — read it in sequential chunks until 100% is covered.
 
+**Proportionality rule:** For PRs with > 20 changed files, you MUST dispatch multiple `reviewer` agents (`.claude/agents/reviewer.md`) in parallel, each covering a distinct portion of the diff (~25 files per agent). Use `subagent_type: "reviewer"` when dispatching. A single read pass or a spot-check of selected files is NEVER acceptable for large PRs. The number of reviewer agents should scale with the diff size:
+
+- 1–20 files: Read the diff yourself (single pass is acceptable)
+- 21–50 files: Dispatch 2 reviewer agents
+- 51–100 files: Dispatch 4 reviewer agents
+- 100+ files: Dispatch 5+ reviewer agents
+
+Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
+
+**Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
+
 ### 4. Analyze changes
 
 For each file changed, understand:
