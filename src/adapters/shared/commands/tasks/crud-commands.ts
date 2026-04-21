@@ -421,6 +421,20 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       if (params.includeSpec && extras.spec !== undefined) {
         message += extras.spec ? `\n\nSpec:\n${extras.spec}` : `\n\nSpec: (not found)`;
       }
+      if (params.includeSession && extras.session) {
+        const s = extras.session as {
+          sessionId: string;
+          status?: string;
+          lastActivityAt?: string;
+          liveness?: string;
+        };
+        message += `\n\nSession: ${s.sessionId} [${s.status || "unknown"}] (${s.liveness || "unknown"})`;
+        if (s.lastActivityAt) {
+          message += `\n  Last activity: ${s.lastActivityAt}`;
+        }
+      } else if (params.includeSession) {
+        message += `\n\nSession: (none)`;
+      }
 
       const result = this.formatResult(
         this.createSuccessResult(validatedTaskId, message, extras),
