@@ -318,7 +318,9 @@ describe("generateSubagentPrompt", () => {
     it("primary prompt matches the first batch prompt", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      expect(result.prompt).toBe(result.batches?.[0]?.prompt ?? "");
+      expect(result.batches).toBeDefined();
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(result.prompt).toBe(result.batches![0]!.prompt);
     });
 
     it("each batch has correct batchIndex and totalBatches", () => {
