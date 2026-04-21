@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { sessionGet } from "../../session";
+// This file has been removed. Use getSessionImpl from session-lifecycle-operations directly.
+export {};

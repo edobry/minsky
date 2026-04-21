@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { sessionDelete, sessionDelete as deleteSession } from "../../session";
+// This file has been removed. Use deleteSessionImpl from session-lifecycle-operations directly.
+export {};

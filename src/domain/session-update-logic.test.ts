@@ -1,6 +1,6 @@
 /**
  * Unit tests for session update conditional logic
- * Tests the pure functions extracted from updateSessionFromParams
+ * Tests the pure functions in session-update-logic
  */
 import { describe, test, expect } from "bun:test";
 import {

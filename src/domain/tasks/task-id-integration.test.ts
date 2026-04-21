@@ -16,7 +16,9 @@ import { first, elementAt } from "../../utils/array-safety";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
-import { startSessionFromParams } from "../session";
+import { startSessionImpl } from "../session/start-session-operations";
+import type { SessionStartParameters } from "../schemas";
+import { RepositoryBackendType } from "../repository/index";
 import { type TaskServiceInterface } from "./taskService";
 
 // Set up automatic mock cleanup
@@ -135,18 +137,22 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       mockWorkspaceUtils.resolveWorkspacePath = mock(async () => "/test/workspace");
 
       // Test session start with qualified task ID
-      const session = await startSessionFromParams(
+      const session = await startSessionImpl(
         {
           name: "test-md999-integration",
           task: "md#999",
           repo: "test-repo",
-        } as any,
+        } as unknown as SessionStartParameters,
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: (async () => "https://github.com/test/repo.git") as any,
+          getRepositoryBackend: async () => ({
+            repoUrl: "https://github.com/test/repo.git",
+            backendType: RepositoryBackendType.GITHUB,
+            github: { owner: "test", repo: "repo" },
+          }),
           // Inject fs adapter to avoid real fs ops
           fs: {
             exists: () => false,

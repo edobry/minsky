@@ -1,2 +1,2 @@
-/** Re-exports from the session facade for backward compatibility. */
-export { sessionStart } from "../../session";
+// This file has been removed. Use SessionService.start() from session-service directly.
+export {};
