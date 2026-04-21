@@ -24,3 +24,6 @@ export {
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "./taskFunctions";
+
+// Export read-only interfaces for ADR-004 validate() phase
+export type { ReadonlyTaskService } from "./readonly-interfaces";

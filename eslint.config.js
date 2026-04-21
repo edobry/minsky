@@ -18,6 +18,7 @@ import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js"
 import noSingletonReachIn from "./eslint-rules/no-singleton-reach-in.js";
 import noFromParamsInAdapters from "./eslint-rules/no-from-params-in-adapters.js";
 import noIgnoredCommandContext from "./eslint-rules/no-ignored-command-context.js";
+import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
 
 export default [
   js.configs.recommended,
@@ -112,6 +113,7 @@ export default [
           "no-singleton-reach-in": noSingletonReachIn,
           "no-from-params-in-adapters": noFromParamsInAdapters,
           "no-ignored-command-context": noIgnoredCommandContext,
+          "no-validation-error-in-execute": noValidationErrorInExecute,
         },
       },
     },
@@ -173,6 +175,7 @@ export default [
       // === DI ENFORCEMENT ===
       "custom/no-from-params-in-adapters": "error", // Prevent ad-hoc provider creation in adapter layer (mt#788)
       "custom/no-ignored-command-context": "error", // Flags commands with DI-requiring params (session) that ignore context (mt#929)
+      "custom/no-validation-error-in-execute": "warn", // ADR-004: ValidationError belongs in validate(), not execute()
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [
