@@ -301,6 +301,11 @@ export const tasksGetParams = {
     description: "Include subtask summary in the response",
     required: false,
   },
+  includeSession: {
+    schema: z.boolean().default(false),
+    description: "Include associated session info (status, liveness) in the response",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 /**

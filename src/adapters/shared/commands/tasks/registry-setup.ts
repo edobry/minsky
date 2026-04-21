@@ -40,6 +40,11 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     }
     return container.get("sessionProvider");
   };
+  // Optional (non-throwing) session provider for commands that treat session data as best-effort
+  const getOptionalSessionProvider = () => {
+    if (!container?.has("sessionProvider")) return undefined;
+    return container.get("sessionProvider");
+  };
   const getTaskGraphService = () => {
     if (!container?.has("taskGraphService")) {
       throw new Error("TaskGraphService not available. Ensure the DI container is initialized.");
@@ -98,7 +103,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksStatusSetCommand(getPersistenceProvider),
     createTasksSpecCommand(getPersistenceProvider),
     createTasksListCommand(getPersistenceProvider, getTaskGraphService),
-    createTasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksGetCommand(
+      getPersistenceProvider,
+      getTaskGraphService,
+      getTaskService,
+      getOptionalSessionProvider
+    ),
     createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksEditCommand(getPersistenceProvider, getTaskService),
     createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService),
