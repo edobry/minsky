@@ -159,9 +159,7 @@ export async function sessionPrReviewContext(
     ) {
       throw error;
     }
-    throw new MinskyError(
-      `Failed to get session PR review context: ${getErrorMessage(error)}`
-    );
+    throw new MinskyError(`Failed to get session PR review context: ${getErrorMessage(error)}`);
   }
 }
 
