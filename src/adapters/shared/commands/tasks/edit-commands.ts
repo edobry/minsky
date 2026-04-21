@@ -262,12 +262,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
 
       // Fire-and-forget embedding re-index if content that affects embeddings changed
       if (updates.title || updates.spec) {
-        autoIndexTaskEmbedding(
-          validatedTaskId,
-          this.getPersistenceProvider
-            ? { getPersistenceProvider: this.getPersistenceProvider }
-            : undefined
-        );
+        autoIndexTaskEmbedding(validatedTaskId, {
+          getPersistenceProvider: this.getPersistenceProvider,
+        });
       }
 
       const message = this.buildUpdateMessage(updates, validatedTaskId);
