@@ -250,6 +250,19 @@ export function registerGitCommandsWithMcp(
 }
 
 /**
+ * Register repo exploration commands with MCP
+ */
+export function registerRepoCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.REPO],
+    ...config,
+  });
+}
+
+/**
  * Register session commands with MCP
  */
 export function registerSessionCommandsWithMcp(
