@@ -99,7 +99,7 @@ export async function sessionPrReviewSubmit(
   };
   const backend = await createRepositoryBackend(config, sessionDB);
 
-  if (!backend.submitReview) {
+  if (!backend.review.submitReview) {
     throw new MinskyError(
       "The repository backend for this session does not support submitReview. " +
         "Only GitHub-backed sessions support PR review submission."
@@ -112,7 +112,7 @@ export async function sessionPrReviewSubmit(
     event: params.event,
   });
 
-  const result = await backend.submitReview(prNumber, {
+  const result = await backend.review.submitReview(prNumber, {
     body: params.body,
     event: params.event,
     comments: params.comments,
