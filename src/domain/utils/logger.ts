@@ -351,6 +351,7 @@ export { createLogger as createConfigurableLogger };
 const _handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     defaultLogger!._internal.programLogger.error("Unhandled error or rejection, exiting.", error);
   }
   // Give logs a moment to flush

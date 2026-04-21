@@ -46,6 +46,7 @@ describe("result-handling/filters: parseTime", () => {
   });
   it("parses relative d/h/m within tolerance", () => {
     const before = Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const tsH = parseTime("1h")!;
     const after = Date.now();
     // 1h ago should be between before-1h and after-1h

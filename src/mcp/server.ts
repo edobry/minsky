@@ -211,6 +211,7 @@ export class MinskyMCPServer {
 
     // Reuse existing transport if we have a session ID
     if (sessionId && this.httpTransports.has(sessionId)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       transport = this.httpTransports.get(sessionId)!;
     } else {
       // Create new transport for new session
@@ -244,6 +245,7 @@ export class MinskyMCPServer {
       return;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const transport = this.httpTransports.get(sessionId)!;
     await transport.handleRequest(req, res);
 

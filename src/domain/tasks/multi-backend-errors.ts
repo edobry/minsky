@@ -190,6 +190,7 @@ export class ErrorRecovery {
     results: Array<{ success: boolean; result?: T; error?: Error; backend?: string }>,
     operation: string
   ): T[] {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const successes = results.filter((r) => r.success).map((r) => r.result!);
     const failures = results.filter((r) => !r.success);
 

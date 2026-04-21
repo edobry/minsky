@@ -56,6 +56,7 @@ export class PostgresPersistenceProvider
 
   /** Returns the postgres config — guaranteed non-null by the constructor. */
   private get pgConfig(): NonNullable<PersistenceConfig["postgres"]> {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return this.config.postgres!;
   }
 

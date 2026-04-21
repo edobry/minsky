@@ -72,10 +72,13 @@ export const PROVIDER_FETCHER_REGISTRY = {
 
   // Missing fetchers — null! to satisfy the satisfies constraint; guarded at runtime by hasProviderFetcher()
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   google: null!, // TODO: Implement GoogleModelFetcher
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   cohere: null!, // TODO: Implement CohereModelFetcher
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   mistral: null!, // TODO: Implement MistralModelFetcher
 } as const satisfies EnsureCompleteRegistry<ProviderFetcherRegistry>;
 

@@ -170,9 +170,9 @@ export async function approveSessionPr(
 
   // Create repository backend for this session using stored configuration
   // Prefer injected factory (for testing), fall back to session record config
-  const repositoryBackend = deps?.createRepositoryBackendForSession
+  const repositoryBackend = deps.createRepositoryBackendForSession
     ? await deps.createRepositoryBackendForSession("/test/workdir")
-    : await createRepositoryBackendFromSession(sessionRecord, deps!.sessionDB);
+    : await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);

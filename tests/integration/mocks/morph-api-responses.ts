@@ -146,6 +146,7 @@ export function createMockFetch(responses: MockResponse[]): typeof fetch {
   let callCount = 0;
 
   const mockFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const response = (responses[callCount] || responses[responses.length - 1])!;
     callCount++;
 

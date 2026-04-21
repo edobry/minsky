@@ -48,6 +48,7 @@ describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
 
       // Create backend instance
       backend = createGitHubIssuesTaskBackend({
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         githubToken: INTEGRATION_CONFIG.token!,
         owner: INTEGRATION_CONFIG.owner,
         repo: INTEGRATION_CONFIG.repo,

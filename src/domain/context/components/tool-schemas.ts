@@ -151,6 +151,7 @@ export const ToolSchemasComponent: ContextComponent = {
           const toolSimilarityService = await createToolSimilarityService(
             {},
 
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             context.persistenceProvider!
           );
 

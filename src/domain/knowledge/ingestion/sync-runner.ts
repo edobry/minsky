@@ -71,6 +71,7 @@ export async function runSync(
         const firstChunkId = chunkId(provider.sourceName, document.id, 0);
         try {
           if (typeof vectorStorage.getMetadata === "function") {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const meta = await vectorStorage.getMetadata!(firstChunkId);
             if (meta && meta["contentHash"] === hash) {
               // Reconstruct seen IDs for this document by reading total chunks from metadata

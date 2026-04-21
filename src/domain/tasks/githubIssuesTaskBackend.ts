@@ -218,7 +218,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       // Filter by tags if specified
       if (options?.tags && options.tags.length > 0) {
-        tasks = tasks.filter((task) => options.tags!.every((tag) => task.tags?.includes(tag)));
+        const tags = options.tags;
+        tasks = tasks.filter((task) => tags.every((tag) => task.tags?.includes(tag)));
       }
 
       return tasks;

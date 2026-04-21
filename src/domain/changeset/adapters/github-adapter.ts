@@ -500,8 +500,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     try {
       const octokit = await this.getOctokit();
       const { data: reviews } = await octokit.rest.pulls.listReviews({
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         owner: this.owner!,
-
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         repo: this.repo!,
         pull_number: prNumber,
       });
@@ -510,8 +511,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         reviews.map(async (review) => {
           // Get review comments
           const { data: comments } = await octokit.rest.pulls.listCommentsForReview({
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             owner: this.owner!,
-
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             repo: this.repo!,
             pull_number: prNumber,
             review_id: review.id,
@@ -575,8 +577,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     try {
       const octokit = await this.getOctokit();
       const { data: comments } = await octokit.rest.issues.listComments({
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         owner: this.owner!,
-
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         repo: this.repo!,
         issue_number: prNumber,
       });
@@ -607,8 +610,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     try {
       const octokit = await this.getOctokit();
       const { data: commits } = await octokit.rest.pulls.listCommits({
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         owner: this.owner!,
-
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         repo: this.repo!,
         pull_number: prNumber,
       });
