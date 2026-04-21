@@ -129,6 +129,20 @@
       "breakpoints": true
     },
     {
+      "idx": 18,
+      "version": "7",
+      "when": 1776499200000,
+      "tag": "0018_add_planning_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776585600000,
+      "tag": "0019_add_ready_status",
+      "breakpoints": true
+    },
+    {
       "idx": 20,
       "version": "7",
       "when": 1745020800000,
