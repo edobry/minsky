@@ -4,7 +4,7 @@
 
 When spawning subagents, use the appropriate model and type:
 
-**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting.
+**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. (Community guides often recommend `haiku` as the `CLAUDE_CODE_SUBAGENT_MODEL` default; Minsky uses `sonnet` because subagents run full implementation workflows — edit, commit, PR — not just search/format.)
 
 **Types:** `"refactor"` for structural changes (built-in coherence verification). `"verify-completion"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
 
@@ -12,7 +12,7 @@ When spawning subagents, use the appropriate model and type:
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `suggestedSubagentType` from the result.
 
-**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — same fix attempted 3+ times, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability.
+**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
 ## Task Lifecycle
 
@@ -32,6 +32,12 @@ Transitions are enforced in the domain layer. `session_start` blocks from TODO/P
 - **Artifact creation is not progress.** Creating tasks/specs/rules is not a substitute for doing the work.
 - **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
 - **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.
+
+## Error Investigation
+
+- **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
+- **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
+- **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
 
 ## Key Workflows (via skills)
 
