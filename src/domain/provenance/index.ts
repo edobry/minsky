@@ -29,3 +29,4 @@ export {
   buildMergeTrailers,
   type MergeIdentity,
 } from "./authorship-labels";
+export { TranscriptService, type TranscriptMessage, type MessageStats } from "./transcript-service";

@@ -162,6 +162,13 @@
       "when": 1776844800000,
       "tag": "0022_session_liveness_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1776931200000,
+      "tag": "0023_session_transcripts",
+      "breakpoints": true
     }
   ]
 }

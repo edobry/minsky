@@ -19,6 +19,7 @@ import {
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { SessionProviderInterface } from "../../../../domain/session/types";
 import { log } from "../../../../utils/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 
@@ -44,6 +45,7 @@ interface TasksGetParams extends BaseTaskParams {
   taskId: string;
   includeSpec?: boolean;
   includeSubtasks?: boolean;
+  includeSession?: boolean;
 }
 
 /**
@@ -275,7 +277,8 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   constructor(
     private readonly getPersistenceProvider: () => PersistenceProvider,
     private readonly getTaskGraphService: () => TaskGraphService,
-    private readonly getTaskService: () => TaskServiceInterface
+    private readonly getTaskService: () => TaskServiceInterface,
+    private readonly getSessionProvider: () => SessionProviderInterface | undefined
   ) {
     super();
   }
@@ -372,6 +375,27 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
           extras.spec = specResult.content;
         } catch {
           extras.spec = "";
+        }
+      }
+
+      // Optionally include associated session info
+      if (params.includeSession) {
+        const sessionProvider = this.getSessionProvider();
+        if (sessionProvider) {
+          try {
+            const { deriveSessionLiveness } = await import("../../../../domain/session/types");
+            const session = await sessionProvider.getSessionByTaskId(validatedTaskId);
+            if (session) {
+              extras.session = {
+                sessionId: session.session,
+                status: session.status,
+                lastActivityAt: session.lastActivityAt,
+                liveness: deriveSessionLiveness(session),
+              };
+            }
+          } catch {
+            // Session lookup is best-effort; don't fail the task get
+          }
         }
       }
 
@@ -694,9 +718,15 @@ export const createTasksListCommand = (
 export const createTasksGetCommand = (
   getPersistenceProvider: () => PersistenceProvider,
   getTaskGraphService: () => TaskGraphService,
-  getTaskService: () => TaskServiceInterface
+  getTaskService: () => TaskServiceInterface,
+  getSessionProvider: () => SessionProviderInterface | undefined
 ): TasksGetCommand =>
-  new TasksGetCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
+  new TasksGetCommand(
+    getPersistenceProvider,
+    getTaskGraphService,
+    getTaskService,
+    getSessionProvider
+  );
 
 export const createTasksCreateCommand = (
   getPersistenceProvider: () => PersistenceProvider,
