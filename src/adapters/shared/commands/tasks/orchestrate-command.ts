@@ -5,8 +5,8 @@
  * Composes TaskGraphService (children + deps) with task status resolution.
  */
 import { z } from "zod";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 
@@ -31,7 +31,10 @@ interface DispatchableSubtask {
   ready: boolean;
 }
 
-export function createTasksOrchestrateCommand(getPersistenceProvider: () => PersistenceProvider) {
+export function createTasksOrchestrateCommand(
+  getTaskGraphService: () => TaskGraphService,
+  getTaskService: () => TaskServiceInterface
+) {
   return {
     id: "tasks.orchestrate",
     name: "orchestrate",
@@ -48,10 +51,7 @@ export function createTasksOrchestrateCommand(getPersistenceProvider: () => Pers
         statusFilter,
       });
 
-      const persistence = getPersistenceProvider();
-      const db = (await persistence.getDatabaseConnection?.()) as PostgresJsDatabase;
-      const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-      const service = new TaskGraphService(db);
+      const service = getTaskGraphService();
 
       // Step 1: Get children of the parent
       const childIds = await service.listChildren(parentTaskId);
@@ -67,11 +67,7 @@ export function createTasksOrchestrateCommand(getPersistenceProvider: () => Pers
       }
 
       // Step 2: Get status + deps for each child
-      const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-      const taskService = await createConfiguredTaskService({
-        workspacePath: process.cwd(),
-        persistenceProvider: persistence,
-      });
+      const taskService = getTaskService();
 
       const allSubtasks: DispatchableSubtask[] = [];
 

@@ -85,6 +85,32 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
     },
 
     sessionDeps: {} as any, // Tests that need sessionDeps should override this
+
+    taskGraphService: {
+      addDependency: async () => ({ created: false }),
+      removeDependency: async () => ({ removed: false }),
+      listDependencies: async () => [],
+      listDependents: async () => [],
+      addParent: async () => {},
+      removeParent: async () => {},
+      getParent: async () => null,
+      listChildren: async () => [],
+      getRelationshipsForTasks: async () => [],
+    } as unknown as AppServices["taskGraphService"],
+
+    taskRoutingService: {
+      findAvailableTasks: async () => [],
+      generateRoute: async () => ({
+        targetTaskId: "",
+        targetTitle: "",
+        strategy: "ready-first",
+        steps: [],
+        parallelTracks: [],
+        totalTasks: 0,
+        readyTasks: 0,
+        blockedTasks: 0,
+      }),
+    } as unknown as AppServices["taskRoutingService"],
   };
 
   /* eslint-enable @typescript-eslint/no-explicit-any, custom/no-excessive-as-unknown */

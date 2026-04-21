@@ -1,5 +1,6 @@
 import { log } from "../../../../utils/logger";
 import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 /**
  * Dependencies that can be injected for testing or DI threading.
@@ -8,9 +9,11 @@ import type { BasePersistenceProvider } from "../../../../domain/persistence/typ
 export interface AutoIndexDeps {
   getConfiguration?: () => { embeddings?: { autoIndex?: boolean } };
   createTaskSimilarityService?: (
-    provider: BasePersistenceProvider
+    provider: BasePersistenceProvider,
+    taskService: TaskServiceInterface
   ) => Promise<{ indexTask: (id: string) => Promise<boolean> }>;
   getPersistenceProvider?: () => BasePersistenceProvider;
+  getTaskService?: () => TaskServiceInterface;
 }
 
 /**
@@ -41,7 +44,13 @@ export function autoIndexTaskEmbedding(taskId: string, deps?: AutoIndexDeps): vo
         return;
       }
 
-      const service = await createTaskSimilarityService(persistenceProvider);
+      if (!deps?.getTaskService) {
+        log.debug(`Auto-index skipped for ${taskId}: no task service available`);
+        return;
+      }
+      const taskService = deps.getTaskService();
+
+      const service = await createTaskSimilarityService(persistenceProvider, taskService);
       await service.indexTask(taskId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

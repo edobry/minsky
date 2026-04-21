@@ -1,5 +1,6 @@
 import { log } from "../../../../utils/logger";
 import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 const STARTUP_SWEEP_LIMIT = 50;
 const STARTUP_SWEEP_CONCURRENCY = 2;
@@ -11,7 +12,8 @@ const STARTUP_SWEEP_CONCURRENCY = 2;
  *   Required — callers must pass it from the container.
  */
 export async function triggerStartupEmbeddingSweep(
-  persistenceProvider?: BasePersistenceProvider
+  persistenceProvider?: BasePersistenceProvider,
+  taskService?: TaskServiceInterface
 ): Promise<void> {
   // Check config gate
   const { getConfiguration } = await import("../../../../domain/configuration");
@@ -39,9 +41,14 @@ export async function triggerStartupEmbeddingSweep(
   if (missing.length === 0) return;
   log.debug(`Startup sweep: ${missing.length} tasks need embedding indexing`);
 
+  if (!taskService) {
+    log.debug("Startup sweep skipped: no task service available");
+    return;
+  }
+
   // Index them with low concurrency
   const { createTaskSimilarityService } = await import("./similarity-commands");
-  const service = await createTaskSimilarityService(persistenceProvider);
+  const service = await createTaskSimilarityService(persistenceProvider, taskService);
 
   let indexed = 0;
   let failed = 0;
