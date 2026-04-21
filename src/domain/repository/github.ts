@@ -43,6 +43,8 @@ import {
   getPullRequestApprovalStatus as getApprovalStatus,
   diagnoseMergeBlocker,
 } from "./github-pr-approval";
+import { submitReview as submitReviewImpl } from "./github-pr-review";
+import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 
 const HTTP_NOT_FOUND = 404;
@@ -691,5 +693,17 @@ Repository: https://github.com/${this.owner}/${this.repo}
         return getApprovalStatus(gh, prIdentifier);
       },
     };
+  }
+
+  /**
+   * Submit a review on a GitHub pull request.
+   * Posts under the bot/service-account identity when one is configured.
+   */
+  async submitReview(
+    prIdentifier: string | number,
+    options: SubmitReviewOptions
+  ): Promise<SubmitReviewResult> {
+    const gh = this.requireGitHubContext();
+    return submitReviewImpl(gh, prIdentifier, options);
   }
 }
