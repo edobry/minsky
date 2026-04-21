@@ -54,13 +54,19 @@ export async function executePushCommand(
   parameters: {
     [K in keyof typeof pushCommandParams]: z.infer<(typeof pushCommandParams)[K]["schema"]>;
   },
-  context: CommandExecutionContext
+  context: CommandExecutionContext,
+  sessionProvider?: { getSessionWorkdir(session: string): Promise<string> }
 ): Promise<{ workdir: string; pushed: boolean }> {
   const { repo, session, remote, force, debug } = parameters;
 
+  // Resolve session to repo path at this boundary
+  let resolvedRepo = repo;
+  if (session && !resolvedRepo && sessionProvider) {
+    resolvedRepo = await sessionProvider.getSessionWorkdir(session);
+  }
+
   const result = await pushFromParams({
-    session,
-    repo,
+    repo: resolvedRepo,
     remote,
     force,
     debug,

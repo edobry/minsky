@@ -62,17 +62,19 @@ export async function executeCheckoutCommand(
 ): Promise<unknown> {
   const { branch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
 
-  const result = await checkoutFromParams(
-    {
-      branch,
-      session,
-      repo,
-      preview,
-      autoResolve,
-      conflictStrategy,
-    },
-    { sessionProvider }
-  );
+  // Resolve session to repo path at this boundary
+  let resolvedRepo = repo;
+  if (session && !resolvedRepo) {
+    resolvedRepo = await sessionProvider.getSessionWorkdir(session);
+  }
+
+  const result = await checkoutFromParams({
+    branch,
+    repo: resolvedRepo,
+    preview,
+    autoResolve,
+    conflictStrategy,
+  });
 
   if (context.debug) {
     log.debug("Checkout command executed successfully", { result });

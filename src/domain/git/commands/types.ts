@@ -38,7 +38,6 @@ export interface CommitResult {
 }
 
 export interface PushOptions {
-  session?: string;
   repoPath?: string;
   remote?: string;
   force?: boolean;

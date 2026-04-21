@@ -1,23 +1,19 @@
-import type { SessionProviderInterface } from "../../session/types";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import { execGitWithTimeout } from "../../../utils/git-exec";
 
 /**
- * Rebase branches from parameters
+ * Rebase branches from parameters.
+ * Session must be resolved to a repo path before calling this function.
  */
-export async function rebaseFromParams(
-  params: {
-    baseBranch: string;
-    featureBranch?: string;
-    session?: string;
-    repo?: string;
-    preview?: boolean;
-    autoResolve?: boolean;
-    conflictStrategy?: string;
-  },
-  deps: { sessionProvider: SessionProviderInterface }
-): Promise<{
+export async function rebaseFromParams(params: {
+  baseBranch: string;
+  featureBranch?: string;
+  repo?: string;
+  preview?: boolean;
+  autoResolve?: boolean;
+  conflictStrategy?: string;
+}): Promise<{
   workdir: string;
   rebased: boolean;
   conflicts: boolean;
@@ -30,22 +26,8 @@ export async function rebaseFromParams(
 }> {
   const gitService = createGitService();
 
-  let repoPath = params.repo;
-
-  if (params.session && !repoPath) {
-    const session = await deps.sessionProvider.getSession(params.session);
-
-    if (!session) {
-      throw new Error(`Session not found: ${params.session}`);
-    }
-
-    repoPath = await deps.sessionProvider.getSessionWorkdir(params.session);
-  }
-
   // Default to current directory if no repo specified
-  if (!repoPath) {
-    repoPath = process.cwd();
-  }
+  const repoPath = params.repo ?? process.cwd();
 
   // Get current branch if feature branch not specified
   let featureBranch = params.featureBranch;

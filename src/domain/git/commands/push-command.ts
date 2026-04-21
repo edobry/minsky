@@ -33,10 +33,10 @@ export async function pushChanges(
 }
 
 /**
- * Push changes from parameters
+ * Push changes from parameters.
+ * Session must be resolved to a repo path before calling this function.
  */
 export async function pushFromParams(params: {
-  session?: string;
   repo?: string;
   remote?: string;
   force?: boolean;
@@ -45,7 +45,6 @@ export async function pushFromParams(params: {
   const gitService = createGitService();
 
   const options: PushOptions = {
-    session: params.session,
     repoPath: params.repo,
     remote: params.remote,
     force: params.force,
@@ -56,7 +55,6 @@ export async function pushFromParams(params: {
 
   if (params.debug) {
     log.debug("Changes pushed successfully", {
-      session: params.session,
       repo: params.repo,
       remote: params.remote,
       force: params.force,

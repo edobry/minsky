@@ -264,7 +264,6 @@ export interface MergeResult {
 }
 
 export interface PushOptions {
-  session?: string;
   repoPath?: string;
   remote?: string;
   force?: boolean;

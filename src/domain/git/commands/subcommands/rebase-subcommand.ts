@@ -64,18 +64,20 @@ export async function executeRebaseCommand(
   const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } =
     parameters;
 
-  const result = await rebaseFromParams(
-    {
-      baseBranch,
-      featureBranch,
-      session,
-      repo,
-      preview,
-      autoResolve,
-      conflictStrategy,
-    },
-    { sessionProvider }
-  );
+  // Resolve session to repo path at this boundary
+  let resolvedRepo = repo;
+  if (session && !resolvedRepo) {
+    resolvedRepo = await sessionProvider.getSessionWorkdir(session);
+  }
+
+  const result = await rebaseFromParams({
+    baseBranch,
+    featureBranch,
+    repo: resolvedRepo,
+    preview,
+    autoResolve,
+    conflictStrategy,
+  });
 
   if (context.debug) {
     log.debug("Rebase command executed successfully", { result });

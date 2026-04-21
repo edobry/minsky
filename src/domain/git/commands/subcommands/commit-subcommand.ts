@@ -62,7 +62,8 @@ interface CommitCommandContext extends CommandExecutionContext {
 }
 
 /**
- * Execute the commit command
+ * Execute the commit command.
+ * Resolves session to a repo path before calling the domain function.
  */
 export async function executeCommitCommand(
   context: CommitCommandContext,
@@ -70,17 +71,19 @@ export async function executeCommitCommand(
 ): Promise<{ commitHash: string; message: string }> {
   const { message, all, amend, noStage, repo, session } = context.parameters;
 
-  const result = await commitChangesFromParams(
-    {
-      message,
-      session,
-      repo,
-      all,
-      amend,
-      noStage,
-    },
-    { sessionProvider }
-  );
+  // Resolve session to repo path at this boundary
+  let resolvedRepo = repo;
+  if (session && !resolvedRepo) {
+    resolvedRepo = await sessionProvider.getSessionWorkdir(session);
+  }
+
+  const result = await commitChangesFromParams({
+    message,
+    repo: resolvedRepo,
+    all,
+    amend,
+    noStage,
+  });
 
   if (context.debug) {
     log.debug("Commit command executed successfully", { result });
