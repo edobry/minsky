@@ -131,7 +131,7 @@ export const githubValidation = {
     }
 
     const [owner, repo] = identifier.split("/");
-    return { owner: owner!, repo: repo! };
+    return { owner: owner ?? "", repo: repo ?? "" };
   },
 
   /**

@@ -141,10 +141,10 @@ export async function generateGraphvizDot(
 
     allRelationships.forEach(({ fromTaskId, toTaskId }) => {
       if (!dependenciesMap.has(fromTaskId)) dependenciesMap.set(fromTaskId, []);
-      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+      dependenciesMap.get(fromTaskId)?.push(toTaskId);
 
       if (!dependentsMap.has(toTaskId)) dependentsMap.set(toTaskId, []);
-      dependentsMap.get(toTaskId)!.push(fromTaskId);
+      dependentsMap.get(toTaskId)?.push(fromTaskId);
 
       allTaskIds.add(fromTaskId);
       allTaskIds.add(toTaskId);

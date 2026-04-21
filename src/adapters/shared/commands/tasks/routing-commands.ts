@@ -135,7 +135,7 @@ export function createTasksAvailableCommand(getPersistenceProvider: () => Persis
         });
 
         const filteredTasks = params.backend
-          ? allTasks.filter((task) => task.id.startsWith(params.backend!))
+          ? allTasks.filter((task) => task.id.startsWith(params.backend as string))
           : allTasks;
 
         const statusFilteredTasks =
@@ -292,7 +292,7 @@ export function createTasksRouteCommand(getPersistenceProvider: () => Persistenc
         if (!stepsByDepth.has(step.depth)) {
           stepsByDepth.set(step.depth, []);
         }
-        stepsByDepth.get(step.depth)!.push(step);
+        stepsByDepth.get(step.depth)?.push(step);
       }
 
       const maxDepth = Math.max(...Array.from(stepsByDepth.keys()));

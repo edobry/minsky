@@ -56,7 +56,7 @@ export function createMockFs(
 
     async readFile(path: string, _encoding: BufferEncoding): Promise<string> {
       if (!files.has(path)) enoent("open", path);
-      return files.get(path)!;
+      return files.get(path) ?? "";
     },
 
     async writeFile(path: string, data: string | Buffer): Promise<void> {
@@ -112,7 +112,7 @@ export function createMockFs(
 
     async copyFile(src: string, dest: string): Promise<void> {
       if (!files.has(src)) enoent("copyFile", src);
-      files.set(dest, files.get(src)!);
+      files.set(dest, files.get(src) ?? "");
       addParentDirectories(dest, directories);
     },
 

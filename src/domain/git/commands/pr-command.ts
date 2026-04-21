@@ -23,7 +23,11 @@ export async function createPullRequestFromParams(params: {
     noStatusUpdate: params.noStatusUpdate,
   };
 
-  const result = await gitService.pr!(options);
+  if (!gitService.pr) {
+    throw new Error("Git service does not support creating pull requests.");
+  }
+
+  const result = await gitService.pr(options);
 
   if (params.debug) {
     log.debug("Pull request created successfully", { result });
@@ -52,7 +56,11 @@ export async function mergePrFromParams(params: {
     session: params.session,
   };
 
-  const result = await gitService.mergePr!(options);
+  if (!gitService.mergePr) {
+    throw new Error("Git service does not support merging pull requests.");
+  }
+
+  const result = await gitService.mergePr(options);
   log.debug("Pull request merged successfully", { result });
 
   return result;

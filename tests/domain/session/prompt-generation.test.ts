@@ -310,9 +310,9 @@ describe("generateSubagentPrompt", () => {
     it("final batch includes full commit and PR instructions instead of intermediate", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
-      const lastBatch = result.batches?.[result.batches?.length - 1]!;
-      expect(lastBatch.prompt).not.toContain("Commit this batch before proceeding to the next");
-      expect(lastBatch.prompt).toContain(MCP_SESSION_PR_CREATE);
+      const lastBatch = result.batches?.[result.batches.length - 1];
+      expect(lastBatch?.prompt).not.toContain("Commit this batch before proceeding to the next");
+      expect(lastBatch?.prompt).toContain(MCP_SESSION_PR_CREATE);
     });
 
     it("primary prompt matches the first batch prompt", () => {
@@ -341,7 +341,7 @@ describe("generateSubagentPrompt", () => {
       const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
       const result = generateSubagentPrompt({ ...baseParams, scope });
       expect(result.batches).toBeDefined();
-      for (const batch of result.batches!) {
+      for (const batch of result.batches ?? []) {
         expect(batch.prompt).toContain(PROMPT_WATERMARK);
       }
     });

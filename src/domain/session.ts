@@ -276,7 +276,9 @@ export async function updateSessionFromParams(
   // getCurrentSession returns Promise<string | undefined> but SessionDeps expects Promise<string | null>
   const wrappedGetCurrentSession = depsInput?.getCurrentSession
     ? async (p: string) => {
-        const result = await depsInput.getCurrentSession!(p);
+        const getCurrentSession = depsInput.getCurrentSession;
+        if (!getCurrentSession) return null;
+        const result = await getCurrentSession(p);
         return result ?? null;
       }
     : undefined;
@@ -310,7 +312,9 @@ export async function sessionReviewFromParams(
   // getCurrentSession returns Promise<string | undefined> but SessionDeps expects Promise<string | null>
   const wrappedGetCurrentSession = depsInput?.getCurrentSession
     ? async (p: string) => {
-        const result = await depsInput.getCurrentSession!(p);
+        const getCurrentSession = depsInput.getCurrentSession;
+        if (!getCurrentSession) return null;
+        const result = await getCurrentSession(p);
         return result ?? null;
       }
     : undefined;

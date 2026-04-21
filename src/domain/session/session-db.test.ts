@@ -228,14 +228,17 @@ describe("SessionDB Functional Implementation", () => {
   describe("getRepoPathFn", () => {
     it("should return the repository path for a session record", () => {
       const state = createTestState();
-      const session = getSessionFn(state, "test-session-1")!;
+      const session = getSessionFn(state, "test-session-1");
+      if (!session) throw new Error("Test session not found");
       const repoPath = getRepoPathFn(state, session);
       expect(repoPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_1_PATH);
     });
 
     it("should handle session records with repoPath already set", () => {
       const state = createTestState();
-      const session = { ...getSessionFn(state, "test-session-1")!, repoPath: "/custom/path" };
+      const found = getSessionFn(state, "test-session-1");
+      if (!found) throw new Error("Test session not found");
+      const session = { ...found, repoPath: "/custom/path" };
       const repoPath = getRepoPathFn(state, session);
       expect(repoPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_1_PATH);
     });
