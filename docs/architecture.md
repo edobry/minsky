@@ -2,8 +2,8 @@
 
 This document describes how Minsky is structured at the system level. It covers the command dispatch
 pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection,
-configuration hierarchy, and repository backend system. For narrower topics, follow the links to the
-referenced ADRs.
+configuration hierarchy, repository backend system, and the knowledge base integration. For narrower
+topics, follow the links to the referenced ADRs.
 
 ---
 
@@ -17,7 +17,8 @@ referenced ADRs.
 6. [Dependency Injection](#6-dependency-injection)
 7. [Configuration Hierarchy](#7-configuration-hierarchy)
 8. [Repository Backend](#8-repository-backend)
-9. [ADR Index](#9-adr-index)
+9. [Knowledge Base](#9-knowledge-base)
+10. [ADR Index](#10-adr-index)
 
 ---
 
@@ -58,7 +59,7 @@ CLI Bridge    MCP Bridge
 Commands are grouped into `CommandCategory` enum values:
 
 ```
-CORE  GIT  REPO  TASKS  SESSION  PERSISTENCE  RULES  INIT  CONFIG  DEBUG  AI  TOOLS
+CORE  GIT  REPO  TASKS  SESSION  PERSISTENCE  RULES  INIT  CONFIG  DEBUG  AI  TOOLS  KNOWLEDGE
 ```
 
 ### Key types
@@ -87,6 +88,7 @@ src/domain/
 ├── git/                 Git operations (clone, commit, diff, etc.)
 ├── init/                Project initialization
 ├── interfaces/          Shared interface contracts (FsLike, etc.)
+├── knowledge/           External knowledge source integration, ingestion pipeline, semantic search
 ├── persistence/         Persistence provider base types
 ├── project/             Project metadata reading
 ├── repository/          Repository backend abstraction
@@ -114,6 +116,7 @@ src/domain/
 | `repository`    | PR backend abstraction (GitHub, local)                                     |
 | `persistence`   | PostgreSQL provider with optional pgvector capabilities                    |
 | `changeset`     | Structured change tracking for session diffs                               |
+| `knowledge`     | External knowledge source integration (Notion, Confluence, Google Docs), ingestion pipeline, semantic search |
 
 Formal concept definitions: `src/domain/concepts.md`
 
@@ -456,7 +459,131 @@ Source: `src/domain/repository/`
 
 ---
 
-## 9. ADR Index
+## 9. Knowledge Base
+
+The knowledge base subsystem lets Minsky index external documentation sources and make them
+available for semantic search. Phase 1 (shipped) covers Notion; Confluence and Google Docs are
+planned provider types in the config schema.
+
+### Provider interface
+
+Every knowledge source implements `KnowledgeSourceProvider`:
+
+```typescript
+interface KnowledgeSourceProvider {
+  sourceType: string;
+  sourceName: string;
+  listDocuments(options?: ListOptions): AsyncIterable<KnowledgeDocument>;
+  fetchDocument(id: string): Promise<KnowledgeDocument>;
+  getChangedSince(since: Date, options?: ListOptions): AsyncIterable<KnowledgeDocument>;
+}
+```
+
+The current implementation is `NotionKnowledgeProvider`
+(`src/domain/knowledge/providers/notion-provider.ts`), which walks a Notion page tree via the
+Notion REST API, converting blocks to plain-text `KnowledgeDocument` objects. Future providers
+for Confluence and Google Docs will implement the same interface.
+
+### Ingestion pipeline
+
+```
+  KnowledgeSourceProvider.listDocuments()
+            |
+            v
+  [SHA-256 content hash check]   skip unchanged documents (unless force=true)
+            |
+            v
+  chunkContent()                 hierarchical split: ## → ### → paragraphs → tokens
+            |
+            v
+  EmbeddingService.generateEmbedding()   one call per chunk
+            |
+            v
+  VectorStorage.store(id, vector, metadata)
+```
+
+`chunkContent` (`src/domain/knowledge/ingestion/chunker.ts`) uses a four-level strategy:
+
+1. If the whole document fits (≤ 8 192 tokens), return it as-is.
+2. Split on `##` level-2 headings.
+3. Split oversized sections on `###` level-3 headings.
+4. Split remaining oversized sections on paragraph boundaries (`\n\n`).
+5. Last resort: hard split by token count.
+
+Each chunk ID is `{sourceName}:{documentId}:{chunkIndex}`, stored alongside metadata that
+includes `contentHash`, `totalChunks`, `url`, `title`, and `stale` flag.
+
+`runSync` (`src/domain/knowledge/ingestion/sync-runner.ts`) orchestrates the pipeline for a
+single provider and returns a `SyncReport` with counts of added, updated, skipped, and removed
+documents.
+
+### KnowledgeService
+
+`KnowledgeService` (`src/domain/knowledge/knowledge-service.ts`) is the entry point for
+application code. It reads `knowledgeBases` from config, instantiates the correct provider
+(currently only `"notion"`), and delegates to `runSync`:
+
+```typescript
+interface KnowledgeServiceDeps {
+  embeddingService: EmbeddingService;
+  vectorStorage: VectorStorage;
+  config: { knowledgeBases: KnowledgeSourceConfig[] };
+}
+```
+
+Providers are loaded lazily via dynamic `import()` so the Notion SDK is not bundled unless a
+Notion source is configured.
+
+### MCP tools
+
+Four commands registered under `CommandCategory.KNOWLEDGE` expose knowledge operations:
+
+| Command              | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `knowledge.search`   | Semantic search over indexed documents via vector query  |
+| `knowledge.fetch`    | Live-fetch a single document from a source by ID         |
+| `knowledge.sources`  | List configured knowledge sources and their sync status  |
+| `knowledge.sync`     | Sync one or all sources into the vector index            |
+
+Source: `src/adapters/shared/commands/knowledge/index.ts`
+
+### MCP Resources
+
+Knowledge content is also accessible as MCP Resources (passive reads, no tool call required):
+
+| URI pattern                              | Description                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| `knowledge://sources`                    | Lists all configured sources and sync schedules  |
+| `knowledge://{sourceName}`               | Lists metadata for a specific source             |
+| `knowledge://{sourceName}/{documentId}`  | Live-fetches a single document                   |
+
+Source: `src/adapters/mcp/knowledge-resources.ts`
+
+### Configuration
+
+Knowledge sources are declared in `.minsky/config.yaml` under the `knowledgeBases` key:
+
+```yaml
+knowledgeBases:
+  - name: my-docs
+    type: notion          # "notion" | "confluence" | "google-docs"
+    rootPageId: <page-id> # Notion-specific: root of the page tree to index
+    auth:
+      tokenEnvVar: NOTION_API_TOKEN   # env var holding the API token
+    sync:
+      schedule: on-demand  # "on-demand" | "startup" | "daily"
+      maxDepth: 5
+      excludePatterns:
+        - "**/Archive/**"
+```
+
+The `KnowledgeSourceConfig` type is defined in `src/domain/knowledge/types.ts`. Auth tokens can
+be provided inline (`token:`) or via an environment variable (`tokenEnvVar:`); the env-var form
+is recommended for secrets.
+
+---
+
+## 10. ADR Index
 
 | ADR                                                                  | Title                                                                 | Status   |
 | -------------------------------------------------------------------- | --------------------------------------------------------------------- | -------- |
