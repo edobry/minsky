@@ -61,8 +61,9 @@ Before writing any code:
 
 Before declaring complete:
 
+- **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - Run the `verify-completion` subagent to objectively check each success criterion
-- Ensure all task requirements are met
+- If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
 
 ### 6. Create PR

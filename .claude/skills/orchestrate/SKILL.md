@@ -72,7 +72,8 @@ Only after review is posted and all checks pass:
 ### 7. Task completion
 
 - Re-read the task spec: `mcp__minsky__tasks_spec_get`
-- Verify every success criterion was delivered by the merged PR
+- **Execute acceptance tests** — don't just re-read criteria. If the spec says "query returns X", run the query. If an API setting was changed, read it back. If a tool was registered, call it. Action is not verification.
+- Verify every success criterion was delivered by the merged PR, with evidence from the executed tests
 - If scope was reduced, update the spec and create follow-up tasks
 - Mark complete: `mcp__minsky__tasks_status_set` with `status: "DONE"`
 
