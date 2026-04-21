@@ -180,10 +180,6 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       } catch {
         // If graph service unavailable, fall back to flat list
       }
-    } else if (params.hierarchical) {
-      log.warn(
-        "[tasks.list] Hierarchical view unavailable — no persistence provider (no SQL backend)"
-      );
     }
 
     // Enrich with dependency status if requested
