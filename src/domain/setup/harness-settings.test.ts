@@ -8,7 +8,6 @@ import {
   applyClaudeCodeSettings,
   applyHarnessSettings,
   detectClaudeCodeInstalled,
-  CLAUDE_CODE_RECOMMENDED_SETTINGS,
 } from "./harness-settings";
 import { createMockFs } from "../interfaces/mock-fs";
 import type { MockFs } from "../interfaces/mock-fs";
