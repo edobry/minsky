@@ -23,7 +23,7 @@ Railway-hosted service (stateless, this package)
 
 ## Setup (one-time)
 
-1. Create the `minsky-reviewer` GitHub App via `scripts/create-github-app.ts` (or manually at `github.com/settings/apps/new`) with these permissions:
+1. Create the `minsky-reviewer` GitHub App manually at `github.com/settings/apps/new` with these permissions:
    - `pull-requests: write` — submit reviews
    - `contents: read` — fetch PR files and codebase
    - `metadata: read` — default
@@ -37,7 +37,7 @@ Railway-hosted service (stateless, this package)
 4. Pick a reviewer model provider:
    - `REVIEWER_PROVIDER=openai` + `OPENAI_API_KEY` (recommended, GPT-5)
    - `REVIEWER_PROVIDER=google` + `GOOGLE_AI_API_KEY` (Gemini 2.5 Pro)
-   - `REVIEWER_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` (fallback only — same family as implementer, captures context-isolation benefit only)
+   - `REVIEWER_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` (fallback only — same family as implementer, captures context-isolation benefit only; the service will log a degraded-config warning at startup when this is selected)
 5. Deploy to Railway (see `DEPLOY.md`)
 6. Register webhook in the `minsky-reviewer` App settings:
    - URL: `https://<railway-service>.up.railway.app/webhook`
@@ -55,7 +55,9 @@ bun run dev   # runs on localhost:3000 with smee.io webhook forwarding
 
 Reviewer runs on Tier 3 PRs (agent-authored) mandatory, Tier 2 (co-authored) opt-in via `MINSKY_REVIEWER_TIER2_ENABLED=true`, Tier 1 (human-authored) never.
 
-Tier is looked up via Minsky's provenance record for the PR. If the provenance record is missing, the reviewer falls back to reading the PR description for a tier hint; absent that, defaults to Tier 2 (skip unless explicitly enabled).
+**Sprint A tier source:** the PR body contains an HTML comment of the form `<!-- minsky:tier=N -->` where N is 1, 2, or 3. Implementer code (session_pr_create) should write this marker when provenance is known. If no marker is present, the reviewer defaults to Tier-2 behavior (skip unless tier-2 is explicitly enabled).
+
+**Sprint B/C:** switch to reading Minsky's provenance record directly via Minsky MCP — eliminates the marker-forgetting failure mode.
 
 ## Self-hosting
 

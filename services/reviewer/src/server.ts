@@ -44,33 +44,29 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
     return;
   }
 
-  try {
-    const result = await runReview(config, owner, repo, prNumber, prAuthor);
-    console.log(
-      JSON.stringify({
-        event: "review_result",
-        pr: prNumber,
-        owner,
-        repo,
-        status: result.status,
-        reason: result.reason,
-        tier: result.tier,
-        reviewUrl: result.review?.htmlUrl,
-        provider: result.providerUsed,
-        model: result.providerModel,
-      })
-    );
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "review_error",
-        pr: prNumber,
-        owner,
-        repo,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    );
-  }
+  const result = await runReview(config, owner, repo, prNumber, prAuthor);
+  // Note: runReview is NOT wrapped in try/catch here. Errors propagate to
+  // webhooks.verifyAndReceive → HTTP 500 → GitHub retries the delivery.
+  // This is load-bearing for the Tier-3 mandatory-review guarantee: a
+  // transient model/GitHub API failure would otherwise be swallowed, leaving
+  // the mandatory review undone with no evidence beyond a log line.
+  // Cost: on persistent failures (bad config, exhausted quota) GitHub will
+  // retry several times before giving up; duplicate reviews are possible on
+  // flaky errors. Sprint B adds per-SHA idempotency to eliminate duplicates.
+  console.log(
+    JSON.stringify({
+      event: "review_result",
+      pr: prNumber,
+      owner,
+      repo,
+      status: result.status,
+      reason: result.reason,
+      tier: result.tier,
+      reviewUrl: result.review?.htmlUrl,
+      provider: result.providerUsed,
+      model: result.providerModel,
+    })
+  );
 }
 
 webhooks.on("pull_request.opened", async ({ payload }) => {
@@ -154,3 +150,13 @@ console.log(
     tier2Enabled: config.tier2Enabled,
   })
 );
+
+if (config.provider === "anthropic") {
+  console.warn(
+    JSON.stringify({
+      event: "degraded_config_warning",
+      message:
+        "REVIEWER_PROVIDER=anthropic: implementer and reviewer likely share the Claude model family. Chinese wall captures context-isolation benefit only, not architectural diversity. Consider openai or google for full Sprint A coverage. See services/reviewer/README.md.",
+    })
+  );
+}

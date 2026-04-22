@@ -2,8 +2,8 @@ FROM oven/bun:1.2-slim AS base
 
 WORKDIR /app
 
-# Dependency install — cached unless package.json/bun.lockb changes.
-COPY package.json bun.lockb* ./
+# Dependency install — cached unless package.json/bun.lock changes.
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # Copy source.

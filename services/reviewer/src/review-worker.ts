@@ -46,9 +46,11 @@ export async function runReview(
   // Confirm the reviewer identity is distinct from the PR author. If they
   // happen to match (misconfiguration, same App used for both roles), we
   // cannot APPROVE and must fall back to COMMENT — GitHub blocks
-  // self-approval at the platform level.
+  // self-approval at the platform level. Comparison is case-insensitive
+  // because GitHub usernames are case-insensitive at the platform level and
+  // API responses can return inconsistent casing.
   const reviewerIdentity = await getAppIdentity(octokit);
-  const isSelfReview = reviewerIdentity.login === prAuthorLogin;
+  const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
