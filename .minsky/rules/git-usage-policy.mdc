@@ -1,0 +1,22 @@
+---
+tags:
+  - workflow
+---
+# Git Usage Policy
+
+General best practices for Git usage in the Minsky project. For safety protocols around destructive operations, see the `git-safety` skill.
+
+## General Best Practices
+
+- **Commit Frequently**: Make small, atomic commits with clear, descriptive messages.
+- **Pull Before Push**: Run `git pull --rebase` before pushing to shared branches.
+- **Branching Strategy**: Follow the project's branching strategy (feature branches via Minsky sessions).
+- **Clear Commit Messages**: Explain _why_ a change was made, not just _what_. Follow conventional commit formats.
+- **Multi-line Commit Messages**: Write to a temporary file and use `git commit -F <file>`. Avoid embedding raw newlines in `-m` flags.
+- **Avoid Large Commits**: Do not commit large binary files or generated files unless necessary.
+
+## See Also
+
+- `git-safety` skill: Safety protocols for destructive git operations
+- `orchestrate` skill: How Git operations fit into the broader Minsky workflow
+- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
