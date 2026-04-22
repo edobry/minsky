@@ -342,6 +342,15 @@ export async function mergeSessionPr(
     // Decide which token to use. The pure function handles all four states
     // (three tier values plus null) consistently. See mt#992 and
     // src/domain/provenance/merge-token-resolution.ts.
+    //
+    // Behavior note: this check uses only the synchronous
+    // `isServiceAccountConfigured()` — not the async `getServiceIdentity()`
+    // call that the old code gated on. The effect is that a misconfigured
+    // App (config present, credentials invalid) now falls back to the user
+    // token instead of throwing during identity resolution. This is the
+    // intended fail-safe direction: prefer a working merge under the user
+    // PAT over a failed merge under broken App credentials. Flagged by the
+    // mt#992 Chinese-wall reviewer, kept intentionally.
     const tokenChoice = resolveMergeToken(authorshipTier, serviceAccountConfigured);
     if (tokenChoice === "user" && serviceAccountConfigured) {
       mergeOptions.tokenOverride = () => tokenProvider.getUserToken();
