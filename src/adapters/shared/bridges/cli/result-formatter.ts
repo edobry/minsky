@@ -13,6 +13,7 @@ import {
   formatSessionApprovalDetails,
   formatDebugEchoDetails,
   formatRuleDetails,
+  formatSessionListVerbose,
 } from "../cli-result-formatters";
 
 /**
@@ -109,7 +110,11 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
 
       case "session.list":
         if ("sessions" in result) {
-          this.formatSessionListResult(result.sessions as unknown[]);
+          if (result.verbose) {
+            formatSessionListVerbose(result.sessions as unknown[]);
+          } else {
+            this.formatSessionListResult(result.sessions as unknown[]);
+          }
         } else {
           this.formatGenericObject(result);
         }

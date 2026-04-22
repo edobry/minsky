@@ -84,6 +84,12 @@ export const sessionListCommandParams = {
     description: "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
     required: false,
   },
+  verbose: {
+    schema: z.boolean(),
+    description: "Show detailed session information",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
