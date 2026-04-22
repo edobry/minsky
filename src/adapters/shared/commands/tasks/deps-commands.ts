@@ -2,44 +2,37 @@ import { z } from "zod";
 import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
-// Reusable task-id schema: must be a non-empty qualified id (e.g. mt#123).
-// This rejects empty strings at the MCP boundary before any DB query is issued.
-const taskIdSchema = z
-  .string()
-  .min(1, "Task ID must not be empty")
-  .regex(/^[a-z]+#.+$/, "Task ID must be a qualified id like mt#123, md#456, gh#789");
-
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsAddParams = {
   task: {
-    schema: taskIdSchema,
-    description: "Task that will depend on another task (e.g. mt#123)",
+    schema: z.string(),
+    description: "Task that will depend on another task",
     required: true,
   },
   dependsOn: {
-    schema: taskIdSchema,
-    description: "Task that is the dependency (e.g. mt#456)",
+    schema: z.string(),
+    description: "Task that is the dependency",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksDepsRmParams = {
   task: {
-    schema: taskIdSchema,
-    description: "Task that depends on another task (e.g. mt#123)",
+    schema: z.string(),
+    description: "Task that depends on another task",
     required: true,
   },
   dependsOn: {
-    schema: taskIdSchema,
-    description: "Task that is the dependency (e.g. mt#456)",
+    schema: z.string(),
+    description: "Task that is the dependency",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksDepsListParams = {
   task: {
-    schema: taskIdSchema,
-    description: "ID of the task to list dependencies for (e.g. mt#123)",
+    schema: z.string(),
+    description: "ID of the task to list dependencies for",
     required: true,
   },
   verbose: {
@@ -149,16 +142,16 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
 
 const tasksChildrenParams = {
   task: {
-    schema: taskIdSchema,
-    description: "ID of the parent task to list children for (e.g. mt#123)",
+    schema: z.string(),
+    description: "ID of the parent task to list children for",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksParentParams = {
   task: {
-    schema: taskIdSchema,
-    description: "ID of the task to find parent of (e.g. mt#123)",
+    schema: z.string(),
+    description: "ID of the task to find parent of",
     required: true,
   },
 } satisfies CommandParameterMap;
@@ -201,67 +194,6 @@ export function createTasksParentCommand(getTaskGraphService: () => TaskGraphSer
       }
 
       return { success: true, output: `${params.task}: parent is ${parent}` };
-    },
-  };
-}
-
-// ── tasks.reparent ────────────────────────────────────────────────────────────
-
-const tasksReparentParams = {
-  task: {
-    schema: taskIdSchema,
-    description: "ID of the child task to reparent (e.g. mt#123)",
-    required: true,
-  },
-  parent: {
-    schema: taskIdSchema.nullable(),
-    description:
-      "New parent task ID (e.g. mt#456), or null to remove the parent and make this a root task",
-    required: true,
-  },
-} satisfies CommandParameterMap;
-
-export function createTasksReparentCommand(getTaskGraphService: () => TaskGraphService) {
-  return {
-    id: "tasks.reparent",
-    name: "reparent",
-    description:
-      "Move a task to a new parent (or remove its parent to make it a root task). " +
-      "Pass parent: null to detach from current parent.",
-    parameters: tasksReparentParams,
-    execute: async (params: InferParams<typeof tasksReparentParams>) => {
-      const service = getTaskGraphService();
-      const { task, parent } = params;
-
-      if (parent === null) {
-        // Detach: remove any existing parent edge
-        const result = await service.removeParent(task);
-        const output = result.removed
-          ? `✅ ${task}: parent removed (now a root task)`
-          : `ℹ️  ${task}: was already a root task (no parent to remove)`;
-        return { success: true, output };
-      }
-
-      // Attach to new parent: remove old parent first (if any), then add new one
-      const currentParent = await service.getParent(task);
-      if (currentParent === parent) {
-        return {
-          success: true,
-          output: `ℹ️  ${task}: parent is already ${parent} (no change)`,
-        };
-      }
-
-      if (currentParent !== null) {
-        // Remove existing parent before re-parenting
-        await service.removeParent(task);
-      }
-
-      await service.addParent(task, parent);
-      const action = currentParent !== null ? `moved from ${currentParent} to` : "set to";
-      return {
-        success: true,
-        output: `✅ ${task}: parent ${action} ${parent}`,
-      };
     },
   };
 }

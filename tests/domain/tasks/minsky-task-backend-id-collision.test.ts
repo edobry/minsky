@@ -11,8 +11,10 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { MinskyTaskBackend } from "../../../src/domain/tasks/minskyTaskBackend";
+import {
+  MinskyTaskBackend,
+  type MinskyBackendDb,
+} from "../../../src/domain/tasks/minskyTaskBackend";
 
 // ── Minimal in-memory fake DB ─────────────────────────────────────────────────
 //
@@ -113,7 +115,10 @@ function createFakeDb(initialTasks: TaskRow[] = []) {
     };
   }
 
-  const fakeDb = {
+  const fakeDb: MinskyBackendDb & {
+    _tasks: Map<string, TaskRow>;
+    _specs: Map<string, SpecRow>;
+  } = {
     _tasks: tasks,
     _specs: specs,
 
@@ -144,15 +149,12 @@ function createFakeDb(initialTasks: TaskRow[] = []) {
     },
   };
 
-  return fakeDb as unknown as PostgresJsDatabase & {
-    _tasks: Map<string, TaskRow>;
-    _specs: Map<string, SpecRow>;
-  };
+  return fakeDb;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeBackend(db: PostgresJsDatabase) {
+function makeBackend(db: MinskyBackendDb) {
   return new MinskyTaskBackend({ name: "minsky", db, workspacePath: "/fake" });
 }
 

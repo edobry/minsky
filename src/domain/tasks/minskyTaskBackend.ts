@@ -15,14 +15,32 @@ import type {
   TaskMetadata,
 } from "./types";
 
+/**
+ * Narrow interface covering only the Drizzle DB methods used by MinskyTaskBackend.
+ * Using `any` return types lets test fakes satisfy this interface without
+ * needing `as unknown as` casts, while the real PostgresJsDatabase satisfies
+ * it structurally.
+ */
+
+export interface MinskyBackendDb {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  select(fields?: any): any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insert(table: any): any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  update(table: any): any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete(table: any): any;
+}
+
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
-  db: PostgresJsDatabase;
+  db: MinskyBackendDb;
 }
 
 export class MinskyTaskBackend implements TaskBackend {
   name = "minsky";
   prefix?: string;
-  private readonly db: PostgresJsDatabase;
+  private readonly db: MinskyBackendDb;
   private readonly workspacePath: string;
 
   constructor(config: MinskyTaskBackendConfig) {
@@ -252,11 +270,11 @@ export class MinskyTaskBackend implements TaskBackend {
     }
 
     // Get spec content
-    const specRows = await this.db
+    const specRows = (await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, id))
-      .limit(1);
+      .limit(1)) as Array<{ content: string }>;
 
     const spec = specRows.length > 0 ? first(specRows, "task spec query").content : "";
 
@@ -315,11 +333,11 @@ export class MinskyTaskBackend implements TaskBackend {
     }
 
     // Get spec content from database
-    const specRows = await this.db
+    const specRows = (await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, taskId))
-      .limit(1);
+      .limit(1)) as Array<{ content: string }>;
 
     const content = specRows.length > 0 ? first(specRows, "task spec content query").content : "";
 
