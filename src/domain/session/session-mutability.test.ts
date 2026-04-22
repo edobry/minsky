@@ -118,7 +118,7 @@ describe("session_start refusal differentiates merged vs active", () => {
     ).rejects.toThrow(/merged at/);
   });
 
-  test("active existing session: error is the standard 'already exists'", async () => {
+  test("active existing session: error mentions 'actively in use'", async () => {
     const sessionDB = new FakeSessionProvider({
       initialSessions: [makeRecord({ session: "task-md#684", taskId: "md#684" })],
     });
@@ -137,6 +137,6 @@ describe("session_start refusal differentiates merged vs active", () => {
           getRepositoryBackend: async () => ({ repoUrl: "/tmp/repo", backendType: "github" }),
         } as any
       )
-    ).rejects.toThrow(/already exists/);
+    ).rejects.toThrow(/actively in use/);
   });
 });

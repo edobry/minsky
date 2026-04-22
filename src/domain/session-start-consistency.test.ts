@@ -275,7 +275,7 @@ describe("Session Start Consistency Tests", () => {
             rm: async () => {},
           },
         })
-      ).rejects.toThrow("A session for task md#160 already exists");
+      ).rejects.toThrow(/A session for task md#160/);
 
       // Verify no git operations were attempted
       expect(gitCloneSpy).not.toHaveBeenCalled();

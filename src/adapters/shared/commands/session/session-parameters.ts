@@ -158,6 +158,13 @@ export const sessionStartCommandParams = {
     description: "Package manager to use",
     required: false,
   },
+  recover: {
+    schema: z.boolean(),
+    description:
+      "Recover abandoned session: if existing session for this task is stale/orphaned, delete it and create a fresh one",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
