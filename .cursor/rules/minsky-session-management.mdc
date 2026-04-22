@@ -1,7 +1,7 @@
 ---
-tags: [minsky]
+tags:
+  - minsky
 ---
-
 # Minsky Session Management
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION.**

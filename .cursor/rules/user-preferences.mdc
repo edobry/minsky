@@ -1,10 +1,10 @@
 ---
 name: User Preferences
-description: "Communication and workflow preferences: direct action, professional tone, no emojis, auto-commit changes, verify before claiming completion."
+description: 'Communication and workflow preferences: direct action, professional tone, no emojis, auto-commit changes, verify before claiming completion.'
 alwaysApply: true
-tags: [preferences]
+tags:
+  - preferences
 ---
-
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.

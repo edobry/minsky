@@ -1,8 +1,7 @@
 ---
-description:
-globs:
 alwaysApply: false
-tags: [safety]
+tags:
+  - safety
 ---
 # User-Friendly Error Messages
 

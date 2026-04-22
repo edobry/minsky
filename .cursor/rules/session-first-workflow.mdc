@@ -1,10 +1,10 @@
 ---
 name: Session-First Workflow
-description: "All task work must happen in session workspace. Use absolute paths. Never edit main workspace during active session."
+description: All task work must happen in session workspace. Use absolute paths. Never edit main workspace during active session.
 alwaysApply: false
-tags: [minsky]
+tags:
+  - minsky
 ---
-
 # Session-First Workflow
 
 All code, test, and configuration changes for a task MUST be made exclusively within the session workspace.

@@ -1,10 +1,10 @@
 ---
 name: Terminal Command Best Practices
-description: "Use ASCII quotes, prefer single quotes, keep commands simple to avoid shell parsing issues."
+description: 'Use ASCII quotes, prefer single quotes, keep commands simple to avoid shell parsing issues.'
 alwaysApply: true
-tags: [tool-usage]
+tags:
+  - tool-usage
 ---
-
 # Terminal Command Best Practices
 
 ## Core Guidelines for run_terminal_cmd Tool Usage

@@ -1,8 +1,8 @@
 ---
-description: Use this when working with any command that outputs JSON, or when planning to use grep/awk/sed
-globs:
+description: 'Use this when working with any command that outputs JSON, or when planning to use grep/awk/sed'
 alwaysApply: false
-tags: [tool-usage]
+tags:
+  - tool-usage
 ---
 # JSON Parsing Best Practices
 

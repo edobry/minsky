@@ -1,8 +1,8 @@
 ---
 description: Zero tolerance policy for skipped tests - every test must pass or be deleted
-tags: [testing]
+tags:
+  - testing
 ---
-
 # No Skipped Tests Policy
 
 **ZERO SKIPPED TESTS ALLOWED.** Every test must either PASS or BE DELETED.

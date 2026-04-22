@@ -1,9 +1,10 @@
 ---
 name: Task Status Protocol
-description: REQUIRED protocol for checking, updating, and verifying task status
+description: 'REQUIRED protocol for checking, updating, and verifying task status'
 globs:
-  - "**/*"
-tags: [minsky]
+  - '**/*'
+tags:
+  - minsky
 ---
 # Task Status Protocol
 

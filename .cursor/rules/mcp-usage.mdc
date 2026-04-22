@@ -1,7 +1,9 @@
 ---
 name: MCP Usage
 description: Guidelines for using the Minsky Control Protocol
-tags: [minsky, tool-usage]
+tags:
+  - minsky
+  - tool-usage
 ---
 # MCP Usage
 

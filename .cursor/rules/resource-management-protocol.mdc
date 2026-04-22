@@ -1,9 +1,9 @@
 ---
 description: REQUIRED guidelines for managing project resources using dedicated tools rather than direct file editing
 alwaysApply: false
-tags: [tool-usage]
+tags:
+  - tool-usage
 ---
-
 # Resource Management Protocol
 
 ## Core Principle

@@ -1,8 +1,8 @@
 ---
-description: Guidelines for structuring code to be easily testable with proper separation of concerns, dependency injection, and pure functions where possible
-globs:
+description: 'Guidelines for structuring code to be easily testable with proper separation of concerns, dependency injection, and pure functions where possible'
 alwaysApply: false
-tags: [architecture]
+tags:
+  - architecture
 ---
 # Testable Design Principles
 

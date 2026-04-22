@@ -1,8 +1,8 @@
 ---
 description: Use this whenever working on tests
-globs:
 alwaysApply: false
-tags: [testing]
+tags:
+  - testing
 ---
 # Testing Boundaries: What to Test and What NOT to Test
 

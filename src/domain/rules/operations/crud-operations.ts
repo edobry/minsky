@@ -5,6 +5,7 @@
  */
 
 import fs from "fs/promises";
+import path from "path";
 import { RuleService, type RuleFormat } from "../../rules";
 import { createRuleTemplateService } from "../rule-template-service";
 import { type RuleGenerationConfig } from "../template-system";
@@ -76,14 +77,12 @@ export async function listRulesFiltered(options: ListRulesOptions): Promise<List
  */
 export async function compileRules(options: CompileRulesOptions): Promise<CompileRulesResult> {
   const { createCompileService } = await import("../compile/compile-service");
-  const { agentsMdTarget } = await import("../compile/targets/agents-md");
-  const { claudeMdTarget } = await import("../compile/targets/claude-md");
 
   const targetId = options.target || "agents.md";
   const ruleService = new RuleService(options.workspacePath);
   const compileService = createCompileService();
 
-  // For check mode, do a dry-run first to get the compiled content
+  // For check mode, do a dry-run first to get the compiled content, then compare on disk
   if (options.check) {
     const dryResult = await compileService.compile(ruleService, targetId, {
       workspacePath: options.workspacePath,
@@ -91,38 +90,86 @@ export async function compileRules(options: CompileRulesOptions): Promise<Compil
       dryRun: true,
     });
 
-    // Determine the output path for the target
-    const targetMap: Record<string, { defaultOutputPath(w: string): string }> = {
-      "agents.md": agentsMdTarget,
-      "claude.md": claudeMdTarget,
-    };
-    const targetObj = targetMap[targetId];
-    const outputFilePath =
-      options.output ||
-      (targetObj
-        ? targetObj.defaultOutputPath(options.workspacePath)
-        : `${options.workspacePath}/OUT.md`);
-
-    try {
-      const existingContent = await fs.readFile(outputFilePath, "utf-8");
-      const isStale = existingContent !== dryResult.content;
-      return {
-        success: true,
-        check: true,
-        stale: isStale,
-        rulesIncluded: dryResult.rulesIncluded,
-        rulesSkipped: dryResult.rulesSkipped,
-      };
-    } catch {
-      // File doesn't exist — it's stale
-      return {
-        success: true,
-        check: true,
-        stale: true,
-        rulesIncluded: dryResult.rulesIncluded,
-        rulesSkipped: dryResult.rulesSkipped,
-      };
+    // Get the registered target so we can call listOutputFiles (generalized target map)
+    const target = compileService.getTarget(targetId);
+    if (!target) {
+      throw new Error(`Unknown compile target: "${targetId}"`);
     }
+
+    // Get the rule set once — used for listOutputFiles and cursor-rules per-file content
+    const allRules = await ruleService.listRules({});
+
+    // Determine which files this target would write
+    const expectedFiles = target.listOutputFiles(
+      allRules,
+      { outputPath: options.output },
+      options.workspacePath
+    );
+
+    // Check every expected output file for staleness
+    let staleFile: string | undefined;
+
+    // For cursor-rules, build the per-file content map once outside the loop
+    let cursorFilesMap: Map<string, string> | undefined;
+    if (targetId === "cursor-rules") {
+      const { buildCursorRulesContent } = await import("../compile/targets/cursor-rules");
+      const outputDir = options.output || target.defaultOutputPath(options.workspacePath);
+      const { files } = buildCursorRulesContent(allRules, outputDir);
+      cursorFilesMap = new Map(files.map((f) => [f.path, f.content]));
+    }
+
+    for (const filePath of expectedFiles) {
+      let existingContent: string;
+      try {
+        existingContent = String(await fs.readFile(filePath, "utf-8"));
+      } catch {
+        // File doesn't exist — stale
+        staleFile = filePath;
+        break;
+      }
+
+      // For single-file targets, dryResult.content holds the full content.
+      // For cursor-rules (multi-file), use the pre-built per-file content map.
+      let expectedContent: string | undefined;
+      if (targetId === "cursor-rules") {
+        expectedContent = cursorFilesMap?.get(filePath);
+      } else {
+        expectedContent = dryResult.content;
+      }
+
+      if (expectedContent === undefined || existingContent !== expectedContent) {
+        staleFile = filePath;
+        break;
+      }
+    }
+
+    // For cursor-rules, also detect orphan .mdc files: files in the output dir that
+    // the current compile would NOT produce (stale removals).
+    if (!staleFile && targetId === "cursor-rules") {
+      const outputDir = options.output || target.defaultOutputPath(options.workspacePath);
+      try {
+        const entries = await fs.readdir(outputDir);
+        const expectedSet = new Set(expectedFiles.map((f) => path.basename(f)));
+        for (const entry of entries) {
+          if (entry.endsWith(".mdc") && !expectedSet.has(entry)) {
+            staleFile = path.join(outputDir, entry);
+            break;
+          }
+        }
+      } catch {
+        // Directory doesn't exist — already handled above via expectedFiles check
+      }
+    }
+
+    const isStale = staleFile !== undefined;
+    return {
+      success: true,
+      check: true,
+      stale: isStale,
+      staleFile: staleFile,
+      rulesIncluded: dryResult.rulesIncluded,
+      rulesSkipped: dryResult.rulesSkipped,
+    };
   }
 
   const result = await compileService.compile(ruleService, targetId, {

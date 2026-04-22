@@ -1,10 +1,9 @@
 ---
 description: Use when designing or implementing CLI command output and user-facing messages
-globs:
 alwaysApply: false
-tags: [code-style]
+tags:
+  - code-style
 ---
-
 # CLI Output Design Principles
 
 **Learned from config command redesign experience**

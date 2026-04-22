@@ -1,8 +1,9 @@
 ---
-description: "REQUIRED when making any code changes. Ensures all changes are automatically committed and pushed without explicit user request."
-globs: null
+description: REQUIRED when making any code changes. Ensures all changes are automatically committed and pushed without explicit user request.
 alwaysApply: true
-tags: [workflow, preferences]
+tags:
+  - workflow
+  - preferences
 ---
 # Commit All Changes Rule
 

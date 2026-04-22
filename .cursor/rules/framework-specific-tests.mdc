@@ -1,8 +1,10 @@
 ---
 name: Framework-Specific Testing
-description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
-globs: **/*.test.ts'
-tags: [testing]
+description: 'Standards and patterns for testing with specific frameworks, focusing on bun:test.'
+globs:
+  - '**/*.test.ts'
+tags:
+  - testing
 ---
 # Framework-Specific Testing
 
