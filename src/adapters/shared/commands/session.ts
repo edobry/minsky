@@ -20,6 +20,7 @@ import {
   createSessionMigrateBackendCommand,
   createSessionMigrateCommand,
 } from "./session/management-commands";
+import { createSessionCleanupCommand } from "./session/cleanup-command";
 import {
   createSessionCommitCommand,
   createSessionInspectCommand,
@@ -77,6 +78,7 @@ export async function registerSessionCommands(
     createSessionDeleteCommand(getDeps),
     createSessionUpdateCommand(getDeps),
     createSessionMigrateBackendCommand(getDeps),
+    createSessionCleanupCommand(getDeps),
 
     // Workflow
     createSessionCommitCommand(getDeps),
