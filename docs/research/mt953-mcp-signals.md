@@ -1,8 +1,8 @@
 # mt#953 — Phase 1: MCP Signal Inventory (Empirical)
 
-**Status:** In progress. Populated with signals confirmed by direct observation or MCP SDK source inspection. Scenarios still requiring capture are listed at the bottom.
+**Status:** In progress. Populated with signals confirmed by direct observation and a live capture against a real Claude Code invocation.
 
-**Companion doc:** [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) — the synthesis of what these signals mean, organized by authority (ascribed / declared / enforced).
+**Companion analysis:** [Notion — Analysis: The authority of agent identity](https://www.notion.so/34a937f03cb48143bfbedd8710972daf) — the synthesis of what these signals mean, organized by authority (ascribed / declared / enforced), with Minsky's position.
 
 ## Goal
 
@@ -16,14 +16,17 @@ Identity signals available to an MCP server live at four layers, each with diffe
 
 When a caller spawns Minsky as a stdio MCP server subprocess, the server inherits the caller's process environment. This is the richest source of harness-kind signals in practice.
 
-**Confirmed via direct observation** (this session, Claude Code desktop on macOS, version 2.1.116):
+**Confirmed via direct observation** (Claude Code desktop on macOS, version 2.1.117, both interactive and headless):
 
 ```
 CLAUDECODE=1
-CLAUDE_CODE_ENTRYPOINT=cli
-CLAUDE_CODE_EXECPATH=/opt/homebrew/Caskroom/claude-code@latest/2.1.116/claude
+CLAUDE_CODE_ENTRYPOINT=cli          # interactive invocation
+CLAUDE_CODE_ENTRYPOINT=sdk-cli      # headless `claude -p` invocation — distinguishable
+CLAUDE_CODE_EXECPATH=/opt/homebrew/Caskroom/claude-code@latest/2.1.117/claude
 CLAUDE_CODE_SUBAGENT_MODEL=sonnet
 ```
+
+`CLAUDE_CODE_ENTRYPOINT` varying between `cli` and `sdk-cli` is itself a useful signal — a Minsky MCP server can distinguish "user is driving interactively" from "this server was launched by an SDK-based headless invocation" without further protocol work.
 
 **Load-bearing negative results:**
 
@@ -49,16 +52,40 @@ This is a separate signal channel from MCP itself, available only for Claude Cod
 
 Per MCP spec, every client sends `initialize` with `params.clientInfo: { name, version }` plus `capabilities` and `protocolVersion`. The server SDK exposes these after init via `server.getClientVersion()` and `server.getClientCapabilities()`.
 
-**Confirmed `clientInfo.name` values** (from web search; still to verify by capture):
+**Confirmed via live capture** (fixture: `docs/research/fixtures/mt953-claude-code-2.1.117-capture.jsonl`):
 
-| Harness                                    | `clientInfo.name`                    | Source          |
-| ------------------------------------------ | ------------------------------------ | --------------- |
-| Claude Code (desktop/CLI)                  | `claude-ai`                          | public examples |
-| OpenAI Codex (TUI)                         | `codex-tui`                          | OpenAI docs     |
-| OpenAI Codex (VS Code extension)           | `codex_vscode`                       | OpenAI docs     |
-| OpenAI Codex app server (init from client) | client-declared, e.g. `codex_vscode` | OpenAI docs     |
+Claude Code 2.1.117 sends an **extended `clientInfo`** beyond the spec's `{name, version}`:
 
-OpenAI's Codex documentation explicitly instructs integrators to set `clientInfo.name` and even uses it as the anchor for compliance logging — this is a strong ecosystem precedent for keying harness identity on `clientInfo.name`.
+```json
+"clientVersion": {
+  "name": "claude-code",
+  "title": "Claude Code",
+  "version": "2.1.117",
+  "websiteUrl": "https://claude.com/claude-code",
+  "description": "Anthropic's agentic coding tool"
+}
+```
+
+Note: `clientInfo.name = "claude-code"` — **not** `"claude-ai"` as older web examples suggested. This contradicts some third-party docs and is the correct identifier to key on.
+
+Claude Code's advertised **capabilities**:
+
+```json
+"clientCapabilities": {
+  "elicitation": { "form": {} },
+  "roots": {}
+}
+```
+
+Useful to know — Claude Code supports MCP elicitation (server can prompt the user for input mid-tool-call) and roots (server can query filesystem root paths the client wants exposed).
+
+**Confirmed `clientInfo.name` values across harnesses:**
+
+| Harness                          | `clientInfo.name` | Source                            |
+| -------------------------------- | ----------------- | --------------------------------- |
+| Claude Code desktop/CLI          | `claude-code`     | Live capture, Claude Code 2.1.117 |
+| OpenAI Codex (TUI)               | `codex-tui`       | OpenAI docs                       |
+| OpenAI Codex (VS Code extension) | `codex_vscode`    | OpenAI docs                       |
 
 Cursor, Windsurf, Cline, Zed: `clientInfo.name` not verified yet; Phase 1 captures pending.
 
@@ -85,18 +112,18 @@ MCP standardizes `params._meta` as a place for per-request metadata. Currently d
 
 ## Capture scenarios — status
 
-| #   | Scenario                               | Env captured?      | clientInfo captured? | Transport | Notes                                                                           |
-| --- | -------------------------------------- | ------------------ | -------------------- | --------- | ------------------------------------------------------------------------------- |
-| 1   | Claude Code desktop, single tab        | YES (this session) | indirect only        | stdio     | `clientInfo.name="claude-ai"` per ext. docs; direct capture pending             |
-| 2   | Claude Code desktop, tab B (parallel)  | —                  | —                    | stdio     | pending; expected identical Layer A/B, different Layer C/process                |
-| 3   | Claude Code desktop, different machine | —                  | —                    | stdio     | pending; differs at hostname                                                    |
-| 4   | Claude Code Web                        | —                  | —                    | ?         | pending; does it speak MCP at all?                                              |
-| 5   | Anthropic remote trigger               | —                  | —                    | ?         | pending; run ID surface unknown                                                 |
-| 6   | Codex CLI                              | —                  | —                    | stdio     | expected `clientInfo.name="codex-tui"`                                          |
-| 7   | Cursor / Windsurf / Cline / Zed        | —                  | —                    | mixed     | pending; `clientInfo.name` values unverified                                    |
-| 8   | GitHub Copilot coding agent            | n/a (via GitHub)   | n/a                  | n/a       | identity flows through commit author = `copilot-swe-agent` + GitHub App install |
-| 9   | Linear agent                           | n/a (via GitHub)   | n/a                  | n/a       | identity via GitHub App bot user `{slug}[bot]` + user ID                        |
-| 10  | Claude Code Task-tool subagent         | —                  | —                    | stdio     | pending; expected indistinguishable from main at MCP layer                      |
+| #   | Scenario                               | Env captured?    | clientInfo captured? | Transport | Notes                                                                           |
+| --- | -------------------------------------- | ---------------- | -------------------- | --------- | ------------------------------------------------------------------------------- |
+| 1   | Claude Code desktop, single tab        | YES              | YES (live fixture)   | stdio     | `clientInfo.name="claude-code"`, version 2.1.117, extended fields confirmed     |
+| 2   | Claude Code desktop, tab B (parallel)  | —                | —                    | stdio     | pending; expected identical Layer A/B, different Layer C/process                |
+| 3   | Claude Code desktop, different machine | —                | —                    | stdio     | pending; differs at hostname                                                    |
+| 4   | Claude Code Web                        | —                | —                    | ?         | pending; does it speak MCP at all?                                              |
+| 5   | Anthropic remote trigger               | —                | —                    | ?         | pending; run ID surface unknown                                                 |
+| 6   | Codex CLI                              | —                | —                    | stdio     | expected `clientInfo.name="codex-tui"`                                          |
+| 7   | Cursor / Windsurf / Cline / Zed        | —                | —                    | mixed     | pending; `clientInfo.name` values unverified                                    |
+| 8   | GitHub Copilot coding agent            | n/a (via GitHub) | n/a                  | n/a       | identity flows through commit author = `copilot-swe-agent` + GitHub App install |
+| 9   | Linear agent                           | n/a (via GitHub) | n/a                  | n/a       | identity via GitHub App bot user `{slug}[bot]` + user ID                        |
+| 10  | Claude Code Task-tool subagent         | —                | —                    | stdio     | pending; expected indistinguishable from main at MCP layer                      |
 
 ## Key preliminary conclusions
 

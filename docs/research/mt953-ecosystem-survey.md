@@ -2,7 +2,7 @@
 
 **Status:** In progress. Initial sweep complete; verification captures for clients other than Claude Code still pending.
 
-**Companion doc:** [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) — the taxonomy of identity authority (ascribed / declared / enforced), the 8 philosophical camps, and Minsky's synthesized position. Read that for the synthesis; this doc is the raw catalogue.
+**Companion doc:** [Notion — Analysis: The authority of agent identity](https://www.notion.so/34a937f03cb48143bfbedd8710972daf) — the taxonomy of identity authority (ascribed / declared / enforced), the 8 philosophical camps, and Minsky's synthesized position. Read that for the synthesis; this doc is the raw catalogue.
 
 ## Goal
 
@@ -118,7 +118,7 @@ Not for direct adoption, but useful reference points for the namespace design:
 
 ## Verdict: adopt or invent?
 
-**Hybrid, with a layered authority model.** See [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) for the full synthesis. In brief:
+**Hybrid, with a layered authority model.** See the [Notion analysis](https://www.notion.so/34a937f03cb48143bfbedd8710972daf) for the full synthesis. In brief:
 
 - Layer 3 — Enforced via Claude Code PreToolUse hook (reads `session_id` from hook stdin; injects into MCP `_meta`)
 - Layer 2 — Declared via caller-injected `_meta["io.minsky/agent_id"]`
