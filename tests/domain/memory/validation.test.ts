@@ -3,13 +3,16 @@
  *
  * Covers the checkDerivation() heuristics: positive detections per category
  * and negative (clean) cases that should pass through without an issue.
+ *
+ * Moved from tests/adapters/shared/commands/memory/ to the domain layer
+ * since checkDerivation now lives in src/domain/memory/validation.ts.
+ *
+ * @see src/domain/memory/validation.ts
+ * @see mt#1008
  */
 
 import { describe, test, expect } from "bun:test";
-import {
-  checkDerivation,
-  type DerivationIssue,
-} from "../../../../../src/adapters/shared/commands/memory/derivation-validator";
+import { checkDerivation, type DerivationIssue } from "../../../src/domain/memory/validation";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 

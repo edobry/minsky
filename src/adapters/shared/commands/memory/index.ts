@@ -36,7 +36,7 @@ import type {
   MemorySearchResult,
 } from "../../../../domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "../../../../domain/memory/types";
-import { checkDerivation } from "./derivation-validator";
+import { checkDerivation } from "../../../../domain/memory/validation";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
