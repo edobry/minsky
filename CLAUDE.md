@@ -65,6 +65,15 @@ Use MCP tools for all operations — never shell out to git/gh CLI:
 - `mcp__minsky__rules_*` — project rules
 - `mcp__minsky__persistence_*` — database operations
 
+GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because they bypass TokenProvider and produce silent identity drift. Use the Minsky equivalents:
+
+- `mcp__github__create_pull_request` → `mcp__minsky__session_pr_create`
+- `mcp__github__update_pull_request` → `mcp__minsky__session_pr_edit`
+- `mcp__github__merge_pull_request` → `mcp__minsky__session_pr_merge`
+- `mcp__github__pull_request_review_write` → `mcp__minsky__session_pr_review_submit`
+
+Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
+
 ### Running commands in sessions
 
 Use `mcp__minsky__session_exec` to run shell commands inside a session workspace from the main agent context. The session directory is resolved automatically — no need to look up paths or `cd` into directories.
