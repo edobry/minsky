@@ -37,6 +37,7 @@ export async function commitChangesFromParams(params: {
   all?: boolean;
   amend?: boolean;
   noStage?: boolean;
+  files?: string[];
 }): Promise<{ commitHash: string; message: string }> {
   return await modularGitCommandsManager.commitChangesFromParams(params);
 }

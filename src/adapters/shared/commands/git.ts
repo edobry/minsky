@@ -53,6 +53,12 @@ const commitCommandParams = composeParams(
       required: false,
       defaultValue: false,
     },
+    files: {
+      schema: z.array(z.string().min(1)),
+      description:
+        "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized).",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 
@@ -394,6 +400,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         all: params.all,
         amend: params.amend,
         noStage: params.noStage,
+        files: params.files,
         repo,
       });
 

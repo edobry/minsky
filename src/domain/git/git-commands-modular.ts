@@ -82,6 +82,7 @@ export class ModularGitCommandsManager {
     all?: boolean;
     amend?: boolean;
     noStage?: boolean;
+    files?: string[];
   }): Promise<{ commitHash: string; message: string }> {
     return await this.getOperations().commit.execute(params);
   }

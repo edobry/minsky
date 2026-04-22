@@ -12,6 +12,7 @@ import type { SessionProviderInterface } from "../types";
 
 export interface SessionPrCreateDependencies {
   sessionDB: SessionProviderInterface;
+  persistenceProvider?: import("../../persistence/types").PersistenceProvider;
 }
 
 /**
@@ -45,7 +46,7 @@ export async function sessionPrCreate(
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  const { sessionDB } = deps;
+  const { sessionDB, persistenceProvider } = deps;
 
   // Validate draft mode requirements
   if (params.draft) {
@@ -89,7 +90,7 @@ export async function sessionPrCreate(
       draft: params.draft || false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },
-    { sessionDB, gitService },
+    { sessionDB, gitService, persistenceProvider },
     options
   );
 

@@ -155,6 +155,11 @@ export interface GitServiceInterface {
   stageModified?(repoPath?: string): Promise<void>;
 
   /**
+   * Stage a specific set of files by path
+   */
+  stageFiles?(files: string[], repoPath?: string): Promise<void>;
+
+  /**
    * Commit staged changes
    */
   commit?(message: string, repoPath?: string, amend?: boolean): Promise<string>;

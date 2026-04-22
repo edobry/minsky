@@ -16,6 +16,11 @@ interface NotionSourceConfig extends KnowledgeSourceConfig {
   rootPageId: string;
 }
 
+/** Google Docs provider config */
+interface GoogleDocsSourceConfig extends KnowledgeSourceConfig {
+  type: "google-docs";
+}
+
 export interface KnowledgeServiceDeps {
   embeddingService: EmbeddingService;
   vectorStorage: VectorStorage;
@@ -65,15 +70,16 @@ export class KnowledgeService {
 
   /**
    * Create the appropriate provider for a given knowledge source config.
-   * Currently only "notion" is supported.
    */
   private async createProvider(config: KnowledgeSourceConfig): Promise<KnowledgeSourceProvider> {
     switch (config.type) {
       case "notion":
         return this.createNotionProvider(config);
+      case "google-docs":
+        return this.createGoogleDocsProvider(config as GoogleDocsSourceConfig);
       default:
         throw new Error(
-          `Unsupported knowledge source type: "${config.type}". Only "notion" is currently supported.`
+          `Unsupported knowledge source type: "${config.type}". Supported types: "notion", "google-docs".`
         );
     }
   }
@@ -103,6 +109,58 @@ export class KnowledgeService {
     // Dynamic import to avoid loading Notion SDK unless needed
     const { NotionKnowledgeProvider } = await import("./providers/notion-provider");
     return new NotionKnowledgeProvider(rootPageId, token, config.name, {
+      excludePatterns: config.sync?.excludePatterns,
+    });
+  }
+
+  private async createGoogleDocsProvider(
+    config: GoogleDocsSourceConfig
+  ): Promise<KnowledgeSourceProvider> {
+    if (!config.driveFolderId && (!config.documentIds || config.documentIds.length === 0)) {
+      throw new Error(
+        `Google Docs knowledge source "${config.name}" requires either "driveFolderId" or "documentIds" in the configuration.`
+      );
+    }
+
+    // Resolve access token (direct value takes priority over env var)
+    const accessToken =
+      config.auth.token ??
+      (config.auth.tokenEnvVar ? process.env[config.auth.tokenEnvVar] : undefined);
+
+    // Resolve service account JSON (from env var)
+    const serviceAccountJsonStr = config.auth.serviceAccountJsonEnvVar
+      ? process.env[config.auth.serviceAccountJsonEnvVar]
+      : undefined;
+
+    if (!accessToken && !serviceAccountJsonStr) {
+      const hints: string[] = [];
+      if (config.auth.tokenEnvVar) hints.push(`"${config.auth.tokenEnvVar}" env var`);
+      if (config.auth.serviceAccountJsonEnvVar)
+        hints.push(`"${config.auth.serviceAccountJsonEnvVar}" env var`);
+      const hintStr = hints.length > 0 ? ` Check: ${hints.join(", ")}.` : "";
+      throw new Error(
+        `Google Docs auth credentials not found for source "${config.name}".${hintStr}`
+      );
+    }
+
+    let serviceAccountKey: import("./providers/google-docs-provider").GoogleDocsProviderOptions["serviceAccountKey"];
+    if (serviceAccountJsonStr) {
+      try {
+        serviceAccountKey = JSON.parse(serviceAccountJsonStr) as typeof serviceAccountKey;
+      } catch {
+        throw new Error(
+          `Failed to parse service account JSON for Google Docs source "${config.name}". Ensure the env var contains valid JSON.`
+        );
+      }
+    }
+
+    // Dynamic import to avoid loading crypto/JWT code unless needed
+    const { GoogleDocsKnowledgeProvider } = await import("./providers/google-docs-provider");
+    return new GoogleDocsKnowledgeProvider(config.name, {
+      accessToken,
+      serviceAccountKey,
+      driveFolderId: config.driveFolderId,
+      documentIds: config.documentIds,
       excludePatterns: config.sync?.excludePatterns,
     });
   }
