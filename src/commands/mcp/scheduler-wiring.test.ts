@@ -14,6 +14,9 @@ import type { SchedulerClock, TimerHandle } from "../../domain/knowledge/ingesti
 import type { KnowledgeSourceProvider, KnowledgeDocument } from "../../domain/knowledge/types";
 import type { SyncReport } from "../../domain/knowledge/types";
 
+/** Scheduler module path — extracted to avoid magic-string duplication across tests. */
+const SCHEDULER_MODULE = "../../domain/knowledge/ingestion/scheduler";
+
 // ---------------------------------------------------------------------------
 // Fake clock (mirrors the one in scheduler.test.ts)
 // ---------------------------------------------------------------------------
