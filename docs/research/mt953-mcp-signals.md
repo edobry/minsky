@@ -112,18 +112,32 @@ MCP standardizes `params._meta` as a place for per-request metadata. Currently d
 
 ## Capture scenarios — status
 
-| #   | Scenario                               | Env captured?    | clientInfo captured? | Transport | Notes                                                                           |
-| --- | -------------------------------------- | ---------------- | -------------------- | --------- | ------------------------------------------------------------------------------- |
-| 1   | Claude Code desktop, single tab        | YES              | YES (live fixture)   | stdio     | `clientInfo.name="claude-code"`, version 2.1.117, extended fields confirmed     |
-| 2   | Claude Code desktop, tab B (parallel)  | —                | —                    | stdio     | pending; expected identical Layer A/B, different Layer C/process                |
-| 3   | Claude Code desktop, different machine | —                | —                    | stdio     | pending; differs at hostname                                                    |
-| 4   | Claude Code Web                        | —                | —                    | ?         | pending; does it speak MCP at all?                                              |
-| 5   | Anthropic remote trigger               | —                | —                    | ?         | pending; run ID surface unknown                                                 |
-| 6   | Codex CLI                              | —                | —                    | stdio     | expected `clientInfo.name="codex-tui"`                                          |
-| 7   | Cursor / Windsurf / Cline / Zed        | —                | —                    | mixed     | pending; `clientInfo.name` values unverified                                    |
-| 8   | GitHub Copilot coding agent            | n/a (via GitHub) | n/a                  | n/a       | identity flows through commit author = `copilot-swe-agent` + GitHub App install |
-| 9   | Linear agent                           | n/a (via GitHub) | n/a                  | n/a       | identity via GitHub App bot user `{slug}[bot]` + user ID                        |
-| 10  | Claude Code Task-tool subagent         | —                | —                    | stdio     | pending; expected indistinguishable from main at MCP layer                      |
+| #   | Scenario                               | Env captured?    | clientInfo captured? | Transport | Notes                                                                                                                                          |
+| --- | -------------------------------------- | ---------------- | -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Claude Code desktop, single tab        | YES              | YES (live fixture)   | stdio     | `clientInfo.name="claude-code"`, version 2.1.117, extended fields confirmed                                                                    |
+| 2   | Claude Code desktop, tab B (parallel)  | —                | —                    | stdio     | pending; expected identical Layer A/B, different Layer C/process                                                                               |
+| 3   | Claude Code desktop, different machine | —                | —                    | stdio     | pending; differs at hostname                                                                                                                   |
+| 4   | Claude Code Web                        | —                | —                    | ?         | pending; does it speak MCP at all?                                                                                                             |
+| 5   | Anthropic remote trigger               | —                | —                    | ?         | pending; run ID surface unknown                                                                                                                |
+| 6   | Codex CLI                              | —                | —                    | stdio     | expected `clientInfo.name="codex-tui"`                                                                                                         |
+| 7   | Cursor / Windsurf / Cline / Zed        | —                | —                    | mixed     | pending; `clientInfo.name` values unverified                                                                                                   |
+| 8   | GitHub Copilot coding agent            | n/a (via GitHub) | n/a                  | n/a       | identity flows through commit author = `copilot-swe-agent` + GitHub App install                                                                |
+| 9   | Linear agent                           | n/a (via GitHub) | n/a                  | n/a       | identity via GitHub App bot user `{slug}[bot]` + user ID                                                                                       |
+| 10  | Claude Code Task-tool subagent         | YES              | YES (live fixture)   | stdio     | shares parent's MCP connection; indistinguishable clientInfo; `_meta` contains `progressToken` and Claude-Code-specific `claudecode/toolUseId` |
+
+## What the Task-tool subagent capture revealed
+
+Fixture: `docs/research/fixtures/mt953-claude-code-subagent-capture.jsonl`.
+
+Captured a Claude Code main-agent invocation that used the Task tool to dispatch a subagent, which then called a Minsky MCP tool. Key findings:
+
+- **One MCP connection, one `initialize`.** The subagent did not spawn its own MCP server subprocess. Its tool calls went through the main agent's existing connection.
+- **Identical `clientInfo`.** The subagent's calls present the same `clientInfo.name = "claude-code"`, same version, same capabilities as the main agent.
+- **No subagent-distinguishing marker in `_meta`.** Each tool call carries `_meta = {progressToken: <N>, "claudecode/toolUseId": "toolu_…"}`. The `toolUseId` is per-invocation (matches the Anthropic API `tool_use_id` for the specific tool call), not per-agent or per-conversation. Nothing in the envelope marks the call as originating from a subagent rather than the main agent.
+
+This confirms the load-bearing premise of [Claude Code #32514](https://github.com/anthropics/claude-code/issues/32514): MCP servers cannot distinguish Task-tool subagent calls from main-agent calls. Until upstream ships `agent_context` injection, any per-subagent state a server tries to maintain for Claude Code callers will silently conflate the subagent with its parent.
+
+Supporting finding: Claude Code is already populating `_meta` with a namespaced custom key (`claudecode/`). This validates the namespaced-`_meta` convention we use for the Layer 2 `io.minsky/agent_id` key in the scheme (see [ADR-006](../architecture/adr-006-agent-identity.md)).
 
 ## Key preliminary conclusions
 
