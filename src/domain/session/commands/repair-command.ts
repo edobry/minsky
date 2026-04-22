@@ -451,7 +451,7 @@ async function applyRepair(
 /**
  * Repair incorrect branch format for GitHub backend
  */
-async function repairBranchFormat(
+export async function repairBranchFormat(
   issue: RepairIssue,
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface

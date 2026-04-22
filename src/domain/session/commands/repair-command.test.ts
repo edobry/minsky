@@ -7,7 +7,8 @@
  */
 
 import { describe, it, expect, mock } from "bun:test";
-import { analyzePRStateIssues, sessionRepair } from "./repair-command";
+import { analyzePRStateIssues, sessionRepair, repairBranchFormat } from "./repair-command";
+import type { RepairIssue } from "./repair-command";
 import type { SessionRecord } from "../types";
 import { FakeSessionProvider } from "../fake-session-provider";
 import { FakeGitService } from "../../git/fake-git-service";
@@ -244,5 +245,78 @@ describe("FakeSessionProvider backfill simulation", () => {
     expect(updated?.pullRequest?.state).toBe("merged");
     expect(updated?.pullRequest?.mergedAt).toBe(mergedAt);
     expect(updated?.prState?.mergedAt).toBe(mergedAt);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// repairBranchFormat — end-to-end: legacy prState keys stripped, branchName updated
+// ---------------------------------------------------------------------------
+
+describe("repairBranchFormat — end-to-end prState key projection", () => {
+  const SESSION_ID = "test-session-1104";
+  const EXPECTED_BRANCH = "pr/test-session-1104";
+
+  it("strips legacy prState keys and updates branchName", async () => {
+    // Arrange: session with legacy commitHash + rogue foo key in prState
+    const sessionRecord: SessionRecord = {
+      session: SESSION_ID,
+      repoName: "minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "mt#1104",
+      backendType: "github",
+      prBranch: "wrong/pr",
+      prState: {
+        branchName: "wrong/pr",
+        exists: true,
+        lastChecked: "2024-01-01T00:00:00.000Z",
+        createdAt: "2024-01-01T00:00:00.000Z",
+        // Simulate stale fields from older persisted JSON blobs:
+        ...({ commitHash: "deadbeef", foo: "bar" } as unknown as object),
+      } as SessionRecord["prState"],
+    };
+
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+
+    const issue: RepairIssue = {
+      type: "branch-format",
+      severity: "medium",
+      description: "Branch format mismatch",
+      details: {
+        currentBranch: "wrong/pr",
+        expectedBranch: EXPECTED_BRANCH,
+      },
+      autoFixable: true,
+    };
+
+    // Act
+    const action = await repairBranchFormat(issue, sessionRecord, sessionDB);
+
+    // Assert: repair action was applied
+    expect(action.applied).toBe(true);
+    expect(action.type).toBe("branch-format");
+
+    // Assert: session record was updated correctly
+    const updated = await sessionDB.getSession(SESSION_ID);
+    expect(updated).not.toBeNull();
+    if (!updated) return;
+
+    // prBranch set to expected branch
+    expect(updated.prBranch).toBe(EXPECTED_BRANCH);
+
+    const prState = updated.prState;
+    expect(prState).not.toBeUndefined();
+    if (!prState) return;
+
+    // branchName updated to new branch
+    expect(prState.branchName).toBe(EXPECTED_BRANCH);
+
+    // lastChecked refreshed to a recent ISO timestamp
+    expect(typeof prState.lastChecked).toBe("string");
+    expect(prState.lastChecked).not.toBe("2024-01-01T00:00:00.000Z");
+
+    // Legacy keys must not survive
+    expect((prState as Record<string, unknown>)["commitHash"]).toBeUndefined();
+    expect((prState as Record<string, unknown>)["foo"]).toBeUndefined();
   });
 });
