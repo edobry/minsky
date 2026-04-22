@@ -31,6 +31,8 @@ describe("autoIndexTaskEmbedding", () => {
         serviceCreated = true;
         return { indexTask: async () => true };
       },
+      getPersistenceProvider: () => ({}) as any,
+      getTaskService: () => ({}) as any,
     };
 
     autoIndexTaskEmbedding("mt#888", deps);

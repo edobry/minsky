@@ -11,11 +11,21 @@ import {
 } from "../command-registry";
 import { createToolsIndexEmbeddingsCommand } from "./tools/index-embeddings-command";
 import { createToolsSearchCommand, createToolsSimilarCommand } from "./tools/similarity-commands";
+import type { AppContainerInterface } from "../../../composition/types";
 
 /**
  * Register all tools commands in the shared command registry
  */
-export function registerToolsCommands(): void {
+export function registerToolsCommands(container?: AppContainerInterface): void {
+  const getPersistenceProvider = () => {
+    if (!container?.has("persistence")) {
+      throw new Error(
+        "Persistence provider not available. Ensure the DI container is initialized."
+      );
+    }
+    return container.get("persistence");
+  };
+
   // Register tools index-embeddings command
   const indexEmbeddingsCommand = createToolsIndexEmbeddingsCommand();
 
@@ -34,7 +44,7 @@ export function registerToolsCommands(): void {
   });
 
   // Register tools search command
-  const searchCommand = createToolsSearchCommand();
+  const searchCommand = createToolsSearchCommand(getPersistenceProvider);
 
   sharedCommandRegistry.registerCommand({
     id: searchCommand.id,
@@ -51,7 +61,7 @@ export function registerToolsCommands(): void {
   });
 
   // Register tools similar command
-  const similarCommand = createToolsSimilarCommand();
+  const similarCommand = createToolsSimilarCommand(getPersistenceProvider);
 
   sharedCommandRegistry.registerCommand({
     id: similarCommand.id,

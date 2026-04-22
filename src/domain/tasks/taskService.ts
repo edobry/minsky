@@ -40,7 +40,7 @@ export interface TaskServiceInterface {
 export interface TaskServiceOptions {
   workspacePath: string;
   backend?: string;
-  persistenceProvider?: import("../persistence/types").BasePersistenceProvider;
+  persistenceProvider: import("../persistence/types").BasePersistenceProvider;
 }
 
 // ---- Factory Functions ----
@@ -48,7 +48,7 @@ export interface TaskServiceOptions {
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
-  persistenceProvider?: import("../persistence/types").BasePersistenceProvider;
+  persistenceProvider: import("../persistence/types").BasePersistenceProvider;
 }): Promise<TaskServiceInterface> {
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
@@ -116,14 +116,8 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
-      const persistenceProvider = options.persistenceProvider ?? null;
-      if (persistenceProvider) {
-        log.debug("Using injected persistence provider for multi-backend mode");
-      } else {
-        log.warn(
-          "No persistence provider injected - persistence-dependent backends will be unavailable"
-        );
-      }
+      const persistenceProvider = options.persistenceProvider;
+      log.debug("Using injected persistence provider for multi-backend mode");
 
       // Add GitHub backend (gh# prefix) - requires GitHub configuration
       try {
@@ -145,9 +139,8 @@ export async function createConfiguredTaskService(options: {
         log.debug("GitHub backend not available", { error: getErrorMessage(error) });
       }
 
-      // Add minsky backend (mt# prefix) - only if persistence provider is available
+      // Add minsky backend (mt# prefix) - persistence is guaranteed
       if (
-        persistenceProvider &&
         "getDatabaseConnection" in persistenceProvider &&
         typeof persistenceProvider.getDatabaseConnection === "function"
       ) {
@@ -163,18 +156,13 @@ export async function createConfiguredTaskService(options: {
             service.registerBackend(minskyBackend);
             log.debug("Minsky backend registered successfully");
           } else {
-            log.debug("Skipping minsky backend - database connection not available");
+            log.debug("Minsky backend database connection returned null");
           }
         } catch (error) {
           log.warn("Minsky backend database connection failed", {
             error: getErrorMessage(error),
           });
         }
-      } else {
-        log.warn(
-          "Skipping minsky backend — no persistence provider injected. " +
-            "mt# tasks will be unavailable."
-        );
       }
 
       // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')

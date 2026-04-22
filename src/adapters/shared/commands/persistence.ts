@@ -456,6 +456,9 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           validationResult = await validateSqliteBackend(file);
         } else if (targetBackend === "postgres") {
           const { persistence: persistenceProvider } = getPersistenceDeps();
+          if (!persistenceProvider) {
+            throw new Error("persistenceProvider is required for postgres backend validation");
+          }
           validationResult = await validatePostgresBackend(persistenceProvider);
         } else {
           const { getAvailableBackendsString } = await import(

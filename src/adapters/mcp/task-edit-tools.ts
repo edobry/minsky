@@ -191,16 +191,12 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
-        const persistenceContainer = container?.has("persistence") ? container : undefined;
-        autoIndexTaskEmbedding(
-          typedArgs.taskId,
-          persistenceContainer
-            ? {
-                getPersistenceProvider: () => persistenceContainer.get("persistence"),
-                getTaskService: () => persistenceContainer.get("taskService"),
-              }
-            : undefined
-        );
+        if (container?.has("persistence")) {
+          autoIndexTaskEmbedding(typedArgs.taskId, {
+            getPersistenceProvider: () => container.get("persistence"),
+            getTaskService: () => container.get("taskService"),
+          });
+        }
 
         log.debug("Task spec.patch operation completed", { taskId: typedArgs.taskId });
 
@@ -294,16 +290,12 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
-        const persistenceContainer2 = container?.has("persistence") ? container : undefined;
-        autoIndexTaskEmbedding(
-          typedArgs.taskId,
-          persistenceContainer2
-            ? {
-                getPersistenceProvider: () => persistenceContainer2.get("persistence"),
-                getTaskService: () => persistenceContainer2.get("taskService"),
-              }
-            : undefined
-        );
+        if (container?.has("persistence")) {
+          autoIndexTaskEmbedding(typedArgs.taskId, {
+            getPersistenceProvider: () => container.get("persistence"),
+            getTaskService: () => container.get("taskService"),
+          });
+        }
 
         log.debug("Task search_replace operation completed", {
           taskId: typedArgs.taskId,
