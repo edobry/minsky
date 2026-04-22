@@ -233,7 +233,9 @@ export class ProvenanceService {
       }
 
       const record = toProvenanceRecord(row);
-      const sessionId = record.sessionId!; // safe: query filters isNotNull
+      // sessionId is guaranteed non-null because the query filters isNotNull
+      if (!record.sessionId) continue;
+      const sessionId = record.sessionId;
 
       try {
         const transcript = await transcriptService.getTranscript(sessionId);
@@ -260,8 +262,8 @@ export class ProvenanceService {
           summary.tierChanged++;
         }
 
-        if (dryRun) {
-          summary.changes!.push({
+        if (dryRun && summary.changes) {
+          summary.changes.push({
             artifactId: record.artifactId,
             oldTier: oldTier,
             newTier: judgment.tier,

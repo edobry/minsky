@@ -3,6 +3,15 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 
+/**
+ * Minimal interface for any Drizzle query executor — satisfied by both
+ * `PostgresJsDatabase` and the transaction object Drizzle passes to `.transaction()`.
+ */
+type DrizzleExecutor = Pick<
+  PostgresJsDatabase,
+  "select" | "insert" | "update" | "delete" | "execute"
+>;
+
 /** Edge types for task relationships */
 export type RelationshipType = "depends" | "parent";
 
@@ -59,7 +68,7 @@ interface TaskRelationshipsRepository {
  * its callback — both satisfy the same query interface).
  */
 function createDrizzleRepoFromExecutor(
-  executor: Parameters<typeof createDrizzleRepo>[0]
+  executor: DrizzleExecutor
 ): Omit<TaskRelationshipsRepository, "transaction"> {
   return {
     async findEdge(fromId, toId, type) {
@@ -205,7 +214,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return db.transaction(
         (tx) =>
           callback({
-            ...createDrizzleRepoFromExecutor(tx as unknown as PostgresJsDatabase),
+            ...createDrizzleRepoFromExecutor(tx),
             // Nested transactions re-use the outer transaction's connection;
             // just delegate back to repo.transaction which will open a savepoint.
             transaction: repo.transaction.bind(repo),

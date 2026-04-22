@@ -832,6 +832,8 @@ expect(spec.id).toBe("123");    // USAGE has no underscore → ERROR
 
 - **Verify workspace before making changes:** Check which workspace you're in (main or session) at the start of interactions. Make changes in the appropriate session workspace unless explicitly directed otherwise.
 
+Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.
+
 # Commit All Changes Rule
 
 ## Core Principle

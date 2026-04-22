@@ -393,7 +393,12 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
             json: params.json as boolean | undefined,
             cleanupSession: shouldCleanup,
           },
-          buildSessionMergeDeps(deps, context.container as any)
+          buildSessionMergeDeps(
+            deps,
+            context.container as
+              | { has(key: string): boolean; get(key: string): unknown }
+              | undefined
+          )
         );
 
         return { success: true, result, printed: true };
