@@ -17,6 +17,7 @@ import { type GitServiceInterface } from "../../git";
 import { taskIdToBranchName } from "../../tasks/task-id";
 import { findPRNumberForBranch, createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
+import { projectPrState } from "../session-update-operations";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -461,7 +462,7 @@ async function repairBranchFormat(
     ...sessionRecord,
     prBranch: correctBranch,
     prState: {
-      ...sessionRecord.prState,
+      ...(sessionRecord.prState ? projectPrState(sessionRecord.prState) : {}),
       branchName: correctBranch,
       lastChecked: new Date().toISOString(),
     },

@@ -469,6 +469,22 @@ export async function updatePrStateOnCreation(
 }
 
 /**
+ * Project an existing prState blob down to the current type's allowed keys.
+ * Prevents stale fields in persisted JSON from surviving a partial update.
+ */
+export function projectPrState(
+  existing: NonNullable<SessionRecord["prState"]>
+): NonNullable<SessionRecord["prState"]> {
+  return {
+    branchName: existing.branchName,
+    exists: existing.exists,
+    lastChecked: existing.lastChecked,
+    createdAt: existing.createdAt,
+    mergedAt: existing.mergedAt,
+  };
+}
+
+/**
  * Update PR state when a PR branch is merged
  */
 export async function updatePrStateOnMerge(
@@ -483,12 +499,9 @@ export async function updatePrStateOnMerge(
     return;
   }
 
-  // Project to known keys only — avoids propagating stale fields (e.g. commitHash
-  // removed in mt#1056) that may linger in persisted JSON blobs.
-  const { branchName, createdAt } = sessionRecord.prState;
+  // Project to known keys to avoid propagating stale fields from older JSON blobs.
   const updatedPrState = {
-    branchName,
-    createdAt,
+    ...projectPrState(sessionRecord.prState),
     exists: false,
     lastChecked: now,
     mergedAt: now,

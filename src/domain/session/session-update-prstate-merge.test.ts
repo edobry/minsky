@@ -1,10 +1,10 @@
 /**
- * Tests for updatePrStateOnMerge — specifically the defensive projection that
- * strips unknown keys (e.g. commitHash removed in mt#1056) from persisted prState.
+ * Tests for updatePrStateOnMerge and projectPrState — defensive projection that
+ * strips unknown keys from persisted prState blobs.
  */
 
 import { describe, it, expect } from "bun:test";
-import { updatePrStateOnMerge } from "./session-update-operations";
+import { updatePrStateOnMerge, projectPrState } from "./session-update-operations";
 import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionRecord } from "./types";
 
@@ -21,7 +21,7 @@ describe("updatePrStateOnMerge — prState key projection", () => {
         exists: true,
         lastChecked: "2024-01-01T00:00:00.000Z",
         createdAt: "2024-01-01T00:00:00.000Z",
-        // These extra keys simulate what old DB rows may contain:
+        // These extra keys simulate stale fields from older persisted JSON blobs:
         ...({ commitHash: "abc123", foo: "bar" } as unknown as object),
       } as SessionRecord["prState"],
     };
@@ -103,5 +103,60 @@ describe("updatePrStateOnMerge — prState key projection", () => {
     if (!updated) return;
 
     expect(updated.prState).toBeUndefined();
+  });
+});
+
+describe("projectPrState — key projection helper", () => {
+  it("strips commitHash and unknown keys from prState blob", () => {
+    const legacy = {
+      branchName: "pr/test-session",
+      exists: true,
+      lastChecked: "2024-01-01T00:00:00.000Z",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      // Extra keys simulating older DB rows:
+      ...({ commitHash: "abc123", rogueKey: "should-be-gone" } as unknown as object),
+    } as NonNullable<SessionRecord["prState"]>;
+
+    const projected = projectPrState(legacy);
+
+    // Known fields are preserved
+    expect(projected.branchName).toBe("pr/test-session");
+    expect(projected.exists).toBe(true);
+    expect(projected.lastChecked).toBe("2024-01-01T00:00:00.000Z");
+    expect(projected.createdAt).toBe("2024-01-01T00:00:00.000Z");
+
+    // Unknown keys must not survive
+    expect((projected as Record<string, unknown>)["commitHash"]).toBeUndefined();
+    expect((projected as Record<string, unknown>)["rogueKey"]).toBeUndefined();
+  });
+
+  it("preserves mergedAt when present", () => {
+    const prState = {
+      branchName: "pr/merged-session",
+      exists: false,
+      lastChecked: "2024-02-01T00:00:00.000Z",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      mergedAt: "2024-02-01T12:00:00.000Z",
+    } as NonNullable<SessionRecord["prState"]>;
+
+    const projected = projectPrState(prState);
+
+    expect(projected.mergedAt).toBe("2024-02-01T12:00:00.000Z");
+    expect(projected.exists).toBe(false);
+  });
+
+  it("handles prState with only required fields", () => {
+    const minimal = {
+      branchName: "pr/minimal",
+      lastChecked: "2024-01-01T00:00:00.000Z",
+    } as NonNullable<SessionRecord["prState"]>;
+
+    const projected = projectPrState(minimal);
+
+    expect(projected.branchName).toBe("pr/minimal");
+    expect(projected.lastChecked).toBe("2024-01-01T00:00:00.000Z");
+    expect(projected.exists).toBeUndefined();
+    expect(projected.createdAt).toBeUndefined();
+    expect(projected.mergedAt).toBeUndefined();
   });
 });
