@@ -8,6 +8,7 @@ import { Command } from "commander";
 import { type CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { TasksStatusGetCommand, TasksStatusSetCommand } from "./status-commands";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
  * Hierarchical status command that manages get/set subcommands
@@ -18,8 +19,14 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
   readonly description = "Task status operations";
   readonly parameters = {}; // No direct parameters - subcommands handle their own
 
-  private statusGetCommand = new TasksStatusGetCommand();
-  private statusSetCommand = new TasksStatusSetCommand();
+  private statusGetCommand: TasksStatusGetCommand;
+  private statusSetCommand: TasksStatusSetCommand;
+
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+    super();
+    this.statusGetCommand = new TasksStatusGetCommand(getPersistenceProvider);
+    this.statusSetCommand = new TasksStatusSetCommand(getPersistenceProvider);
+  }
 
   async execute(
     params: BaseTaskParams,
@@ -75,4 +82,6 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
 /**
  * Factory function for creating the hierarchical status command
  */
-export const createTasksStatusCommand = (): TasksStatusCommand => new TasksStatusCommand();
+export const createTasksStatusCommand = (
+  getPersistenceProvider: () => PersistenceProvider
+): TasksStatusCommand => new TasksStatusCommand(getPersistenceProvider);

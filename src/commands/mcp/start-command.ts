@@ -320,13 +320,11 @@ export function createStartCommand(
         // Fire-and-forget background embedding sweep for missing tasks
         import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
           .then(({ triggerStartupEmbeddingSweep }) => {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            const taskService = container?.has("taskService")
-              ? container.get("taskService")
-              : undefined;
-            return triggerStartupEmbeddingSweep(persistence, taskService);
+            if (!container) return;
+            return triggerStartupEmbeddingSweep(
+              container.get("persistence"),
+              container.get("taskService")
+            );
           })
           .catch(() => {}); // Embedding sweep is best-effort
 

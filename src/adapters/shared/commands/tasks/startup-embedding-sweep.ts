@@ -12,15 +12,14 @@ const STARTUP_SWEEP_CONCURRENCY = 2;
  *   Required — callers must pass it from the container.
  */
 export async function triggerStartupEmbeddingSweep(
-  persistenceProvider?: BasePersistenceProvider,
-  taskService?: TaskServiceInterface
+  persistenceProvider: BasePersistenceProvider,
+  taskService: TaskServiceInterface
 ): Promise<void> {
   // Check config gate
   const { getConfiguration } = await import("../../../../domain/configuration");
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
-  if (!persistenceProvider) return;
   if (!persistenceProvider.capabilities.sql) return;
 
   // Find tasks missing embeddings
@@ -40,11 +39,6 @@ export async function triggerStartupEmbeddingSweep(
 
   if (missing.length === 0) return;
   log.debug(`Startup sweep: ${missing.length} tasks need embedding indexing`);
-
-  if (!taskService) {
-    log.debug("Startup sweep skipped: no task service available");
-    return;
-  }
 
   // Index them with low concurrency
   const { createTaskSimilarityService } = await import("./similarity-commands");
