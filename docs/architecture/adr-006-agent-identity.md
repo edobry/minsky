@@ -1,6 +1,6 @@
 # ADR-006: Agent identity scheme for MCP callers
 
-**Status:** Proposed — April 2026
+**Status:** Accepted — April 2026
 **Context task:** mt#953
 **Companion:** [Position: Agent identity is an authority question](https://www.notion.so/34a937f03cb48143bfbedd8710972daf)
 
