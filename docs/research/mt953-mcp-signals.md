@@ -2,6 +2,8 @@
 
 **Status:** In progress. Populated with signals confirmed by direct observation or MCP SDK source inspection. Scenarios still requiring capture are listed at the bottom.
 
+**Companion doc:** [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) — the synthesis of what these signals mean, organized by authority (ascribed / declared / enforced).
+
 ## Goal
 
 Determine from observation — not documentation — what identity information reaches the Minsky MCP server from real callers. Output is the matrix that shapes the ADR's format decisions.
@@ -34,6 +36,14 @@ CLAUDE_CODE_SUBAGENT_MODEL=sonnet
 - Parent command line (via `ps -o command= -p $PPID` or `/proc/$PPID/cmdline` on Linux)
 
 On stdio, server-side PID + start-time uniquely tags the transport connection. That is not the same as tagging the _conversation_ — Claude Code may reuse a server subprocess across turns but typically spawns a fresh one per tab. Empirical verification required per caller.
+
+### Layer A.5 — Claude Code hook stdin (separate signal channel)
+
+Claude Code PreToolUse / PostToolUse / SessionStart hooks receive JSON on stdin that includes `session_id`, `transcript_path`, `cwd`, `hook_event_name`, and for tool hooks `tool_name`, `tool_input`, `tool_use_id` (per [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)).
+
+**This means:** a Minsky-supplied hook CAN access the Claude Code conversation's `session_id` even though the MCP server cannot. This is the foundation for Layer 3 (enforced) identity in the companion analysis doc — the hook reads `session_id` and injects it into the outgoing MCP tool call's `_meta`, making the conversation ID observable at the server.
+
+This is a separate signal channel from MCP itself, available only for Claude Code callers (other harnesses would need analogous hook mechanisms).
 
 ### Layer B — MCP `initialize` request (always sent, content varies)
 

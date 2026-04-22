@@ -2,6 +2,8 @@
 
 **Status:** In progress. Initial sweep complete; verification captures for clients other than Claude Code still pending.
 
+**Companion doc:** [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) — the taxonomy of identity authority (ascribed / declared / enforced), the 8 philosophical camps, and Minsky's synthesized position. Read that for the synthesis; this doc is the raw catalogue.
+
 ## Goal
 
 Determine whether the ecosystem has converged on an agent-identity pattern Minsky can adopt, a draft standard we should track, or nothing useful — so we don't invent in isolation.
@@ -22,7 +24,36 @@ Determine whether the ecosystem has converged on an agent-identity pattern Minsk
 
 ## What's emerging (to track)
 
-### SEP-1289 — MCP client identity verification
+### Claude Code #32514 — Client-side agent identity injection
+
+Open feature request ([anthropics/claude-code#32514](https://github.com/anthropics/claude-code/issues/32514), March 2026, no maintainer response yet). Proposes that Claude Code inject into every outgoing MCP tool call:
+
+```json
+"agent_context": {
+  "agent_id": "unique-id-per-agent-instance",
+  "parent_agent_id": "parent-unique-id"
+}
+```
+
+**Critical framing from the issue:** "sub-agents cannot determine they are sub-agents" — so prompt-level self-identification fails, and the client must inject. This is the load-bearing argument for Camp 5 (client-layer injection) in the analysis doc.
+
+### MCP Authorization spec (draft)
+
+[Draft MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) mandates OAuth 2.1 + PKCE + Dynamic Client Registration + Resource Indicators (RFC 8707). Identity via Bearer tokens at HTTP transport. Multi-tenant-grade. Overkill for single-user Minsky but relevant long-term if Minsky ever runs as a shared service.
+
+### A2A protocol (Google) with Agent Cards
+
+[Agent2Agent (A2A) protocol](https://github.com/a2aproject/A2A), announced 2025 with 60+ companies. Each agent publishes `/.well-known/agent.json` with name, endpoint, skills, supported auth. Optionally JWS-signed. OAuth 2.0 / OIDC / API keys at HTTP transport, not in payloads.
+
+### Cloudflare Mesh
+
+[Cloudflare Mesh](https://www.cloudflare.com/press/press-releases/2026/cloudflare-launches-mesh-to-secure-the-ai-agent-lifecycle/) (Agents Week 2026) — "every agent carries a distinct identity" with granular per-agent policy (read staging / block production). Identity-aware egress proxy. Strong Camp 7 (Zero-Trust) exemplar.
+
+### AIP — Agent Identity Protocol (academic)
+
+[AIP for Verifiable Delegation Across MCP and A2A](https://www.researchgate.net/publication/403194121) — research paper proposing cryptographically verifiable delegation chains spanning MCP and A2A. Uses DIDs + VCs. Long-term target, not deployable today.
+
+### SEP-1289 — Client Identity Verification in MCP
 
 Active draft proposal ([modelcontextprotocol/modelcontextprotocol#1289](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1289)). **Status: dormant, "proposal without a sponsor."** Not safe to depend on.
 
@@ -49,6 +80,7 @@ Separate protocol from MCP, primarily used by Zed and Kiro for connecting editor
 ### Anthropic's Claude Code
 
 - `CLAUDE_SESSION_ID` env var feature request filed ([anthropics/claude-code#25642](https://github.com/anthropics/claude-code/issues/25642)) — would give Minsky a direct instance ID if it ships
+- **Hooks DO have access to `session_id`** via their stdin JSON (confirmed from [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)) — this is the foundation for Minsky's Layer 3 enforcement in the analysis doc
 - Agent SDK (`/v1/agents`, `/v1/sessions`) provides session resumption ([platform.claude.com docs](https://platform.claude.com/docs/en/agent-sdk/sessions)) but session IDs are Anthropic-side, only accessible to code running against the SDK directly, not to MCP servers the agent calls
 - Current exposed env vars: `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT=cli`, `CLAUDE_CODE_EXECPATH=...` — sufficient for harness-kind identification only
 
@@ -86,12 +118,14 @@ Not for direct adoption, but useful reference points for the namespace design:
 
 ## Verdict: adopt or invent?
 
-**Hybrid.** Minsky must invent its own `agentId` format, but should align with emerging conventions:
+**Hybrid, with a layered authority model.** See [`mt953-identity-authority-analysis.md`](./mt953-identity-authority-analysis.md) for the full synthesis. In brief:
 
-1. **Key harness-kind on `clientInfo.name`** — aligns with Codex's published precedent and the common interface every MCP client already provides.
-2. **Use reverse-domain style for the `kind` field** when expanding — forward-compatible with SEP-1289 if it ever ships. Example: `com.anthropic.claude-code` rather than just `cc`.
-3. **Keep a parallel `github-app:<slug>` branch** for non-MCP (git-channel) callers — aligned with the de-facto GitHub bot-user convention.
-4. **Don't block on any draft spec** — SEP-1289 is dormant, Anthropic's `CLAUDE_SESSION_ID` is a feature request, ACP is orthogonal. Minsky ships a working scheme now, with extension points for when/if standards land.
+- Layer 3 — Enforced via Claude Code PreToolUse hook (reads `session_id` from hook stdin; injects into MCP `_meta`)
+- Layer 2 — Declared via caller-injected `_meta["io.minsky/agent_id"]`
+- Layer 1 — Ascribed from `clientInfo.name` + process signals (fallback)
+- Highest-authority layer wins.
+- Format: `{kind}:{scope}:{id}[@{parent-agentId}]` with reverse-domain kinds — forward-compat with SEP-1289.
+- No cryptographic verification today; upgradable when multi-user need arrives.
 
 ## Practical format proposal (feeds Phase 4 + Phase 5 ADR)
 
