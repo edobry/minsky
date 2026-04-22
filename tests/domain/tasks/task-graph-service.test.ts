@@ -88,6 +88,30 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
       }
       return ancestors;
     },
+    async upsertParent(
+      childId: string,
+      newParentId: string
+    ): Promise<{ previousParent: string | null }> {
+      // Find and remove existing parent edge
+      let previousParent: string | null = null;
+      for (const key of edges) {
+        const parsed = parseKey(key);
+        if (parsed.from === childId && parsed.type === "parent") {
+          previousParent = parsed.to;
+          edges.delete(key);
+          break;
+        }
+      }
+      // Insert new parent edge
+      edges.add(`${childId}→${newParentId}→parent`);
+      return { previousParent };
+    },
+    async transaction<T>(
+      callback: (txRepo: ReturnType<typeof createInMemoryRepo>) => Promise<T>
+    ): Promise<T> {
+      // Single-threaded in-memory: no real isolation needed, pass through.
+      return callback(this);
+    },
   };
 }
 
@@ -365,6 +389,83 @@ describe("TaskGraphService (in-memory)", () => {
       const svc = createService([["md#1", "db#2"]]);
       const relationships = await svc.getRelationshipsForTasks([]);
       expect(relationships).toHaveLength(0);
+    });
+  });
+
+  // ── reparent ──────────────────────────────────────────────────────
+
+  describe("reparent", () => {
+    it("assigns a parent when the child has none (happy path)", async () => {
+      const svc = createService();
+      const result = await svc.reparent("mt#2", "mt#1");
+      expect(result).toEqual({ taskId: "mt#2", previousParent: null, newParent: "mt#1" });
+      expect(await svc.getParent("mt#2")).toBe("mt#1");
+    });
+
+    it("replaces an existing parent (happy path)", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const result = await svc.reparent("mt#2", "mt#3");
+      expect(result).toEqual({ taskId: "mt#2", previousParent: "mt#1", newParent: "mt#3" });
+      expect(await svc.getParent("mt#2")).toBe("mt#3");
+      // old parent no longer has mt#2 as child
+      expect(await svc.listChildren("mt#1")).toEqual([]);
+    });
+
+    it("orphans the task when newParentId is null", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const result = await svc.reparent("mt#2", null);
+      expect(result).toEqual({ taskId: "mt#2", previousParent: "mt#1", newParent: null });
+      expect(await svc.getParent("mt#2")).toBeNull();
+    });
+
+    it("no-op when current parent already matches requested parent", async () => {
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const result = await svc.reparent("mt#2", "mt#1");
+      expect(result).toEqual({ taskId: "mt#2", previousParent: "mt#1", newParent: "mt#1" });
+      // still has the parent
+      expect(await svc.getParent("mt#2")).toBe("mt#1");
+    });
+
+    it("no-op when task has no parent and null is requested", async () => {
+      const svc = createService();
+      const result = await svc.reparent("mt#2", null);
+      expect(result).toEqual({ taskId: "mt#2", previousParent: null, newParent: null });
+    });
+
+    it("rejects self-parenting", async () => {
+      const svc = createService();
+      await expect(svc.reparent("mt#1", "mt#1")).rejects.toThrow(/cannot be its own parent/);
+    });
+
+    it("rejects cycles", async () => {
+      const svc = createService([
+        ["mt#2", "mt#1", "parent"],
+        ["mt#3", "mt#2", "parent"],
+      ]);
+      // mt#1 is an ancestor of mt#3; making mt#1 a child of mt#3 would cycle
+      await expect(svc.reparent("mt#1", "mt#3")).rejects.toThrow(/Cycle detected/);
+    });
+
+    it("rejects unqualified child ID", async () => {
+      const svc = createService();
+      await expect(svc.reparent("1", "mt#1")).rejects.toThrow(/Invalid task ID/);
+    });
+
+    it("rejects unqualified parent ID", async () => {
+      const svc = createService();
+      await expect(svc.reparent("mt#1", "2")).rejects.toThrow(/Invalid task ID/);
+    });
+
+    it("executes inside a transaction (pass-through for in-memory repo)", async () => {
+      // Verify that the transactional code path completes correctly end-to-end.
+      // The in-memory transaction is a simple pass-through, so this confirms
+      // the wrapping doesn't break observable behavior.
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const result = await svc.reparent("mt#2", "mt#3");
+      expect(result).toEqual({ taskId: "mt#2", previousParent: "mt#1", newParent: "mt#3" });
+      expect(await svc.getParent("mt#2")).toBe("mt#3");
+      expect(await svc.listChildren("mt#1")).toEqual([]);
+      expect(await svc.listChildren("mt#3")).toContain("mt#2");
     });
   });
 });
