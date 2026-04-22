@@ -169,11 +169,11 @@ GitHub Copilot's coding agent, Linear's agent, and any future GitHub-App-based a
 
 ## Implementation
 
-Follow-up task to be created by the completion of mt#953, covering:
+Tracked in [mt#1078](../../process/tasks/mt#1078/) (Layer 1 + Layer 2 readers, format parser, MCP server integration, `_meta` convention docs). Phases after Layer 2 are gated on external events:
 
-- Phase 1 — Layer 1 (ascribed) and Layer 2 (declared) readers. `agentId` resolver, kind normalization table, hash construction, `_meta["io.minsky/agent_id"]` convention documented for callers.
-- Phase 2 — Layer 3 Claude Code hook, installed via the rules compilation pipeline or as a shipped dotfile.
-- Phase 3 (gated on upstream) — switch Layer 3 to read `agent_context` when/if #32514 lands.
+- Phase 1 (mt#1078) — Layer 1 (ascribed) and Layer 2 (declared `_meta` reader). `agentId` resolver, kind normalization table, hash construction, `_meta["io.minsky/agent_id"]` convention documented for callers.
+- Phase 2 — Layer 3 Claude Code PreToolUse hook (separate follow-up task once hook-compilation approach is settled).
+- Phase 3 (gated on upstream) — switch Layer 3 to read `agent_context` when/if [anthropics/claude-code#32514](https://github.com/anthropics/claude-code/issues/32514) lands.
 - Phase 4 (gated on deployment pressure) — Layer 0 JWT verification for multi-user scenarios.
 - Phase 5 (gated on per-harness readiness) — equivalent Layer 3 hooks for Codex, Cursor, Windsurf, Zed as their hook APIs mature.
 
@@ -187,4 +187,5 @@ Each phase is separately shippable; earlier phases produce value without waiting
 - Session schema: `src/domain/storage/schemas/session-schema.ts` (`agent_id` column, migration 0022)
 - SessionRecord type: `src/domain/session/types.ts:35`
 - Gating tasks: mt#1000 (mesh signal channel), mt#441 (subagent system)
+- Implementation follow-up: mt#1078 (Layer 1 + Layer 2 readers, format parser, MCP server integration)
 - Upstream: [MCP Authorization draft](https://modelcontextprotocol.io/specification/draft/basic/authorization), [SEP-1289](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1289), [Claude Code #32514](https://github.com/anthropics/claude-code/issues/32514), [Claude Code #25642](https://github.com/anthropics/claude-code/issues/25642), [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
