@@ -27,14 +27,12 @@ import {
 import {
   ConflictPrediction,
   ConflictFile,
-  GitOperationPreview,
   BranchSwitchWarning,
   RebaseConflictPrediction,
   AdvancedResolutionStrategy,
   BranchDivergenceAnalysis,
   EnhancedMergeResult,
   SmartUpdateResult,
-  GitOperationType,
   ConflictType,
   ConflictSeverity,
 } from "./conflict-detection-types";
@@ -137,19 +135,6 @@ export class ConflictDetectionService {
   ): Promise<SmartUpdateResult> {
     const service = new ConflictDetectionService(deps);
     return service.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
-  }
-
-  /**
-   * Preview any git operation for potential conflicts
-   */
-  static async previewGitOperation(
-    repoPath: string,
-    operation: GitOperationType,
-    sourceRef: string,
-    targetRef?: string
-  ): Promise<GitOperationPreview> {
-    const service = new ConflictDetectionService();
-    return service.previewGitOperation(repoPath, operation, sourceRef, targetRef);
   }
 
   /**
@@ -342,6 +327,18 @@ export class ConflictDetectionService {
             status.includes("UU") || status.includes("AA") || status.includes("DD");
 
           if (hasConflicts) {
+            // Abort the merge so the working tree is clean when the caller throws.
+            // Best-effort: if abort fails (e.g. no merge in progress), don't mask
+            // the original conflict result.
+            try {
+              await this.deps.execAsync(`git -C ${repoPath} merge --abort`);
+            } catch (abortError) {
+              this.deps.log.warn("git merge --abort failed (ignored)", {
+                abortError,
+                repoPath,
+              });
+            }
+
             return {
               workdir: repoPath,
               merged: false,
@@ -464,39 +461,6 @@ export class ConflictDetectionService {
       });
       throw error;
     }
-  }
-
-  async previewGitOperation(
-    repoPath: string,
-    operation: GitOperationType,
-    sourceRef: string,
-    targetRef?: string
-  ): Promise<GitOperationPreview> {
-    // Placeholder implementation
-    this.deps.log.debug("Previewing git operation (not yet implemented)", {
-      repoPath,
-      operation,
-      sourceRef,
-      targetRef,
-    });
-    const prediction: ConflictPrediction = {
-      hasConflicts: false,
-      conflictType: ConflictType.NONE,
-      severity: ConflictSeverity.NONE,
-      affectedFiles: [],
-      resolutionStrategies: [],
-      userGuidance: "Preview not yet implemented.",
-      recoveryCommands: [],
-    };
-    return {
-      operation,
-      repoPath,
-      sourceRef,
-      targetRef,
-      prediction,
-      safeToExecute: true,
-      recommendedActions: [],
-    };
   }
 
   async checkBranchSwitchConflicts(
