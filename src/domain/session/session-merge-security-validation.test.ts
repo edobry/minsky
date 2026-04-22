@@ -280,12 +280,15 @@ describe("Session Merge Security Validation", () => {
       expect(result.session).toBe(SESSION_TEST_PATTERNS.APPROVED_SESSION);
       expect(result.taskId).toBe("task-999");
 
-      // Repository backend should be called for approved sessions
-      // Third argument is MergePROptions (empty object when no provenance record available)
+      // Repository backend should be called for approved sessions.
+      // Third argument (MergePROptions) varies by runtime context (service-account
+      // config, provenance records) and is tested in
+      // src/domain/provenance/merge-token-resolution.test.ts. This is a security
+      // test — it verifies that unapproved sessions don't reach the merge API.
       expect(newMerge).toHaveBeenCalledWith(
         "pr/approved-session",
         SESSION_TEST_PATTERNS.APPROVED_SESSION,
-        {}
+        expect.anything()
       );
     });
   });
