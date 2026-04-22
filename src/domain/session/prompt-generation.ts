@@ -87,6 +87,13 @@ function renderToolingNote(): string {
 Do NOT run Bash commands for formatting, linting, type-checking, or tests — the pre-commit hooks handle all of that.`;
 }
 
+function renderSessionExecNote(taskId: string): string {
+  return `
+## Running commands in the session
+
+Use \`mcp__minsky__session_exec(task: "mt#${taskId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
+}
+
 function generateSinglePrompt(
   params: GeneratePromptParams,
   batchScope?: string[],
@@ -159,6 +166,7 @@ Commit this batch before proceeding to the next.
 - Tool: \`mcp__minsky__session_commit\`
 - Parameters: \`sessionId: "${sessionId}"\`, \`all: true\``);
   } else {
+    sections.push(renderSessionExecNote(taskId));
     sections.push(renderCommitInstructions(sessionId, taskId));
   }
 
