@@ -29,6 +29,16 @@ export interface TaskServiceDeps {
   taskService?: TaskServiceInterface;
 }
 
+function requirePersistence(provider: PersistenceProvider | undefined): PersistenceProvider {
+  if (!provider) {
+    throw new Error(
+      "persistenceProvider is required when taskService is not injected. " +
+        "Provide one of: deps.taskService or deps.persistenceProvider."
+    );
+  }
+  return provider;
+}
+
 // ---- Re-exports from sub-modules ----
 
 // Types
@@ -64,7 +74,7 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
     (await createConfiguredTaskService({
       workspacePath,
       backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
 
   log.debug("tasks.list created TaskService", {
@@ -101,7 +111,7 @@ export async function getTaskFromParams(params: Record<string, unknown>, deps?: 
     (await createConfiguredTaskService({
       workspacePath,
       backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
 
   log.debug("tasks.get created TaskService", {
@@ -129,7 +139,7 @@ export async function getTaskStatusFromParams(
     (await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
   log.debug("tasks.status.get created TaskService", {
     backend:
@@ -150,7 +160,7 @@ export async function setTaskStatusFromParams(
     (await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
   log.debug("tasks.status.set created TaskService", {
     backend:
@@ -171,7 +181,7 @@ export async function updateTaskFromParams(
     (await createConfiguredTaskService({
       workspacePath,
       backend: params.backend as string | undefined,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
   log.debug("tasks.update created TaskService", {
     backend:
@@ -213,7 +223,7 @@ export async function createTaskFromTitleAndSpec(
     (await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
 
   log.debug("tasks.createTitleSpec created TaskService", {
@@ -241,7 +251,7 @@ export async function deleteTaskFromParams(
     (await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
   log.debug("tasks.delete created TaskService", {
     backend:
@@ -264,7 +274,7 @@ export async function getTaskSpecContentFromParams(
     (await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
-      persistenceProvider: deps?.persistenceProvider,
+      persistenceProvider: requirePersistence(deps?.persistenceProvider),
     }));
   log.debug("tasks.spec created TaskService", {
     backend:

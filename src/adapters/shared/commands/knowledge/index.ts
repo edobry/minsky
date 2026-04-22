@@ -21,8 +21,17 @@ import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
 import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
 import type { VectorStorage } from "../../../../domain/storage/vector/types";
-import type { KnowledgeSourceConfig, SyncReport } from "../../../../domain/knowledge/types";
+import type {
+  KnowledgeSourceConfig,
+  SyncReport,
+  KnowledgeSearchResponse,
+  ChunkResult,
+  ChunkFreshness,
+  ChunkId,
+} from "../../../../domain/knowledge/types";
 import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
+import { classifyFreshness } from "../../../../domain/knowledge/reconciliation/freshness";
+import { rankByAuthority } from "../../../../domain/knowledge/reconciliation/authority-ranker";
 
 // ─── Parameter shapes ────────────────────────────────────────────────────────
 
@@ -103,8 +112,15 @@ export interface KnowledgeCommandsDeps {
   generateEmbedding?: EmbeddingService["generateEmbedding"];
   /** Override for the vector storage search */
   vectorSearch?: VectorStorage["search"];
-  /** Override for loading config (returns knowledgeBases array) */
-  getConfig?: () => Promise<{ knowledgeBases: KnowledgeSourceConfig[] }>;
+  /** Override for loading config (returns knowledgeBases array + optional reconciliation config) */
+  getConfig?: () => Promise<{
+    knowledgeBases: KnowledgeSourceConfig[];
+    knowledgeReconciliation?: {
+      staleness?: { agingDays?: number; staleDays?: number };
+      sourceAuthority?: Record<string, number>;
+      epsilon?: number;
+    };
+  }>;
   /** Override for creating a KnowledgeService */
   createKnowledgeService?: (deps: {
     embeddingService: EmbeddingService;
@@ -145,7 +161,11 @@ export function registerKnowledgeCommands(
         // No vector storage — return degraded result immediately
         log.warn("[knowledge.search] Vector storage not available, returning empty results");
         return {
-          results: [],
+          chunks: [],
+          freshness: {} as Record<ChunkId, ChunkFreshness>,
+          authority: [] as ChunkId[],
+          conflicts: [],
+          redundancies: [],
           backend: "none" as const,
           degraded: true,
         };
@@ -164,6 +184,28 @@ export function registerKnowledgeCommands(
         searchFn = vectorSearch;
       }
 
+      // Load reconciliation config for freshness + authority
+      let reconciliationConfig:
+        | {
+            staleness?: { agingDays?: number; staleDays?: number };
+            sourceAuthority?: Record<string, number>;
+            epsilon?: number;
+          }
+        | undefined;
+      try {
+        if (deps?.getConfig) {
+          const cfg = await deps.getConfig();
+          reconciliationConfig = cfg.knowledgeReconciliation;
+        } else {
+          const { getConfiguration } = await import("../../../../domain/configuration");
+          const cfg = getConfiguration();
+          reconciliationConfig = (cfg as { knowledgeReconciliation?: typeof reconciliationConfig })
+            .knowledgeReconciliation;
+        }
+      } catch {
+        // Reconciliation config is optional — proceed without it
+      }
+
       try {
         const queryVector = await embeddingFn(params.query);
         const rawResults = await searchFn(queryVector, {
@@ -171,7 +213,7 @@ export function registerKnowledgeCommands(
           filters: params.sources ? { sourceName: params.sources } : undefined,
         });
 
-        const results = rawResults.map((r) => ({
+        const chunks: ChunkResult[] = rawResults.map((r) => ({
           id: r.id,
           title: (r.metadata?.title as string) ?? r.id,
           excerpt: (r.metadata?.excerpt as string) ?? (r.metadata?.content as string) ?? "",
@@ -180,15 +222,42 @@ export function registerKnowledgeCommands(
           score: r.score,
         }));
 
-        return {
-          results,
+        // Build freshness map — classify each chunk
+        const freshness: Record<ChunkId, ChunkFreshness> = {};
+        for (const chunk of chunks) {
+          const rawResult = rawResults.find((r) => r.id === chunk.id);
+          const lastModifiedRaw = rawResult?.metadata?.["lastModified"];
+          const lastModified =
+            typeof lastModifiedRaw === "string" ? lastModifiedRaw : new Date(0).toISOString(); // fallback: epoch = stale
+          const staleness = classifyFreshness(lastModified, reconciliationConfig?.staleness);
+          freshness[chunk.id] = { lastModified, staleness };
+        }
+
+        // Build authority-ordered chunk ID list
+        const authority = rankByAuthority(chunks, {
+          sourceAuthority: reconciliationConfig?.sourceAuthority,
+          epsilon: reconciliationConfig?.epsilon,
+        });
+
+        const response: KnowledgeSearchResponse & { backend: string; degraded: boolean } = {
+          chunks,
+          freshness,
+          authority,
+          conflicts: [],
+          redundancies: [],
           backend: "embeddings" as const,
           degraded: false,
         };
+
+        return response;
       } catch (error) {
         log.error("[knowledge.search] Search failed", { error: getErrorMessage(error) });
         return {
-          results: [],
+          chunks: [],
+          freshness: {} as Record<ChunkId, ChunkFreshness>,
+          authority: [] as ChunkId[],
+          conflicts: [],
+          redundancies: [],
           backend: "none" as const,
           degraded: true,
         };

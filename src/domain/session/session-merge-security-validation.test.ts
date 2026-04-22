@@ -268,6 +268,7 @@ describe("Session Merge Security Validation", () => {
       // This should succeed and call the repository backend
       const result = await mergeSessionPr(params, {
         sessionDB: mockSessionProvider,
+        persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
         createRepositoryBackend: (_config: any) => Promise.resolve(mockRepositoryBackend as any),
         taskService: {
           setTaskStatus: async () => {},

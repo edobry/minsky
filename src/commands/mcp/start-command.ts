@@ -260,6 +260,12 @@ export function createStartCommand(
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         await registerAllTools(commandMapper, container);
 
+        // Wire the container into the server so agentId can be written to session records
+        // (must happen after registerAllTools which triggers container.initialize())
+        if (container) {
+          server.setContainer(container);
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
 
@@ -314,13 +320,11 @@ export function createStartCommand(
         // Fire-and-forget background embedding sweep for missing tasks
         import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
           .then(({ triggerStartupEmbeddingSweep }) => {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            const taskService = container?.has("taskService")
-              ? container.get("taskService")
-              : undefined;
-            return triggerStartupEmbeddingSweep(persistence, taskService);
+            if (!container) return;
+            return triggerStartupEmbeddingSweep(
+              container.get("persistence"),
+              container.get("taskService")
+            );
           })
           .catch(() => {}); // Embedding sweep is best-effort
 
