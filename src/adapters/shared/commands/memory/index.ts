@@ -26,7 +26,7 @@ import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
 import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
 import type { VectorStorage } from "../../../../domain/storage/vector/types";
-import type { MemoryService } from "../../../../domain/memory/memory-service";
+import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
 import type { MemoryServiceDb } from "../../../../domain/memory/memory-service";
 import type {
   MemoryType,
@@ -410,9 +410,9 @@ export interface MemoryCommandsDeps {
     db: MemoryServiceDb;
     vectorStorage: VectorStorage;
     embeddingService: EmbeddingService;
-  }) => MemoryService;
+  }) => MemoryServiceSurface;
   /** Pre-built MemoryService instance (highest precedence) */
-  memoryService?: MemoryService;
+  memoryService?: MemoryServiceSurface;
 }
 
 // ─── Internal service factory ─────────────────────────────────────────────────
@@ -420,7 +420,7 @@ export interface MemoryCommandsDeps {
 async function resolveMemoryService(
   deps: MemoryCommandsDeps | undefined,
   ctx: CommandExecutionContext
-): Promise<MemoryService> {
+): Promise<MemoryServiceSurface> {
   // Highest precedence: pre-built instance (test injection path)
   if (deps?.memoryService) {
     return deps.memoryService;
@@ -476,9 +476,38 @@ async function resolveMemoryService(
     vectorStorage = new MemoryVectorStorage(1536);
   }
 
-  // DB: resolve from persistence provider
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db: MemoryServiceDb = (persistence as any)?.db ?? persistence;
+  // DB: resolve via the SQL-capable persistence provider contract.
+  // Memory requires a Postgres-backed db for the memories table — fail loudly
+  // if we have no persistence provider or it lacks the SQL capability.
+  if (!persistence) {
+    throw new Error(
+      "Memory service requires a persistence provider (none available via DI container). " +
+        "This command requires a running Minsky server with Postgres configured."
+    );
+  }
+
+  const { PersistenceProvider } = await import("../../../../domain/persistence/types");
+  if (!(persistence instanceof PersistenceProvider)) {
+    throw new Error(
+      "Memory service requires a PersistenceProvider instance; got incompatible DI binding."
+    );
+  }
+
+  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    throw new Error(
+      "Memory service requires a SQL-capable persistence provider (Postgres). " +
+        `Got provider with capabilities: ${JSON.stringify(persistence.capabilities)}`
+    );
+  }
+
+  const connection = await persistence.getDatabaseConnection();
+  if (!connection) {
+    throw new Error(
+      "Memory service requires an initialized Postgres database connection; got null."
+    );
+  }
+
+  const db = connection as MemoryServiceDb;
 
   const { MemoryService: MemoryServiceClass } = await import("../../../../domain/memory");
   return new MemoryServiceClass({ db, vectorStorage, embeddingService });
@@ -590,10 +619,7 @@ export function registerMemoryCommands(
       // Derivation-discipline check
       const issue = checkDerivation(params.content);
       if (issue && !params.force) {
-        throw new Error(
-          `This appears derivable from ${issue.source}. Memories should capture ` +
-            `cross-conversation context not in code/specs/rules. See mt#960 rubric.`
-        );
+        throw new Error(issue.message);
       }
       if (issue && params.force) {
         log.warn("[memory.create] Derivation issue bypassed via force=true", {

@@ -18,4 +18,4 @@ export type {
 
 export { MEMORY_TYPES, MEMORY_SCOPES } from "./types";
 export { MemoryService } from "./memory-service";
-export type { MemoryServiceDeps, MemoryServiceDb } from "./memory-service";
+export type { MemoryServiceDeps, MemoryServiceDb, MemoryServiceSurface } from "./memory-service";

@@ -49,7 +49,6 @@ function fencedBlockRatio(content: string): number {
   if (totalChars === 0) return 0;
 
   let blockChars = 0;
-  let insideBlock = false;
 
   // Split on triple-backtick delimiters (handles both opening and closing).
   const segments = content.split(/```/);
@@ -58,13 +57,28 @@ function fencedBlockRatio(content: string): number {
     // Even-indexed segments are outside blocks; odd-indexed are inside.
     if (i % 2 === 1) {
       blockChars += (segments[i] ?? "").length;
-      insideBlock = !insideBlock;
     }
   }
 
   // If an odd number of ``` markers appear the last "block" is unclosed;
   // we still count those characters as block content.
   return blockChars / totalChars;
+}
+
+const SOURCE_PHRASE: Record<DerivationIssue["source"], string> = {
+  code: "code",
+  git: "git output",
+  task: "a task spec",
+  rule: "a rule",
+  quoted: "quoted code",
+};
+
+function issueMessage(source: DerivationIssue["source"]): string {
+  return (
+    `This appears derivable from ${SOURCE_PHRASE[source]}. ` +
+    "Memories should capture cross-conversation context not in code/specs/rules. " +
+    "See mt#960 rubric."
+  );
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -82,59 +96,12 @@ function fencedBlockRatio(content: string): number {
 export function checkDerivation(content: string): DerivationIssue | null {
   const trimmed = content.trimStart();
 
-  if (CODE_RE.test(trimmed)) {
-    return {
-      source: "code",
-      message:
-        "This appears derivable from code. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
-
-  if (GIT_COMMIT_RE.test(trimmed)) {
-    return {
-      source: "git",
-      message:
-        "This appears derivable from git. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
-
-  if (GIT_OUTPUT_RE.test(trimmed)) {
-    return {
-      source: "git",
-      message:
-        "This appears derivable from git. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
-
-  if (TASK_RE.test(trimmed)) {
-    return {
-      source: "task",
-      message:
-        "This appears derivable from task. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
-
-  if (RULE_RE.test(trimmed)) {
-    return {
-      source: "rule",
-      message:
-        "This appears derivable from rule. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
-
-  if (fencedBlockRatio(content) > 0.9) {
-    return {
-      source: "quoted",
-      message:
-        "This appears derivable from quoted. Memories should capture cross-conversation " +
-        "context not in code/specs/rules. See mt#960 rubric.",
-    };
-  }
+  if (CODE_RE.test(trimmed)) return { source: "code", message: issueMessage("code") };
+  if (GIT_COMMIT_RE.test(trimmed)) return { source: "git", message: issueMessage("git") };
+  if (GIT_OUTPUT_RE.test(trimmed)) return { source: "git", message: issueMessage("git") };
+  if (TASK_RE.test(trimmed)) return { source: "task", message: issueMessage("task") };
+  if (RULE_RE.test(trimmed)) return { source: "rule", message: issueMessage("rule") };
+  if (fencedBlockRatio(content) > 0.9) return { source: "quoted", message: issueMessage("quoted") };
 
   return null;
 }

@@ -1,7 +1,7 @@
 /**
  * Memory Commands Integration Tests
  *
- * Tests for the 8 memory commands using fake/injectable MemoryService.
+ * Tests for the 8 memory commands using fake/injectable MemoryServiceSurface.
  * Mirrors the structure of knowledge-commands.test.ts.
  */
 
@@ -13,7 +13,7 @@ import type {
   MemoryCreateInput,
   MemorySearchResult,
 } from "../../../../domain/memory/types";
-import type { MemoryService } from "../../../../domain/memory/memory-service";
+import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ function makeFakeMemoryService(
     similarResults: MemorySearchResult[];
     supersedeResult: { old: MemoryRecord; replacement: MemoryRecord };
   }> = {}
-): MemoryService {
+): MemoryServiceSurface {
   const defaultRecord = makeRecord();
   const defaultReplacement = makeRecord({ id: "mem-2", name: "Replacement" });
 
@@ -92,7 +92,7 @@ function makeFakeMemoryService(
       overrides.supersedeResult !== undefined
         ? overrides.supersedeResult
         : { old: defaultRecord, replacement: defaultReplacement },
-  } as unknown as MemoryService;
+  } satisfies MemoryServiceSurface;
 }
 
 function makeDeps(
@@ -448,7 +448,7 @@ describe("Memory Commands", () => {
       // passes reason through (service is fake, so we capture the call).
       const REFINED_REASON = "refined understanding";
       let capturedReason: string | undefined;
-      const fakeService: MemoryService = {
+      const fakeService: MemoryServiceSurface = {
         ...makeFakeMemoryService(),
         supersede: async (_oldId: string, _newInput: MemoryCreateInput, reason?: string) => {
           capturedReason = reason;
@@ -460,7 +460,7 @@ describe("Memory Commands", () => {
           const replacement = makeRecord({ id: "new-1" });
           return { old, replacement };
         },
-      } as unknown as MemoryService;
+      } satisfies MemoryServiceSurface;
 
       const registry = createSharedCommandRegistry();
       registerMemoryCommands(registry, { memoryService: fakeService });
