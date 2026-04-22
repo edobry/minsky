@@ -9,12 +9,8 @@
  *  4. The scheduler is NOT constructed during CLI-only code paths (no-op guard).
  */
 
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import type {
-  KnowledgeSyncScheduler,
-  SchedulerClock,
-  TimerHandle,
-} from "../../domain/knowledge/ingestion/scheduler";
+import { describe, it, expect, mock } from "bun:test";
+import type { SchedulerClock, TimerHandle } from "../../domain/knowledge/ingestion/scheduler";
 import type { KnowledgeSourceProvider, KnowledgeDocument } from "../../domain/knowledge/types";
 import type { SyncReport } from "../../domain/knowledge/types";
 
@@ -97,9 +93,11 @@ function makeProvider(name: string): KnowledgeSourceProvider {
 // Direct KnowledgeSyncScheduler integration (no composition-root wiring needed)
 // ---------------------------------------------------------------------------
 
+const SCHEDULER_MODULE = "../../domain/knowledge/ingestion/scheduler";
+
 describe("KnowledgeSyncScheduler — composition-root integration", () => {
   it("fires runSync for an hourly source after 1h of fake-clock time", async () => {
-    const { KnowledgeSyncScheduler } = await import("../../domain/knowledge/ingestion/scheduler");
+    const { KnowledgeSyncScheduler } = await import(SCHEDULER_MODULE);
 
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
     const syncCalls: string[] = [];
@@ -150,7 +148,7 @@ describe("KnowledgeSyncScheduler — composition-root integration", () => {
   });
 
   it("stop() awaits in-flight syncs before returning", async () => {
-    const { KnowledgeSyncScheduler } = await import("../../domain/knowledge/ingestion/scheduler");
+    const { KnowledgeSyncScheduler } = await import(SCHEDULER_MODULE);
 
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
     let syncCompleted = false;
@@ -193,7 +191,7 @@ describe("KnowledgeSyncScheduler — composition-root integration", () => {
   });
 
   it("on-demand sources do not fire automatically — verifies no-scheduler-on-help guarantee", async () => {
-    const { KnowledgeSyncScheduler } = await import("../../domain/knowledge/ingestion/scheduler");
+    const { KnowledgeSyncScheduler } = await import(SCHEDULER_MODULE);
 
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
     const syncCalls: string[] = [];
