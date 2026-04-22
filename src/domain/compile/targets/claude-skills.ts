@@ -70,8 +70,12 @@ export function buildSkillMd(skill: SkillDefinition): string {
     frontmatterData["allowed-tools"] = skill.allowedTools;
   }
 
-  // gray-matter stringify produces: "---\n...\n---\n\n<content>"
-  return matter.stringify(skill.content, frontmatterData);
+  // Ensure a blank line between frontmatter closing delimiter and content body.
+  // gray-matter.stringify places content immediately after "---\n" unless the
+  // content starts with "\n". Hand-authored SKILL.md files always have this
+  // blank line, so we normalise here for stable output.
+  const body = skill.content.startsWith("\n") ? skill.content : `\n${skill.content}`;
+  return matter.stringify(body, frontmatterData);
 }
 
 /**
