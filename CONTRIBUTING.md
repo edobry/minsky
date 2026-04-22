@@ -31,7 +31,7 @@ The test suite uses Bun's built-in test runner. All test commands preload
 
 ```bash
 # Unit tests (default — fast, no external deps)
-bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain
+bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain
 
 # Shorthand via npm script
 bun run test

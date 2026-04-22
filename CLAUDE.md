@@ -92,7 +92,7 @@ Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" 
 - **Runtime**: Bun (not Node.js)
 - **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
 - **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain`
+- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 

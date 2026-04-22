@@ -351,7 +351,7 @@ export class PreCommitHook {
 
     try {
       await execAsync(
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src tests/adapters tests/domain",
+        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain",
         {
           cwd: this.projectRoot,
           timeout: 60000, // Allow more time for full test suite
