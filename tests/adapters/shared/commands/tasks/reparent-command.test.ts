@@ -100,6 +100,12 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
       edges.add(`${childId}→${newParentId}→parent`);
       return { previousParent };
     },
+    async transaction<T>(
+      callback: (txRepo: ReturnType<typeof createInMemoryRepo>) => Promise<T>
+    ): Promise<T> {
+      // Single-threaded in-memory: no real isolation needed, pass through.
+      return callback(this);
+    },
   };
 }
 

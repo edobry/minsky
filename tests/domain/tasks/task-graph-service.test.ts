@@ -106,6 +106,12 @@ function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> 
       edges.add(`${childId}→${newParentId}→parent`);
       return { previousParent };
     },
+    async transaction<T>(
+      callback: (txRepo: ReturnType<typeof createInMemoryRepo>) => Promise<T>
+    ): Promise<T> {
+      // Single-threaded in-memory: no real isolation needed, pass through.
+      return callback(this);
+    },
   };
 }
 
@@ -448,6 +454,18 @@ describe("TaskGraphService (in-memory)", () => {
     it("rejects unqualified parent ID", async () => {
       const svc = createService();
       await expect(svc.reparent("mt#1", "2")).rejects.toThrow(/Invalid task ID/);
+    });
+
+    it("executes inside a transaction (pass-through for in-memory repo)", async () => {
+      // Verify that the transactional code path completes correctly end-to-end.
+      // The in-memory transaction is a simple pass-through, so this confirms
+      // the wrapping doesn't break observable behavior.
+      const svc = createService([["mt#2", "mt#1", "parent"]]);
+      const result = await svc.reparent("mt#2", "mt#3");
+      expect(result).toEqual({ taskId: "mt#2", previousParent: "mt#1", newParent: "mt#3" });
+      expect(await svc.getParent("mt#2")).toBe("mt#3");
+      expect(await svc.listChildren("mt#1")).toEqual([]);
+      expect(await svc.listChildren("mt#3")).toContain("mt#2");
     });
   });
 });
