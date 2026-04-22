@@ -80,11 +80,16 @@ export const knowledgeBaseEntrySchema = z
     /** Human-readable name for this knowledge source */
     name: z.string(),
     /** Provider type (determines which connector to use) */
-    type: z.enum(["notion", "confluence", "google-docs"]),
+    type: z.enum(["notion", "confluence", "google-docs", "github-activity", "linear"]),
     /** Authentication credentials */
     auth: knowledgeSourceAuthSchema,
     /** Optional sync behavior configuration */
     sync: knowledgeSyncConfigSchema.optional(),
+    /**
+     * Sensitivity classification. Restricted sources are excluded from default
+     * search results; callers must explicitly opt-in to surface them.
+     */
+    sensitivity: z.enum(["public", "internal", "restricted"]).default("public"),
     /**
      * Google Docs: Google Drive folder ID to walk recursively.
      * Mutually exclusive with `documentIds`.
@@ -95,6 +100,20 @@ export const knowledgeBaseEntrySchema = z
      * Mutually exclusive with `driveFolderId`.
      */
     documentIds: z.array(z.string()).optional(),
+    /** GitHub activity: repository owner (org or user) */
+    owner: z.string().optional(),
+    /** GitHub activity: repository name */
+    repo: z.string().optional(),
+    /** GitHub activity: which issue/PR states to include (default "open") */
+    states: z.enum(["open", "closed", "all"]).optional(),
+    /** GitHub activity: require all of these labels to be present */
+    labels: z.array(z.string()).optional(),
+    /** GitHub activity: exclude issues/PRs with any of these labels */
+    excludeLabels: z.array(z.string()).optional(),
+    /** Activity providers: additional authors to exclude beyond the built-in bot list */
+    excludeAuthors: z.array(z.string()).optional(),
+    /** Activity providers: only include items updated within this many days */
+    maxAgeDays: z.number().int().positive().optional(),
   })
   .passthrough();
 

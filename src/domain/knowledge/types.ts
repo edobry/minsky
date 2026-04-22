@@ -74,7 +74,7 @@ export interface KnowledgeSourceConfig {
   /** Human-readable name for this knowledge source */
   name: string;
   /** Provider type (determines which connector to use) */
-  type: "notion" | "confluence" | "google-docs";
+  type: "notion" | "confluence" | "google-docs" | "github-activity" | "linear";
   /** Authentication credentials for the source */
   auth: {
     /** Direct API token value (takes precedence over tokenEnvVar) */
@@ -99,6 +99,11 @@ export interface KnowledgeSourceConfig {
     excludePatterns?: string[];
   };
   /**
+   * Sensitivity classification. Restricted sources are excluded from default search results.
+   * Defaults to "public" when unset.
+   */
+  sensitivity?: "public" | "internal" | "restricted";
+  /**
    * Google Docs: Google Drive folder ID to walk recursively.
    * Mutually exclusive with `documentIds`.
    */
@@ -108,6 +113,35 @@ export interface KnowledgeSourceConfig {
    * Mutually exclusive with `driveFolderId`.
    */
   documentIds?: string[];
+  /**
+   * GitHub activity provider: repository owner (org or user).
+   */
+  owner?: string;
+  /**
+   * GitHub activity provider: repository name.
+   */
+  repo?: string;
+  /**
+   * GitHub activity provider: which issue/PR states to include (default "open").
+   */
+  states?: "open" | "closed" | "all";
+  /**
+   * GitHub activity provider: require all of these labels to be present on the issue/PR.
+   */
+  labels?: string[];
+  /**
+   * GitHub activity provider: exclude issues/PRs that have any of these labels.
+   */
+  excludeLabels?: string[];
+  /**
+   * GitHub activity / Linear providers: additional authors to exclude
+   * (merged with the provider's built-in bot list).
+   */
+  excludeAuthors?: string[];
+  /**
+   * Activity providers: only include items updated within this many days.
+   */
+  maxAgeDays?: number;
 }
 
 // ─── Search response shape (Phase 2a) ────────────────────────────────────────

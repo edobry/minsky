@@ -21,6 +21,13 @@ interface GoogleDocsSourceConfig extends KnowledgeSourceConfig {
   type: "google-docs";
 }
 
+/** GitHub activity provider config */
+interface GitHubActivitySourceConfig extends KnowledgeSourceConfig {
+  type: "github-activity";
+  owner?: string;
+  repo?: string;
+}
+
 export interface KnowledgeServiceDeps {
   embeddingService: EmbeddingService;
   vectorStorage: VectorStorage;
@@ -77,9 +84,11 @@ export class KnowledgeService {
         return this.createNotionProvider(config);
       case "google-docs":
         return this.createGoogleDocsProvider(config as GoogleDocsSourceConfig);
+      case "github-activity":
+        return this.createGitHubActivityProvider(config as GitHubActivitySourceConfig);
       default:
         throw new Error(
-          `Unsupported knowledge source type: "${config.type}". Supported types: "notion", "google-docs".`
+          `Unsupported knowledge source type: "${config.type}". Supported types: "notion", "google-docs", "github-activity".`
         );
     }
   }
@@ -162,6 +171,37 @@ export class KnowledgeService {
       driveFolderId: config.driveFolderId,
       documentIds: config.documentIds,
       excludePatterns: config.sync?.excludePatterns,
+    });
+  }
+
+  private async createGitHubActivityProvider(
+    config: GitHubActivitySourceConfig
+  ): Promise<KnowledgeSourceProvider> {
+    const token =
+      config.auth.token ??
+      (config.auth.tokenEnvVar ? process.env[config.auth.tokenEnvVar] : undefined);
+    if (!token) {
+      const hint = config.auth.tokenEnvVar
+        ? `Set the "${config.auth.tokenEnvVar}" environment variable or provide a direct "token" value.`
+        : `Provide a direct "token" value in the auth configuration.`;
+      throw new Error(`GitHub API token not found for source "${config.name}". ${hint}`);
+    }
+
+    if (!config.owner || !config.repo) {
+      throw new Error(
+        `GitHub activity source "${config.name}" requires both "owner" and "repo" in the configuration.`
+      );
+    }
+
+    const { GitHubActivityProvider } = await import("./providers/github-activity-provider");
+    return new GitHubActivityProvider(token, config.name, {
+      owner: config.owner,
+      repo: config.repo,
+      states: config.states,
+      labels: config.labels,
+      excludeLabels: config.excludeLabels,
+      excludeAuthors: config.excludeAuthors,
+      maxAgeDays: config.maxAgeDays,
     });
   }
 }
