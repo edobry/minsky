@@ -220,13 +220,11 @@ export class PreCommitHook {
       }
 
       // WARNING THRESHOLD: Ratchet — lower as warnings are fixed.
-      // Raised 2026-04-22: 30 → 50 (mt#1003 brought 17; tracked in mt#1088).
-      // Raised 2026-04-22: 50 → 70 (mt#1037 brought 10 more; tracked in mt#1101).
-      // Pattern: the ratchet runs at commit time on the CHANGED branch, not
-      // at merge time on main — PRs over the limit can still merge and push
-      // main past the threshold. Structural fix tracked in mt#1102.
-      // Lower this back when mt#1088 and mt#1101 land.
-      const MAX_LINT_WARNINGS = 70;
+      // mt#1090 raised from 30 → 50 (pre-existing baseline was 47). mt#974/mt#1081
+      // then pushed main to 57 past the 50 threshold, indicating the hook is being
+      // bypassed (likely GitHub merge or --no-verify). mt#1097 tracks ratcheting
+      // back down AND investigating the bypass path so drift stops.
+      const MAX_LINT_WARNINGS = 57;
       if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
