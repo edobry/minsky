@@ -331,7 +331,7 @@ export class RuleService {
     meta: RuleMeta,
     options: CreateRuleOptions = {}
   ): Promise<Rule> {
-    const format = options.format || "cursor";
+    const format = options.format || "minsky";
     const dirPath = this.getRuleDirPath(format);
     const filePath = join(dirPath, `${id}.mdc`);
 

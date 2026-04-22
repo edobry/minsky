@@ -8,7 +8,6 @@
 import { injectable } from "tsyringe";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { first } from "../../../utils/array-safety";
@@ -103,24 +102,6 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private get rawSql(): NonNullable<typeof this.sql> {
     if (!this.sql) throw new Error("SQL not connected — call ensureConnection() first");
     return this.sql;
-  }
-
-  /**
-   * Run database migrations
-   */
-  private async runMigrations(): Promise<void> {
-    await this.ensureConnection();
-    try {
-      // Run SQL migrations generated for PostgreSQL dialect
-      // Keep this path aligned with drizzle.pg.config.ts `out` setting
-
-      await migrate(this.db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
-    } catch (error) {
-      // Log but don't throw - migrations may not exist yet
-      log.debug(
-        `Migration attempt failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
   }
 
   /**

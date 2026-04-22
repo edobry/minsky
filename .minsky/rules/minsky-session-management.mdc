@@ -1,0 +1,25 @@
+---
+tags:
+  - minsky
+---
+# Minsky Session Management
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION.**
+
+A Minsky session is an isolated workspace (git clone) for implementing a specific task. Sessions ensure:
+
+1. **Isolation** — changes are isolated until reviewed and merged
+2. **Traceability** — each session is associated with a specific task
+3. **Reproducibility** — sessions can be recreated or updated as needed
+
+## Session-First Principle
+
+- All code editing, testing, and committing must happen in the session workspace
+- Never modify files in the main workspace while implementing a task
+- Use absolute paths for all file operations to ensure you're in the correct workspace
+
+## See also
+
+- `implement-task` skill for the step-by-step implementation workflow
+- `orchestrate` skill for the master workflow
+- [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc) for absolute path requirements

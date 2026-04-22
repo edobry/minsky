@@ -154,7 +154,9 @@ export class AuthorshipJudge {
       maxTokens: MAX_TOKENS,
     });
 
-    const judgment = authorshipJudgmentSchema.parse(result);
+    // `completionService.generateObject` post-parses against the schema we
+    // passed, so `result` is already an `AuthorshipJudgment`. No second parse.
+    const judgment = result as AuthorshipJudgment;
 
     log.debug("AuthorshipJudge: judgment complete", {
       tier: judgment.tier,

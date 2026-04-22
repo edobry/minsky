@@ -1,0 +1,20 @@
+---
+description: Delegates to the verify-completion subagent for objective task completion verification
+alwaysApply: false
+tags:
+  - workflow
+---
+# Completion Verification Protocol
+
+**Before declaring any task complete, invoke the `verify-completion` subagent.**
+
+```
+subagent_type: "verify-completion"
+prompt: "Verify task mt#<id> is complete per its spec"
+```
+
+The subagent reads the task spec, checks each success criterion against the current codebase, and returns a structured pass/fail assessment. It provides a fresh perspective — the doer should not verify their own work.
+
+See `.claude/agents/verify-completion.md` for the full protocol.
+
+Previously this rule contained an inline verification checklist. That checklist is now the subagent's system prompt, where it's structurally enforced rather than behaviorally remembered.
