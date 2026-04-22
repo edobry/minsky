@@ -204,3 +204,64 @@ export function createTasksParentCommand(getTaskGraphService: () => TaskGraphSer
     },
   };
 }
+
+// ── tasks.reparent ────────────────────────────────────────────────────────────
+
+const tasksReparentParams = {
+  task: {
+    schema: taskIdSchema,
+    description: "ID of the child task to reparent (e.g. mt#123)",
+    required: true,
+  },
+  parent: {
+    schema: taskIdSchema.nullable(),
+    description:
+      "New parent task ID (e.g. mt#456), or null to remove the parent and make this a root task",
+    required: true,
+  },
+} satisfies CommandParameterMap;
+
+export function createTasksReparentCommand(getTaskGraphService: () => TaskGraphService) {
+  return {
+    id: "tasks.reparent",
+    name: "reparent",
+    description:
+      "Move a task to a new parent (or remove its parent to make it a root task). " +
+      "Pass parent: null to detach from current parent.",
+    parameters: tasksReparentParams,
+    execute: async (params: InferParams<typeof tasksReparentParams>) => {
+      const service = getTaskGraphService();
+      const { task, parent } = params;
+
+      if (parent === null) {
+        // Detach: remove any existing parent edge
+        const result = await service.removeParent(task);
+        const output = result.removed
+          ? `✅ ${task}: parent removed (now a root task)`
+          : `ℹ️  ${task}: was already a root task (no parent to remove)`;
+        return { success: true, output };
+      }
+
+      // Attach to new parent: remove old parent first (if any), then add new one
+      const currentParent = await service.getParent(task);
+      if (currentParent === parent) {
+        return {
+          success: true,
+          output: `ℹ️  ${task}: parent is already ${parent} (no change)`,
+        };
+      }
+
+      if (currentParent !== null) {
+        // Remove existing parent before re-parenting
+        await service.removeParent(task);
+      }
+
+      await service.addParent(task, parent);
+      const action = currentParent !== null ? `moved from ${currentParent} to` : "set to";
+      return {
+        success: true,
+        output: `✅ ${task}: parent ${action} ${parent}`,
+      };
+    },
+  };
+}
