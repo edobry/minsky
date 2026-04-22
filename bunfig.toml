@@ -1,2 +1,8 @@
 [test]
 randomize = true
+# Standalone deployables under services/ are independent packages with their
+# own node_modules and test commands. Exclude them from the main test runner
+# so the repo-root `bun test` doesn't try to load their dependencies, which
+# aren't installed in the repo-root node_modules. Each service has its own
+# `bun test` command (see services/<name>/package.json).
+pathIgnorePatterns = ["services/**"]
