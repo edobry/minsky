@@ -31,11 +31,35 @@ const knowledgeSourceAuthSchema = z
   );
 
 /**
+ * 5-field cron expression regex (minute hour dom month dow).
+ * Each field: `*`, integer, range `N-M`, or step `* /N` / `N-M/N`.
+ */
+
+const CRON_REGEX =
+  /^(?:\*(?:\/[0-9]+)?|[0-9]+(?:-[0-9]+)?(?:\/[0-9]+)?)\s+(?:\*(?:\/[0-9]+)?|[0-9]+(?:-[0-9]+)?(?:\/[0-9]+)?)\s+(?:\*(?:\/[0-9]+)?|[0-9]+(?:-[0-9]+)?(?:\/[0-9]+)?)\s+(?:\*(?:\/[0-9]+)?|[0-9]+(?:-[0-9]+)?(?:\/[0-9]+)?)\s+(?:\*(?:\/[0-9]+)?|[0-9]+(?:-[0-9]+)?(?:\/[0-9]+)?)$/;
+
+/** Named schedule presets supported by the scheduler */
+const NAMED_SCHEDULES = ["on-demand", "startup", "hourly", "daily", "weekly"] as const;
+
+/**
  * Sync schedule and behavior configuration
  */
-const knowledgeSyncConfigSchema = z.object({
-  /** When to sync: on-demand (explicit only), startup (session start), or daily */
-  schedule: z.enum(["on-demand", "startup", "daily"]).default("on-demand"),
+export const knowledgeSyncConfigSchema = z.object({
+  /**
+   * When to sync. Accepts either a named preset or a 5-field cron expression.
+   *
+   * Named presets:
+   *   - `on-demand`  — never fires automatically; explicit `runNow()` only
+   *   - `startup`    — fires once when the scheduler starts
+   *   - `hourly`     — equivalent to `0 * * * *`
+   *   - `daily`      — equivalent to `0 2 * * *` (2 am)
+   *   - `weekly`     — equivalent to `0 2 * * 0` (Sunday 2 am)
+   *
+   * Cron strings: any valid 5-field cron expression, e.g. "0 *\/6 * * *".
+   */
+  schedule: z
+    .union([z.enum(NAMED_SCHEDULES), z.string().regex(CRON_REGEX, "Invalid 5-field cron string")])
+    .default("on-demand"),
   /** Maximum depth to traverse in hierarchical sources */
   maxDepth: z.number().int().positive().optional(),
   /** Glob patterns for pages/documents to exclude from sync */

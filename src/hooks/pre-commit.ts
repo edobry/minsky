@@ -220,8 +220,9 @@ export class PreCommitHook {
       }
 
       // WARNING THRESHOLD: Ratchet — lower as warnings are fixed.
-      // Updated to 50 to reflect actual pre-existing baseline (47 warnings as of mt#1090 branch start).
-      // Previous value of 30 was below actual baseline and blocked all commits on this branch.
+      // mt#1090 raised 30 → 50 (pre-existing baseline was 47); mt#974/mt#1081 pushed
+      // main to 57, then origin raised to 57 (see mt#1097 for bypass investigation).
+      // mt#1088 removes 16 warnings from check.test.ts, bringing the floor to 41.
       const MAX_LINT_WARNINGS = 41;
       if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
