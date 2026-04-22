@@ -24,6 +24,46 @@ When `github.serviceAccount` is present in the Minsky configuration, `createToke
 
 ## 1. Create the GitHub App
 
+You can create and install the App either via the **automated script** (recommended) or through the GitHub UI. The script covers sections 1–3 (create App, generate key, install on repo, fetch installation ID) in a single browser-driven flow and saves all credentials to `~/.config/minsky/` with correct permissions.
+
+### Automated: `scripts/create-github-app.ts`
+
+Run the script with the App name, target repo, and optional permission/event overrides. It starts a local HTTP server, opens your browser to GitHub's "Create App from manifest" page with the manifest pre-filled, captures the redirect, exchanges the code for credentials, and saves them.
+
+Canonical invocations:
+
+```bash
+# Implementer App (code author, PR creator):
+bun scripts/create-github-app.ts \
+  --name minsky-ai \
+  --repo <your-owner>/<your-repo>
+
+# Reviewer App (Chinese-wall adversarial reviewer, mt#1073):
+bun scripts/create-github-app.ts \
+  --name minsky-reviewer \
+  --repo <your-owner>/<your-repo> \
+  --permissions pull_requests:write,contents:read,metadata:read \
+  --events pull_request
+```
+
+The script writes:
+
+- `~/.config/minsky/<name>.pem` (private key, `0600`)
+- `~/.config/minsky/<name>.json` (App ID, slug, client ID, installation ID, creation timestamp)
+
+Flags:
+
+- `--name <name>` — required. Also used as file prefix under `~/.config/minsky/`.
+- `--repo <owner/repo>` — required. Owner is matched against the install account during installation lookup.
+- `--permissions <k:v,...>` — optional. Default: `pull_requests:write,contents:read,metadata:read`.
+- `--events <e1,e2,...>` — optional. Default: none.
+- `--port <n>` — optional. Default: `9847`.
+- `--help` / `-h` — print usage.
+
+After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are automated; section 1 steps below are only needed if you prefer the UI path.
+
+### Manual: GitHub UI
+
 1. Visit [https://github.com/settings/apps/new](https://github.com/settings/apps/new)
 
 2. Fill in the basic information:
