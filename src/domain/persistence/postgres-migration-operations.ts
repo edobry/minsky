@@ -277,7 +277,7 @@ export async function runPostgresSchemaMigrations(
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
   const { readdirSync, readFileSync } = await import("fs");
-  const { basename, join } = await import("path");
+  const { basename: _basename, join } = await import("path");
 
   const sql = postgres(connectionString, {
     prepare: false,
