@@ -85,7 +85,6 @@ export interface SessionRecord {
   prState?: {
     branchName: string;
     exists?: boolean;
-    commitHash?: string; // Hash of the prepared merge commit
     lastChecked: string; // ISO timestamp
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)

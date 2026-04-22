@@ -686,6 +686,48 @@ export const sessionExecCommandParams = {
 };
 
 /**
+ * Session cleanup command parameters
+ * Identifies and removes stale/orphaned sessions
+ */
+export const sessionCleanupCommandParams = {
+  stale: {
+    schema: z.boolean(),
+    description: "Include stale sessions (>2h inactive)",
+    required: false,
+    defaultValue: false,
+  },
+  orphaned: {
+    schema: z.boolean(),
+    description: "Include orphaned sessions (no local dir AND no remote branch)",
+    required: false,
+    defaultValue: false,
+  },
+  olderThan: {
+    schema: z.string(),
+    description:
+      "Include sessions with no activity older than this duration (e.g., '7d', '24h', '30m')",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview what would be deleted without actually deleting (default: true)",
+    required: false,
+    defaultValue: true,
+  },
+  yes: {
+    schema: z.boolean(),
+    description: "Skip confirmation prompt",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output as JSON",
+    required: false,
+  },
+};
+
+/**
  * Session repair command parameters
  * Repairs various session state issues
  */
