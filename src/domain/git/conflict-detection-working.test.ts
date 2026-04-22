@@ -2,6 +2,9 @@ import { test, expect, describe, mock, beforeEach } from "bun:test";
 import { ConflictDetectionService, type ConflictDetectionDeps } from "./conflict-detection";
 import { ConflictType } from "./conflict-detection-types";
 
+type ExecAsyncFn = ConflictDetectionDeps["execAsync"];
+type GitFetchFn = ConflictDetectionDeps["gitFetchWithTimeout"];
+
 function createMockDeps(): ConflictDetectionDeps & {
   mockExecAsyncImpl: () => Promise<{ stdout: string; stderr: string }>;
   setExecAsyncImpl: (impl: () => Promise<{ stdout: string; stderr: string }>) => void;
@@ -11,9 +14,8 @@ function createMockDeps(): ConflictDetectionDeps & {
   const mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
   return {
-    execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
-    gitFetchWithTimeout:
-      mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+    execAsync: mockExecAsync as unknown as ExecAsyncFn,
+    gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
     log: {
       debug: mock(() => {}),
       warn: mock(() => {}),
@@ -225,9 +227,8 @@ describe("ConflictDetectionService", () => {
       });
 
       const instrumentedDeps: ConflictDetectionDeps = {
-        execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
-        gitFetchWithTimeout:
-          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        execAsync: mockExecAsync as unknown as ExecAsyncFn,
+        gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
         log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
       };
 
@@ -255,9 +256,8 @@ describe("ConflictDetectionService", () => {
       const instrumentedDeps: ConflictDetectionDeps = {
         execAsync: mock(() =>
           Promise.resolve({ stdout: "0\t0", stderr: "" })
-        ) as unknown as ConflictDetectionDeps["execAsync"],
-        gitFetchWithTimeout:
-          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        ) as unknown as ExecAsyncFn,
+        gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
         log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
       };
 

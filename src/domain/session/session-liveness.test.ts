@@ -1,19 +1,24 @@
 import { describe, test, expect } from "bun:test";
 import { deriveSessionLiveness, SessionStatus } from "./types";
 
+// Use a fixed reference time so tests don't depend on current wall-clock time.
+// deriveSessionLiveness compares timestamps with Date.now() internally, so the
+// offsets below need to be calculated relative to Date.now() at call time.
 describe("deriveSessionLiveness", () => {
   test("returns healthy for recently active session", () => {
+    const now = new Date().toISOString();
     expect(
       deriveSessionLiveness({
-        lastActivityAt: new Date().toISOString(),
+        lastActivityAt: now,
         status: SessionStatus.ACTIVE,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       })
     ).toBe("healthy");
   });
 
   test("returns idle for session inactive > 30 min", () => {
-    const thirtyOneMinAgo = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    const referenceNow = new Date().getTime();
+    const thirtyOneMinAgo = new Date(referenceNow - 31 * 60 * 1000).toISOString();
     expect(
       deriveSessionLiveness({
         lastActivityAt: thirtyOneMinAgo,
@@ -24,7 +29,8 @@ describe("deriveSessionLiveness", () => {
   });
 
   test("returns stale for session inactive > 2 hours", () => {
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const referenceNow = new Date().getTime();
+    const threeHoursAgo = new Date(referenceNow - 3 * 60 * 60 * 1000).toISOString();
     expect(
       deriveSessionLiveness({
         lastActivityAt: threeHoursAgo,
@@ -75,7 +81,8 @@ describe("deriveSessionLiveness", () => {
   });
 
   test("respects custom thresholds", () => {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const referenceNow = new Date().getTime();
+    const fiveMinAgo = new Date(referenceNow - 5 * 60 * 1000).toISOString();
     expect(
       deriveSessionLiveness(
         { lastActivityAt: fiveMinAgo, status: SessionStatus.ACTIVE, createdAt: fiveMinAgo },
