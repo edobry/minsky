@@ -32,6 +32,7 @@ import type {
 import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
 import { classifyFreshness } from "../../../../domain/knowledge/reconciliation/freshness";
 import { rankByAuthority } from "../../../../domain/knowledge/reconciliation/authority-ranker";
+import { buildRedundanciesFromMetadata } from "../../../../domain/knowledge/reconciliation/redundancy-reader";
 
 // ─── Parameter shapes ────────────────────────────────────────────────────────
 
@@ -239,12 +240,15 @@ export function registerKnowledgeCommands(
           epsilon: reconciliationConfig?.epsilon,
         });
 
+        // Build redundancies from cluster metadata written by reconcileAfterSync
+        const redundancies = buildRedundanciesFromMetadata(rawResults);
+
         const response: KnowledgeSearchResponse & { backend: string; degraded: boolean } = {
           chunks,
           freshness,
           authority,
           conflicts: [],
-          redundancies: [],
+          redundancies,
           backend: "embeddings" as const,
           degraded: false,
         };
