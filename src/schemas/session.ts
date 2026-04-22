@@ -79,6 +79,12 @@ export const sessionStartParamsSchema = z
       .enum(["bun", "npm", "yarn", "pnpm"] as const)
       .optional()
       .describe("Override the detected package manager"),
+    recover: z
+      .boolean()
+      .optional()
+      .describe(
+        "Delete existing stale/orphaned session for this task and create fresh (use with caution)"
+      ),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine(
