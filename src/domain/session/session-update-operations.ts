@@ -390,10 +390,10 @@ export async function checkPrBranchExistsOptimized(
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
     log.debug("Using cached PR state", {
       sessionId,
-      exists: !!sessionRecord.prState.commitHash,
+      exists: !!sessionRecord.prState.exists,
       lastChecked: sessionRecord.prState.lastChecked,
     });
-    return !!sessionRecord.prState.commitHash;
+    return !!sessionRecord.prState.exists;
   }
 
   // Cache is stale or missing, perform git operations and update cache
@@ -405,38 +405,12 @@ export async function checkPrBranchExistsOptimized(
 
   const exists = await checkPrBranchExists(sessionId, gitService, currentDir, sessionRecord.branch);
 
-  // Get commit hash if branch exists
-  let commitHash = sessionRecord.prState?.commitHash;
-  if (exists) {
-    try {
-      // Use backend-aware branch name for commit hash lookup
-      const branchName =
-        sessionRecord.backendType === "github"
-          ? sessionId
-          : `pr/${sessionRecord.branch || sessionId}`;
-
-      const hashResult = await gitService.execInRepository(
-        currentDir,
-        `git rev-parse ${branchName}`
-      );
-      commitHash = hashResult.trim();
-    } catch (error) {
-      const branchName =
-        sessionRecord.backendType === "github"
-          ? sessionId
-          : `pr/${sessionRecord.branch || sessionId}`;
-      log.debug(`Could not get commit hash for ${branchName}`, { error });
-    }
-  } else {
-    commitHash = undefined;
-  }
-
   // Update the session record with fresh PR state
   const prBranch =
     sessionRecord.backendType === "github" ? sessionId : `pr/${sessionRecord.branch || sessionId}`;
   const updatedPrState = {
     branchName: prBranch,
-    commitHash,
+    exists,
     lastChecked: new Date().toISOString(),
     createdAt: sessionRecord.prState?.createdAt || (exists ? new Date().toISOString() : undefined),
     mergedAt: sessionRecord.prState?.mergedAt,
@@ -450,7 +424,7 @@ export async function checkPrBranchExistsOptimized(
     lastChecked: updatedPrState.lastChecked,
   });
 
-  return !!commitHash;
+  return exists;
 }
 
 /**
