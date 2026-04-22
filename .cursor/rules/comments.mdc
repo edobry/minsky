@@ -1,10 +1,10 @@
 ---
 name: Comments
-description: "Comments should explain WHY, not WHAT. Delete obvious comments."
+description: 'Comments should explain WHY, not WHAT. Delete obvious comments.'
 alwaysApply: false
-tags: [code-style]
+tags:
+  - code-style
 ---
-
 # Comment Guidelines
 
 ## Core Principle

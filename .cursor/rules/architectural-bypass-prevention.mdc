@@ -1,7 +1,8 @@
 ---
 name: Architectural Bypass Prevention
-description: Use when designing modules, interfaces, or architectures to prevent bypass patterns and ensure proper encapsulation
-tags: [architecture]
+description: 'Use when designing modules, interfaces, or architectures to prevent bypass patterns and ensure proper encapsulation'
+tags:
+  - architecture
 ---
 # Architectural Bypass Prevention
 

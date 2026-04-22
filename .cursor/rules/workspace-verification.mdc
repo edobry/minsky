@@ -1,8 +1,8 @@
 ---
 description: REQUIRED guidelines for verifying workspace context and command availability before making changes
-globs:
 alwaysApply: false
-tags: [tool-usage]
+tags:
+  - tool-usage
 ---
 # Workspace Verification
 

@@ -85,6 +85,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksChildrenCommand,
     createTasksParentCommand,
   } = require("./deps-commands");
+  const { createTasksReparentCommand } = require("./reparent-command");
   const {
     createTasksDepsTreeCommand,
     createTasksDepsGraphCommand,
@@ -127,6 +128,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     // Parent-child (subtask) commands
     createTasksChildrenCommand(getTaskGraphService),
     createTasksParentCommand(getTaskGraphService),
+    createTasksReparentCommand(getTaskGraphService),
     // Routing commands
     createTasksAvailableCommand(getPersistenceProvider, getTaskRoutingService, getTaskService),
     createTasksRouteCommand(getPersistenceProvider, getTaskRoutingService),

@@ -1,8 +1,9 @@
 ---
-description: Use when designing or reviewing any user-facing output including CLI commands, error messages, status reporting, verbose modes, and user interface text. Apply to ensure all output provides actionable value rather than noise.
-tags: [code-style, preferences]
+description: 'Use when designing or reviewing any user-facing output including CLI commands, error messages, status reporting, verbose modes, and user interface text. Apply to ensure all output provides actionable value rather than noise.'
+tags:
+  - code-style
+  - preferences
 ---
-
 # Meaningful Output Principles
 
 Principles for ensuring every piece of information displayed to users serves a clear purpose and provides actionable value.

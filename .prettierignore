@@ -9,3 +9,7 @@ coverage/
 # Local Claude Code settings and worktrees
 .claude/settings.local.json
 .claude/worktrees/
+
+# Compiled rule outputs — managed by "minsky rules compile", not Prettier
+AGENTS.md
+.cursor/rules/

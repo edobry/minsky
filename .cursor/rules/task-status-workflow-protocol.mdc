@@ -1,8 +1,8 @@
 ---
 description: Prevents premature DONE status setting from session workflows
-tags: [minsky]
+tags:
+  - minsky
 ---
-
 # Task Status Workflow Protocol
 
 ## NEVER manually set task status to DONE from within a session.
