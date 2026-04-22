@@ -13,26 +13,39 @@ export interface StalenessResult {
   staleFile?: string;
 }
 
+export interface CheckStalenessOptions {
+  /**
+   * When true, skip orphan file detection (files in the output directory that
+   * the target did not produce). Use this for targets whose output directory
+   * is shared with hand-authored content (e.g. `.claude/skills/` contains both
+   * compiled and hand-authored SKILL.md files). Default: false.
+   */
+  skipOrphanDetection?: boolean;
+}
+
 /**
  * Check whether a target's output is stale relative to the on-disk files.
  *
  * Algorithm:
  * 1. Ask the target for its expected output file list.
  * 2. For each expected file: if missing or content differs, return stale.
- * 3. Detect orphan files: files present in the output dir but not expected.
+ * 3. Detect orphan files: files present in the output dir but not expected
+ *    (skipped when `skipOrphanDetection` is true).
  *
  * @param target   The compile target to check.
  * @param options  Target options (output path override etc.).
  * @param workspacePath  Absolute path to the project root.
  * @param expectedContents  Map from file path to expected content string.
  * @param fsDeps   Injectable fs (uses real fs if omitted).
+ * @param checkOptions  Options controlling the check (e.g. skipOrphanDetection).
  */
 export async function checkStaleness(
   target: MinskyCompileTarget,
   options: MinskyTargetOptions,
   workspacePath: string,
   expectedContents: Map<string, string>,
-  fsDeps: MinskyCompileFsDeps
+  fsDeps: MinskyCompileFsDeps,
+  checkOptions: CheckStalenessOptions = {}
 ): Promise<StalenessResult> {
   const expectedFiles = await target.listOutputFiles(options, workspacePath, fsDeps);
 
@@ -52,19 +65,22 @@ export async function checkStaleness(
     }
   }
 
-  // Detect orphan files: check output directory for files that shouldn't be there
-  const outputDir = options.outputPath ?? target.defaultOutputPath(workspacePath);
-  const expectedBasenames = new Set(expectedFiles.map((f) => basename(f)));
+  // Detect orphan files: check output directory for files that shouldn't be there.
+  // Skipped for targets whose output directory is shared with hand-authored content.
+  if (!checkOptions.skipOrphanDetection) {
+    const outputDir = options.outputPath ?? target.defaultOutputPath(workspacePath);
+    const expectedBasenames = new Set(expectedFiles.map((f) => basename(f)));
 
-  try {
-    const entries = await fsDeps.readdir(outputDir);
-    for (const entry of entries) {
-      if (!expectedBasenames.has(entry)) {
-        return { stale: true, staleFile: join(outputDir, entry) };
+    try {
+      const entries = await fsDeps.readdir(outputDir);
+      for (const entry of entries) {
+        if (!expectedBasenames.has(entry)) {
+          return { stale: true, staleFile: join(outputDir, entry) };
+        }
       }
+    } catch {
+      // Output directory does not exist — already covered by expectedFiles check above
     }
-  } catch {
-    // Output directory does not exist — already covered by expectedFiles check above
   }
 
   return { stale: false };

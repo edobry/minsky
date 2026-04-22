@@ -228,6 +228,27 @@ After migration, `.minsky/rules/` is authoritative. `minsky rules migrate --dry-
 shows what would change without writing, and `--force` overwrites any existing files
 in the destination.
 
+## Skills Storage Model
+
+Minsky skills follow the same source/output split as rules, but with TypeScript-authored
+source definitions:
+
+- **`.minsky/skills/<name>/skill.ts`** — canonical source. Uses `defineSkill(...)` from
+  `@minsky/definitions` to declare a typed skill.
+- **`.claude/skills/<name>/SKILL.md`** — compile output, regenerated from the `.ts`
+  source by `bun run minsky compile --target claude-skills`. Matches the Agent Skills
+  format Claude Code expects.
+
+Unlike `.cursor/rules/`, the `.claude/skills/` directory is **shared** with hand-authored
+skills (the existing Minsky skills in this repo were authored as SKILL.md directly).
+That is why `compile --check --target claude-skills` does not flag orphan files — it
+only verifies that compiled skills (those with a `.ts` source) match their output.
+Hand-authored skills coexist without interference.
+
+This is the first of three targets (claude-skills, claude-agents, cursor-rules-ts)
+planned for the TypeScript-first pipeline under mt#913. Additional targets will be
+added in follow-on subtasks.
+
 ## Pre-commit Hooks
 
 Husky runs a TypeScript pre-commit hook (`src/hooks/pre-commit.ts`) that enforces

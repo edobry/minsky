@@ -145,6 +145,10 @@ function makeClaudeSkillsTarget(
   return {
     id: "claude-skills",
     displayName: "Claude Skills",
+    // .claude/skills/ contains both compiled and hand-authored SKILL.md files
+    // (the hand-authored ones are the existing Claude Code skills in this repo).
+    // Skip orphan detection so --check doesn't flag them as stale.
+    sharedOutputDirectory: true,
 
     defaultOutputPath(workspacePath: string): string {
       return skillOutputDir(workspacePath);

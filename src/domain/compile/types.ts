@@ -65,6 +65,14 @@ export interface MinskyCompileTarget {
   /** Human-readable display name, e.g. "Claude Skills" */
   displayName: string;
 
+  /**
+   * When true, the output directory is shared with hand-authored content (e.g.
+   * `.claude/skills/` contains both compiled and hand-authored SKILL.md files),
+   * so orphan detection during --check is skipped to avoid false positives.
+   * Default: false (the target exclusively owns its output directory).
+   */
+  sharedOutputDirectory?: boolean;
+
   /** Returns the default output directory for this target. */
   defaultOutputPath(workspacePath: string): string;
 

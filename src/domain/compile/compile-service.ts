@@ -13,6 +13,7 @@ import type {
   MinskyTargetOptions,
   MinskyCompileFsDeps,
 } from "./types";
+import { checkStaleness } from "./staleness";
 import { claudeSkillsTarget } from "./targets/claude-skills";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
@@ -74,58 +75,47 @@ export class MinskyCompileService {
     // Dry-run to get expected file paths and content
     const dryResult = await target.compile({ ...targetOptions, dryRun: true }, workspacePath, fs);
 
-    const expectedFiles = await target.listOutputFiles(targetOptions, workspacePath, fs);
+    // Delegate staleness check to the shared helper. Orphan detection is skipped
+    // when the target declares its output directory is shared with hand-authored
+    // content (e.g. claude-skills' .claude/skills/).
+    const expectedContents = buildExpectedContents(dryResult);
+    const { stale, staleFile } = await checkStaleness(
+      target,
+      targetOptions,
+      workspacePath,
+      expectedContents,
+      fs,
+      { skipOrphanDetection: target.sharedOutputDirectory === true }
+    );
 
-    // Check every expected file for staleness
-    let staleFile: string | undefined;
-
-    for (const filePath of expectedFiles) {
-      let existingContent: string;
-      try {
-        existingContent = await fs.readFile(filePath, "utf-8");
-      } catch {
-        staleFile = filePath;
-        break;
-      }
-
-      const expectedContent = resolveExpectedContent(dryResult, filePath);
-      if (expectedContent === undefined || existingContent !== expectedContent) {
-        staleFile = filePath;
-        break;
-      }
-    }
-
-    // Note: orphan detection (files in output dir not expected by the target) is
-    // intentionally skipped here. The claude-skills output dir (.claude/skills/) is
-    // shared between compiled and hand-authored skills, so orphan detection would
-    // produce false positives. Targets that exclusively own their output directory
-    // can implement orphan detection in their own listOutputFiles + compile logic.
-
-    const isStale = staleFile !== undefined;
     return {
       ...dryResult,
       check: true,
-      stale: isStale,
+      stale,
       staleFile,
     };
   }
 }
 
 /**
- * Resolve the expected content for a given output file path from a dry-run result.
+ * Build the expected-content map that checkStaleness consumes from a dry-run result.
  *
- * - If the result has `contentsByPath`, use it (multi-file targets).
- * - If there is exactly one file written, use `content` directly.
- * - Otherwise return undefined (staleness check will mark as stale).
+ * - Multi-file targets populate `contentsByPath` directly.
+ * - Single-file targets set `content` + exactly one `filesWritten` path.
+ * - Anything else produces an empty map; checkStaleness will flag files as stale
+ *   since it can't find expected content for them.
  */
-function resolveExpectedContent(result: MinskyCompileResult, filePath: string): string | undefined {
+function buildExpectedContents(result: MinskyCompileResult): Map<string, string> {
   if (result.contentsByPath !== undefined) {
-    return result.contentsByPath.get(filePath);
+    return new Map(result.contentsByPath);
   }
-  if (result.filesWritten.length === 1) {
-    return result.content;
+  if (result.filesWritten.length === 1 && result.content !== undefined) {
+    const first = result.filesWritten[0];
+    if (first !== undefined) {
+      return new Map([[first, result.content]]);
+    }
   }
-  return undefined;
+  return new Map();
 }
 
 /**
