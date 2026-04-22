@@ -10,7 +10,17 @@
  * is the project-wide standard (established in embeddings-schema-factory.ts).
  */
 
-import { pgTable, text, real, integer, timestamp, pgEnum, index, uuid } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  real,
+  integer,
+  timestamp,
+  pgEnum,
+  index,
+  uuid,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 
 // Postgres enums for memory type and scope
@@ -36,6 +46,7 @@ export const memoriesTable = pgTable(
     sourceSessionId: text("source_session_id"),
     confidence: real("confidence"),
     supersededBy: uuid("superseded_by"),
+    metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),

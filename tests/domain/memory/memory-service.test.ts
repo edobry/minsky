@@ -68,6 +68,7 @@ type MemoryRow = {
   source_session_id: string | null;
   confidence: number | null;
   superseded_by: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
   last_accessed_at: Date | null;
@@ -195,6 +196,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
             source_session_id: data["sourceSessionId"] ?? data["source_session_id"] ?? null,
             confidence: data["confidence"] ?? null,
             superseded_by: data["supersededBy"] ?? data["superseded_by"] ?? null,
+            metadata: (data["metadata"] as Record<string, unknown> | null | undefined) ?? null,
             created_at: new Date(),
             updated_at: new Date(),
             last_accessed_at: null,
@@ -246,6 +248,9 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
                         : {}),
                       ...("supersededBy" in data
                         ? { superseded_by: data["supersededBy"] as string | null }
+                        : {}),
+                      ...("metadata" in data
+                        ? { metadata: data["metadata"] as Record<string, unknown> | null }
                         : {}),
                       updated_at: new Date(),
                     };
@@ -423,6 +428,18 @@ describe("MemoryService", () => {
 
       expect(activeIds).not.toContain(memA.id);
       expect(activeIds).toContain(memB.id);
+    });
+
+    it("persists the reason to the old memory's metadata", async () => {
+      const old = await service.create(makeInput({ name: "Old" }));
+      await service.supersede(old.id, makeInput({ name: "New" }), "Outdated information");
+
+      const fetched = await service.get(old.id);
+      expect(fetched).not.toBeNull();
+      if (!fetched) throw new Error("fetched is null");
+      expect(fetched.metadata).not.toBeNull();
+      expect(fetched.metadata?.["supersession_reason"]).toBe("Outdated information");
+      expect(typeof fetched.metadata?.["superseded_at"]).toBe("string");
     });
 
     it("list() without excludeSuperseded returns ALL memories", async () => {

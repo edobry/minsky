@@ -50,6 +50,8 @@ export interface MemoryRecord {
   confidence: number | null;
   /** Points to the replacement memory (set when this memory is superseded) */
   supersededBy: string | null;
+  /** Arbitrary metadata written by supersede() to record supersession reason/timestamp */
+  metadata: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
   lastAccessedAt: Date | null;
@@ -107,7 +109,6 @@ export interface MemoryListFilter {
   type?: MemoryType;
   scope?: MemoryScope;
   projectId?: string;
-  tags?: string[];
   /** When true, excludes memories that have been superseded (superseded_by IS NOT NULL) */
   excludeSuperseded?: boolean;
 }

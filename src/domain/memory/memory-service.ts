@@ -82,6 +82,7 @@ function rowToRecord(row: Record<string, any>): MemoryRecord {
     sourceSessionId: row["source_session_id"] ?? row["sourceSessionId"] ?? null,
     confidence: row["confidence"] ?? null,
     supersededBy: row["superseded_by"] ?? row["supersededBy"] ?? null,
+    metadata: (row["metadata"] as Record<string, unknown> | null | undefined) ?? null,
     createdAt: row["created_at"] ?? row["createdAt"] ?? new Date(),
     updatedAt: row["updated_at"] ?? row["updatedAt"] ?? new Date(),
     lastAccessedAt: row["last_accessed_at"] ?? row["lastAccessedAt"] ?? null,
@@ -344,7 +345,7 @@ export class MemoryService {
   async supersede(
     oldId: string,
     newInput: MemoryCreateInput,
-    _reason?: string
+    reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
     const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
       // Insert new memory inside the transaction.
@@ -367,10 +368,28 @@ export class MemoryService {
 
       const replacement = rowToRecord(newRows[0] as Record<string, unknown>);
 
-      // Mark the old memory as superseded.
+      // Read the old memory's current metadata so we can append rather than overwrite.
+      const oldRowsBefore = await tx
+        .select()
+        .from(memoriesTable)
+        .where(eq(memoriesTable.id, oldId));
+      const oldBefore = oldRowsBefore[0] as Record<string, unknown> | undefined;
+      const existingMetadata =
+        (oldBefore?.["metadata"] as Record<string, unknown> | null | undefined) ?? {};
+      const mergedMetadata = {
+        ...existingMetadata,
+        supersession_reason: reason ?? null,
+        superseded_at: new Date().toISOString(),
+      };
+
+      // Mark the old memory as superseded and record the reason in metadata.
       const oldRows = await tx
         .update(memoriesTable)
-        .set({ supersededBy: replacement.id, updatedAt: new Date() })
+        .set({
+          supersededBy: replacement.id,
+          metadata: mergedMetadata,
+          updatedAt: new Date(),
+        })
         .where(eq(memoriesTable.id, oldId))
         .returning();
 

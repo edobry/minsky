@@ -3,9 +3,9 @@
 -- HNSW index used for memories_embeddings (project-wide standard, not ivfflat/cosine).
 
 -- Enum types
-CREATE TYPE IF NOT EXISTS "memory_type" AS ENUM ('user', 'feedback', 'project', 'reference');
+CREATE TYPE "public"."memory_type" AS ENUM ('user', 'feedback', 'project', 'reference');
 --> statement-breakpoint
-CREATE TYPE IF NOT EXISTS "memory_scope" AS ENUM ('project', 'user', 'cross_project');
+CREATE TYPE "public"."memory_scope" AS ENUM ('project', 'user', 'cross_project');
 --> statement-breakpoint
 
 -- Primary memories table
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS "memories" (
 	"source_session_id" text,
 	"confidence" real,
 	"superseded_by" uuid,
+	"metadata" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"last_accessed_at" timestamp with time zone,
