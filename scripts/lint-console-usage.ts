@@ -37,6 +37,10 @@ class ConsoleUsageLinter {
     "**/build/**",
     "**/.git/**",
     "**/coverage/**",
+    // Standalone deployable services (services/reviewer, etc.) are independent
+    // packages that don't share Minsky's logger and legitimately use structured
+    // JSON logging via console.log for production observability.
+    "**/services/**",
     // CLI tools that legitimately need console output
     "**/test-quality-cli.ts",
     "**/scripts/**", // Scripts may use console for output
