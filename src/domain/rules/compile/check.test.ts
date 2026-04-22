@@ -9,6 +9,15 @@
  *   (e) cursor-rules with orphan .mdc → stale
  */
 
+/* eslint-disable custom/no-real-fs-in-tests --
+   This is an integration test for the rule-compile staleness-detection pipeline,
+   which reads/writes real files via fs/promises. compileRules() and its internal
+   services do not currently accept an fs abstraction, so in-memory mocks can't
+   exercise the real staleness-detection logic. mt#1111 tracks the refactor to
+   inject an fs provider, after which this file should be converted and this
+   waiver removed.
+*/
+
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "fs/promises";
 import * as path from "path";
