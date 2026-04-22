@@ -214,6 +214,20 @@ describe("checkDenial — git", () => {
     expect(denied("stash")).not.toBeNull();
   });
 
+  it("denies git reset", () => {
+    expect(denied("reset")).not.toBeNull();
+  });
+
+  it("denies git reset --hard HEAD", () => {
+    expect(denied("reset", ["--hard", "HEAD"])).not.toBeNull();
+  });
+
+  it("denial reason for git reset references session_exec and destructive warning", () => {
+    const reason = denied("reset");
+    expect(reason).toContain("mcp__minsky__session_exec");
+    expect(reason).toContain("destructive");
+  });
+
   it("denies git -C <path> <anything>", () => {
     expect(checkDenial({ binary: "git", args: ["-C", "/some/path", "status"] })).not.toBeNull();
   });
@@ -375,6 +389,55 @@ describe("full command denial integration", () => {
 
   it("allows 'gh workflow list'", () => {
     expect(firstDenial("gh workflow list")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Known limitations — document expected-but-imperfect behavior
+// ---------------------------------------------------------------------------
+
+describe("known limitations: shell quoting is not honored", () => {
+  it("still denies when a quoted string contains `|` and the real binary is a denied subcommand", () => {
+    // `git commit -m "feat: pipe | this"` — the splitter breaks the message at `|`,
+    // but `git commit` is still detected as the first segment → denied correctly.
+    // This is the happy path even though parsing is technically broken.
+    const cmd = `git commit -m "feat: pipe | this"`;
+    const parsed = parseCommands(cmd);
+    const firstDenied = parsed.map(checkDenial).find((r) => r !== null);
+    expect(firstDenied).not.toBeNull();
+  });
+
+  it("DOCUMENTS: shell operator inside a commit message can let the post-operator portion through", () => {
+    // `git commit -m "cherry-pick this"` has no operator — safe.
+    // But `git commit -m "x | cherry-pick y"` would split into:
+    //   - `git commit -m "x ` (denied as commit)
+    //   - `cherry-pick y"` (not a git/gh command — ignored)
+    // In this case the overall result is still DENIED because `git commit` fires.
+    //
+    // The pathological case that actually slips: the FIRST segment is non-git/gh
+    // and the SECOND segment (after a quoted operator) happens to look like an
+    // allowed git command. This is extremely contrived in practice.
+    //
+    // We keep this test to document the known gap; fixing it correctly requires
+    // a proper shell lexer, which is beyond scope.
+    const cmd = `echo "hi | git cherry-pick abc"`;
+    const parsed = parseCommands(cmd);
+    // The splitter sees `echo "hi ` and `git cherry-pick abc"` — the latter parses
+    // as git cherry-pick, which is in the allowed list.
+    expect(parsed.length).toBeGreaterThanOrEqual(1);
+    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    expect(anyDenied).toBe(false); // Known-permissive: nothing denied
+  });
+
+  it("DOCUMENTS: subshell invocations `$(git ...)` are not parsed", () => {
+    // `TAG=$(git log -1 --format=%s)` — the outer command has no git/gh binary;
+    // the inner `git log` is inside `$(...)` and not separately parsed.
+    const cmd = `TAG=$(git log -1 --format=%s)`;
+    const parsed = parseCommands(cmd);
+    // Depending on the splitter, the outer command may not parse as git at all.
+    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    // Current behavior: subshell content is not blocked. Known limitation.
+    expect(anyDenied).toBe(false);
   });
 });
 

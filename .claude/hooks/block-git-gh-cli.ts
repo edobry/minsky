@@ -88,8 +88,14 @@ export const gitDenials: DenialRule[] = [
     reason: "Rebasing is handled by `mcp__minsky__session_update`.",
   },
   {
+    match: (args) => args[0] === "reset",
+    reason:
+      "Use `mcp__minsky__session_exec(task, 'git reset ...')` if you genuinely need a reset in a session. This is a destructive operation — consider the revert alternative first.",
+  },
+  {
     match: (args) => args[0] === "stash",
-    reason: "Use `mcp__minsky__session_exec(task, 'git stash')` if targeting a session.",
+    reason:
+      "No first-class MCP equivalent. If you need to stash in a session, use `mcp__minsky__session_exec(task, 'git stash')` — the call runs server-side and is not blocked by this hook.",
   },
 ];
 
@@ -146,6 +152,17 @@ export function stripEnvVarAssignments(tokens: string[]): string[] {
 /**
  * Split a shell command string into individual segments on `&&`, `||`, `;`,
  * and `|` (pipe). Returns non-empty trimmed segments.
+ *
+ * KNOWN LIMITATION: This splitter is NOT shell-quote-aware. Operators inside
+ * quoted strings (e.g., `git commit -m "a | b"`) will cause incorrect splits.
+ * This hook is designed to catch obvious agent mistakes (`git push`, `git -C ...`),
+ * not to be a security boundary. The worst case is an edge-case message string
+ * that happens to contain an operator AND a substring resembling an allowed
+ * subcommand — the actual command may slip through. Fixing this correctly
+ * requires a proper shell lexer; accepted as a pragmatic tradeoff.
+ *
+ * Subshell invocations like `TAG=$(git log -1)` are also not parsed; the outer
+ * command is checked but the inner `git log` is not. Same tradeoff.
  */
 export function splitOnShellOperators(command: string): string[] {
   // Replace &&, ||, ;, | with a NUL sentinel, then split.
