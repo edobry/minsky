@@ -92,10 +92,13 @@ async function main(): Promise<void> {
   }
 
   // Step 3: Initialize session provider via the standard CLI composition pattern
+  // Must initialize configuration first — PersistenceService depends on it
+  const { setupConfiguration } = await import("../config-setup");
   const { PersistenceService } = await import("../domain/persistence/service");
   const persistenceService = new PersistenceService();
   let sessionProvider: import("../domain/session/types").SessionProviderInterface;
   try {
+    await setupConfiguration();
     await persistenceService.initialize();
     const persistenceProvider = persistenceService.getProvider();
 
