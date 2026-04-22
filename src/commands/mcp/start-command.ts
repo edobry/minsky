@@ -260,6 +260,12 @@ export function createStartCommand(
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         await registerAllTools(commandMapper, container);
 
+        // Wire the container into the server so agentId can be written to session records
+        // (must happen after registerAllTools which triggers container.initialize())
+        if (container) {
+          server.setContainer(container);
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
 
