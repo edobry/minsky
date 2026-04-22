@@ -205,6 +205,9 @@ describe("ConflictDetectionService", () => {
   });
 
   describe("smartSessionUpdate (mt#990 regression)", () => {
+    const CALL_EXEC_ASYNC = "execAsync";
+    const CALL_GIT_FETCH = "gitFetchWithTimeout";
+
     test("fetches base branch before analyzing divergence", async () => {
       // Regression for mt#990: without an explicit fetch before divergence analysis,
       // a stale local origin/<baseBranch> ref causes smartSessionUpdate to silently
@@ -213,11 +216,11 @@ describe("ConflictDetectionService", () => {
       // Record call order by tagging both mocks.
       const callOrder: string[] = [];
       const mockExecAsync = mock(() => {
-        callOrder.push("execAsync");
+        callOrder.push(CALL_EXEC_ASYNC);
         return Promise.resolve({ stdout: "0\t0", stderr: "" });
       });
       const mockGitFetchWithTimeout = mock(() => {
-        callOrder.push("gitFetchWithTimeout");
+        callOrder.push(CALL_GIT_FETCH);
         return Promise.resolve({ stdout: "", stderr: "" });
       });
 
@@ -239,8 +242,8 @@ describe("ConflictDetectionService", () => {
       // Fetch must happen, and it must happen before any execAsync call that
       // reads tracking refs (rev-list / merge-base / etc. during divergence analysis).
       expect(mockGitFetchWithTimeout).toHaveBeenCalled();
-      const firstFetchIdx = callOrder.indexOf("gitFetchWithTimeout");
-      const firstExecIdx = callOrder.indexOf("execAsync");
+      const firstFetchIdx = callOrder.indexOf(CALL_GIT_FETCH);
+      const firstExecIdx = callOrder.indexOf(CALL_EXEC_ASYNC);
       expect(firstFetchIdx).toBeGreaterThanOrEqual(0);
       if (firstExecIdx >= 0) {
         expect(firstFetchIdx).toBeLessThan(firstExecIdx);

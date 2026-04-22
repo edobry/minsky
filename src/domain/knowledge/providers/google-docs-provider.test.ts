@@ -5,6 +5,14 @@ import { IntelligentRetryService } from "../../ai/intelligent-retry-service";
 import { generateKeyPairSync } from "crypto";
 
 // ---------------------------------------------------------------------------
+// Shared constants
+// ---------------------------------------------------------------------------
+
+const GOOGLE_APPS_FOLDER_MIME = "application/vnd.google-apps.folder";
+const FOLDER_URL_FRAGMENT = "google-apps.folder";
+const MARKDOWN_MIME_FRAGMENT = "mimeType=text%2Fmarkdown";
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
@@ -38,7 +46,7 @@ function makeFolder(id: string, name: string): DriveFileShape {
   return {
     id,
     name,
-    mimeType: "application/vnd.google-apps.folder",
+    mimeType: GOOGLE_APPS_FOLDER_MIME,
     modifiedTime: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -171,7 +179,7 @@ describe("GoogleDocsKnowledgeProvider — listDocuments with driveFolderId", () 
         const folderMatch = url.match(/%27([^%]+)%27\+in\+parents/);
         const folderId = folderMatch?.[1];
 
-        if (url.includes("google-apps.folder")) {
+        if (url.includes(FOLDER_URL_FRAGMENT)) {
           // sub-folder query — return empty
           return jsonResponse({ files: [] });
         }
@@ -216,7 +224,7 @@ describe("GoogleDocsKnowledgeProvider — listDocuments with driveFolderId", () 
     const { fetch } = makeFetch(async (url) => {
       if (url.includes("/files?")) {
         // Determine whether we're querying docs or folders
-        if (url.includes("google-apps.folder")) {
+        if (url.includes(FOLDER_URL_FRAGMENT)) {
           // Parent folder-1 has one sub-folder; folder-child has none
           if (url.includes("folder-1")) {
             return jsonResponse({ files: [makeFolder("folder-child", "Child")] });
@@ -300,7 +308,7 @@ describe("GoogleDocsKnowledgeProvider — fetchDocument", () => {
       if (url.match(/\/files\/[^/?]+\?/) && !url.includes("/export")) {
         return jsonResponse(makeDoc("doc-md", "My Doc"));
       }
-      if (url.includes("mimeType=text%2Fmarkdown")) {
+      if (url.includes(MARKDOWN_MIME_FRAGMENT)) {
         return textResponse("# Heading\n\nBody");
       }
       throw new Error(`unexpected URL: ${url}`);
@@ -321,7 +329,7 @@ describe("GoogleDocsKnowledgeProvider — fetchDocument", () => {
     // Exactly one markdown export call made; no plain-text fallback
     const exportCalls = calls.filter((c) => c.url.includes("/export?"));
     expect(exportCalls.length).toBe(1);
-    expect(exportCalls[0]?.url).toContain("mimeType=text%2Fmarkdown");
+    expect(exportCalls[0]?.url).toContain(MARKDOWN_MIME_FRAGMENT);
   });
 
   it("falls back to text/plain when markdown export fails", async () => {
@@ -329,7 +337,7 @@ describe("GoogleDocsKnowledgeProvider — fetchDocument", () => {
       if (url.match(/\/files\/[^/?]+\?/) && !url.includes("/export")) {
         return jsonResponse(makeDoc("doc-broken", "Broken Doc"));
       }
-      if (url.includes("mimeType=text%2Fmarkdown")) {
+      if (url.includes(MARKDOWN_MIME_FRAGMENT)) {
         return jsonResponse(
           { error: { message: "export failed", errors: [{ reason: "exportFailed" }] } },
           500
@@ -352,7 +360,7 @@ describe("GoogleDocsKnowledgeProvider — fetchDocument", () => {
     const doc = await provider.fetchDocument("doc-broken");
     expect(doc.content).toBe("Plain body");
     // Both export URLs should have been attempted
-    const mdCalls = calls.filter((c) => c.url.includes("mimeType=text%2Fmarkdown"));
+    const mdCalls = calls.filter((c) => c.url.includes(MARKDOWN_MIME_FRAGMENT));
     const plainCalls = calls.filter((c) => c.url.includes("mimeType=text%2Fplain"));
     expect(mdCalls.length).toBeGreaterThanOrEqual(1);
     expect(plainCalls.length).toBe(1);
@@ -366,7 +374,7 @@ describe("GoogleDocsKnowledgeProvider — fetchDocument", () => {
 describe("GoogleDocsKnowledgeProvider — getChangedSince", () => {
   it("issues a query containing modifiedTime > '<iso>' and does NOT re-walk folders", async () => {
     const { fetch, calls } = makeFetch(async (url) => {
-      if (url.includes("/files?") && !url.includes("google-apps.folder")) {
+      if (url.includes("/files?") && !url.includes(FOLDER_URL_FRAGMENT)) {
         return jsonResponse({ files: [makeDoc("changed", "Changed Doc")] });
       }
       if (url.match(/\/files\/[^/?]+\?/) && !url.includes("/export")) {
@@ -401,7 +409,7 @@ describe("GoogleDocsKnowledgeProvider — getChangedSince", () => {
     const qDecoded = decodeURIComponent(qMatch?.[1] ?? "").replace(/\+/g, " ");
     expect(qDecoded).toContain("modifiedTime > '2026-01-01T00:00:00.000Z'");
     // No folder-listing queries were issued for recursion
-    expect(calls.some((c) => c.url.includes("google-apps.folder"))).toBe(false);
+    expect(calls.some((c) => c.url.includes(FOLDER_URL_FRAGMENT))).toBe(false);
   });
 
   it("with documentIds, filters by modifiedTime client-side", async () => {
@@ -579,7 +587,7 @@ describe("GoogleDocsKnowledgeProvider — excludePatterns", () => {
   it("skips documents whose name matches an exclude pattern", async () => {
     const { fetch } = makeFetch(async (url) => {
       if (url.includes("/files?")) {
-        if (url.includes("google-apps.folder")) {
+        if (url.includes(FOLDER_URL_FRAGMENT)) {
           return jsonResponse({ files: [] });
         }
         return jsonResponse({
@@ -614,7 +622,7 @@ describe("GoogleDocsKnowledgeProvider — excludePatterns", () => {
   it("skips sub-folders whose name matches an exclude pattern", async () => {
     const { fetch, calls } = makeFetch(async (url) => {
       if (url.includes("/files?")) {
-        if (url.includes("google-apps.folder")) {
+        if (url.includes(FOLDER_URL_FRAGMENT)) {
           if (url.includes("folder-root")) {
             return jsonResponse({
               files: [makeFolder("folder-keep", "Active"), makeFolder("folder-skip", "Archive")],
@@ -656,7 +664,7 @@ describe("GoogleDocsKnowledgeProvider — excludePatterns", () => {
     expect(ids.sort()).toEqual(["keep-doc", "root-doc"]);
     // Verify we never issued a docs query against folder-skip
     const skipFolderQueries = calls.filter(
-      (c) => c.url.includes("folder-skip") && !c.url.includes("google-apps.folder")
+      (c) => c.url.includes("folder-skip") && !c.url.includes(FOLDER_URL_FRAGMENT)
     );
     expect(skipFolderQueries.length).toBe(0);
   });
