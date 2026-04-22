@@ -10,6 +10,9 @@
  * Must always exit 0 — errors are written to stderr but must never block commits.
  */
 
+// tsyringe (used by PersistenceService) requires reflect-metadata polyfill
+import "reflect-metadata";
+
 import { execGitWithTimeout } from "../utils/git-exec";
 import { getSessionsDir } from "../utils/paths";
 import { SessionStatus } from "../domain/session/types";
