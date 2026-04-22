@@ -233,7 +233,11 @@ export class DefaultAICompletionService implements AICompletionService {
       // restructure and silently emits `{type: "string"}` for any `z.object(...)`,
       // which Anthropic rejects. Convert explicitly with Zod v4's native
       // `z.toJSONSchema` and wrap in the AI SDK's `jsonSchema()` helper.
-      const schemaJson = z.toJSONSchema(request.schema);
+      // Target draft-07 (Anthropic's expected dialect); cast is required because
+      // Zod v4's emitted `JSONSchema` allows `exclusiveMaximum: number | boolean`
+      // (draft-04 compat) while AI SDK's `JSONSchema7Definition` restricts it to
+      // `number`. The runtime shape is fine either way.
+      const schemaJson = z.toJSONSchema(request.schema, { target: "draft-07" });
       const result = await generateObject({
         model,
         messages: request.messages as import("ai").CoreMessage[],
