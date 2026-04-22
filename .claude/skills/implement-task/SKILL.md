@@ -56,6 +56,7 @@ Before writing any code:
   - Use meaningful messages referencing the task ID
   - Group related changes in logical commits
 - All file edits must use absolute paths under the session directory
+- **Run commands in the session** using `mcp__minsky__session_exec(task: "mt#<id>", command: "<cmd>")` — e.g., `bun test`, `bun run format:check`, `git status`. Never use `git -C <path>` or shell `cd` workarounds.
 
 ### 5. Verify implementation
 
