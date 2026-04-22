@@ -18,8 +18,8 @@ const stalenessThresholdsSchema = z.object({
 /**
  * Knowledge reconciliation configuration section.
  *
- * Controls freshness classification and authority-based ranking during
- * `knowledge.search` response construction.
+ * Controls freshness classification, authority-based ranking, near-duplicate
+ * clustering, and conflict detection during `knowledge.search`.
  *
  * ### staleness
  * Configures the freshness thresholds used by `classifyFreshness()`.
@@ -33,6 +33,15 @@ const stalenessThresholdsSchema = z.object({
  * ### epsilon
  * Maximum relevance score delta within which authority tiebreaking is applied
  * (default 0.05).  Outside this band, pure relevance ordering is used.
+ *
+ * ### redundancyThreshold
+ * Cosine similarity threshold above which two chunks are near-duplicates
+ * (default 0.92).  Used by the clustering step run after `knowledge.sync`.
+ *
+ * ### conflictModel
+ * Anthropic model used for NLI-style contradiction detection (default
+ * "claude-haiku-4-5").  Must be an Anthropic model that supports structured
+ * output.
  */
 export const knowledgeReconciliationSchema = z.object({
   /** Freshness classification thresholds */
@@ -52,6 +61,17 @@ export const knowledgeReconciliationSchema = z.object({
    * Default 0.05.
    */
   epsilon: z.number().nonnegative().optional(),
+  /**
+   * Cosine similarity threshold for near-duplicate detection.
+   * Two chunks with similarity ≥ this value are considered near-duplicates.
+   * Default 0.92.
+   */
+  redundancyThreshold: z.number().min(0).max(1).optional(),
+  /**
+   * Anthropic model for NLI-style conflict detection.
+   * Default "claude-haiku-4-5" (cost-efficient).
+   */
+  conflictModel: z.string().optional(),
 });
 
 export type KnowledgeReconciliationConfig = z.infer<typeof knowledgeReconciliationSchema>;
@@ -62,6 +82,10 @@ export interface ResolvedReconciliationConfig {
   staleness: { agingDays: number; staleDays: number };
   sourceAuthority: Record<string, number>;
   epsilon: number;
+  /** Cosine similarity threshold for near-duplicate clustering (default 0.92) */
+  redundancyThreshold: number;
+  /** Anthropic model for NLI conflict detection (default "claude-haiku-4-5") */
+  conflictModel: string;
 }
 
 /** Apply defaults to a partial KnowledgeReconciliationConfig */
@@ -75,5 +99,7 @@ export function resolveReconciliationConfig(
     },
     sourceAuthority: config?.sourceAuthority ?? {},
     epsilon: config?.epsilon ?? 0.05,
+    redundancyThreshold: config?.redundancyThreshold ?? 0.92,
+    conflictModel: config?.conflictModel ?? "claude-haiku-4-5",
   };
 }
