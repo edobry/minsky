@@ -39,6 +39,12 @@ interface TaskRelationshipsRepository {
   getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]>;
   getRelationshipsForTasks(taskIds: string[], type?: RelationshipType): Promise<TaskRelationship[]>;
   getAncestorChain(taskId: string, maxDepth: number): Promise<string[]>;
+  /**
+   * Atomically replace the parent edge for a child task.
+   * Removes any existing parent edge and inserts the new one in a single operation.
+   * Returns the previous parent id, or null if there was none.
+   */
+  upsertParent(childId: string, newParentId: string): Promise<{ previousParent: string | null }>;
 }
 
 function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
@@ -145,6 +151,36 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       `);
       return Array.from(result).map((row) => row["ancestor_id"] as string);
     },
+    async upsertParent(
+      childId: string,
+      newParentId: string
+    ): Promise<{ previousParent: string | null }> {
+      // Fetch existing parent before the upsert so we can return it
+      const existing = await db
+        .select({ toTaskId: taskRelationshipsTable.toTaskId })
+        .from(taskRelationshipsTable)
+        .where(
+          and(
+            eq(taskRelationshipsTable.fromTaskId, childId),
+            eq(taskRelationshipsTable.type, "parent")
+          )
+        )
+        .limit(1);
+      const previousParent = existing[0]?.toTaskId ?? null;
+
+      // Atomic UPSERT: exploits the tr_one_parent partial unique index
+      // (unique on from_task_id WHERE type = 'parent')
+      await db
+        .insert(taskRelationshipsTable)
+        .values({ fromTaskId: childId, toTaskId: newParentId, type: "parent" })
+        .onConflictDoUpdate({
+          target: [taskRelationshipsTable.fromTaskId],
+          targetWhere: sql`type = 'parent'`,
+          set: { toTaskId: newParentId },
+        });
+
+      return { previousParent };
+    },
   };
 }
 
@@ -234,6 +270,59 @@ export class TaskGraphService {
   async removeParent(childId: string): Promise<{ removed: boolean }> {
     const count = await this.repo.deleteEdgesFrom(childId, "parent");
     return { removed: count > 0 };
+  }
+
+  /**
+   * Atomically reparent a task.
+   *
+   * - `newParentId === null` → orphan the task (remove parent edge).
+   * - `newParentId` → UPSERT to the new parent in a single DB operation.
+   *
+   * Semantics:
+   *   - Self-parenting is rejected.
+   *   - Cycles are rejected (reuses ancestor-check from addParent).
+   *   - No-op: if current parent already equals requested parent, returns
+   *     `{ previousParent, newParent }` without any DB writes.
+   *
+   * Returns `{ taskId, previousParent, newParent }`.
+   */
+  async reparent(
+    childId: string,
+    newParentId: string | null
+  ): Promise<{ taskId: string; previousParent: string | null; newParent: string | null }> {
+    validateQualifiedIds(childId);
+    if (newParentId !== null) {
+      validateQualifiedIds(newParentId);
+    }
+
+    if (newParentId !== null && childId === newParentId) {
+      throw new Error("A task cannot be its own parent");
+    }
+
+    // Fetch current parent
+    const previousParent = await this.getParent(childId);
+
+    // No-op check
+    if (previousParent === newParentId) {
+      return { taskId: childId, previousParent, newParent: newParentId };
+    }
+
+    if (newParentId === null) {
+      // Orphan the task — remove parent edge if present
+      await this.repo.deleteEdgesFrom(childId, "parent");
+      return { taskId: childId, previousParent, newParent: null };
+    }
+
+    // Cycle prevention: ensure newParentId is not a descendant of childId
+    const ancestors = await this.getAncestors(newParentId);
+    if (ancestors.includes(childId)) {
+      throw new Error(`Cycle detected: ${newParentId} is already a descendant of ${childId}`);
+    }
+
+    // Atomic UPSERT (handles both "no parent yet" and "replace parent" cases)
+    await this.repo.upsertParent(childId, newParentId);
+
+    return { taskId: childId, previousParent, newParent: newParentId };
   }
 
   /**
