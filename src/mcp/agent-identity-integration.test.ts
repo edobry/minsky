@@ -15,6 +15,10 @@ import { AGENT_ID_META_KEY } from "../domain/agent-identity/layer2";
 import type { AppContainerInterface, ServiceKey } from "../composition/types";
 import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
 
+// Used in tests where writeAgentIdToSession is expected to short-circuit
+// before the agentId value is observed (no container, no session match).
+const PLACEHOLDER_AGENT_ID = "unknown:hash:abc";
+
 // ---------------------------------------------------------------------------
 // Minimal stubs
 // ---------------------------------------------------------------------------
@@ -186,7 +190,7 @@ describe("MCP server — agent identity integration (ADR-006)", () => {
       const server = makeServer();
       server.setContainer(container);
 
-      await (server as any).writeAgentIdToSession({ title: "some-task" }, "unknown:hash:abc");
+      await (server as any).writeAgentIdToSession({ title: "some-task" }, PLACEHOLDER_AGENT_ID);
 
       expect(updates).toHaveLength(0);
     });
@@ -243,7 +247,7 @@ describe("MCP server — agent identity integration (ADR-006)", () => {
       const server = makeServer();
       server.setContainer(container);
 
-      await (server as any).writeAgentIdToSession({ task: "mt#9999" }, "unknown:hash:abc");
+      await (server as any).writeAgentIdToSession({ task: "mt#9999" }, PLACEHOLDER_AGENT_ID);
 
       expect(updates).toHaveLength(0);
     });

@@ -220,11 +220,11 @@ export class PreCommitHook {
       }
 
       // WARNING THRESHOLD: Ratchet — lower as warnings are fixed.
-      // Baseline as of 2026-04-22: 47 warnings (no-magic-string-duplication in tests,
-      // no-real-fs-in-tests, no-non-null-assertion, no-excessive-as-unknown,
-      // no-singleton-reach-in in post-commit hook). Prior value of 30 was below actual
-      // baseline and blocked all commits. Set to 50 to allow forward progress.
-      const MAX_LINT_WARNINGS = 50;
+      // Baseline as of 2026-04-22: 47 warnings on main (no-magic-string-duplication in
+      // tests, no-real-fs-in-tests, no-non-null-assertion, no-excessive-as-unknown,
+      // no-singleton-reach-in in post-commit hook). Prior value of 30 predated these
+      // accumulating. mt#1097 ratchets this back down by fixing or waiving each category.
+      const MAX_LINT_WARNINGS = 47;
       if (summary.warningCount > MAX_LINT_WARNINGS) {
         log.cli("");
         log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
