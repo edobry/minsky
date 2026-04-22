@@ -54,6 +54,33 @@ export interface MemoryServiceDb {
 }
 
 // ---------------------------------------------------------------------------
+// Public API surface interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Narrow public-API interface for MemoryService.
+ * Use this in tests and dependency injection instead of the concrete class
+ * to avoid `as unknown as MemoryService` casts.
+ */
+export interface MemoryServiceSurface {
+  search(query: string, opts?: MemorySearchOptions): Promise<MemorySearchResponse>;
+  get(id: string): Promise<MemoryRecord | null>;
+  list(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
+  create(input: MemoryCreateInput): Promise<MemoryRecord>;
+  update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
+  delete(id: string): Promise<void>;
+  similar(
+    id: string,
+    opts?: Pick<MemorySearchOptions, "limit" | "threshold">
+  ): Promise<MemorySearchResult[]>;
+  supersede(
+    oldId: string,
+    newInput: MemoryCreateInput,
+    reason?: string
+  ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }>;
+}
+
+// ---------------------------------------------------------------------------
 // Deps interface
 // ---------------------------------------------------------------------------
 
@@ -95,7 +122,7 @@ function rowToRecord(row: Record<string, any>): MemoryRecord {
 // ---------------------------------------------------------------------------
 
 @injectable()
-export class MemoryService {
+export class MemoryService implements MemoryServiceSurface {
   constructor(private readonly deps: MemoryServiceDeps) {}
 
   // -------------------------------------------------------------------------

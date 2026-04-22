@@ -119,7 +119,8 @@ export const ghDenials: DenialRule[] = [
   },
   {
     match: (args) => args[0] === "pr" && args[1] === "review",
-    reason: "Use `mcp__github__pull_request_review_write` instead of `gh pr review`.",
+    reason:
+      "Use `mcp__minsky__session_pr_review_submit` instead of `gh pr review`. (The previous redirect pointed at `mcp__github__pull_request_review_write`, which is now banned by mt#1030.)",
   },
   {
     match: (args) =>
