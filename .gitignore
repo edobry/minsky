@@ -64,7 +64,3 @@ supabase/
 # installed agent skills (restore via postinstall)
 .agents/
 .claude/worktrees/
-
-# TS-first compile target outputs (generated on demand, not committed)
-# Run "minsky compile --target cursor-rules-ts" to regenerate.
-.cursor/rules/ts-fixture.mdc

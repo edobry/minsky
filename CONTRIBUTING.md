@@ -228,26 +228,64 @@ After migration, `.minsky/rules/` is authoritative. `minsky rules migrate --dry-
 shows what would change without writing, and `--force` overwrites any existing files
 in the destination.
 
-## Skills Storage Model
+## TypeScript-First Compile Pipeline
 
-Minsky skills follow the same source/output split as rules, but with TypeScript-authored
-source definitions:
+Skills, agents, and rules can all be authored as TypeScript modules using the
+`@minsky/definitions` factories, then compiled to the harness-specific formats Claude
+Code and Cursor expect. The pipeline ships three targets (mt#913) — pick whichever
+matches the kind of artifact you are authoring:
 
-- **`.minsky/skills/<name>/skill.ts`** — canonical source. Uses `defineSkill(...)` from
-  `@minsky/definitions` to declare a typed skill.
-- **`.claude/skills/<name>/SKILL.md`** — compile output, regenerated from the `.ts`
-  source by `bun run minsky compile --target claude-skills`. Matches the Agent Skills
-  format Claude Code expects.
+| Target            | Source                           | Output                           | Format                    |
+| ----------------- | -------------------------------- | -------------------------------- | ------------------------- |
+| `claude-skills`   | `.minsky/skills/<name>/skill.ts` | `.claude/skills/<name>/SKILL.md` | Agent Skills YAML + body  |
+| `claude-agents`   | `.minsky/agents/<name>/agent.ts` | `.claude/agents/<name>.md`       | Claude Code agent format  |
+| `cursor-rules-ts` | `.minsky/rules/<name>/rule.ts`   | `.cursor/rules/<name>.mdc`       | Cursor `.mdc` rule format |
 
-Unlike `.cursor/rules/`, the `.claude/skills/` directory is **shared** with hand-authored
-skills (the existing Minsky skills in this repo were authored as SKILL.md directly).
-That is why `compile --check --target claude-skills` does not flag orphan files — it
-only verifies that compiled skills (those with a `.ts` source) match their output.
-Hand-authored skills coexist without interference.
+Run one target at a time:
 
-This is the first of three targets (claude-skills, claude-agents, cursor-rules-ts)
-planned for the TypeScript-first pipeline under mt#913. Additional targets will be
-added in follow-on subtasks.
+```bash
+bun run minsky compile --target claude-skills       # compile all skills
+bun run minsky compile --target claude-agents       # compile all agents
+bun run minsky compile --target cursor-rules-ts     # compile all TS-authored rules
+bun run minsky compile --target <id> --check        # exit non-zero if output is stale
+bun run minsky compile --target <id> --dry-run      # print what would change
+```
+
+### Invariant: directory name must equal the definition's `name`
+
+For each target, the source directory name must equal the `name` declared in the
+TypeScript definition. For example, `.minsky/agents/implementer/agent.ts` must set
+`agent.name: "implementer"`. Definitions that violate this invariant are silently
+skipped during compile (pushed to `definitionsSkipped` in the result).
+
+Why: `listOutputFiles` (which powers `--check`) only sees directory names — it cannot
+load every definition to discover the declared name. Enforcing equality keeps the
+check and compile paths in lockstep without an expensive load-all step.
+
+### Coexistence with the legacy `rules compile`
+
+The older `bun run minsky rules compile --target cursor-rules` reads flat
+`.minsky/rules/*.mdc` files and writes to the same `.cursor/rules/` directory. It
+predates the TS-first pipeline and still runs today, including in the pre-commit hook.
+
+Both pipelines can operate safely on `.cursor/rules/`: the legacy `--check` filters
+out TS-owned rule IDs (those with a `.minsky/rules/<name>/rule.ts` source) before
+comparing content or doing orphan detection. Until all rules migrate to TypeScript
+sources (tracked separately), the two pipelines coexist.
+
+### Shared output directories
+
+`.claude/skills/`, `.claude/agents/`, and `.cursor/rules/` all host hand-authored
+artifacts alongside compile output. Targets declare `sharedOutputDirectory: true` so
+`--check` skips orphan detection — a hand-authored SKILL.md next to a compiled one is
+not a stale file.
+
+### Migrating existing `.cursor/rules/` to TS sources
+
+See the preceding "Rules Storage Model" section for the one-time migration from
+`.cursor/rules/`-as-source to `.minsky/rules/*.mdc`-as-source (mt#588 / mt#1090).
+Migrating further from `.mdc` sources to `rule.ts` sources is a separate follow-on and
+not automated yet.
 
 ## Pre-commit Hooks
 
