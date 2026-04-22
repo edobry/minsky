@@ -75,6 +75,7 @@ describe("Migration Tag Preservation (mt#758 regression)", () => {
       workspacePath: "/mock",
       dryRun: false,
       updateIds: true,
+      persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
     });
 
     expect(result.migrated).toBe(1);
@@ -131,6 +132,7 @@ describe("Migration Tag Preservation (mt#758 regression)", () => {
       workspacePath: "/mock",
       dryRun: false,
       updateIds: true,
+      persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
     });
 
     expect(result.migrated).toBe(1);

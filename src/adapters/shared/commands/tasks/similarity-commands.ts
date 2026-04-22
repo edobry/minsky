@@ -36,8 +36,8 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly parameters = tasksSimilarParams;
 
   constructor(
-    private readonly getPersistenceProvider?: () => import("../../../../domain/persistence/types").PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getPersistenceProvider: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getTaskService: () => TaskServiceInterface
   ) {
     super();
   }
@@ -68,7 +68,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const taskService = this.getTaskService?.();
+        const taskService = this.getTaskService();
         if (!taskService) {
           enhanced.push({
             id: result.id,
@@ -117,9 +117,6 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    if (!this.getPersistenceProvider)
-      throw new Error("Persistence provider required for similarity search");
-    if (!this.getTaskService) throw new Error("Task service required for similarity search");
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
     const response = await service.similarToTask(taskId, limit, threshold);
 
@@ -166,8 +163,8 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly parameters = tasksSearchParams;
 
   constructor(
-    private readonly getPersistenceProvider?: () => import("../../../../domain/persistence/types").PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getPersistenceProvider: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getTaskService: () => TaskServiceInterface
   ) {
     super();
   }
@@ -198,7 +195,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const taskService = this.getTaskService?.();
+        const taskService = this.getTaskService();
         if (!taskService) {
           enhanced.push({
             id: result.id,
@@ -247,9 +244,6 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
-    if (!this.getPersistenceProvider)
-      throw new Error("Persistence provider required for task search");
-    if (!this.getTaskService) throw new Error("Task service required for task search");
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
 
     // Immediate progress hint to stderr unless JSON/quiet
