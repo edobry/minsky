@@ -27,9 +27,23 @@ Optional: task ID (e.g., `/orchestrate mt#123`). If omitted, lists available tas
 
 ### 2. Session creation
 
-- Start a session: `mcp__minsky__session_start` with `task: "<task-id>"`, `repo: "https://github.com/edobry/minsky.git"`
+**First check for existing sessions on this task:**
+
+- `mcp__minsky__session_list` with `task: "<task-id>"` — returns sessions with their `status` and `liveness` (from mt#951)
+- Interpret liveness before proceeding:
+  - **`healthy`** (active commits within 30 min): Another agent is working on this task. **Do not proceed.** Report back to the user; do not dispatch a competing session.
+  - **`idle`** (30 min – 2 hours inactive): Likely paused. Report back to the user and ask whether to wait, monitor, or force-recover. Do not dispatch without confirmation.
+  - **`stale` / `orphaned`** (>2 hours inactive, no commits): Abandoned. Proceed with `session_start --recover true` (from mt#1044) to delete the stale session and create fresh.
+  - **Status `MERGED` or `CLOSED`**: The previous session is terminal. Either delete it manually (`session_delete`) or pick a different task — `--recover` will not override this.
+  - **No session**: Normal flow, just `session_start` without `recover`.
+
+Then start the session:
+
+- `mcp__minsky__session_start` with `task: "<task-id>"`, `repo: "https://github.com/edobry/minsky.git"` (add `recover: true` if recovering from a stale session)
 - This automatically sets task status to IN-PROGRESS
 - Note the session ID and directory path for subagent dispatch
+
+**Running commands in sessions**: Use `mcp__minsky__session_exec(task, command)` to run shell commands in the session workspace from the main agent context (e.g., `git status`, `bun test`, `ls src/`). Don't reach for bash `git -C <session-path>`.
 
 ### 3. Pre-work assessment
 

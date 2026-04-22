@@ -14,6 +14,7 @@ import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
+import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 
@@ -109,6 +110,7 @@ export class MinskyMCPServer {
   private resources: Map<string, ResourceDefinition> = new Map();
   private prompts: Map<string, PromptDefinition> = new Map();
   private stalenessDetector: StalenessDetector;
+  private diag: DiagnosticCapture;
 
   // For HTTP transport: map sessionId to transport for multiple clients
   private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
@@ -139,6 +141,10 @@ export class MinskyMCPServer {
       this.projectContext.repositoryPath || process.cwd()
     );
 
+    // mt#953 — agent identity research diagnostic capture (env-gated)
+    this.diag = createDiagnosticCapture();
+    this.diag.captureProcess();
+
     // Create server instance
     this.server = new Server(
       {
@@ -154,6 +160,8 @@ export class MinskyMCPServer {
         },
       }
     );
+
+    this.diag.captureInit(this.server);
 
     // Create transport based on configuration
     if (this.options.transportType === "stdio") {
@@ -188,8 +196,14 @@ export class MinskyMCPServer {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
       if (req.method === "POST") {
+        this.diag.captureRequest(
+          "http/post",
+          { headers: req.headers, body: req.body },
+          { sessionId }
+        );
         await this.handleHttpPost(req, res, sessionId);
       } else if (req.method === "GET") {
+        this.diag.captureRequest("http/get", { headers: req.headers }, { sessionId });
         await this.handleHttpGet(req, res, sessionId);
       } else {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
@@ -257,16 +271,20 @@ export class MinskyMCPServer {
    */
   private setupRequestHandlers(): void {
     // List tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: Array.from(this.tools.values()).map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema || {},
-      })),
-    }));
+    this.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("tools/list", request, extra);
+      return {
+        tools: Array.from(this.tools.values()).map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema || {},
+        })),
+      };
+    });
 
     // Call tool
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("tools/call", request, extra);
       if (this.draining) {
         throw new Error("Server is shutting down");
       }
@@ -310,7 +328,11 @@ export class MinskyMCPServer {
             tool: request.params.name,
             error: getErrorMessage(error),
           });
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          const staleWarning = this.stalenessDetector.getStaleWarning();
+          const stalePrefix = staleWarning
+            ? `🚫 BLOCKING: MCP server is stale — reconnect with /mcp before retrying. ${staleWarning.trim()}\n\n`
+            : "";
+          throw new Error(`${stalePrefix}Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
         this.inFlightRequests.delete(trackingId);
@@ -318,16 +340,20 @@ export class MinskyMCPServer {
     });
 
     // List resources
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: Array.from(this.resources.values()).map((resource) => ({
-        uri: resource.uri,
-        name: resource.name,
-        description: resource.description,
-      })),
-    }));
+    this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("resources/list", request, extra);
+      return {
+        resources: Array.from(this.resources.values()).map((resource) => ({
+          uri: resource.uri,
+          name: resource.name,
+          description: resource.description,
+        })),
+      };
+    });
 
     // Read resource
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("resources/read", request, extra);
       const resource = this.resources.get(request.params.uri);
       if (!resource) {
         throw new Error(`Resource '${request.params.uri}' not found`);
@@ -354,15 +380,19 @@ export class MinskyMCPServer {
     });
 
     // List prompts
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-      prompts: Array.from(this.prompts.values()).map((prompt) => ({
-        name: prompt.name,
-        description: prompt.description,
-      })),
-    }));
+    this.server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("prompts/list", request, extra);
+      return {
+        prompts: Array.from(this.prompts.values()).map((prompt) => ({
+          name: prompt.name,
+          description: prompt.description,
+        })),
+      };
+    });
 
     // Get prompt
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
+      this.diag.captureRequest("prompts/get", request, extra);
       const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
         throw new Error(`Prompt '${request.params.name}' not found`);

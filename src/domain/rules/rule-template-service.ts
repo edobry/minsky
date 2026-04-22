@@ -294,7 +294,12 @@ export class RuleTemplateService {
   private getOutputDir(config: RuleGenerationConfig): string {
     // Use configured output directory if provided
     const outputDir =
-      config.outputDir || (config.ruleFormat === "cursor" ? ".cursor/rules" : ".ai/rules");
+      config.outputDir ||
+      (config.ruleFormat === "cursor"
+        ? ".cursor/rules"
+        : config.ruleFormat === "generic"
+          ? ".ai/rules"
+          : ".minsky/rules");
 
     // If output dir is absolute, use it as-is
     if (path.isAbsolute(outputDir)) {
@@ -337,8 +342,8 @@ export class RuleTemplateService {
         mcpEnabled: false,
         mcpTransport: "stdio",
         preferMcp: false,
-        ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules",
+        ruleFormat: options.ruleFormat || "minsky",
+        outputDir: options.outputDir || ".minsky/rules",
       },
     });
   }
@@ -359,8 +364,8 @@ export class RuleTemplateService {
         mcpEnabled: true,
         mcpTransport: "stdio",
         preferMcp: true,
-        ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules",
+        ruleFormat: options.ruleFormat || "minsky",
+        outputDir: options.outputDir || ".minsky/rules",
       },
     });
   }
@@ -381,8 +386,8 @@ export class RuleTemplateService {
         mcpEnabled: true,
         mcpTransport: "stdio",
         preferMcp: options.preferMcp === undefined ? false : options.preferMcp,
-        ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules",
+        ruleFormat: options.ruleFormat || "minsky",
+        outputDir: options.outputDir || ".minsky/rules",
       },
     });
   }

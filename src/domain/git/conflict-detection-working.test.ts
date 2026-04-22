@@ -203,4 +203,72 @@ describe("ConflictDetectionService", () => {
       expect(result.conflictType).toBe(ConflictType.ALREADY_MERGED);
     });
   });
+
+  describe("smartSessionUpdate (mt#990 regression)", () => {
+    test("fetches base branch before analyzing divergence", async () => {
+      // Regression for mt#990: without an explicit fetch before divergence analysis,
+      // a stale local origin/<baseBranch> ref causes smartSessionUpdate to silently
+      // no-op even when the remote has new commits. The fix: fetch first, then analyze.
+
+      // Record call order by tagging both mocks.
+      const callOrder: string[] = [];
+      const mockExecAsync = mock(() => {
+        callOrder.push("execAsync");
+        return Promise.resolve({ stdout: "0\t0", stderr: "" });
+      });
+      const mockGitFetchWithTimeout = mock(() => {
+        callOrder.push("gitFetchWithTimeout");
+        return Promise.resolve({ stdout: "", stderr: "" });
+      });
+
+      const instrumentedDeps: ConflictDetectionDeps = {
+        execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
+        gitFetchWithTimeout:
+          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
+      };
+
+      await ConflictDetectionService.smartSessionUpdate(
+        testRepoPath,
+        sessionBranch,
+        baseBranch,
+        undefined,
+        instrumentedDeps
+      );
+
+      // Fetch must happen, and it must happen before any execAsync call that
+      // reads tracking refs (rev-list / merge-base / etc. during divergence analysis).
+      expect(mockGitFetchWithTimeout).toHaveBeenCalled();
+      const firstFetchIdx = callOrder.indexOf("gitFetchWithTimeout");
+      const firstExecIdx = callOrder.indexOf("execAsync");
+      expect(firstFetchIdx).toBeGreaterThanOrEqual(0);
+      if (firstExecIdx >= 0) {
+        expect(firstFetchIdx).toBeLessThan(firstExecIdx);
+      }
+    });
+
+    test("fetch is invoked with correct remote and base branch", async () => {
+      const mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+      const instrumentedDeps: ConflictDetectionDeps = {
+        execAsync: mock(() =>
+          Promise.resolve({ stdout: "0\t0", stderr: "" })
+        ) as unknown as ConflictDetectionDeps["execAsync"],
+        gitFetchWithTimeout:
+          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
+      };
+
+      await ConflictDetectionService.smartSessionUpdate(
+        testRepoPath,
+        sessionBranch,
+        baseBranch,
+        undefined,
+        instrumentedDeps
+      );
+
+      expect(mockGitFetchWithTimeout).toHaveBeenCalledWith("origin", baseBranch, {
+        workdir: testRepoPath,
+      });
+    });
+  });
 });

@@ -255,6 +255,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       options;
 
     // Create source and target task services using injectable factory
+    if (!options.persistenceProvider) {
+      throw new Error("persistenceProvider is required for backend migration");
+    }
     const persistenceProvider = options.persistenceProvider;
 
     const sourceService = await this.createTaskServiceFactory({
@@ -570,6 +573,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       return { passed: [], failed: [] };
     }
 
+    if (!params.persistenceProvider) {
+      throw new Error("persistenceProvider is required for migration validation");
+    }
     const persistenceProvider = params.persistenceProvider;
 
     const sourceService = await createConfiguredTaskService({

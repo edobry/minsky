@@ -26,4 +26,11 @@ export interface CompileTarget {
   displayName: string;
   defaultOutputPath(workspacePath: string): string;
   compile(rules: Rule[], options: TargetOptions, workspacePath: string): Promise<CompileResult>;
+  /**
+   * Return the list of all output file paths this target would produce for the given rules/options.
+   * Used for staleness detection in --check mode.
+   * For single-file targets, returns a single path. For multi-file targets (e.g. cursor-rules),
+   * returns one path per output file.
+   */
+  listOutputFiles(rules: Rule[], options: TargetOptions, workspacePath: string): string[];
 }

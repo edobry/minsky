@@ -48,7 +48,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
         // ignore
       }
 
-      return { success: true, sessions };
+      return { success: true, sessions, verbose: params.verbose };
     }),
   };
 }

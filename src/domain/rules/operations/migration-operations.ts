@@ -5,7 +5,7 @@
  * and performing enhanced similarity search.
  */
 
-import fs from "fs/promises";
+import realFs from "fs/promises";
 import { join } from "path";
 import { getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
@@ -13,6 +13,7 @@ import { RuleService } from "../../rules";
 import type {
   MigrateRulesOptions,
   MigrateRulesResult,
+  MigrateFsDeps,
   IndexEmbeddingsOptions,
   IndexEmbeddingsResult,
   EnhancedRuleSearchResult,
@@ -26,6 +27,7 @@ import type {
  */
 export async function migrateRules(options: MigrateRulesOptions): Promise<MigrateRulesResult> {
   const { workspacePath, dryRun, force } = options;
+  const fs: MigrateFsDeps = options.fsDeps ?? (realFs as MigrateFsDeps);
   const sourceDir = join(workspacePath, ".cursor/rules");
   const destDir = join(workspacePath, ".minsky/rules");
 
@@ -105,8 +107,8 @@ export async function migrateRules(options: MigrateRulesOptions): Promise<Migrat
 export async function indexRuleEmbeddings(
   options: IndexEmbeddingsOptions
 ): Promise<IndexEmbeddingsResult> {
-  const { createRuleSimilarityService } = await import("../rule-similarity-service");
-  const service = await createRuleSimilarityService();
+  const { RuleSimilarityService } = await import("../rule-similarity-service");
+  const service = RuleSimilarityService.createWithWorkspacePath(options.workspacePath);
 
   const ruleService = new RuleService(options.workspacePath);
   const rules = await ruleService.listRules({});
@@ -158,8 +160,8 @@ export async function indexRuleEmbeddings(
 export async function searchRulesEnhanced(
   options: SearchRulesEnhancedOptions
 ): Promise<EnhancedRuleSearchResult[]> {
-  const { createRuleSimilarityService } = await import("../rule-similarity-service");
-  const service = await createRuleSimilarityService();
+  const { RuleSimilarityService } = await import("../rule-similarity-service");
+  const service = RuleSimilarityService.createWithWorkspacePath(options.workspacePath);
 
   const { query, limit = 10, threshold } = options;
 

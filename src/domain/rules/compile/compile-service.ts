@@ -27,6 +27,10 @@ export class CompileService {
     return Array.from(this.targets.keys());
   }
 
+  getTarget(targetId: string): CompileTarget | undefined {
+    return this.targets.get(targetId);
+  }
+
   async compile(
     ruleService: RuleService,
     targetId: string,

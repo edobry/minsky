@@ -29,13 +29,25 @@ export function registerCompileMigrateCommands(targetRegistry: {
       log.debug("Executing rules.compile command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
-        return await compileRules({
+        const result = await compileRules({
           workspacePath,
           target: params.target,
           output: params.output,
           dryRun: params.dryRun,
           check: params.check,
         });
+
+        // --check mode: exit non-zero when output is stale so CI/hooks can detect it.
+        if (result.check && result.stale) {
+          const target = params.target || "agents.md";
+          const staleFile = result.staleFile || "(unknown file)";
+          log.cli(`[rules compile --check] Target "${target}" is STALE`);
+          log.cli(`  Stale file: ${staleFile}`);
+          log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
+          throw new Error(`rules compile --check: target "${target}" is stale (${staleFile})`);
+        }
+
+        return result;
       } catch (error) {
         log.error("Failed to compile rules", {
           error: getErrorMessage(error),

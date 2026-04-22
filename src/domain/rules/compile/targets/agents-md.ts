@@ -139,6 +139,10 @@ export const agentsMdTarget: CompileTarget = {
     return join(workspacePath, "AGENTS.md");
   },
 
+  listOutputFiles(_rules: Rule[], options: TargetOptions, workspacePath: string): string[] {
+    return [options.outputPath || this.defaultOutputPath(workspacePath)];
+  },
+
   async compile(
     rules: Rule[],
     options: TargetOptions,

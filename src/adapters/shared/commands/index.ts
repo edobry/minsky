@@ -22,6 +22,7 @@ import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
 import { registerKnowledgeCommands } from "./knowledge";
+import { registerMemoryCommands } from "./memory";
 import { registerProvenanceCommands } from "./provenance";
 
 /**
@@ -64,7 +65,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   registerAiCommands();
 
   // Register tools commands
-  registerToolsCommands();
+  registerToolsCommands(container);
 
   // Register changeset commands
   registerChangesetCommands();
@@ -77,6 +78,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register knowledge commands
   registerKnowledgeCommands();
+
+  // Register memory commands
+  registerMemoryCommands();
 
   // Register provenance commands
   registerProvenanceCommands(container);
@@ -102,6 +106,7 @@ export {
   registerValidateCommands,
   registerMcpCommands,
   registerKnowledgeCommands,
+  registerMemoryCommands,
   registerRepoCommands,
   registerProvenanceCommands,
 };
