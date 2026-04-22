@@ -15,6 +15,36 @@ export function isRetryableAIError(error: unknown): boolean {
   return /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
 }
 
+/**
+ * Determines whether a Google Docs / Drive API error is retryable.
+ *
+ * Retryable:
+ *   - 401 (token expired – caller will refresh and retry)
+ *   - 403 with reason userRateLimitExceeded or quotaExceeded (transient quota)
+ *   - 429 (Too Many Requests)
+ *   - 5xx / 503 (server errors)
+ *
+ * Not retryable:
+ *   - 404 (document not found)
+ *   - 400 (bad request – permanent)
+ *   - 403 with other reasons (e.g. insufficientPermissions)
+ */
+export function isRetryableGoogleDocsError(error: unknown): boolean {
+  const msg = String((error as Error)?.message || "");
+  // Non-retryable status codes
+  if (/Google (Docs|Drive) API error: 404/i.test(msg)) return false;
+  if (/Google (Docs|Drive) API error: 400/i.test(msg)) return false;
+  // 403 — only retry if reason is quota-related
+  if (/Google (Docs|Drive) API error: 403/i.test(msg)) {
+    return /userRateLimitExceeded|quotaExceeded/i.test(msg);
+  }
+  // Retryable: 401, 429, 5xx, 503, network errors
+  return (
+    /Google (Docs|Drive) API error: (401|429|5\d\d)/i.test(msg) ||
+    /429|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg)
+  );
+}
+
 interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
 }
