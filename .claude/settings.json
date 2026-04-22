@@ -116,6 +116,17 @@
             "statusMessage": "Labeling session..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__session_pr_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-review-after-pr-create.ts",
+            "timeout": 5,
+            "statusMessage": "Reminding to review the new PR..."
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
