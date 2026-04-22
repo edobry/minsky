@@ -197,6 +197,7 @@ Navigate to your main workspace and try again:
     const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
 
     if (taskSession) {
+      // Merged PR — always hard-block (session is frozen)
       if (taskSession.prState?.mergedAt) {
         throw new MinskyError(
           `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
@@ -206,10 +207,45 @@ Navigate to your main workspace and try again:
             `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
         );
       }
-      throw new MinskyError(
-        `A session for task ${formatTaskIdForDisplay(taskId)} already exists ("${taskSession.session}"). ` +
-          `Use the existing session, or delete it before starting a new one.`
-      );
+
+      const { deriveSessionLiveness } = await import("./types");
+      const liveness = deriveSessionLiveness(taskSession);
+
+      // Stale/orphaned with --recover: delete the old session and proceed
+      if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
+        log.cli(`Recovering abandoned session "${taskSession.session}" (liveness: ${liveness})...`);
+        await deps.sessionDB.deleteSession(taskSession.session);
+        // Fall through to create new session
+      } else {
+        // Build a more informative error message based on liveness
+        const ageInfo = taskSession.lastActivityAt
+          ? ` Last activity: ${new Date(taskSession.lastActivityAt).toISOString()}.`
+          : "";
+        const statusInfo = taskSession.status ? ` Status: ${taskSession.status}.` : "";
+
+        if (liveness === "healthy") {
+          throw new MinskyError(
+            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.session}").${statusInfo}${ageInfo} ` +
+              `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
+          );
+        }
+
+        if (liveness === "idle") {
+          throw new MinskyError(
+            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") and was recently idle.${statusInfo}${ageInfo} ` +
+              `Use the existing session, or delete it before starting a new one.`
+          );
+        }
+
+        // stale or orphaned (without --recover)
+        throw new MinskyError(
+          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.session}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
+            `To recover and start fresh:\n` +
+            `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
+            `Or to manually delete:\n` +
+            `  minsky session delete ${taskSession.session}`
+        );
+      }
     }
   }
 

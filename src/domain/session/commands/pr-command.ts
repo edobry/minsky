@@ -48,10 +48,8 @@ export async function sessionPr(
     const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionId);
 
     // Check if PR already exists based on session record
-    if (sessionRecord.prState?.commitHash) {
-      log.debug(
-        `PR already exists for session '${resolvedContext.sessionId}' with commit ${sessionRecord.prState.commitHash}`
-      );
+    if (sessionRecord.prState?.exists) {
+      log.debug(`PR already exists for session '${resolvedContext.sessionId}'`);
       // Force recreation by clearing the prState and deleting git branch
       try {
         const branchToDelete =

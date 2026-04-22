@@ -328,7 +328,11 @@ export class MinskyMCPServer {
             tool: request.params.name,
             error: getErrorMessage(error),
           });
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          const staleWarning = this.stalenessDetector.getStaleWarning();
+          const stalePrefix = staleWarning
+            ? `🚫 BLOCKING: MCP server is stale — reconnect with /mcp before retrying. ${staleWarning.trim()}\n\n`
+            : "";
+          throw new Error(`${stalePrefix}Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
         this.inFlightRequests.delete(trackingId);
