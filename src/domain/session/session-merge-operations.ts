@@ -34,6 +34,7 @@ import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../pers
 import { ProvenanceService } from "../provenance/provenance-service";
 import { AuthorshipTier } from "../provenance/types";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
+import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
 import { TranscriptService } from "../provenance/transcript-service";
 import { createCompletionService } from "../ai/service-factory";
@@ -327,12 +328,26 @@ export async function mergeSessionPr(
       }
     }
 
+    // Build token provider from config (same pattern as createRepositoryBackend).
+    // Done unconditionally so token routing works even when tier is unknown
+    // (mt#992: the previous code only built the provider inside the tier-known
+    // branch, which meant missing provenance fell through to the default
+    // service token and failed on protected branches).
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const githubCfg = cfg.github ?? {};
+    const tokenProvider = createTokenProvider(githubCfg, userToken);
+    const serviceAccountConfigured = tokenProvider.isServiceAccountConfigured();
+
+    // Decide which token to use. The pure function handles all four states
+    // (three tier values plus null) consistently. See mt#992 and
+    // src/domain/provenance/merge-token-resolution.ts.
+    const tokenChoice = resolveMergeToken(authorshipTier, serviceAccountConfigured);
+    if (tokenChoice === "user" && serviceAccountConfigured) {
+      mergeOptions.tokenOverride = () => tokenProvider.getUserToken();
+    }
+
     if (authorshipTier !== null) {
-      // Build token provider from config (same pattern as createRepositoryBackend)
-      const cfg = getConfiguration();
-      const userToken = cfg.github?.token ?? "";
-      const githubCfg = cfg.github ?? {};
-      const tokenProvider = createTokenProvider(githubCfg, userToken);
       const serviceIdentity = await tokenProvider.getServiceIdentity();
 
       // Build bot identity for trailers (only when a service account is configured)
@@ -366,22 +381,11 @@ export async function mergeSessionPr(
         mergeOptions.mergeTrailers = trailers;
       }
 
-      // Token routing:
-      // - Default GitHubContext.getToken() calls tokenProvider.getServiceToken()
-      // - With App configured: getServiceToken() returns the App installation token
-      // - Tier 1/2: the merge should be attributed to the human, so override with getUserToken
-      // - Tier 3: the merge is agent-authored, so the default (service token) is correct
-      if (serviceIdentity && tokenProvider.isServiceAccountConfigured()) {
-        if (
-          authorshipTier === AuthorshipTier.HUMAN_AUTHORED ||
-          authorshipTier === AuthorshipTier.CO_AUTHORED
-        ) {
-          mergeOptions.tokenOverride = () => tokenProvider.getUserToken();
-        }
-        // Tier 3: no override — default service token is correct
-      }
-
       mergeOptions.authorshipTier = authorshipTier;
+    } else if (serviceAccountConfigured && prNumber !== undefined) {
+      log.warn(
+        `No provenance record for PR #${prNumber}; defaulting merge to user token (CO_AUTHORED routing). See mt#992.`
+      );
     }
   } catch (tierError) {
     log.warn(
