@@ -152,7 +152,7 @@ Supporting finding: Claude Code is already populating `_meta` with a namespaced 
 
 4. **Non-MCP callers are a separate channel.** Copilot and Linear agents don't reach Minsky via MCP at all; their identity flows through git commit author + GitHub App installation IDs. The agent identity scheme must cover git-channel callers explicitly, possibly as a parallel `kind:github-app:<slug>` branch.
 
-5. **`clientInfo.name` is the de-facto harness-kind anchor.** Codex documents it explicitly; Claude Code uses `claude-ai`. Cursor/Windsurf/Cline will almost certainly follow the same pattern. Minsky should standardize on mapping `clientInfo.name` to a normalized `kind` field.
+5. **`clientInfo.name` is the de-facto harness-kind anchor.** Codex documents it explicitly; Claude Code uses `claude-code` (confirmed via live capture, correcting older third-party docs that claimed `claude-ai`). Cursor/Windsurf/Cline will almost certainly follow the same pattern. Minsky should standardize on mapping `clientInfo.name` to a normalized `kind` field.
 
 ## Reproducing captures
 

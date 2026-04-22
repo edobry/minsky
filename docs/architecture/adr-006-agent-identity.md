@@ -169,7 +169,7 @@ GitHub Copilot's coding agent, Linear's agent, and any future GitHub-App-based a
 
 ## Implementation
 
-Tracked in [mt#1078](../../process/tasks/mt#1078/) (Layer 1 + Layer 2 readers, format parser, MCP server integration, `_meta` convention docs). Phases after Layer 2 are gated on external events:
+Tracked in mt#1078 (Layer 1 + Layer 2 readers, format parser, MCP server integration, `_meta` convention docs). Phases after Layer 2 are gated on external events:
 
 - Phase 1 (mt#1078) — Layer 1 (ascribed) and Layer 2 (declared `_meta` reader). `agentId` resolver, kind normalization table, hash construction, `_meta["io.minsky/agent_id"]` convention documented for callers.
 - Phase 2 — Layer 3 Claude Code PreToolUse hook (separate follow-up task once hook-compilation approach is settled).
