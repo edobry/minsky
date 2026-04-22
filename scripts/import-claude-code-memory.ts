@@ -70,7 +70,6 @@ interface ParsedMemoryFile {
   name: string;
   description: string;
   type: MemoryType;
-  originSessionId?: string;
   body: string;
 }
 
@@ -181,10 +180,12 @@ function parseMemoryFile(fileContent: string): ParseResult | ParseError {
   }
 
   const type = rawType as MemoryType;
-  const originSessionId =
-    typeof fm["originSessionId"] === "string" ? fm["originSessionId"] : undefined;
 
-  return { ok: true, data: { name, description, type, originSessionId, body } };
+  // Note: Claude Code frontmatter may include `originSessionId`, but Phase 1
+  // writes `source_session_id: null` per the mt#1008 spec. Revisit once mt#953
+  // (agent identity) lands and we have a stable session-id contract.
+
+  return { ok: true, data: { name, description, type, body } };
 }
 
 // ─── Skip heuristics (mt#960 rubric) ─────────────────────────────────────────
