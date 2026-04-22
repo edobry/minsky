@@ -39,12 +39,31 @@ interface TaskRelationshipsRepository {
   getAllRelationships(type?: RelationshipType): Promise<TaskRelationship[]>;
   getRelationshipsForTasks(taskIds: string[], type?: RelationshipType): Promise<TaskRelationship[]>;
   getAncestorChain(taskId: string, maxDepth: number): Promise<string[]>;
+  /**
+   * Atomically replace the parent edge for a child task.
+   * Removes any existing parent edge and inserts the new one in a single operation.
+   * Returns the previous parent id, or null if there was none.
+   */
+  upsertParent(childId: string, newParentId: string): Promise<{ previousParent: string | null }>;
+  /**
+   * Run a callback inside a SERIALIZABLE database transaction.
+   * The callback receives a transaction-scoped repository instance.
+   * For in-memory repos, this is a simple pass-through (no real isolation needed).
+   */
+  transaction<T>(callback: (txRepo: TaskRelationshipsRepository) => Promise<T>): Promise<T>;
 }
 
-function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
+/**
+ * Build a TaskRelationshipsRepository from any Drizzle query executor
+ * (either a PostgresJsDatabase or the transaction object Drizzle passes to
+ * its callback — both satisfy the same query interface).
+ */
+function createDrizzleRepoFromExecutor(
+  executor: Parameters<typeof createDrizzleRepo>[0]
+): Omit<TaskRelationshipsRepository, "transaction"> {
   return {
     async findEdge(fromId, toId, type) {
-      const existing = await db
+      const existing = await executor
         .select({ id: taskRelationshipsTable.id })
         .from(taskRelationshipsTable)
         .where(
@@ -58,10 +77,12 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return existing.length > 0;
     },
     async createEdge(fromId, toId, type) {
-      await db.insert(taskRelationshipsTable).values({ fromTaskId: fromId, toTaskId: toId, type });
+      await executor
+        .insert(taskRelationshipsTable)
+        .values({ fromTaskId: fromId, toTaskId: toId, type });
     },
     async deleteEdge(fromId, toId, type) {
-      const deleted = await db
+      const deleted = await executor
         .delete(taskRelationshipsTable)
         .where(
           and(
@@ -74,7 +95,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return deleted.length;
     },
     async deleteEdgesFrom(fromId, type) {
-      const deleted = await db
+      const deleted = await executor
         .delete(taskRelationshipsTable)
         .where(
           and(eq(taskRelationshipsTable.fromTaskId, fromId), eq(taskRelationshipsTable.type, type))
@@ -83,7 +104,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return deleted.length;
     },
     async listFrom(taskId, type) {
-      const rows = await db
+      const rows = await executor
         .select({ to: taskRelationshipsTable.toTaskId })
         .from(taskRelationshipsTable)
         .where(
@@ -92,7 +113,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return rows.map((r) => r.to);
     },
     async listTo(taskId, type) {
-      const rows = await db
+      const rows = await executor
         .select({ from: taskRelationshipsTable.fromTaskId })
         .from(taskRelationshipsTable)
         .where(
@@ -102,7 +123,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
     },
     async getAllRelationships(type?) {
       const conditions = type ? [eq(taskRelationshipsTable.type, type)] : [];
-      const rows = await db
+      const rows = await executor
         .select({
           fromTaskId: taskRelationshipsTable.fromTaskId,
           toTaskId: taskRelationshipsTable.toTaskId,
@@ -119,7 +140,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
         inArray(taskRelationshipsTable.toTaskId, taskIds)
       );
       const conditions = type ? and(taskFilter, eq(taskRelationshipsTable.type, type)) : taskFilter;
-      const rows = await db
+      const rows = await executor
         .select({
           fromTaskId: taskRelationshipsTable.fromTaskId,
           toTaskId: taskRelationshipsTable.toTaskId,
@@ -130,7 +151,7 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return rows as TaskRelationship[];
     },
     async getAncestorChain(taskId: string, maxDepth: number): Promise<string[]> {
-      const result = await db.execute(sql`
+      const result = await executor.execute(sql`
         WITH RECURSIVE ancestors AS (
           SELECT to_task_id AS ancestor_id, 1 AS depth
           FROM task_relationships
@@ -145,7 +166,55 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       `);
       return Array.from(result).map((row) => row["ancestor_id"] as string);
     },
+    async upsertParent(
+      childId: string,
+      newParentId: string
+    ): Promise<{ previousParent: string | null }> {
+      const existing = await executor
+        .select({ toTaskId: taskRelationshipsTable.toTaskId })
+        .from(taskRelationshipsTable)
+        .where(
+          and(
+            eq(taskRelationshipsTable.fromTaskId, childId),
+            eq(taskRelationshipsTable.type, "parent")
+          )
+        )
+        .limit(1);
+      const previousParent = existing[0]?.toTaskId ?? null;
+
+      await executor
+        .insert(taskRelationshipsTable)
+        .values({ fromTaskId: childId, toTaskId: newParentId, type: "parent" })
+        .onConflictDoUpdate({
+          target: [taskRelationshipsTable.fromTaskId],
+          targetWhere: sql`type = 'parent'`,
+          set: { toTaskId: newParentId },
+        });
+
+      return { previousParent };
+    },
   };
+}
+
+function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
+  const repo: TaskRelationshipsRepository = {
+    ...createDrizzleRepoFromExecutor(db),
+    async transaction<T>(
+      callback: (txRepo: TaskRelationshipsRepository) => Promise<T>
+    ): Promise<T> {
+      return db.transaction(
+        (tx) =>
+          callback({
+            ...createDrizzleRepoFromExecutor(tx as unknown as PostgresJsDatabase),
+            // Nested transactions re-use the outer transaction's connection;
+            // just delegate back to repo.transaction which will open a savepoint.
+            transaction: repo.transaction.bind(repo),
+          }),
+        { isolationLevel: "serializable" }
+      );
+    },
+  };
+  return repo;
 }
 
 @injectable()
@@ -234,6 +303,64 @@ export class TaskGraphService {
   async removeParent(childId: string): Promise<{ removed: boolean }> {
     const count = await this.repo.deleteEdgesFrom(childId, "parent");
     return { removed: count > 0 };
+  }
+
+  /**
+   * Atomically reparent a task.
+   *
+   * - `newParentId === null` → orphan the task (remove parent edge).
+   * - `newParentId` → UPSERT to the new parent in a single DB operation.
+   *
+   * Semantics:
+   *   - Self-parenting is rejected.
+   *   - Cycles are rejected (reuses ancestor-check from addParent).
+   *   - No-op: if current parent already equals requested parent, returns
+   *     `{ previousParent, newParent }` without any DB writes.
+   *
+   * Returns `{ taskId, previousParent, newParent }`.
+   */
+  async reparent(
+    childId: string,
+    newParentId: string | null
+  ): Promise<{ taskId: string; previousParent: string | null; newParent: string | null }> {
+    validateQualifiedIds(childId);
+    if (newParentId !== null) {
+      validateQualifiedIds(newParentId);
+    }
+
+    if (newParentId !== null && childId === newParentId) {
+      throw new Error("A task cannot be its own parent");
+    }
+
+    // Wrap the read-modify-write sequence in a SERIALIZABLE transaction so
+    // ancestor check + UPSERT see a consistent snapshot and no concurrent writer
+    // can sneak in a cycle between our ancestor read and the UPSERT.
+    return this.repo.transaction(async (txRepo) => {
+      // Fetch current parent inside the transaction
+      const previousParent = (await txRepo.listFrom(childId, "parent"))[0] ?? null;
+
+      // No-op check
+      if (previousParent === newParentId) {
+        return { taskId: childId, previousParent, newParent: newParentId };
+      }
+
+      if (newParentId === null) {
+        // Orphan the task — remove parent edge if present
+        await txRepo.deleteEdgesFrom(childId, "parent");
+        return { taskId: childId, previousParent, newParent: null };
+      }
+
+      // Cycle prevention: ensure newParentId is not a descendant of childId
+      const ancestors = await txRepo.getAncestorChain(newParentId, 10);
+      if (ancestors.includes(childId)) {
+        throw new Error(`Cycle detected: ${newParentId} is already a descendant of ${childId}`);
+      }
+
+      // Atomic UPSERT (handles both "no parent yet" and "replace parent" cases)
+      await txRepo.upsertParent(childId, newParentId);
+
+      return { taskId: childId, previousParent, newParent: newParentId };
+    });
   }
 
   /**
