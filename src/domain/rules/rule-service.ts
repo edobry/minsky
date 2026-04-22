@@ -23,27 +23,34 @@ import type {
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 
+/**
+ * Structural subset of fs/promises used by RuleService.
+ * Declared structurally (rather than Pick<typeof fsPromises, ...>) so that
+ * in-memory test fakes like createMockFs() assign without casts.
+ */
+export interface RuleServiceFs {
+  readdir(path: string): Promise<string[]>;
+  access(path: string): Promise<void>;
+  readFile(path: string, encoding: BufferEncoding): Promise<string>;
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<string | undefined>;
+  writeFile(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
+}
+
 @injectable()
 export class RuleService {
   private workspacePath: string;
-  private fs: Pick<
-    typeof nodeFsPromises,
-    "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
-  >;
+  private fs: RuleServiceFs;
   private existsSyncFn: (path: string) => boolean;
 
   constructor(
     workspacePath: string,
     deps?: {
-      fsPromises?: Pick<
-        typeof nodeFsPromises,
-        "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
-      >;
+      fsPromises?: RuleServiceFs;
       existsSyncFn?: (path: string) => boolean;
     }
   ) {
     this.workspacePath = workspacePath;
-    this.fs = deps?.fsPromises || nodeFsPromises;
+    this.fs = deps?.fsPromises || (nodeFsPromises as unknown as RuleServiceFs);
     this.existsSyncFn = deps?.existsSyncFn || nodeExistsSync;
     // Log workspace path on initialization for debugging
     log.debug("RuleService initialized", { workspacePath });

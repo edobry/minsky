@@ -1,24 +1,20 @@
 import { describe, it, expect } from "bun:test";
-import { buildClaudeMdContent } from "./claude-md";
-import type { Rule } from "../../types";
+import { claudeMdTarget, buildClaudeMdContent } from "./claude-md";
 import {
   ALWAYS_APPLY_CONTENT,
   MANUAL_RULE_CONTENT,
   GLOB_RULE_CONTENT,
   PROJECT_INSTRUCTIONS_HEADER,
 } from "./test-fixtures";
+import { makeRule } from "../test-utils";
 
-// Helper to create a minimal Rule object
-function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
-  return {
-    id,
-    content,
-    format: "cursor",
-    path: `/fake/path/${id}.mdc`,
-    alwaysApply: false,
-    ...opts,
-  };
-}
+describe("claude-md target: listOutputFiles()", () => {
+  it("returns single path at <workspace>/CLAUDE.md", () => {
+    const paths = claudeMdTarget.listOutputFiles([], {}, "/workspace");
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toBe("/workspace/CLAUDE.md");
+  });
+});
 
 describe("claude-md target: buildClaudeMdContent()", () => {
   describe("basic compilation", () => {
