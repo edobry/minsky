@@ -483,8 +483,12 @@ export async function updatePrStateOnMerge(
     return;
   }
 
+  // Project to known keys only — avoids propagating stale fields (e.g. commitHash
+  // removed in mt#1056) that may linger in persisted JSON blobs.
+  const { branchName, createdAt } = sessionRecord.prState;
   const updatedPrState = {
-    ...sessionRecord.prState,
+    branchName,
+    createdAt,
     exists: false,
     lastChecked: now,
     mergedAt: now,
