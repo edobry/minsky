@@ -31,6 +31,8 @@ Optional: task ID (e.g., `/orchestrate mt#123`). If omitted, lists available tas
 - This automatically sets task status to IN-PROGRESS
 - Note the session ID and directory path for subagent dispatch
 
+**Running commands in sessions**: Use `mcp__minsky__session_exec(task, command)` to run shell commands in the session workspace from the main agent context (e.g., `git status`, `bun test`, `ls src/`). Don't reach for bash `git -C <session-path>`.
+
 ### 3. Pre-work assessment
 
 Before dispatching implementation:
