@@ -113,11 +113,12 @@ export interface SessionMergeResult {
 
 /**
  * Dependencies required by mergeSessionPr.
- * sessionDB is required. Other deps are optional with internal fallbacks.
+ * sessionDB and taskService are required — merge operations always update task state.
+ * gitService has an internal fallback but callers should provide it for testability.
  */
 export interface SessionMergeDependencies {
   sessionDB: SessionProviderInterface;
-  taskService?: TaskServiceInterface;
+  taskService: TaskServiceInterface;
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   persistenceProvider?: PersistenceProvider;
@@ -188,12 +189,8 @@ export async function mergeSessionPr(
     originalRepoPath = process.cwd();
   }
 
-  // Use DI-provided taskService — callers must provide it
-  if (!deps?.taskService) {
-    throw new Error("taskService is required for merge operations — provide it via DI");
-  }
   const taskService = deps.taskService;
-  const gitService = deps?.gitService || createGitService();
+  const gitService = deps.gitService || createGitService();
 
   // Create repository backend for this session
   // Use stored repoUrl for backend detection to avoid redundant git commands
