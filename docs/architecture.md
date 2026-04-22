@@ -440,7 +440,9 @@ Source: `src/domain/configuration/`
 ## 8. Repository Backend
 
 The repository backend determines which API is used for pull requests and code review.
-See [ADR-003](architecture/adr-003-project-level-repository-backend.md) for the full rationale.
+See [ADR-003](architecture/adr-003-project-level-repository-backend.md) for the original project-level
+config decision and [ADR-005](architecture/adr-005-forgebackend-subinterfaces.md) for the current
+`ForgeBackend` sub-interface architecture.
 
 ### Problem solved
 
