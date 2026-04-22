@@ -95,18 +95,48 @@ export class MinskyTaskBackend implements TaskBackend {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    const id = options?.id || (await this.generateTaskId(title));
-    const tags = options?.tags || [];
-    const task: Task = {
-      id,
-      title,
-      status: "TODO",
-      backend: this.name,
-      tags,
-    };
+    // If an explicit id is provided, use it directly (no retry needed).
+    if (options?.id) {
+      return this.insertTaskWithId(options.id, title, spec, options);
+    }
 
-    // Save task metadata to tasks table (handle conflicts)
-    await this.db
+    // Retry loop to handle the TOCTOU race between generateTaskId and INSERT.
+    // generateTaskId reads max(id) and proposes maxId+1, but another concurrent
+    // writer may have claimed that id between the SELECT and our INSERT.
+    // onConflictDoNothing makes the INSERT a no-op on collision so we can detect
+    // it and try the next id rather than silently clobbering existing data.
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const id = await this.generateTaskId(title);
+      const inserted = await this.tryInsertTask(id, title, spec, options);
+      if (inserted) {
+        const tags = options?.tags || [];
+        return { id, title, status: "TODO", backend: this.name, tags };
+      }
+      // id collision — another writer took this id; loop and re-generate
+    }
+
+    throw new Error(
+      `Failed to generate a unique task id after ${MAX_RETRIES} attempts. ` +
+        "This indicates extremely high concurrent task creation — please retry."
+    );
+  }
+
+  /**
+   * Attempt to insert a task row. Returns true if the row was inserted,
+   * false if the id already exists (conflict).
+   * Never overwrites existing data (onConflictDoNothing).
+   */
+  private async tryInsertTask(
+    id: string,
+    title: string,
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<boolean> {
+    const tags = options?.tags || [];
+
+    // Insert task metadata row; do nothing on id conflict
+    const inserted = await this.db
       .insert(tasksTable)
       .values({
         id,
@@ -118,36 +148,75 @@ export class MinskyTaskBackend implements TaskBackend {
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      .onConflictDoUpdate({
-        target: tasksTable.id,
-        set: {
-          backend: "minsky" as const,
-          status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
-          title: title,
-          tags: JSON.stringify(tags),
-          updatedAt: new Date(),
-        },
-      });
+      .onConflictDoNothing()
+      .returning({ id: tasksTable.id });
 
-    // Save spec content to task_specs table
+    if (inserted.length === 0) {
+      // Conflict — the id was already taken
+      return false;
+    }
+
+    // Insert spec content; do nothing on taskId conflict (same safety net)
     await this.db
       .insert(taskSpecsTable)
       .values({
         taskId: id,
-        content: spec, // Use the spec content directly
+        content: spec,
         version: 1,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      .onConflictDoUpdate({
-        target: taskSpecsTable.taskId,
-        set: {
-          content: spec,
-          updatedAt: new Date(),
-        },
-      });
+      .onConflictDoNothing();
 
-    return task;
+    return true;
+  }
+
+  /**
+   * Insert a task with a caller-supplied id (used when options.id is set).
+   * Uses onConflictDoNothing on the task row to avoid clobbering and throws
+   * if the id is already taken.
+   */
+  private async insertTaskWithId(
+    id: string,
+    title: string,
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<Task> {
+    const tags = options?.tags || [];
+
+    const inserted = await this.db
+      .insert(tasksTable)
+      .values({
+        id,
+        sourceTaskId: id.split("#")[1],
+        backend: "minsky" as const,
+        status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
+        title,
+        tags: JSON.stringify(tags),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: tasksTable.id });
+
+    if (inserted.length === 0) {
+      throw new Error(
+        `Task id "${id}" already exists. Use a different id or omit it to auto-generate.`
+      );
+    }
+
+    await this.db
+      .insert(taskSpecsTable)
+      .values({
+        taskId: id,
+        content: spec,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing();
+
+    return { id, title, status: "TODO", backend: this.name, tags };
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -287,23 +356,24 @@ export class MinskyTaskBackend implements TaskBackend {
     };
   }
 
-  private async generateTaskId(title: string): Promise<string> {
-    // Get all existing tasks to find the highest ID number
-    const existingTasks = await this.db.select({ id: tasksTable.id }).from(tasksTable);
+  private async generateTaskId(_title: string): Promise<string> {
+    // Fetch all mt# task ids and compute max numerically.
+    // We cannot use a DB-level SERIAL here because ids are stored as strings
+    // (e.g. "mt#123"), so we perform a lightweight SELECT of ids only and
+    // derive the next number in application code.
+    // Race safety: the caller (createTaskFromTitleAndSpec) uses onConflictDoNothing
+    // + a retry loop so a concurrent writer claiming this id is detected and
+    // handled without silently clobbering existing data.
+    const rows = await this.db
+      .select({ id: tasksTable.id })
+      .from(tasksTable)
+      .where(like(tasksTable.id, "mt#%"));
 
-    // Find the max ID number from existing Minsky tasks
-    const maxId = existingTasks.reduce((max, task) => {
-      if (task.id.startsWith("mt#")) {
-        const numPart = task.id.replace("mt#", "");
-        const num = parseInt(numPart, 10);
-        if (!isNaN(num) && num > max) {
-          return num;
-        }
-      }
-      return max;
+    const maxId = rows.reduce((acc, row) => {
+      const num = parseInt(row.id.replace("mt#", ""), 10);
+      return !isNaN(num) && num > acc ? num : acc;
     }, 0);
 
-    // Generate next sequential ID
     return `mt#${maxId + 1}`;
   }
 }
