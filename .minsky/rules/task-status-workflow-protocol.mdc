@@ -1,0 +1,23 @@
+---
+description: Prevents premature DONE status setting from session workflows
+tags:
+  - minsky
+---
+# Task Status Workflow Protocol
+
+## NEVER manually set task status to DONE from within a session.
+
+Task status lifecycle: `TODO → IN-PROGRESS → IN-REVIEW → DONE`
+
+- `DONE` is set automatically when a PR merges — never manually
+- `CLOSED` is only for cancelled/invalid tasks — never from sessions
+
+## Allowed manual status changes in sessions
+
+| Status | When |
+|--------|------|
+| `IN-PROGRESS` | Starting work on a task |
+| `IN-REVIEW` | PR created, ready for review |
+| `BLOCKED` | Cannot proceed due to impediment |
+
+Manually setting DONE bypasses code review, automated testing, and integration verification.

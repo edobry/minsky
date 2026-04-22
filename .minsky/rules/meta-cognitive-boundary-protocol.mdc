@@ -1,0 +1,122 @@
+---
+tags:
+  - code-style
+  - preferences
+---
+# Meta-Cognitive Boundary Protocol
+
+## Core Issue Identification
+
+**CRITICAL VIOLATION**: Internal reasoning language leaking into external program artifacts.
+
+**Example of Violation**: Function named `createRobustTempDir` where "robust" is internal assessment language about the assistant's problem-solving approach, not meaningful program functionality.
+
+## The Meta-Cognitive Boundary
+
+### Internal Reasoning Layer (Assistant's Mind)
+- Assessment terms: "robust", "enhanced", "smart", "intelligent", "advanced"
+- Problem-solving descriptors: "comprehensive", "thorough", "systematic"
+- Internal process language: "fallback", "retry", "recovery"
+
+### External Program Layer (User's Code)
+- Functional descriptors: what the code actually does
+- Domain-specific terminology: business logic concepts
+- User-facing language: clear, direct, purposeful
+
+## Prohibited Boundary Violations
+
+❌ **NEVER use internal assessment terms in external code names:**
+- `createRobustTempDir` → `createTempDirWithFallbacks`
+- `enhancedErrorHandler` → `errorHandlerWithRetry`
+- `smartConfigLoader` → `configLoaderWithDefaults`
+- `comprehensiveValidator` → `validatorWithMultipleChecks`
+
+## Comment Boundary Violations
+
+**CRITICAL**: Comments are external program artifacts and must not leak internal reasoning.
+
+### ❌ PROHIBITED Comment Patterns
+
+**Temporal References (my perspective, not code's):**
+- `// All operations now work in main workspace`
+- `// This was simplified after refactoring`
+- `// Previously used special workspace`
+
+**Internal Process Language:**
+- `// Enhanced error handling added`
+- `// Simplified architecture`
+- `// Robust implementation`
+- `// Comprehensive validation`
+
+**Obvious Statements (no value added):**
+- `// All operations work in main workspace` (when that's clearly what the code does)
+- `// Workspace path is resolved at runtime` (when that's obviously what the function does)
+- `// This function handles errors` (when function name is `handleErrors`)
+
+### ✅ VALID Comment Patterns
+
+**Explains WHY, not WHAT:**
+```typescript
+// Retry needed because external API has rate limits
+// Using setTimeout to avoid blocking the event loop
+// Cache expires after 5 minutes to balance freshness and performance
+```
+
+**Documents non-obvious behavior:**
+```typescript
+// Returns null when user lacks permission (intentional, not an error)
+// Modifies original array for performance reasons
+// Uses weak references to prevent memory leaks
+```
+
+### Comment Elimination Protocol
+
+**Before writing ANY comment, ask:**
+1. **Does this explain WHY, not WHAT?**
+2. **Would this be obvious to someone reading the code?**
+3. **Am I describing my internal process instead of the code's purpose?**
+4. **Does this add actual value or just state what's already clear?**
+
+**If in doubt: DELETE THE COMMENT**
+
+## Required Boundary Maintenance
+
+### Before naming ANY code artifact, ask:
+1. **Is this internal reasoning language?** (robust, enhanced, smart, etc.)
+2. **What does this code actually DO for the user?**
+3. **Would a user understand this name without knowing my internal process?**
+
+### Enforcement Protocol
+- **STOP** immediately when using assessment terms in code names
+- **TRANSLATE** internal reasoning to external functionality
+- **VERIFY** the name describes user-facing behavior, not internal assessment
+
+## Examples of Correct Translation
+
+| Internal Assessment | External Functionality |
+|-------------------|----------------------|
+| "robust temp dir creation" | "temp dir creation with fallbacks" |
+| "enhanced error handling" | "error handling with retry" |
+| "smart configuration" | "configuration with defaults" |
+| "comprehensive validation" | "multi-step validation" |
+
+## Critical Enforcement
+
+This rule addresses a **meta-cognitive boundary violation** where internal problem-solving language contaminates external program interfaces. This is not about style preferences but about maintaining clear separation between:
+
+1. **What the assistant thinks about the code** (internal reasoning)
+2. **What the code does for users** (external functionality)
+
+**VIOLATION CONSEQUENCE**: Any use of internal assessment terms in code names indicates a fundamental boundary violation requiring immediate correction and rule application.
+
+## Systematic Prevention
+
+- **Pre-naming check**: Is this term from my internal reasoning vocabulary?
+- **Functionality focus**: What does this code actually accomplish?
+- **User perspective**: Would this name make sense to someone who doesn't know my internal process?
+
+**This rule prevents "breaking the 4th wall" between internal reasoning and external program design.**
+description:
+globs:
+alwaysApply: false
+---

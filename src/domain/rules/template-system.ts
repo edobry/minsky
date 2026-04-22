@@ -196,8 +196,8 @@ export const DEFAULT_CLI_CONFIG: RuleGenerationConfig = {
   mcpEnabled: false,
   mcpTransport: "stdio",
   preferMcp: false,
-  ruleFormat: "cursor",
-  outputDir: ".cursor/rules",
+  ruleFormat: "minsky",
+  outputDir: ".minsky/rules",
 };
 
 /**
@@ -208,8 +208,8 @@ export const DEFAULT_MCP_CONFIG: RuleGenerationConfig = {
   mcpEnabled: true,
   mcpTransport: "stdio",
   preferMcp: true,
-  ruleFormat: "cursor",
-  outputDir: ".cursor/rules",
+  ruleFormat: "minsky",
+  outputDir: ".minsky/rules",
 };
 
 /**
@@ -220,6 +220,6 @@ export const DEFAULT_HYBRID_CONFIG: RuleGenerationConfig = {
   mcpEnabled: true,
   mcpTransport: "stdio",
   preferMcp: false, // Default to CLI for familiarity
-  ruleFormat: "cursor",
-  outputDir: ".cursor/rules",
+  ruleFormat: "minsky",
+  outputDir: ".minsky/rules",
 };

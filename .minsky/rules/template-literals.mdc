@@ -1,0 +1,7 @@
+---
+description: Use when constructing or concatenating strings in TypeScript code. Prefer template literals over string concatenation
+alwaysApply: false
+tags:
+  - code-style
+---
+When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
