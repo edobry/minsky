@@ -33,6 +33,12 @@ import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-se
 import { classifyFreshness } from "../../../../domain/knowledge/reconciliation/freshness";
 import { rankByAuthority } from "../../../../domain/knowledge/reconciliation/authority-ranker";
 import { buildRedundanciesFromMetadata } from "../../../../domain/knowledge/reconciliation/redundancy-reader";
+import {
+  AnthropicNliClassifier,
+  detectConflicts,
+  type NliClassifier,
+  type ClassifiableChunk,
+} from "../../../../domain/knowledge/reconciliation/conflicts";
 
 // ─── Parameter shapes ────────────────────────────────────────────────────────
 
@@ -120,6 +126,7 @@ export interface KnowledgeCommandsDeps {
       staleness?: { agingDays?: number; staleDays?: number };
       sourceAuthority?: Record<string, number>;
       epsilon?: number;
+      conflictModel?: string;
     };
   }>;
   /** Override for creating a KnowledgeService */
@@ -128,6 +135,8 @@ export interface KnowledgeCommandsDeps {
     vectorStorage: VectorStorage;
     config: { knowledgeBases: KnowledgeSourceConfig[] };
   }) => KnowledgeService;
+  /** Override NLI classifier for testing (pass null to disable conflict detection) */
+  nliClassifier?: NliClassifier | null;
 }
 
 // ─── Registration function ────────────────────────────────────────────────────
@@ -185,12 +194,13 @@ export function registerKnowledgeCommands(
         searchFn = vectorSearch;
       }
 
-      // Load reconciliation config for freshness + authority
+      // Load reconciliation config for freshness + authority + conflict detection
       let reconciliationConfig:
         | {
             staleness?: { agingDays?: number; staleDays?: number };
             sourceAuthority?: Record<string, number>;
             epsilon?: number;
+            conflictModel?: string;
           }
         | undefined;
       try {
@@ -243,14 +253,63 @@ export function registerKnowledgeCommands(
         // Build redundancies from cluster metadata written by reconcileAfterSync
         const redundancies = buildRedundanciesFromMetadata(rawResults);
 
-        const response: KnowledgeSearchResponse & { backend: string; degraded: boolean } = {
+        // Run pairwise NLI conflict detection over top-K chunks (K ≤ 10)
+        // - deps.nliClassifier === null  → explicitly disabled (test path)
+        // - deps.nliClassifier set       → use injected classifier (test path)
+        // - deps is undefined/no deps    → create real AnthropicNliClassifier (production)
+        // - deps provided but no nliClassifier → skip NLI (other test paths)
+        let nliClassifier: NliClassifier | null = null;
+        if (deps === undefined) {
+          // Production path: no deps injected, create real classifier
+          nliClassifier = new AnthropicNliClassifier({
+            model: reconciliationConfig?.conflictModel,
+          });
+        } else if (deps.nliClassifier !== undefined) {
+          // Explicitly injected (may be null to disable)
+          nliClassifier = deps.nliClassifier;
+        }
+        // Otherwise: deps provided but nliClassifier not set → skip NLI (test path)
+
+        let conflicts: import("../../../../domain/knowledge/types").ChunkConflict[] = [];
+        if (nliClassifier && chunks.length >= 2) {
+          const classifiableChunks: ClassifiableChunk[] = chunks.map((c) => ({
+            id: c.id,
+            text: c.excerpt,
+          }));
+          const detected = await detectConflicts(classifiableChunks, nliClassifier);
+          conflicts = detected.map((d) => ({
+            chunkA: d.chunkAId,
+            chunkB: d.chunkBId,
+            disagreement: d.disagreement,
+          }));
+
+          if (conflicts.length > 0) {
+            log.warn(
+              `[knowledge.search] Detected ${conflicts.length} conflict(s) among retrieved chunks`,
+              { conflictCount: conflicts.length }
+            );
+          }
+        }
+
+        const response: KnowledgeSearchResponse & {
+          backend: string;
+          degraded: boolean;
+          _conflictWarning?: string;
+        } = {
           chunks,
           freshness,
           authority,
-          conflicts: [],
+          conflicts,
           redundancies,
           backend: "embeddings" as const,
           degraded: false,
+          ...(conflicts.length > 0
+            ? {
+                _conflictWarning: `⚠️  KNOWLEDGE CONFLICTS DETECTED (${conflicts.length}): ${conflicts
+                  .map((c, i) => `[${i + 1}] ${c.chunkA} ↔ ${c.chunkB}: ${c.disagreement}`)
+                  .join(" | ")}`,
+              }
+            : {}),
         };
 
         return response;
