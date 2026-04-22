@@ -70,10 +70,13 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
 function getTaskDeps(
   container?: import("../../composition/types").AppContainerInterface
 ): TaskServiceDeps {
-  if (!container) {
-    throw new Error("DI container required for task operations — persistence is not optional");
+  if (container?.has("persistence")) {
+    return {
+      persistenceProvider: container.get("persistence"),
+      taskService: container.has("taskService") ? container.get("taskService") : undefined,
+    };
   }
-  return { persistenceProvider: container.get("persistence") };
+  return {};
 }
 
 export function registerTaskEditTools(
@@ -188,7 +191,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
-        if (container) {
+        if (container?.has("persistence")) {
           autoIndexTaskEmbedding(typedArgs.taskId, {
             getPersistenceProvider: () => container.get("persistence"),
             getTaskService: () => container.get("taskService"),
@@ -287,7 +290,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         );
 
         // Fire-and-forget embedding re-index after spec update
-        if (container) {
+        if (container?.has("persistence")) {
           autoIndexTaskEmbedding(typedArgs.taskId, {
             getPersistenceProvider: () => container.get("persistence"),
             getTaskService: () => container.get("taskService"),

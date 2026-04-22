@@ -50,8 +50,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   readonly parameters = tasksEditParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => PersistenceProvider,
-    private readonly getTaskService: () => TaskServiceInterface
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -114,7 +114,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     if (!currentTask) {
@@ -197,6 +197,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
 
     try {
       // Get the appropriate backend for this task using the DI-injected task service
+      if (!this.getTaskService) {
+        throw new Error(
+          "TaskService not available. " +
+            "Ensure the DI container is initialized with a taskService factory."
+        );
+      }
       const service = this.getTaskService();
 
       // Access internal multi-backend methods via a typed extension interface
@@ -248,7 +254,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       }
 
       // Fire-and-forget embedding re-index if content that affects embeddings changed
-      if (updates.title || updates.spec) {
+      if ((updates.title || updates.spec) && this.getPersistenceProvider && this.getTaskService) {
         autoIndexTaskEmbedding(validatedTaskId, {
           getPersistenceProvider: this.getPersistenceProvider,
           getTaskService: this.getTaskService,
@@ -476,8 +482,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
  * Factory function for creating the edit command
  */
 export function createTasksEditCommand(
-  getPersistenceProvider: () => PersistenceProvider,
-  getTaskService: () => TaskServiceInterface
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskService?: () => TaskServiceInterface
 ): TasksEditCommand {
   return new TasksEditCommand(getPersistenceProvider, getTaskService);
 }

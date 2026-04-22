@@ -14,6 +14,7 @@ export {
   type Participant,
   type ParticipantRole,
   type ProvenanceRecord,
+  type RecomputeSummary,
   type SpecAuthorship,
   type TaskOrigin,
   type TierSignals,
@@ -30,3 +31,8 @@ export {
   type MergeIdentity,
 } from "./authorship-labels";
 export { TranscriptService, type TranscriptMessage, type MessageStats } from "./transcript-service";
+export {
+  AuthorshipJudge,
+  AUTHORSHIP_POLICY_VERSION,
+  type AuthorshipJudgment,
+} from "./authorship-judge";

@@ -8,7 +8,7 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
-import { TASK_STATUS, createConfiguredTaskService } from "../tasks";
+import { TASK_STATUS } from "../tasks";
 import type { Task } from "../tasks/types";
 import { execAsync } from "../../utils/exec";
 import { type WorkspaceUtilsInterface, getCurrentSession } from "../workspace";
@@ -97,18 +97,11 @@ export async function approveSessionImpl(
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session
-    // Use injected TaskService or create default one for validation
-    const taskService = depsInput?.taskService?.getTask
-      ? depsInput.taskService
-      : await createConfiguredTaskService({
-          workspacePath: params.repo || process.cwd(),
-          persistenceProvider: (() => {
-            if (!depsInput.persistenceProvider) {
-              throw new Error("persistenceProvider is required in session approve deps");
-            }
-            return depsInput.persistenceProvider;
-          })(),
-        });
+    // Use injected TaskService — callers must provide it via DI
+    if (!depsInput?.taskService?.getTask) {
+      throw new MinskyError("taskService with getTask is required for approve operations");
+    }
+    const taskService = depsInput.taskService;
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -206,17 +199,7 @@ The task exists but has no associated session to approve.
   const deps = {
     sessionDB,
     gitService: depsInput.gitService || createGitService(),
-    taskService:
-      depsInput.taskService ||
-      (await createConfiguredTaskService({
-        workspacePath: originalRepoPath,
-        persistenceProvider: (() => {
-          if (!depsInput.persistenceProvider) {
-            throw new Error("persistenceProvider is required in session approve deps");
-          }
-          return depsInput.persistenceProvider;
-        })(),
-      })),
+    taskService: depsInput.taskService,
     workspaceUtils: depsInput.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput.getCurrentSession || getCurrentSession,
   };
@@ -327,7 +310,7 @@ The task exists but has no associated session to approve.
     };
 
     // Update task status to DONE if we have a task ID and it's not already DONE
-    if (taskId && deps.taskService.setTaskStatus && deps.taskService.getTaskStatus) {
+    if (taskId && deps.taskService?.setTaskStatus && deps.taskService?.getTaskStatus) {
       try {
         // Check current status first to avoid unnecessary updates
         const currentStatus = await deps.taskService.getTaskStatus(taskId);

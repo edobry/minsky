@@ -42,16 +42,6 @@ export interface DeletionInfo {
   canAutoResolve: boolean;
 }
 
-export interface GitOperationPreview {
-  operation: GitOperationType;
-  repoPath: string;
-  sourceRef: string;
-  targetRef?: string;
-  prediction: ConflictPrediction;
-  safeToExecute: boolean;
-  recommendedActions: string[];
-}
-
 export interface BranchSwitchWarning {
   fromBranch: string;
   toBranch: string;
@@ -128,15 +118,6 @@ export interface SmartUpdateResult {
   reason?: string;
   conflictDetails?: string;
   divergenceAnalysis?: BranchDivergenceAnalysis;
-}
-
-export enum GitOperationType {
-  MERGE = "merge",
-  REBASE = "rebase",
-  CHECKOUT = "checkout",
-  SWITCH = "switch",
-  PULL = "pull",
-  CHERRY_PICK = "cherry-pick",
 }
 
 export enum ConflictType {

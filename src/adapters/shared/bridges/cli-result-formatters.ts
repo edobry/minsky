@@ -10,6 +10,21 @@ import { log } from "../../../utils/logger";
 import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 
 /**
+ * Returns a colored liveness indicator dot for terminal output.
+ * Respects NO_COLOR env var and non-TTY stdout (e.g. pipes).
+ */
+function formatLivenessIndicator(status?: string, liveness?: string): string {
+  const noColor = process.env.NO_COLOR || !process.stdout.isTTY;
+  const colorize = (code: string, text: string) => (noColor ? text : `\x1b[${code}m${text}\x1b[0m`);
+
+  if (status === "MERGED" || status === "CLOSED") return colorize("90", "●"); // gray
+  if (liveness === "healthy") return colorize("32", "●"); // green
+  if (liveness === "idle") return colorize("33", "●"); // yellow
+  if (liveness === "stale" || liveness === "orphaned") return colorize("31", "●"); // red
+  return colorize("90", "○"); // gray hollow
+}
+
+/**
  * Format session details for human-readable output
  */
 export function formatSessionDetails(session: Record<string, unknown>): void {
@@ -25,6 +40,17 @@ export function formatSessionDetails(session: Record<string, unknown>): void {
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
+  if (session.liveness) log.cli(`   Liveness: ${session.liveness}`);
+  if (session.lastActivityAt) {
+    const date = new Date(session.lastActivityAt as string);
+    log.cli(`   Last activity: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+  }
+  if (session.commitCount !== undefined) log.cli(`   Commits: ${session.commitCount}`);
+  if (session.lastCommitHash) {
+    log.cli(
+      `   Last commit: ${(session.lastCommitHash as string).substring(0, 8)} — ${session.lastCommitMessage || ""}`
+    );
+  }
   if (session.workspacePath) log.cli(`   Workspace: ${session.workspacePath}`);
   if (session.repoUrl) log.cli(`   Repository: ${session.repoUrl}`);
   if (session.createdAt) {
@@ -55,18 +81,35 @@ export function formatSessionDetails(session: Record<string, unknown>): void {
 export function formatSessionSummary(session: Record<string, unknown>): void {
   if (!session) return;
 
+  const status = session.status as string | undefined;
+  const liveness = session.liveness as string | undefined;
+  const indicator = formatLivenessIndicator(status, liveness);
+
   // TASK 643: Lead with task ID and branch; UUID is secondary debug info
   if (session.taskId) {
     const taskDisplay = formatTaskIdForDisplay(session.taskId as string);
     const branchName = session.branch ? ` (${session.branch})` : "";
     const uuid = session.session ? ` [${(session.session as string).substring(0, 8)}...]` : "";
-    log.cli(`${taskDisplay}${branchName}${uuid}`);
+    log.cli(`${indicator} ${taskDisplay}${branchName}${uuid}`);
   } else {
     // Taskless session: just show UUID
     const sessionId = session.session || "unknown";
     const branchName = session.branch ? ` [${session.branch}]` : "";
-    log.cli(`${sessionId}${branchName}`);
+    log.cli(`${indicator} ${sessionId}${branchName}`);
   }
+}
+
+/**
+ * Format a list of sessions in verbose (full-details) mode
+ */
+export function formatSessionListVerbose(sessions: unknown[]): void {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    log.cli("No sessions found.");
+    return;
+  }
+  sessions.forEach((session) => {
+    formatSessionDetails(session as Record<string, unknown>);
+  });
 }
 
 /**

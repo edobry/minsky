@@ -82,6 +82,11 @@ export interface KnowledgeSourceConfig {
     tokenEnvVar?: string;
     /** Optional environment variable for email (used by some providers) */
     emailEnvVar?: string;
+    /**
+     * Environment variable containing the JSON key for a Google service account.
+     * Used by the google-docs provider as an alternative to OAuth tokens.
+     */
+    serviceAccountJsonEnvVar?: string;
   };
   /** Optional sync configuration */
   sync?: {
@@ -92,6 +97,16 @@ export interface KnowledgeSourceConfig {
     /** Glob patterns for pages/documents to exclude */
     excludePatterns?: string[];
   };
+  /**
+   * Google Docs: Google Drive folder ID to walk recursively.
+   * Mutually exclusive with `documentIds`.
+   */
+  driveFolderId?: string;
+  /**
+   * Google Docs: explicit list of Google Document IDs to sync.
+   * Mutually exclusive with `driveFolderId`.
+   */
+  documentIds?: string[];
 }
 
 /**

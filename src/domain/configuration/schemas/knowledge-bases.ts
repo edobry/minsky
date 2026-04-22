@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Authentication configuration for a knowledge source.
- * At least one of `token` or `tokenEnvVar` must be provided.
+ * At least one of `token`, `tokenEnvVar`, or `serviceAccountJsonEnvVar` must be provided.
  */
 const knowledgeSourceAuthSchema = z
   .object({
@@ -12,10 +12,23 @@ const knowledgeSourceAuthSchema = z
     tokenEnvVar: z.string().optional(),
     /** Optional environment variable for email (used by some providers like Confluence) */
     emailEnvVar: z.string().optional(),
+    /**
+     * Environment variable containing the JSON key for a Google service account.
+     * Used by the google-docs provider as an alternative to OAuth tokens.
+     * The variable should contain the full JSON key file contents (as a string).
+     */
+    serviceAccountJsonEnvVar: z.string().optional(),
   })
-  .refine((data) => data.token !== undefined || data.tokenEnvVar !== undefined, {
-    message: "At least one of 'token' or 'tokenEnvVar' must be provided",
-  });
+  .refine(
+    (data) =>
+      data.token !== undefined ||
+      data.tokenEnvVar !== undefined ||
+      data.serviceAccountJsonEnvVar !== undefined,
+    {
+      message:
+        "At least one of 'token', 'tokenEnvVar', or 'serviceAccountJsonEnvVar' must be provided",
+    }
+  );
 
 /**
  * Sync schedule and behavior configuration
@@ -33,6 +46,10 @@ const knowledgeSyncConfigSchema = z.object({
  * Schema for a single knowledge base source entry.
  * Uses .passthrough() to allow type-specific fields (e.g., Notion workspace ID,
  * Confluence space key, Google Drive folder ID) without requiring them in the base schema.
+ *
+ * Google Docs provider supports two scope modes (mutually exclusive):
+ *   - `driveFolderId`: Walk a Google Drive folder recursively
+ *   - `documentIds`: Fetch specific documents by ID
  */
 export const knowledgeBaseEntrySchema = z
   .object({
@@ -44,6 +61,16 @@ export const knowledgeBaseEntrySchema = z
     auth: knowledgeSourceAuthSchema,
     /** Optional sync behavior configuration */
     sync: knowledgeSyncConfigSchema.optional(),
+    /**
+     * Google Docs: Google Drive folder ID to walk recursively.
+     * Mutually exclusive with `documentIds`.
+     */
+    driveFolderId: z.string().optional(),
+    /**
+     * Google Docs: explicit list of Google Document IDs to sync.
+     * Mutually exclusive with `driveFolderId`.
+     */
+    documentIds: z.array(z.string()).optional(),
   })
   .passthrough();
 

@@ -13,7 +13,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { provenanceTable } from "../storage/schemas/provenance-schema";
@@ -24,7 +24,15 @@ import {
   type ProvenanceRecord,
   type TierSignals,
   type Participant,
+  type RecomputeSummary,
 } from "./types";
+import {
+  AUTHORSHIP_POLICY_VERSION,
+  type AuthorshipJudgment,
+  type AuthorshipJudge,
+} from "./authorship-judge";
+import type { TranscriptService } from "./transcript-service";
+import { log } from "../../utils/logger";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
 function toProvenanceRecord(row: typeof provenanceTable.$inferSelect): ProvenanceRecord {
@@ -150,5 +158,133 @@ export class ProvenanceService {
       .where(eq(provenanceTable.taskId, taskId));
 
     return rows.map(toProvenanceRecord);
+  }
+
+  /**
+   * Update a provenance record with AI-judged authorship fields.
+   *
+   * Called after AI-based transcript analysis completes (Phase 4).
+   * Updates the tier, rationale, and structured analysis fields in place.
+   */
+  async updateWithJudgment(
+    artifactId: string,
+    artifactType: ArtifactType,
+    judgment: AuthorshipJudgment
+  ): Promise<void> {
+    await this.db
+      .update(provenanceTable)
+      .set({
+        substantiveHumanInput: judgment.substantiveHumanInput,
+        trajectoryChanges: judgment.trajectoryChanges,
+        authorshipTier: judgment.tier,
+        tierRationale: judgment.rationale,
+        judgingModel: "claude-haiku-4-5-20251001",
+        policyVersion: AUTHORSHIP_POLICY_VERSION,
+        computedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(provenanceTable.artifactId, artifactId),
+          eq(provenanceTable.artifactType, artifactType)
+        )
+      );
+  }
+
+  /**
+   * Retroactively recompute authorship tiers for all historical provenance records
+   * that have a session_id, using the current judging policy.
+   *
+   * Records without a transcript are skipped (counted in skippedNoTranscript).
+   * Each record is wrapped in try/catch so a single failure does not abort the batch.
+   */
+  async recomputeAll(options: {
+    dryRun: boolean;
+    judge: AuthorshipJudge;
+    transcriptService: TranscriptService;
+  }): Promise<RecomputeSummary> {
+    const { dryRun, judge, transcriptService } = options;
+
+    // Select all PR provenance records that have a session_id
+    const records = await this.db
+      .select()
+      .from(provenanceTable)
+      .where(and(eq(provenanceTable.artifactType, "pr"), isNotNull(provenanceTable.sessionId)));
+
+    const summary: RecomputeSummary = {
+      total: records.length,
+      recomputed: 0,
+      tierChanged: 0,
+      skippedNoTranscript: 0,
+      errors: 0,
+      tierDistribution: {},
+      changes: dryRun ? [] : undefined,
+    };
+
+    log.cli(`Recomputing tiers for ${records.length} provenance record(s)...`);
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      if (!row) continue;
+
+      // Log progress every 10 records
+      if (i > 0 && i % 10 === 0) {
+        log.cli(`  Processed ${i}/${records.length} records...`);
+      }
+
+      const record = toProvenanceRecord(row);
+      const sessionId = record.sessionId!; // safe: query filters isNotNull
+
+      try {
+        const transcript = await transcriptService.getTranscript(sessionId);
+
+        if (!transcript) {
+          summary.skippedNoTranscript++;
+          continue;
+        }
+
+        const signals: TierSignals = {
+          taskOrigin: record.taskOrigin ?? undefined,
+          specAuthorship: record.specAuthorship ?? undefined,
+          initiationMode: record.initiationMode ?? undefined,
+        };
+
+        const judgment = await judge.evaluateTranscript(transcript, signals);
+
+        summary.recomputed++;
+        const tierKey = String(judgment.tier);
+        summary.tierDistribution[tierKey] = (summary.tierDistribution[tierKey] ?? 0) + 1;
+
+        const oldTier = record.authorshipTier;
+        if (oldTier !== judgment.tier) {
+          summary.tierChanged++;
+        }
+
+        if (dryRun) {
+          summary.changes!.push({
+            artifactId: record.artifactId,
+            oldTier: oldTier,
+            newTier: judgment.tier,
+          });
+        } else {
+          await this.updateWithJudgment(record.artifactId, record.artifactType, judgment);
+        }
+      } catch (error) {
+        summary.errors++;
+        log.warn(`Failed to recompute tier for artifact ${record.artifactId}`, {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    log.cli(
+      `Recompute complete: ${summary.recomputed} recomputed, ` +
+        `${summary.tierChanged} tier(s) changed, ` +
+        `${summary.skippedNoTranscript} skipped (no transcript), ` +
+        `${summary.errors} error(s).`
+    );
+
+    return summary;
   }
 }

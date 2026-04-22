@@ -274,6 +274,7 @@ export class SessionService {
     const deps: SessionPrDependencies = {
       sessionDB: this.deps.sessionProvider,
       gitService: this.deps.gitService,
+      taskService: this.deps.taskService,
     };
     return sessionPrImpl(params, deps, options);
   }

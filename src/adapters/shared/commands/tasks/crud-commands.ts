@@ -80,8 +80,9 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly parameters = tasksListParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => PersistenceProvider,
-    private readonly getTaskGraphService: () => TaskGraphService
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -114,7 +115,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         limit: params.limit,
         tags,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
@@ -129,7 +130,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 
     // Enrich with parent info and build hierarchical view if requested
     let depthMap: Map<string, number> | undefined;
-    if (params.hierarchical) {
+    if (params.hierarchical && this.getTaskGraphService) {
       try {
         const service = this.getTaskGraphService();
         const taskIds = tasks.map((t) => t.id);
@@ -183,11 +184,15 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       } catch {
         // If graph service unavailable, fall back to flat list
       }
+    } else if (params.hierarchical) {
+      log.warn(
+        "[tasks.list] Hierarchical view unavailable — no graph service available (no SQL backend)"
+      );
     }
 
     // Enrich with dependency status if requested
     let depsStatusMap: Map<string, { ready: boolean; blockedBy: string[] }> | undefined;
-    if (params.showDeps) {
+    if (params.showDeps && this.getTaskGraphService) {
       try {
         const service = this.getTaskGraphService();
         const taskIds = tasks.map((t) => t.id);
@@ -275,10 +280,10 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
   readonly parameters = tasksGetParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => PersistenceProvider,
-    private readonly getTaskGraphService: () => TaskGraphService,
-    private readonly getTaskService: () => TaskServiceInterface,
-    private readonly getSessionProvider: () => SessionProviderInterface | undefined
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface,
+    private readonly getSessionProvider?: () => SessionProviderInterface | undefined
   ) {
     super();
   }
@@ -304,7 +309,8 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       this.debug("Created task params", { taskParams });
 
       const task = await getTaskFromParams(taskParams, {
-        persistenceProvider: this.getPersistenceProvider(),
+        persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
       });
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
@@ -317,7 +323,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
           }
         | undefined;
 
-      if (params.includeSubtasks) {
+      if (params.includeSubtasks && this.getTaskGraphService) {
         try {
           const service = this.getTaskGraphService();
           const childIds = await service.listChildren(validatedTaskId);
@@ -370,7 +376,10 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         try {
           const specResult = await getTaskSpecContentFromParams(
             { ...this.createTaskParams(params), taskId: validatedTaskId },
-            { persistenceProvider: this.getPersistenceProvider() }
+            {
+              persistenceProvider: this.getPersistenceProvider?.(),
+              taskService: this.getTaskService?.(),
+            }
           );
           extras.spec = specResult.content;
         } catch {
@@ -380,7 +389,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       // Optionally include associated session info
       if (params.includeSession) {
-        const sessionProvider = this.getSessionProvider();
+        const sessionProvider = this.getSessionProvider?.();
         if (sessionProvider) {
           try {
             const { deriveSessionLiveness } = await import("../../../../domain/session/types");
@@ -412,6 +421,20 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       if (params.includeSpec && extras.spec !== undefined) {
         message += extras.spec ? `\n\nSpec:\n${extras.spec}` : `\n\nSpec: (not found)`;
       }
+      if (params.includeSession && extras.session) {
+        const s = extras.session as {
+          sessionId: string;
+          status?: string;
+          lastActivityAt?: string;
+          liveness?: string;
+        };
+        message += `\n\nSession: ${s.sessionId} [${s.status || "unknown"}] (${s.liveness || "unknown"})`;
+        if (s.lastActivityAt) {
+          message += `\n  Last activity: ${s.lastActivityAt}`;
+        }
+      } else if (params.includeSession) {
+        message += `\n\nSession: (none)`;
+      }
 
       const result = this.formatResult(
         this.createSuccessResult(validatedTaskId, message, extras),
@@ -442,9 +465,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
   readonly parameters = tasksCreateParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => PersistenceProvider,
-    private readonly getTaskGraphService: () => TaskGraphService,
-    private readonly getTaskService: () => TaskServiceInterface
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -491,7 +514,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           githubRepo: params.githubRepo,
           tags,
         },
-        { persistenceProvider: this.getPersistenceProvider() }
+        {
+          persistenceProvider: this.getPersistenceProvider?.(),
+          taskService: this.getTaskService?.(),
+        }
       );
 
       this.debug("Task created successfully");
@@ -501,22 +527,27 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       const depsWarnings: string[] = [];
       if (params.dependsOn) {
         const deps = Array.isArray(params.dependsOn) ? params.dependsOn : [params.dependsOn];
-        try {
-          const service = this.getTaskGraphService();
-          for (const dep of deps) {
-            try {
-              await service.addDependency(result.id, dep);
-              depsAdded.push(dep);
-            } catch (depErr) {
-              const msg = getErrorMessage(depErr);
-              depsWarnings.push(`Failed to add dependency ${dep}: ${msg}`);
-              log.warn(`[tasks.create] Failed to add dependency ${dep}: ${msg}`);
+        if (this.getTaskGraphService) {
+          try {
+            const service = this.getTaskGraphService();
+            for (const dep of deps) {
+              try {
+                await service.addDependency(result.id, dep);
+                depsAdded.push(dep);
+              } catch (depErr) {
+                const msg = getErrorMessage(depErr);
+                depsWarnings.push(`Failed to add dependency ${dep}: ${msg}`);
+                log.warn(`[tasks.create] Failed to add dependency ${dep}: ${msg}`);
+              }
             }
+          } catch (providerErr) {
+            const msg = getErrorMessage(providerErr);
+            depsWarnings.push(`Could not add dependencies: ${msg}`);
+            log.warn(`[tasks.create] Could not add dependencies: ${msg}`);
           }
-        } catch (providerErr) {
-          const msg = getErrorMessage(providerErr);
-          depsWarnings.push(`Could not add dependencies: ${msg}`);
-          log.warn(`[tasks.create] Could not add dependencies: ${msg}`);
+        } else {
+          depsWarnings.push("No graph service available; dependencies were not recorded");
+          log.warn("[tasks.create] No graph service; skipping dependsOn");
         }
       }
 
@@ -524,22 +555,29 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       let parentSet = false;
       const parentWarnings: string[] = [];
       if (params.parent) {
-        try {
-          const service = this.getTaskGraphService();
-          await service.addParent(result.id, params.parent);
-          parentSet = true;
-        } catch (parentErr) {
-          const msg = getErrorMessage(parentErr);
-          parentWarnings.push(`Failed to set parent ${params.parent}: ${msg}`);
-          log.warn(`[tasks.create] Failed to set parent ${params.parent}: ${msg}`);
+        if (this.getTaskGraphService) {
+          try {
+            const service = this.getTaskGraphService();
+            await service.addParent(result.id, params.parent);
+            parentSet = true;
+          } catch (parentErr) {
+            const msg = getErrorMessage(parentErr);
+            parentWarnings.push(`Failed to set parent ${params.parent}: ${msg}`);
+            log.warn(`[tasks.create] Failed to set parent ${params.parent}: ${msg}`);
+          }
+        } else {
+          parentWarnings.push("No graph service available; parent was not set");
+          log.warn("[tasks.create] No graph service; skipping parent");
         }
       }
 
       // Fire-and-forget embedding indexing for the newly created task
-      autoIndexTaskEmbedding(result.id, {
-        getPersistenceProvider: this.getPersistenceProvider,
-        getTaskService: this.getTaskService,
-      });
+      if (this.getPersistenceProvider && this.getTaskService) {
+        autoIndexTaskEmbedding(result.id, {
+          getPersistenceProvider: this.getPersistenceProvider,
+          getTaskService: this.getTaskService,
+        });
+      }
 
       // Build success message
       let message = `Task ${result.id} created: "${result.title}"`;
@@ -611,8 +649,9 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   readonly parameters = tasksDeleteParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => PersistenceProvider,
-    private readonly getTaskGraphService: () => TaskGraphService
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskGraphService?: () => TaskGraphService,
+    private readonly getTaskService?: () => TaskServiceInterface
   ) {
     super();
   }
@@ -637,11 +676,11 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         taskId: validatedTaskId,
         force: params.force ?? false,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Clean up parent-child edges for the deleted task (D7: orphan children)
-    if (result.success) {
+    if (result.success && this.getTaskGraphService) {
       try {
         const service = this.getTaskGraphService();
 
@@ -686,7 +725,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
         ...this.createTaskParams(params),
         taskId,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     // Guard against null task to avoid accessing properties on null
@@ -711,15 +750,17 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
  * Factory functions for creating command instances
  */
 export const createTasksListCommand = (
-  getPersistenceProvider: () => PersistenceProvider,
-  getTaskGraphService: () => TaskGraphService
-): TasksListCommand => new TasksListCommand(getPersistenceProvider, getTaskGraphService);
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
+): TasksListCommand =>
+  new TasksListCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksGetCommand = (
-  getPersistenceProvider: () => PersistenceProvider,
-  getTaskGraphService: () => TaskGraphService,
-  getTaskService: () => TaskServiceInterface,
-  getSessionProvider: () => SessionProviderInterface | undefined
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface,
+  getSessionProvider?: () => SessionProviderInterface | undefined
 ): TasksGetCommand =>
   new TasksGetCommand(
     getPersistenceProvider,
@@ -729,13 +770,15 @@ export const createTasksGetCommand = (
   );
 
 export const createTasksCreateCommand = (
-  getPersistenceProvider: () => PersistenceProvider,
-  getTaskGraphService: () => TaskGraphService,
-  getTaskService: () => TaskServiceInterface
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
 ): TasksCreateCommand =>
   new TasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
 
 export const createTasksDeleteCommand = (
-  getPersistenceProvider: () => PersistenceProvider,
-  getTaskGraphService: () => TaskGraphService
-): TasksDeleteCommand => new TasksDeleteCommand(getPersistenceProvider, getTaskGraphService);
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskGraphService?: () => TaskGraphService,
+  getTaskService?: () => TaskServiceInterface
+): TasksDeleteCommand =>
+  new TasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService);

@@ -1,0 +1,15 @@
+# Build artifacts
+node_modules/
+dist/
+coverage/
+.tsbuildinfo
+
+# Session workspaces (large, irrelevant to main project)
+~/.local/state/minsky/sessions/
+
+# Generated files
+*.tsbuildinfo
+*.d.ts.map
+
+# Large data files
+*.jsonl

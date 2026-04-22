@@ -14,6 +14,8 @@ import {
 } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
+import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 // Re-export PR subcommand factories so consumers can import the full set
 // from workflow-commands.
@@ -347,6 +349,25 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
   };
 }
 
+/**
+ * Build the SessionMergeDependencies shape from the adapter's DI deps and
+ * command execution container. Exported for unit-testing the DI wiring —
+ * see workflow-commands-merge-deps.test.ts (mt#1025).
+ */
+export function buildSessionMergeDeps(
+  deps: Awaited<ReturnType<LazySessionDeps>>,
+  container: { has(key: string): boolean; get(key: string): unknown } | undefined
+): SessionMergeDependencies {
+  return {
+    sessionDB: deps.sessionProvider,
+    taskService: deps.taskService,
+    gitService: deps.gitService,
+    persistenceProvider: container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined,
+  };
+}
+
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.merge",
@@ -372,12 +393,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
             json: params.json as boolean | undefined,
             cleanupSession: shouldCleanup,
           },
-          {
-            sessionDB: deps.sessionProvider,
-            persistenceProvider: context.container?.has("persistence")
-              ? context.container.get("persistence")
-              : undefined,
-          }
+          buildSessionMergeDeps(deps, context.container as any)
         );
 
         return { success: true, result, printed: true };

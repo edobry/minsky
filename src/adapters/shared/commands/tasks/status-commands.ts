@@ -13,6 +13,7 @@ import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 /**
  * Parameters for tasks status get command
@@ -38,7 +39,10 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
   readonly description = "Get the status of a task";
   readonly parameters = tasksStatusGetParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -55,7 +59,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     this.debug("Task status retrieved successfully");
@@ -78,7 +82,10 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
   readonly description = "Set the status of a task";
   readonly parameters = tasksStatusSetParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -96,7 +103,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
     this.debug("Previous status retrieved successfully");
 
@@ -128,7 +135,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         taskId: validatedTaskId,
         status,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
@@ -189,9 +196,11 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
  * Factory functions for creating command instances
  */
 export const createTasksStatusGetCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksStatusGetCommand => new TasksStatusGetCommand(getPersistenceProvider);
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskService?: () => TaskServiceInterface
+): TasksStatusGetCommand => new TasksStatusGetCommand(getPersistenceProvider, getTaskService);
 
 export const createTasksStatusSetCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider);
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskService?: () => TaskServiceInterface
+): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider, getTaskService);

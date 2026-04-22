@@ -30,6 +30,12 @@ const mockSessionProvider = {
   getSessionWorkdir: mock(() => Promise.resolve("/test/session/workdir")),
 };
 
+const mockTaskService = {
+  setTaskStatus: async () => {},
+  getTaskStatus: async () => "IN-REVIEW",
+  getTask: async () => null,
+} as any;
+
 const mockMerge = mock();
 const mockApprove = mock();
 const mockGetApprovalStatus = mock();
@@ -186,12 +192,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        ValidationError
-      );
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        /PR must be approved/
-      );
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(/PR must be approved/);
 
       // Repository backend should NEVER be called for unapproved sessions
       expect(mockMerge).not.toHaveBeenCalled();
@@ -218,12 +224,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        ValidationError
-      );
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        /has no PR branch/
-      );
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(/has no PR branch/);
 
       // Repository backend should NEVER be called for sessions without PR
       expect(mockMerge).not.toHaveBeenCalled();
@@ -264,18 +270,26 @@ describe("Session Merge Security Validation", () => {
         sessionDB: mockSessionProvider,
         persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
         createRepositoryBackend: (_config: any) => Promise.resolve(mockRepositoryBackend as any),
+        taskService: {
+          setTaskStatus: async () => {},
+          getTaskStatus: async () => "IN-REVIEW",
+          getTask: async () => null,
+        } as any,
       });
 
       expect(result).toBeDefined();
       expect(result.session).toBe(SESSION_TEST_PATTERNS.APPROVED_SESSION);
       expect(result.taskId).toBe("task-999");
 
-      // Repository backend should be called for approved sessions
-      // Third argument is MergePROptions (empty object when no provenance record available)
+      // Repository backend should be called for approved sessions.
+      // Third argument (MergePROptions) varies by runtime context (service-account
+      // config, provenance records) and is tested in
+      // src/domain/provenance/merge-token-resolution.test.ts. This is a security
+      // test — it verifies that unapproved sessions don't reach the merge API.
       expect(newMerge).toHaveBeenCalledWith(
         "pr/approved-session",
         SESSION_TEST_PATTERNS.APPROVED_SESSION,
-        {}
+        expect.anything()
       );
     });
   });

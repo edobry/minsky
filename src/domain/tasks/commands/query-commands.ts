@@ -31,7 +31,10 @@ function requirePersistence(
   provider: BasePersistenceProvider | undefined
 ): BasePersistenceProvider {
   if (!provider) {
-    throw new Error("persistenceProvider is required");
+    throw new Error(
+      "persistenceProvider is required when taskService is not injected. " +
+        "Provide one of: deps.taskService or deps.persistenceProvider."
+    );
   }
   return provider;
 }
@@ -39,8 +42,8 @@ function requirePersistence(
 /**
  * Factory signature for the test-injection seam. Persistence is NOT required
  * here because test mocks don't use it — they return pre-built mock services.
- * The real `createConfiguredTaskService` requires persistence and is called
- * directly on the production path (not through this type).
+ * The real `createConfiguredTaskServiceImpl` requires persistence and is called
+ * directly on the production path with `requirePersistence(deps?.persistenceProvider)`.
  */
 type InjectedTaskServiceFactory = (
   options: Omit<TaskServiceOptions, "persistenceProvider">
@@ -55,34 +58,38 @@ type InjectedTaskServiceFactory = (
 export async function listTasksFromParams(
   params: TaskListParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     createConfiguredTaskService?: InjectedTaskServiceFactory;
-    resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<Task[]> {
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Prefer injected main workspace path for tests; otherwise resolve from repo
-    const workspacePath =
-      (await deps?.resolveMainWorkspacePath?.()) ??
-      (await resolveRepoPath({
-        session: validParams.session,
-        repo: validParams.repo,
-      }));
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      // Prefer injected main workspace path for tests; otherwise resolve from repo
+      const workspacePath =
+        (await deps?.resolveMainWorkspacePath?.()) ??
+        (await resolveRepoPath({
+          session: validParams.session,
+          repo: validParams.repo,
+        }));
 
-    // Create task service using dependency injection or default implementation
-    const taskService = deps?.createConfiguredTaskService
-      ? await deps.createConfiguredTaskService({
-          workspacePath,
-          backend: validParams.backend,
-        })
-      : await createConfiguredTaskServiceImpl({
-          workspacePath,
-          backend: validParams.backend,
-          persistenceProvider: requirePersistence(deps?.persistenceProvider),
-        });
+      taskService = deps?.createConfiguredTaskService
+        ? await deps.createConfiguredTaskService({
+            workspacePath,
+            backend: validParams.backend,
+          })
+        : await createConfiguredTaskServiceImpl({
+            workspacePath,
+            backend: validParams.backend,
+            persistenceProvider: requirePersistence(deps?.persistenceProvider),
+          });
+    }
 
     // Get tasks with filters - delegate filtering to domain layer
     let tasks = await taskService.listTasks({
@@ -110,9 +117,10 @@ export async function listTasksFromParams(
 export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     createConfiguredTaskService?: InjectedTaskServiceFactory;
-    resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<Task> {
   const startTime = Date.now();
@@ -137,24 +145,26 @@ export async function getTaskFromParams(
     const validParams = taskGetParamsSchema.parse(paramsWithQualifiedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
-    // Resolve repository root and use it as workspace path (prefer injected main path)
-    const workspacePath = await (deps?.resolveMainWorkspacePath
-      ? deps.resolveMainWorkspacePath()
-      : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
-    log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      const workspacePath = await (deps?.resolveMainWorkspacePath
+        ? deps.resolveMainWorkspacePath()
+        : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
+      log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
 
-    // Create task service using dependency injection or default implementation
-    log.debug("[getTaskFromParams] About to create task service");
-    const taskService = deps?.createConfiguredTaskService
-      ? await deps.createConfiguredTaskService({
-          workspacePath,
-          backend: validParams.backend,
-        })
-      : await createConfiguredTaskServiceImpl({
-          workspacePath,
-          backend: validParams.backend,
-          persistenceProvider: requirePersistence(deps?.persistenceProvider),
-        });
+      log.debug("[getTaskFromParams] About to create task service");
+      taskService = deps?.createConfiguredTaskService
+        ? await deps.createConfiguredTaskService({
+            workspacePath,
+            backend: validParams.backend,
+          })
+        : await createConfiguredTaskServiceImpl({
+            workspacePath,
+            backend: validParams.backend,
+            persistenceProvider: requirePersistence(deps?.persistenceProvider),
+          });
+    }
     log.debug("[getTaskFromParams] Task service created");
 
     // Get the task
@@ -188,10 +198,11 @@ export async function getTaskFromParams(
 export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps?: {
+    taskService?: TaskServiceInterface;
     resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: InjectedTaskServiceFactory;
-    resolveMainWorkspacePath?: () => Promise<string>;
     persistenceProvider?: BasePersistenceProvider;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<string> {
   try {
@@ -202,25 +213,27 @@ export async function getTaskStatusFromParams(
     // Validate params with Zod schema
     const validParams = taskStatusGetParamsSchema.parse(paramsWithQualifiedId);
 
-    // Resolve workspace path (prefer injected main path)
-    const workspacePath =
-      (await deps?.resolveMainWorkspacePath?.()) ??
-      (await (deps?.resolveRepoPath || resolveRepoPath)({
-        session: validParams.session,
-        repo: validParams.repo,
-      }));
+    // Use DI-provided taskService when available
+    let taskService = deps?.taskService;
+    if (!taskService) {
+      const workspacePath =
+        (await deps?.resolveMainWorkspacePath?.()) ??
+        (await (deps?.resolveRepoPath || resolveRepoPath)({
+          session: validParams.session,
+          repo: validParams.repo,
+        }));
 
-    // Create task service using dependency injection or default implementation
-    const taskService = deps?.createConfiguredTaskService
-      ? await deps.createConfiguredTaskService({
-          workspacePath,
-          backend: validParams.backend,
-        })
-      : await createConfiguredTaskServiceImpl({
-          workspacePath,
-          backend: validParams.backend,
-          persistenceProvider: requirePersistence(deps?.persistenceProvider),
-        });
+      taskService = deps?.createConfiguredTaskService
+        ? await deps.createConfiguredTaskService({
+            workspacePath,
+            backend: validParams.backend,
+          })
+        : await createConfiguredTaskServiceImpl({
+            workspacePath,
+            backend: validParams.backend,
+            persistenceProvider: requirePersistence(deps?.persistenceProvider),
+          });
+    }
 
     // Get the task
     const task = await taskService.getTask(validParams.taskId);
@@ -252,7 +265,8 @@ export async function getTaskStatusFromParams(
 export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
-    resolveRepoPath: typeof resolveRepoPath;
+    taskService?: TaskServiceInterface;
+    resolveRepoPath?: typeof resolveRepoPath;
     createConfiguredTaskService?: InjectedTaskServiceFactory;
     persistenceProvider?: BasePersistenceProvider;
   } = {
@@ -267,31 +281,28 @@ export async function getTaskSpecContentFromParams(
     const taskIdString = Array.isArray(validParams.taskId)
       ? validParams.taskId[0]
       : validParams.taskId;
-    const taskId = taskIdString; // Use directly since we now only accept qualified IDs
+    const taskId = taskIdString;
 
-    // First get the repo path (needed for workspace resolution)
-    const _repoPath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
+    // Use DI-provided taskService when available
+    let taskService = deps.taskService;
+    if (!taskService) {
+      const resolveRepo = deps.resolveRepoPath || resolveRepoPath;
+      const workspacePath = await resolveRepo({
+        session: validParams.session,
+        repo: validParams.repo,
+      });
 
-    // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Create task service
-    const taskService = deps.createConfiguredTaskService
-      ? await deps.createConfiguredTaskService({
-          workspacePath,
-          backend: validParams.backend,
-        })
-      : await createConfiguredTaskServiceImpl({
-          workspacePath,
-          backend: validParams.backend,
-          persistenceProvider: requirePersistence(deps.persistenceProvider),
-        });
+      taskService = deps.createConfiguredTaskService
+        ? await deps.createConfiguredTaskService({
+            workspacePath,
+            backend: validParams.backend,
+          })
+        : await createConfiguredTaskServiceImpl({
+            workspacePath,
+            backend: validParams.backend,
+            persistenceProvider: requirePersistence(deps.persistenceProvider),
+          });
+    }
 
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);

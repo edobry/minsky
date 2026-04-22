@@ -25,6 +25,28 @@
             "statusMessage": "Checking prompt provenance..."
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-git-gh-cli.ts",
+            "timeout": 5,
+            "statusMessage": "Checking for git/gh CLI..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__create_pull_request|mcp__github__update_pull_request|mcp__github__merge_pull_request|mcp__github__pull_request_review_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-github-mcp-pr-writes.ts",
+            "timeout": 5,
+            "statusMessage": "Checking GitHub MCP PR-write ban..."
+          }
+        ]
       }
     ],
     "SessionStart": [

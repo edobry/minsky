@@ -56,13 +56,15 @@ Before writing any code:
   - Use meaningful messages referencing the task ID
   - Group related changes in logical commits
 - All file edits must use absolute paths under the session directory
+- **Run commands in the session** using `mcp__minsky__session_exec(task: "mt#<id>", command: "<cmd>")` — e.g., `bun test`, `bun run format:check`, `git status`. Never use `git -C <path>` or shell `cd` workarounds.
 
 ### 5. Verify implementation
 
 Before declaring complete:
 
+- **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - Run the `verify-completion` subagent to objectively check each success criterion
-- Ensure all task requirements are met
+- If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
 
 ### 6. Create PR

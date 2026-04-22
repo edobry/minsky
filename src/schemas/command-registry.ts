@@ -23,6 +23,8 @@ export const commandCategorySchema = z.enum([
   "TOOLS",
   "MCP",
   "KNOWLEDGE",
+  "MEMORY",
+  "PROVENANCE",
 ]);
 
 /**

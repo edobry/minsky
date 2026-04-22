@@ -266,7 +266,12 @@ export async function executeSessionPrCreate(
         skipConflictCheck: params.skipConflictCheck,
         draft: params.draft,
       },
-      { sessionDB: deps.sessionProvider },
+      {
+        sessionDB: deps.sessionProvider,
+        persistenceProvider: context.container?.has("persistence")
+          ? context.container.get("persistence")
+          : undefined,
+      },
       {
         interface: interfaceType,
         workingDirectory,

@@ -9,6 +9,7 @@ import { getTaskSpecContentFromParams } from "../../../../domain/tasks";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksSpecParams } from "./task-parameters";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 
 /**
  * Parameters for tasks spec command
@@ -27,7 +28,10 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
   readonly description = "Get task specification content";
   readonly parameters = tasksSpecParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {
+  constructor(
+    private readonly getPersistenceProvider?: () => PersistenceProvider,
+    private readonly getTaskService?: () => TaskServiceInterface
+  ) {
     super();
   }
 
@@ -45,7 +49,7 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
         taskId: validatedTaskId,
         section: params.section,
       },
-      { persistenceProvider: this.getPersistenceProvider() }
+      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
 
     this.debug("Task specification retrieved successfully");
@@ -70,5 +74,6 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
  * Factory function for creating command instance
  */
 export const createTasksSpecCommand = (
-  getPersistenceProvider: () => PersistenceProvider
-): TasksSpecCommand => new TasksSpecCommand(getPersistenceProvider);
+  getPersistenceProvider?: () => PersistenceProvider,
+  getTaskService?: () => TaskServiceInterface
+): TasksSpecCommand => new TasksSpecCommand(getPersistenceProvider, getTaskService);
