@@ -161,6 +161,7 @@ export class KnowledgeService {
       serviceAccountKey,
       driveFolderId: config.driveFolderId,
       documentIds: config.documentIds,
+      excludePatterns: config.sync?.excludePatterns,
     });
   }
 }

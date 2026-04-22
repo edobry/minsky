@@ -89,6 +89,8 @@ export interface GoogleDocsProviderOptions {
   driveFolderId?: string;
   /** Explicit list of document IDs to fetch (mutually exclusive with driveFolderId) */
   documentIds?: string[];
+  /** Glob patterns matched against document/folder names; matches are skipped */
+  excludePatterns?: string[];
   /** Injected fetch function (for testing) */
   fetch?: FetchFn;
   /** Injected retry service (for testing) */
@@ -126,6 +128,22 @@ function buildServiceAccountJwt(key: ServiceAccountKey, scopes: string): string 
 }
 
 // ---------------------------------------------------------------------------
+// Helper: check if a name matches any exclude pattern (simple glob: * wildcard)
+// ---------------------------------------------------------------------------
+
+function matchesExcludePattern(name: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  return patterns.some((pattern) => {
+    const regexStr = pattern
+      .split("*")
+      .map((segment) => segment.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+      .join(".*");
+    const regex = new RegExp(`^${regexStr}$`, "i");
+    return regex.test(name);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // GoogleDocsKnowledgeProvider
 // ---------------------------------------------------------------------------
 
@@ -137,6 +155,7 @@ export class GoogleDocsKnowledgeProvider implements KnowledgeSourceProvider {
   private readonly documentIds?: string[];
   private readonly accessToken?: string;
   private readonly serviceAccountKey?: ServiceAccountKey;
+  private readonly excludePatterns: string[];
   private readonly fetchFn: FetchFn;
   private readonly retryService: IntelligentRetryService;
 
@@ -152,6 +171,7 @@ export class GoogleDocsKnowledgeProvider implements KnowledgeSourceProvider {
     this.documentIds = options.documentIds;
     this.accessToken = options.accessToken;
     this.serviceAccountKey = options.serviceAccountKey;
+    this.excludePatterns = options.excludePatterns ?? [];
     this.fetchFn = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.retryService =
       options.retryService ?? new IntelligentRetryService({ maxRetries: 3, baseDelay: 350 });
@@ -245,10 +265,11 @@ export class GoogleDocsKnowledgeProvider implements KnowledgeSourceProvider {
     const docsQuery = `'${folderId}' in parents and mimeType='${DOCS_MIME_TYPE}' and trashed=false`;
     yield* this.listFilesWithQuery(docsQuery, false);
 
-    // Recurse into sub-folders
+    // Recurse into sub-folders (skip folders matching exclude patterns)
     const foldersQuery = `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const subFolders = await this.listAllFiles(foldersQuery);
     for (const folder of subFolders) {
+      if (matchesExcludePattern(folder.name, this.excludePatterns)) continue;
       yield* this.walkFolder(folder.id);
     }
   }
@@ -259,6 +280,8 @@ export class GoogleDocsKnowledgeProvider implements KnowledgeSourceProvider {
   ): AsyncIterable<KnowledgeDocument> {
     const files = await this.listAllFiles(q);
     for (const file of files) {
+      // Skip docs matching exclude patterns
+      if (matchesExcludePattern(file.name, this.excludePatterns)) continue;
       if (flatList) {
         yield await this.fetchDocument(file.id);
       } else {

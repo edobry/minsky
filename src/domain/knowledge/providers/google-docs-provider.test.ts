@@ -570,3 +570,94 @@ describe("GoogleDocsKnowledgeProvider — service account auth", () => {
     expect(tokenExchanges).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Exclude patterns
+// ---------------------------------------------------------------------------
+
+describe("GoogleDocsKnowledgeProvider — excludePatterns", () => {
+  it("skips documents whose name matches an exclude pattern", async () => {
+    const { fetch } = makeFetch(async (url) => {
+      if (url.includes("/files?")) {
+        if (url.includes("google-apps.folder")) {
+          return jsonResponse({ files: [] });
+        }
+        return jsonResponse({
+          files: [
+            makeDoc("doc-keep", "Keep Me"),
+            makeDoc("doc-drop", "Draft — WIP"),
+            makeDoc("doc-archive", "Archived Notes"),
+          ],
+        });
+      }
+      if (url.includes("/export?")) {
+        return textResponse("# content");
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+
+    const provider = makeProvider({
+      accessToken: "tok",
+      driveFolderId: "folder-1",
+      excludePatterns: ["Draft*", "Archived*"],
+      fetch,
+    });
+
+    const ids: string[] = [];
+    for await (const d of provider.listDocuments()) {
+      ids.push(d.id);
+    }
+
+    expect(ids).toEqual(["doc-keep"]);
+  });
+
+  it("skips sub-folders whose name matches an exclude pattern", async () => {
+    const { fetch, calls } = makeFetch(async (url) => {
+      if (url.includes("/files?")) {
+        if (url.includes("google-apps.folder")) {
+          if (url.includes("folder-root")) {
+            return jsonResponse({
+              files: [makeFolder("folder-keep", "Active"), makeFolder("folder-skip", "Archive")],
+            });
+          }
+          return jsonResponse({ files: [] });
+        }
+        // docs query
+        if (url.includes("folder-root")) {
+          return jsonResponse({ files: [makeDoc("root-doc", "Root")] });
+        }
+        if (url.includes("folder-keep")) {
+          return jsonResponse({ files: [makeDoc("keep-doc", "Keep")] });
+        }
+        if (url.includes("folder-skip")) {
+          return jsonResponse({ files: [makeDoc("skip-doc", "Skipped")] });
+        }
+        return jsonResponse({ files: [] });
+      }
+      if (url.includes("/export?")) {
+        return textResponse("# content");
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+
+    const provider = makeProvider({
+      accessToken: "tok",
+      driveFolderId: "folder-root",
+      excludePatterns: ["Archive*"],
+      fetch,
+    });
+
+    const ids: string[] = [];
+    for await (const d of provider.listDocuments()) {
+      ids.push(d.id);
+    }
+
+    // Root + folder-keep docs; folder-skip (Archive) should not have been recursed into
+    expect(ids.sort()).toEqual(["keep-doc", "root-doc"]);
+    // Verify we never issued a docs query against folder-skip
+    const skipFolderQueries = calls.filter(
+      (c) => c.url.includes("folder-skip") && !c.url.includes("google-apps.folder")
+    );
+    expect(skipFolderQueries.length).toBe(0);
+  });
+});
