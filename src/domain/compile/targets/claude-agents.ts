@@ -6,7 +6,7 @@
  * .claude/agents/<name>.md with YAML frontmatter + prompt body.
  */
 
-import { join, basename } from "path";
+import { join } from "path";
 import realFs from "fs/promises";
 import matter from "gray-matter";
 import { agentDefinitionSchema } from "../../definitions/schemas";
@@ -210,9 +210,17 @@ function makeClaudeAgentsTarget(
         }
 
         const { agent } = extracted;
-        // Use the directory name (not agent.name) for the output file,
-        // consistent with the source discovery pattern.
-        const outputPath = agentOutputPath(workspacePath, basename(dirName));
+        // Enforce dirName === agent.name. Without this invariant, compile output
+        // would live at `.claude/agents/<agent.name>.md` but `listOutputFiles`
+        // (which only sees dirNames) would expect `.claude/agents/<dirName>.md`,
+        // causing `--check` to always flag the target as stale. Keeping them in
+        // lockstep is simpler than making listOutputFiles load every definition
+        // just to discover the real name.
+        if (dirName !== agent.name) {
+          definitionsSkipped.push(dirName);
+          continue;
+        }
+        const outputPath = agentOutputPath(workspacePath, agent.name);
         const content = buildAgentMd(agent);
 
         if (options.dryRun) {

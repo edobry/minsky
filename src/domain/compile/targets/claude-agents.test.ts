@@ -262,6 +262,47 @@ describe("claudeAgentsTarget.compile (normal)", () => {
     expect(result.definitionsSkipped).toEqual(["invalid-agent"]);
   });
 
+  it("skips an agent when dirName !== agent.name (invariant enforcement)", async () => {
+    // Compile enforces dirName === agent.name so that listOutputFiles
+    // (which only sees dirNames) and the compile output paths agree. When they
+    // differ, the agent is skipped. This preserves the Claude Code invariant
+    // that filename stem matches the frontmatter `name`.
+    const fakeFs = makeAgentFs("dir-name-x");
+    const agentWithDifferentName: AgentDefinition = { ...sampleAgent, name: "agent-name-y" };
+    const importStub = makeImportStub({
+      [agentSourcePath("dir-name-x")]: agentWithDifferentName,
+    });
+    const target = makeClaudeAgentsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toEqual(["dir-name-x"]);
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(result.filesWritten).toEqual([]);
+  });
+
+  it("produces output at .claude/agents/<name>.md when dirName === agent.name", async () => {
+    const written: Record<string, string> = {};
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeAgentFs("my-agent"),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+
+    const importStub = makeImportStub({
+      [agentSourcePath("my-agent")]: { ...sampleAgent, name: "my-agent" },
+    });
+    const target = makeClaudeAgentsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.filesWritten).toHaveLength(1);
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    expect(outPath).toMatch(/\.claude\/agents\/my-agent\.md$/);
+  });
+
   it("compiles multiple agents and writes them individually", async () => {
     const written: Record<string, string> = {};
     const agentA: AgentDefinition = { ...sampleAgent, name: "agent-a" };
