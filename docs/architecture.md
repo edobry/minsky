@@ -541,7 +541,34 @@ according to each source's `sync.schedule` setting. Supported values:
 - Named presets: `on-demand`, `startup`, `hourly`, `daily`, `weekly`
 - Any valid 5-field cron expression (e.g. `"0 */6 * * *"` for every 6 hours)
 
-The scheduler is started at application boot and supports `runNow()` for manual triggering.
+The scheduler uses a setTimeout chain — the next fire time is recomputed from the current clock
+after each run, so late fires skip forward rather than trying to catch up (missed-run policy:
+skip forward, do not replay).
+
+#### Scheduler lifecycle
+
+The scheduler is constructed and started inside the **MCP server startup path** only
+(`src/commands/mcp/start-command.ts`, via `buildAndStartScheduler` in
+`src/commands/mcp/scheduler-wiring.ts`). It is deliberately absent from any CLI-only
+code path, satisfying ADR-002 ("no DB on `minsky --help`").
+
+Startup sequence:
+
+1. `registerAllTools()` completes, initializing the DI container (persistence + services ready).
+2. `buildAndStartScheduler(container)` is called. It reads `knowledgeBases` from config, filters
+   sources with a non-`on-demand` schedule, builds `EmbeddingService` + `VectorStorage`, and
+   constructs the provider for each source.
+3. If at least one schedulable source exists, `KnowledgeSyncScheduler.start()` is called.
+   Sources with no auto-schedule (i.e. `on-demand`) are silently skipped.
+4. On SIGINT / SIGTERM: `scheduler.stop()` is awaited before `server.drain()`, so any in-flight
+   sync completes before the process exits. This prevents partial index writes.
+
+If provider construction for a source fails (e.g. missing API key), that source is logged at
+`warn` level and excluded from the scheduler — the other sources still run. If no schedulable
+source can be built, `buildAndStartScheduler` returns `null` and no scheduler is registered.
+
+The scheduler supports `runNow(sourceName?)` for manual triggering without affecting the
+next scheduled fire time.
 
 ### KnowledgeService
 

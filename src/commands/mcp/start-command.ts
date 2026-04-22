@@ -27,6 +27,7 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
+import { buildAndStartScheduler } from "./scheduler-wiring";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -328,12 +329,22 @@ export function createStartCommand(
           })
           .catch(() => {}); // Embedding sweep is best-effort
 
+        // Start the knowledge sync scheduler (best-effort; non-blocking)
+        // ADR-002: scheduler is only constructed here, inside the MCP server start
+        // path — never from `minsky --help` or any CLI-only code path.
+        const scheduler = await buildAndStartScheduler(container);
+
         log.cli("Press Ctrl+C to stop");
 
         // Handle termination signals gracefully
         const cleanup = async () => {
           log.cli("\nStopping Minsky MCP Server...");
           try {
+            // Stop the scheduler first so in-flight syncs complete before closing.
+            if (scheduler) {
+              await scheduler.stop();
+              log.debug("[scheduler] Knowledge sync scheduler stopped");
+            }
             await server.drain();
           } catch (error) {
             log.warn("Error during server cleanup", {
