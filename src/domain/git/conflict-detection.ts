@@ -132,9 +132,10 @@ export class ConflictDetectionService {
     options?: {
       skipIfAlreadyMerged?: boolean;
       autoResolveConflicts?: boolean;
-    }
+    },
+    deps?: ConflictDetectionDeps
   ): Promise<SmartUpdateResult> {
-    const service = new ConflictDetectionService();
+    const service = new ConflictDetectionService(deps);
     return service.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
   }
 
@@ -390,6 +391,12 @@ export class ConflictDetectionService {
     });
 
     try {
+      // Fetch the base branch first so the local tracking ref is current before
+      // we analyze divergence. Without this, smartSessionUpdate silently no-ops
+      // when origin/baseBranch is stale — the divergence analysis reads the
+      // old ref, concludes "no update needed", and exits without merging. (mt#990)
+      await this.deps.gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
+
       // Analyze branch divergence against origin/baseBranch (remote tracking branch)
       const remoteBranch = `origin/${baseBranch}`;
       const divergence = await this.analyzeBranchDivergence(repoPath, sessionBranch, remoteBranch);
@@ -418,8 +425,7 @@ export class ConflictDetectionService {
 
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
-        // Simple fast-forward - merge from the remote branch we analyzed against
-        await this.deps.gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
+        // Base branch already fetched above; just fast-forward merge.
         await this.deps.execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
