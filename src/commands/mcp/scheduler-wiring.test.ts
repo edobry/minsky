@@ -96,8 +96,6 @@ function makeProvider(name: string): KnowledgeSourceProvider {
 // Direct KnowledgeSyncScheduler integration (no composition-root wiring needed)
 // ---------------------------------------------------------------------------
 
-const SCHEDULER_MODULE = "../../domain/knowledge/ingestion/scheduler";
-
 describe("KnowledgeSyncScheduler — composition-root integration", () => {
   it("fires runSync for an hourly source after 1h of fake-clock time", async () => {
     const { KnowledgeSyncScheduler } = await import(SCHEDULER_MODULE);
