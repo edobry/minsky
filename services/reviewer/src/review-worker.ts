@@ -49,7 +49,7 @@ export async function runReview(
   // self-approval at the platform level. Comparison is case-insensitive
   // because GitHub usernames are case-insensitive at the platform level and
   // API responses can return inconsistent casing.
-  const reviewerIdentity = await getAppIdentity(octokit);
+  const reviewerIdentity = await getAppIdentity(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
   const userPrompt = buildReviewPrompt({
