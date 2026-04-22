@@ -346,10 +346,7 @@ export class MemoryService {
     newInput: MemoryCreateInput,
     _reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
-    let oldRecord: MemoryRecord | null = null;
-    let newRecord: MemoryRecord | null = null;
-
-    await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
+    const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
       // Insert new memory inside the transaction.
       const newRows = await tx
         .insert(memoriesTable)
@@ -368,22 +365,25 @@ export class MemoryService {
         })
         .returning();
 
-      newRecord = rowToRecord(newRows[0] as Record<string, unknown>);
+      const replacement = rowToRecord(newRows[0] as Record<string, unknown>);
 
       // Mark the old memory as superseded.
       const oldRows = await tx
         .update(memoriesTable)
-        .set({ supersededBy: newRecord.id, updatedAt: new Date() })
+        .set({ supersededBy: replacement.id, updatedAt: new Date() })
         .where(eq(memoriesTable.id, oldId))
         .returning();
 
-      oldRecord = rowToRecord(oldRows[0] as Record<string, unknown>);
+      return {
+        newRecord: replacement,
+        oldRecord: rowToRecord(oldRows[0] as Record<string, unknown>),
+      };
     });
 
     // Compute embedding for the new memory outside the transaction.
-    await this.tryStoreEmbedding(newRecord!.id, newInput.content);
+    await this.tryStoreEmbedding(newRecord.id, newInput.content);
 
-    return { old: oldRecord!, replacement: newRecord! };
+    return { old: oldRecord, replacement: newRecord };
   }
 
   // -------------------------------------------------------------------------
