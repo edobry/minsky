@@ -128,6 +128,7 @@ export interface DeleteTaskOptions {
 export interface TaskServiceOptions {
   workspacePath: string;
   backend?: string;
+  persistenceProvider: import("../persistence/types").BasePersistenceProvider;
 }
 
 /**

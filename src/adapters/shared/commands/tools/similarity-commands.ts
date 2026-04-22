@@ -111,7 +111,7 @@ export class ToolsSimilarCommand {
   readonly description = "Find tools similar to the given tool using embeddings";
   readonly parameters = toolsSimilarParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {}
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {}
 
   /**
    * Enhance search results with tool details for better CLI output
@@ -166,8 +166,6 @@ export class ToolsSimilarCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    if (!this.getPersistenceProvider)
-      throw new Error("Persistence provider required for tool similarity search");
     const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
     const searchResults = await service.similarToTool(toolId, limit, threshold);
@@ -215,7 +213,7 @@ export class ToolsSearchCommand {
   readonly description = "Search for tools using natural language queries";
   readonly parameters = toolsSearchParams;
 
-  constructor(private readonly getPersistenceProvider?: () => PersistenceProvider) {}
+  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {}
 
   /**
    * Enhance search results with tool details for better CLI output
@@ -270,8 +268,6 @@ export class ToolsSearchCommand {
     const { createToolSimilarityService } = await import(
       "../../../../domain/tools/similarity/tool-similarity-service"
     );
-    if (!this.getPersistenceProvider)
-      throw new Error("Persistence provider required for tool search");
     const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
     // Immediate progress hint to stderr unless JSON/quiet
@@ -348,10 +344,14 @@ export class ToolsSearchCommand {
 
 // === Factory Functions ===
 
-export function createToolsSimilarCommand(): ToolsSimilarCommand {
-  return new ToolsSimilarCommand();
+export function createToolsSimilarCommand(
+  getPersistenceProvider: () => PersistenceProvider
+): ToolsSimilarCommand {
+  return new ToolsSimilarCommand(getPersistenceProvider);
 }
 
-export function createToolsSearchCommand(): ToolsSearchCommand {
-  return new ToolsSearchCommand();
+export function createToolsSearchCommand(
+  getPersistenceProvider: () => PersistenceProvider
+): ToolsSearchCommand {
+  return new ToolsSearchCommand(getPersistenceProvider);
 }
