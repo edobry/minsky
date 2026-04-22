@@ -471,8 +471,9 @@ Source: `src/domain/repository/`
 ## 9. Knowledge Base
 
 The knowledge base subsystem lets Minsky index external documentation sources and make them
-available for semantic search. Phase 1 (shipped) covers Notion; Confluence and Google Docs are
-planned provider types in the config schema.
+available for semantic search. Phase 2a (shipped) covers Notion and Google Docs providers,
+cron-based sync scheduling, and a structured search response with freshness and authority ranking.
+Phase 2b (mt#1027, pending) will add clustering and conflict/redundancy detection.
 
 ### Provider interface
 
@@ -488,10 +489,16 @@ interface KnowledgeSourceProvider {
 }
 ```
 
-The current implementation is `NotionKnowledgeProvider`
-(`src/domain/knowledge/providers/notion-provider.ts`), which walks a Notion page tree via the
-Notion REST API, converting blocks to plain-text `KnowledgeDocument` objects. Future providers
-for Confluence and Google Docs will implement the same interface.
+Shipped providers:
+
+- `NotionKnowledgeProvider` (`src/domain/knowledge/providers/notion-provider.ts`) — walks a
+  Notion page tree via the Notion REST API.
+- `GoogleDocsKnowledgeProvider` (`src/domain/knowledge/providers/google-docs-provider.ts`) —
+  syncs documents from a Google Drive folder or an explicit document ID list. Supports OAuth
+  access tokens and service account JSON key authentication.
+
+Providers are loaded lazily via dynamic `import()` so neither SDK is bundled unless the source
+type is configured.
 
 ### Ingestion pipeline
 
@@ -520,17 +527,27 @@ for Confluence and Google Docs will implement the same interface.
 5. Last resort: hard split by token count.
 
 Each chunk ID is `{sourceName}:{documentId}:{chunkIndex}`, stored alongside metadata that
-includes `contentHash`, `totalChunks`, `url`, `title`, and `stale` flag.
+includes `contentHash`, `totalChunks`, `url`, `title`, `lastModified`, and `stale` flag.
 
 `runSync` (`src/domain/knowledge/ingestion/sync-runner.ts`) orchestrates the pipeline for a
 single provider and returns a `SyncReport` with counts of added, updated, skipped, and removed
 documents.
 
+### Sync scheduler
+
+`KnowledgeSyncScheduler` (`src/domain/knowledge/ingestion/scheduler.ts`) fires sync jobs
+according to each source's `sync.schedule` setting. Supported values:
+
+- Named presets: `on-demand`, `startup`, `hourly`, `daily`, `weekly`
+- Any valid 5-field cron expression (e.g. `"0 */6 * * *"` for every 6 hours)
+
+The scheduler is started at application boot and supports `runNow()` for manual triggering.
+
 ### KnowledgeService
 
 `KnowledgeService` (`src/domain/knowledge/knowledge-service.ts`) is the entry point for
-application code. It reads `knowledgeBases` from config, instantiates the correct provider
-(currently only `"notion"`), and delegates to `runSync`:
+application code. It reads `knowledgeBases` from config, instantiates the correct provider,
+and delegates to `runSync`:
 
 ```typescript
 interface KnowledgeServiceDeps {
@@ -540,19 +557,57 @@ interface KnowledgeServiceDeps {
 }
 ```
 
-Providers are loaded lazily via dynamic `import()` so the Notion SDK is not bundled unless a
-Notion source is configured.
+### Search output shape (Phase 2a)
+
+`knowledge.search` now returns a structured `KnowledgeSearchResponse` (defined in
+`src/domain/knowledge/types.ts`) instead of a bare chunk list:
+
+```typescript
+interface KnowledgeSearchResponse {
+  chunks: ChunkResult[]; // primary result list — relevance (score) order
+  freshness: Record<
+    ChunkId,
+    {
+      // per-chunk staleness metadata
+      lastModified: string; // ISO 8601 timestamp
+      staleness: "fresh" | "aging" | "stale";
+    }
+  >;
+  authority: ChunkId[]; // chunks re-sorted by (sourceAuthority, score)
+  conflicts: ChunkConflict[]; // stub — empty until Phase 2b (mt#1027)
+  redundancies: ChunkRedundancy[]; // stub — empty until Phase 2b (mt#1027)
+}
+```
+
+**Backward compat:** existing consumers that read only `response.chunks` keep working — the
+response is a strict superset.
+
+**Freshness classification** (`src/domain/knowledge/reconciliation/freshness.ts`):
+
+- `fresh` — modified within `agingDays` (default 30 days)
+- `aging` — modified between `agingDays` and `staleDays` (default 30–90 days)
+- `stale` — not modified for more than `staleDays` (default 90 days)
+
+Thresholds are configurable via `knowledgeReconciliation.staleness` (see Configuration below).
+The MCP/CLI output surfaces staleness inline per chunk (e.g. stale chunks appear with a warning
+in the freshness map).
+
+**Authority ranking** (`src/domain/knowledge/reconciliation/authority-ranker.ts`):
+When two chunks' relevance scores are within `epsilon` (default 0.05), the higher-authority
+source is preferred. Authority scores are set via `knowledgeReconciliation.sourceAuthority`
+(unlisted sources default to 0). `authority` is a parallel ordering — `chunks` retains
+pure relevance order.
 
 ### MCP tools
 
 Four commands registered under `CommandCategory.KNOWLEDGE` expose knowledge operations:
 
-| Command             | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| `knowledge.search`  | Semantic search over indexed documents via vector query |
-| `knowledge.fetch`   | Live-fetch a single document from a source by ID        |
-| `knowledge.sources` | List configured knowledge sources and their sync status |
-| `knowledge.sync`    | Sync one or all sources into the vector index           |
+| Command             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| `knowledge.search`  | Semantic search — returns `KnowledgeSearchResponse` (Phase 2a) |
+| `knowledge.fetch`   | Live-fetch a single document from a source by ID               |
+| `knowledge.sources` | List configured knowledge sources and their sync status        |
+| `knowledge.sync`    | Sync one or all sources into the vector index                  |
 
 Source: `src/adapters/shared/commands/knowledge/index.ts`
 
@@ -574,21 +629,42 @@ Knowledge sources are declared in `.minsky/config.yaml` under the `knowledgeBase
 
 ```yaml
 knowledgeBases:
-  - name: my-docs
-    type: notion # "notion" | "confluence" | "google-docs"
-    rootPageId: <page-id> # Notion-specific: root of the page tree to index
+  - name: my-notion-docs
+    type: notion
+    rootPageId: <page-id>
     auth:
-      token: <api-token> # direct API token value
+      tokenEnvVar: NOTION_TOKEN
     sync:
-      schedule: on-demand # "on-demand" | "startup" | "daily"
+      schedule: daily # named preset or 5-field cron, e.g. "0 2 * * *"
       maxDepth: 5
       excludePatterns:
         - "**/Archive/**"
+
+  - name: team-prds
+    type: google-docs
+    driveFolderId: <folder-id> # walk a Drive folder recursively
+    auth:
+      serviceAccountJsonEnvVar: GOOGLE_SA_JSON
+    sync:
+      schedule: "0 */6 * * *" # every 6 hours via cron
+
+knowledgeReconciliation:
+  staleness:
+    agingDays: 30 # default: 30 — chunks older than this are "aging"
+    staleDays: 90 # default: 90 — chunks older than this are "stale"
+  sourceAuthority:
+    team-prds: 10 # higher = more authoritative
+    my-notion-docs: 5
+  epsilon: 0.05 # max relevance delta for authority tiebreaking
 ```
 
-The `KnowledgeSourceConfig` type is defined in `src/domain/knowledge/types.ts`. Auth tokens can
-be provided directly (`token:`) or via an environment variable name (`tokenEnvVar:`); at least one
-must be set. Direct `token:` is the standard pattern, matching how GitHub auth works.
+The `KnowledgeSourceConfig` type is defined in `src/domain/knowledge/types.ts`. The
+`knowledgeReconciliation` section is defined in
+`src/domain/configuration/schemas/knowledge-reconciliation.ts` and validated by Zod.
+
+Auth tokens can be provided directly (`token:`) or via an environment variable name
+(`tokenEnvVar:`); Google Docs additionally supports `serviceAccountJsonEnvVar:` for service
+account auth. At least one auth method must be set.
 
 ---
 
