@@ -1,0 +1,28 @@
+---
+name: User Preferences
+description: 'Communication and workflow preferences: direct action, professional tone, no emojis, auto-commit changes, verify before claiming completion.'
+alwaysApply: true
+tags:
+  - preferences
+---
+# User Preferences
+
+- **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
+
+- **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
+
+- **Fix or track all identified issues:** When a problem is found, either fix it immediately if in scope, or create a task. Never just describe problems without taking action.
+
+- **Auto-commit and push all changes:** Commit and push after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until changes are committed and pushed.
+
+- **Professional communication:** Use matter-of-fact language. No celebratory language, emojis, superlatives, or marketing phrases (e.g., "EXCEEDED ALL TARGETS", "Outstanding Success"). Report objective metrics and current state without editorial commentary.
+
+  Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
+
+  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
+
+- **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
+
+- **Address all linter errors:** Acknowledge all linter errors in modified files. Fix straightforward ones; document limitations for complex ones.
+
+- **Verify workspace before making changes:** Check which workspace you're in (main or session) at the start of interactions. Make changes in the appropriate session workspace unless explicitly directed otherwise.

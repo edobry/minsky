@@ -226,8 +226,14 @@ export async function generateRules(options: GenerateRulesOptions): Promise<Gene
     mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
     mcpTransport: (options.mcpTransport || "stdio") as "stdio" | "http",
     preferMcp: options.preferMcp || false,
-    ruleFormat: (options.format || "cursor") as RuleFormat,
-    outputDir: options.outputDir || (options.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
+    ruleFormat: (options.format || "minsky") as RuleFormat,
+    outputDir:
+      options.outputDir ||
+      (options.format === "cursor"
+        ? ".cursor/rules"
+        : options.format === "generic"
+          ? ".ai/rules"
+          : ".minsky/rules"),
   };
 
   const selectedRules = options.rules ? options.rules.split(",").map((t) => t.trim()) : undefined;

@@ -6,7 +6,8 @@
  */
 
 import { injectable } from "tsyringe";
-import { generateText, streamText, generateObject, LanguageModel } from "ai";
+import { generateText, streamText, generateObject, jsonSchema, LanguageModel } from "ai";
+import { z } from "zod";
 
 import {
   AICompletionService,
@@ -228,14 +229,27 @@ export class DefaultAICompletionService implements AICompletionService {
         hasSchema: !!request.schema,
       });
 
+      // AI SDK v4's built-in Zod→JSON-Schema path predates Zod v4's internal
+      // restructure and silently emits `{type: "string"}` for any `z.object(...)`,
+      // which Anthropic rejects. Convert explicitly with Zod v4's native
+      // `z.toJSONSchema` and wrap in the AI SDK's `jsonSchema()` helper.
+      // Target draft-07 (Anthropic's expected dialect); cast is required because
+      // Zod v4's emitted `JSONSchema` allows `exclusiveMaximum: number | boolean`
+      // (draft-04 compat) while AI SDK's `JSONSchema7Definition` restricts it to
+      // `number`. The runtime shape is fine either way.
+      const schemaJson = z.toJSONSchema(request.schema, { target: "draft-07" });
       const result = await generateObject({
         model,
         messages: request.messages as import("ai").CoreMessage[],
-        schema: request.schema,
+        schema: jsonSchema(schemaJson as Record<string, unknown>),
         temperature: request.temperature || 0.3,
       });
 
-      return result.object;
+      // Post-parse validation: the AI may return a shape the JSON Schema
+      // tolerates but the original Zod schema rejects (e.g. out-of-range
+      // values constrained via .refine()). Validate against the original
+      // Zod schema so callers get a type-safe, shape-verified value.
+      return request.schema.parse(result.object);
     } catch (error) {
       log.debug("AI object generation failed", {
         error: error instanceof Error ? error.message : error,

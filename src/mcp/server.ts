@@ -17,6 +17,9 @@ import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
+import { resolveAgentId } from "../domain/agent-identity/resolve";
+import type { RequestExtras } from "../domain/agent-identity/layer2";
+import type { AppContainerInterface } from "../composition/types";
 
 /**
  * Transport type for MCP server
@@ -68,6 +71,12 @@ export interface MinskyMCPServerOptions {
    * HTTP transport configuration (required if transportType is "http")
    */
   httpConfig?: MCPHttpTransportConfig;
+
+  /**
+   * DI container for accessing services (e.g., sessionProvider for agentId writes).
+   * Provided by the MCP start command after tool registration.
+   */
+  container?: AppContainerInterface;
 }
 
 // Tool definitions for MCP server
@@ -111,6 +120,7 @@ export class MinskyMCPServer {
   private prompts: Map<string, PromptDefinition> = new Map();
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
+  private container: AppContainerInterface | undefined;
 
   // For HTTP transport: map sessionId to transport for multiple clients
   private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
@@ -135,6 +145,9 @@ export class MinskyMCPServer {
 
     // Set up project context
     this.projectContext = options.projectContext || createProjectContextFromCwd();
+
+    // DI container for service access (e.g. sessionProvider for agentId writes)
+    this.container = options.container;
 
     // Initialize staleness detector to warn when server code is outdated
     this.stalenessDetector = new StalenessDetector(
@@ -292,6 +305,9 @@ export class MinskyMCPServer {
       const trackingId = this.nextRequestId++;
       this.inFlightRequests.set(trackingId, Date.now());
 
+      // Resolve agentId once per tool call — used for last-touched-by semantics
+      const agentId = this.resolveCallerAgentId(extra as RequestExtras | undefined);
+
       try {
         const tool = this.tools.get(request.params.name);
         if (!tool) {
@@ -300,6 +316,14 @@ export class MinskyMCPServer {
 
         try {
           const result = await tool.handler(request.params.arguments || {});
+
+          // Write agentId to any touched session record (fire-and-forget, non-blocking)
+          this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("agentId session update failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
 
           // Convert result to proper MCP tool response format
           let responseText: string;
@@ -420,6 +444,90 @@ export class MinskyMCPServer {
         throw new Error(`Prompt generation failed: ${getErrorMessage(error)}`);
       }
     });
+  }
+
+  /**
+   * Set (or replace) the DI container after construction.
+   * Called from start-command.ts after registerAllTools() completes.
+   */
+  setContainer(container: AppContainerInterface): void {
+    this.container = container;
+  }
+
+  /**
+   * Resolve the caller's agentId from MCP request extras.
+   * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
+   * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
+   */
+  private resolveCallerAgentId(extras: RequestExtras | undefined): string {
+    let clientInfoName: string | undefined;
+    try {
+      const clientVersion = this.server.getClientVersion();
+      clientInfoName = (clientVersion as { name?: string })?.name;
+    } catch {
+      // getClientVersion() may throw if called before initialize completes
+    }
+    return resolveAgentId({
+      extras,
+      clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
+    });
+  }
+
+  /**
+   * Write the resolved agentId to the session record for any session touched by this tool call.
+   * Implements last-touched-by semantics — every session mutation updates agentId.
+   *
+   * Session identifier extraction priority:
+   *   1. args.session / args.sessionId  — direct session name
+   *   2. args.task / args.taskId        — look up session by task id
+   *
+   * This runs fire-and-forget (caller catches errors). Failures are logged at debug level
+   * and never surface to the MCP caller — identity tracking is best-effort.
+   */
+  private async writeAgentIdToSession(
+    args: Record<string, unknown>,
+    agentId: string
+  ): Promise<void> {
+    if (!this.container) return;
+
+    // Extract session name from args
+    const sessionName =
+      (typeof args.session === "string" ? args.session : undefined) ||
+      (typeof args.sessionId === "string" ? args.sessionId : undefined);
+
+    if (sessionName) {
+      await this.updateSessionAgentId(sessionName, agentId);
+      return;
+    }
+
+    // Fall back to task-based lookup
+    const taskId =
+      (typeof args.task === "string" ? args.task : undefined) ||
+      (typeof args.taskId === "string" ? args.taskId : undefined);
+
+    if (taskId && this.container.has("sessionProvider")) {
+      const sessionProvider = this.container.get(
+        "sessionProvider"
+      ) as import("../domain/session/types").SessionProviderInterface;
+      // Normalize taskId: strip "mt#" prefix to match storage format
+      const storageTaskId = taskId.replace(/^mt#/i, "");
+      const record = await sessionProvider.getSessionByTaskId(storageTaskId);
+      if (record) {
+        await this.updateSessionAgentId(record.session, agentId);
+      }
+    }
+  }
+
+  /**
+   * Call sessionProvider.updateSession() to write agentId to a session record.
+   */
+  private async updateSessionAgentId(sessionName: string, agentId: string): Promise<void> {
+    if (!this.container?.has("sessionProvider")) return;
+    const sessionProvider = this.container.get(
+      "sessionProvider"
+    ) as import("../domain/session/types").SessionProviderInterface;
+    await sessionProvider.updateSession(sessionName, { agentId });
+    log.debug("agentId written to session record", { session: sessionName, agentId });
   }
 
   /**
