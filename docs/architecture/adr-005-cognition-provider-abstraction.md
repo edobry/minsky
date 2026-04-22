@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-04-22. First consumer: mt#321.2 (AI criterion evaluation and synthesis for the agent-readiness assessment system).
+Proposed — 2026-04-22. First consumer: mt#1063 (AI criterion evaluation and synthesis for the agent-readiness assessment system — subtask of mt#321).
 
 ## Context
 
@@ -68,7 +68,7 @@ interface CognitionProvider {
 }
 ```
 
-Features handle the three result kinds explicitly. Illustrative for mt#321.2:
+Features handle the three result kinds explicitly. Illustrative for mt#1063 (agent-readiness assessment):
 
 ```typescript
 const result = await cognition.performBatch(criterionTasks);
@@ -147,7 +147,7 @@ MCP invocations default to delegated because the caller is almost always an AI a
 
 - **mt#800 skills architecture, mt#915 dual-path `generate_prompt`.** The delegated execution pattern is already partly built for subagent dispatch. This ADR generalizes it to all cognitive work. `CognitionBundle` and the skills-architecture prompt payloads should converge on a single shape; the implementation task will unify them.
 - **ADR-002 (capability-based persistence).** Same pattern family: a first-class domain provider with multiple runtime implementations selected at the composition root. `CognitionProvider` inherits the conventions — composition-root resolution, no direct imports in feature code, test-friendly stubs.
-- **mt#321 agent-readiness assessment.** First feature-level consumer. mt#321.2 depends on `CognitionProvider` existing; it does not build the abstraction itself.
+- **mt#321 agent-readiness assessment.** First feature-level consumer. mt#1063 (subtask of mt#321) depends on `CognitionProvider` existing; it does not build the abstraction itself.
 - **`AICompletionService`.** Becomes the infrastructure backing `DirectCognitionProvider`. Feature code no longer imports it after this ADR. No breaking changes to the service; existing callers continue to work pending retrofit (mt#1058).
 - **`docs/theory-of-operation.md` (VSM).** Maps conceptually to System 4 (environmental intelligence): the cognitive capacity the system draws on to interpret evidence and synthesize responses. Gives System 4 a concrete infrastructure organ.
 - **Progressive adoption model (mt#1059).** `CognitionProvider` delegated mode is the mechanism that makes T0 zero-setup possible. The adoption-model task documents the ladder; this ADR documents one of its structural enablers.
@@ -156,7 +156,7 @@ MCP invocations default to delegated because the caller is almost always an AI a
 
 1. **Phase 1 — Abstraction.** This task (mt#1057): define `src/domain/cognition/` with the interfaces above. Implement `DirectCognitionProvider` wrapping `AICompletionService`. Implement `DelegatedCognitionProvider` producing `CognitionBundle` outputs. Implement `DegradedCognitionProvider`. Mode resolution via composition-root wiring. Stub provider for tests.
 
-2. **Phase 2 — First consumer.** mt#321.2 consumes the abstraction for criterion evaluation and synthesis. Validates interface shape under real use before any generalization.
+2. **Phase 2 — First consumer.** mt#1063 (subtask of mt#321) consumes the abstraction for criterion evaluation and synthesis. Validates interface shape under real use before any generalization.
 
 3. **Phase 3 — Unification with mt#915.** Coordinate with skills architecture: ensure `session_generate_prompt` and delegated-cognition bundles share a consistent payload shape. Likely yields a common `PromptBundle` type.
 
