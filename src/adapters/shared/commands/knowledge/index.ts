@@ -27,7 +27,6 @@ import type {
   KnowledgeSearchResponse,
   ChunkResult,
   ChunkFreshness,
-  ChunkRedundancy,
   ChunkId,
 } from "../../../../domain/knowledge/types";
 import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
