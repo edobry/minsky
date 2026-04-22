@@ -25,6 +25,7 @@ import {
   getStatusImpl,
   stageAllImpl,
   stageModifiedImpl,
+  stageFilesImpl,
   commitImpl,
   stashChangesImpl,
   popStashImpl,
@@ -216,6 +217,10 @@ export class GitService implements GitServiceInterface {
 
   async stageModified(repoPath?: string): Promise<void> {
     return stageModifiedImpl(execAsync, repoPath);
+  }
+
+  async stageFiles(files: string[], repoPath?: string): Promise<void> {
+    return stageFilesImpl(execAsync, files, repoPath);
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {

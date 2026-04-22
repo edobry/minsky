@@ -48,6 +48,7 @@ interface CommitParams extends BaseGitOperationParams {
   all?: boolean;
   amend?: boolean;
   noStage?: boolean;
+  files?: string[];
 }
 
 /**
@@ -153,7 +154,12 @@ export class CommitOperation extends BaseGitOperation<
   ): Promise<{ commitHash: string; message: string }> {
     // Handle staging if not disabled
     if (!params.noStage) {
-      if (params.all) {
+      if (params.files && params.files.length > 0) {
+        if (!gitService.stageFiles) {
+          throw new Error("Git service does not support stageFiles operation");
+        }
+        await gitService.stageFiles(params.files, params.repo);
+      } else if (params.all) {
         if (!gitService.stageAll) {
           throw new Error("Git service does not support stageAll operation");
         }
