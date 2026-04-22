@@ -205,6 +205,11 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
       return db.transaction(
         (tx) =>
           callback({
+            // Drizzle's PgTransaction is structurally compatible with
+            // PostgresJsDatabase for the query methods we use, but the types
+            // aren't assignable without a cast. The `unknown` indirection is
+            // required because the types are not in each other's hierarchy.
+            // eslint-disable-next-line custom/no-excessive-as-unknown -- tx and PostgresJsDatabase don't share a type hierarchy despite being runtime-interchangeable for the subset of methods used here
             ...createDrizzleRepoFromExecutor(tx as unknown as PostgresJsDatabase),
             // Nested transactions re-use the outer transaction's connection;
             // just delegate back to repo.transaction which will open a savepoint.

@@ -9,12 +9,23 @@
  *   (e) cursor-rules with orphan .mdc → stale
  */
 
+/* eslint-disable custom/no-real-fs-in-tests --
+   This is an integration test for the rule-compile staleness-detection pipeline,
+   which reads/writes real files via fs/promises. compileRules() and its internal
+   services do not currently accept an fs abstraction, so in-memory mocks can't
+   exercise the real staleness-detection logic. mt#1111 tracks the refactor to
+   inject an fs provider, after which this file should be converted and this
+   waiver removed.
+*/
+
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import { compileRules } from "../operations/crud-operations";
-import { buildCursorRulesContent } from "./targets/cursor-rules";
+import { buildCursorRulesContent, cursorRulesTarget } from "./targets/cursor-rules";
+import { agentsMdTarget, buildContent, DEFAULT_AGENTS_MD_SECTIONS } from "./targets/agents-md";
+import { claudeMdTarget, buildClaudeMdContent } from "./targets/claude-md";
 import type { Rule } from "../types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -41,15 +52,13 @@ async function removeTempDir(dir: string): Promise<void> {
 // ─── CompileTarget.listOutputFiles ───────────────────────────────────────────
 
 describe("CompileTarget.listOutputFiles", () => {
-  it("agents.md target returns single path", async () => {
-    const { agentsMdTarget } = await import("./targets/agents-md");
+  it("agents.md target returns single path", () => {
     const paths = agentsMdTarget.listOutputFiles([], {}, "/workspace");
     expect(paths).toHaveLength(1);
     expect(paths[0]).toBe("/workspace/AGENTS.md");
   });
 
-  it("agents.md target respects custom outputPath option", async () => {
-    const { agentsMdTarget } = await import("./targets/agents-md");
+  it("agents.md target respects custom outputPath option", () => {
     const paths = agentsMdTarget.listOutputFiles(
       [],
       { outputPath: "/custom/AGENTS.md" },
@@ -59,15 +68,13 @@ describe("CompileTarget.listOutputFiles", () => {
     expect(paths[0]).toBe("/custom/AGENTS.md");
   });
 
-  it("claude.md target returns single path", async () => {
-    const { claudeMdTarget } = await import("./targets/claude-md");
+  it("claude.md target returns single path", () => {
     const paths = claudeMdTarget.listOutputFiles([], {}, "/workspace");
     expect(paths).toHaveLength(1);
     expect(paths[0]).toBe("/workspace/CLAUDE.md");
   });
 
-  it("cursor-rules target returns one path per rule", async () => {
-    const { cursorRulesTarget } = await import("./targets/cursor-rules");
+  it("cursor-rules target returns one path per rule", () => {
     const rules = [
       makeRule("rule-a", "Content A"),
       makeRule("rule-b", "Content B"),
@@ -80,8 +87,7 @@ describe("CompileTarget.listOutputFiles", () => {
     expect(paths).toContain("/workspace/.cursor/rules/rule-c.mdc");
   });
 
-  it("cursor-rules target returns empty list for zero rules", async () => {
-    const { cursorRulesTarget } = await import("./targets/cursor-rules");
+  it("cursor-rules target returns empty list for zero rules", () => {
     const paths = cursorRulesTarget.listOutputFiles([], {}, "/workspace");
     expect(paths).toHaveLength(0);
   });
@@ -104,12 +110,10 @@ describe("compileRules --check staleness detection", () => {
   });
 
   async function expectedAgentsMdContent(): Promise<string> {
-    const { buildContent, DEFAULT_AGENTS_MD_SECTIONS } = await import("./targets/agents-md");
     return buildContent([], DEFAULT_AGENTS_MD_SECTIONS).content;
   }
 
   async function expectedClaudeMdContent(): Promise<string> {
-    const { buildClaudeMdContent } = await import("./targets/claude-md");
     return buildClaudeMdContent([]).content;
   }
 
