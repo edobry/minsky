@@ -608,9 +608,9 @@ knowledgeBases:
 
 ## 10. Follow-Up Tasks
 
-Based on the Go recommendation, the following implementation tasks should be filed:
+Based on the Go recommendation, the following implementation tasks have been filed:
 
-### mt#TBD — Slack Conversational Provider (Phase 1)
+### mt#1039 — Slack Conversational Provider (Phase 1)
 
 **Scope**: Implement `SlackConversationalProvider` using the Real-time Search API. New `ConversationalSourceProvider` interface alongside (not replacing) `KnowledgeSourceProvider`. New `knowledge.conversational_search` MCP tool with Find and Explore modes. Auth: bot token, public channels. Configuration schema extension.
 
@@ -618,13 +618,13 @@ Based on the Go recommendation, the following implementation tasks should be fil
 
 **Sizing**: ~2 weeks. ~8–12 files across domain/knowledge, adapters/shared/commands/knowledge, configuration.
 
-**Go/no-go gate**: Successful retrieval of a known decision thread from a test workspace using the RTS API, with correct provenance metadata populated.
+**Go/no-go gate**: Successful retrieval of a known decision thread from a test workspace using the RTS API, with correct provenance metadata populated, plus ≥30% top-3 retrieval accuracy against a ≥50-decision evaluation set.
 
-### mt#TBD — Conversational Reconciliation Adaptations (Phase 2)
+### mt#1040 — Conversational Reconciliation Adaptations (Phase 2)
 
 **Scope**: Extend Phase 2b reconciliation (mt#1027) with temporal override rule and epistemic state metadata for conversational chunks. Requires Phase 2b to be shipped first.
 
-**Dependencies**: mt#1027 (Phase 2b), Slack Phase 1 above.
+**Dependencies**: mt#1027 (Phase 2b), mt#1039 (Slack Phase 1).
 
 **Sizing**: ~1 week. Modification to existing reconciliation layer.
 
