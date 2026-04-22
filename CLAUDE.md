@@ -1,5 +1,15 @@
 # Minsky — Claude Code Instructions
 
+## Design Principle: Humility
+
+A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them to the user. Full framing: `docs/theory-of-operation.md §Companion Principles` and mt#1034.
+
+Operational corollaries already in force below are instances of this one principle, not separate rules:
+
+- 2-strikes escalation (§Error Investigation)
+- User decides scope; never defer identified work (§Work Completion)
+- Trust the hooks; never bypass (§Hook Files)
+
 ## Subagent Routing
 
 When spawning subagents, use the appropriate model and type:
@@ -55,7 +65,18 @@ Use MCP tools for all operations — never shell out to git/gh CLI:
 - `mcp__minsky__rules_*` — project rules
 - `mcp__minsky__persistence_*` — database operations
 
-**Use `session_exec` for running commands in sessions** from the main agent context. Instead of `SESSION=... && cd "$SESSION" && <command>`, use the MCP tool: `mcp__minsky__session_exec(task: "mt#123", command: "git status")`. This resolves the session directory automatically.
+### Running commands in sessions
+
+Use `mcp__minsky__session_exec` to run shell commands inside a session workspace from the main agent context. The session directory is resolved automatically — no need to look up paths or `cd` into directories.
+
+```
+mcp__minsky__session_exec(task: "mt#123", command: "git status")
+mcp__minsky__session_exec(task: "mt#123", command: "bun test --preload ./tests/setup.ts --timeout=15000 src")
+mcp__minsky__session_exec(task: "mt#123", command: "bun run format:check")
+mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
+```
+
+Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
 
 ## Build & Test
 

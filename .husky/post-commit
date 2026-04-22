@@ -1,0 +1,4 @@
+#!/bin/sh
+# Post-commit hook: update session activity state (best-effort)
+# Allows direct `git commit` to be visible to liveness tracking.
+bun src/hooks/post-commit.ts || true
