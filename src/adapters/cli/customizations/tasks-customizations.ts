@@ -116,6 +116,30 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        "tasks.reparent": {
+          useFirstRequiredParamAsArgument: true,
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the task to reparent (e.g. mt#123)",
+            },
+            parent: {
+              asArgument: false,
+              description: "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan",
+            },
+          },
+          outputFormatter: (result: Record<string, unknown>) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success) {
+              log.cli(result.output || "✅ Task reparented successfully");
+            } else {
+              log.cli(result.error || "❌ Failed to reparent task");
+            }
+          },
+        },
         "tasks.deps.add": {
           parameters: {
             task: {
