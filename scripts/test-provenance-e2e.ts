@@ -6,12 +6,14 @@
  * Zod-v4 → JSON-Schema → Anthropic → Zod-parse round-trip.
  *
  * Usage:
- *   bun scripts/test-provenance-e2e.ts
+ *   bun scripts/test-provenance-e2e.ts [path/to/transcript.jsonl]
+ *
+ * If no path is given, falls back to the author's default transcript.
  *
  * Requires:
  *   - Anthropic API key in Minsky config (minsky config get ai.anthropic.apiKey)
  *   - A provenance record with a session_id in the provenance table
- *   - A JSONL transcript file at the path below (adjust if needed)
+ *   - A readable JSONL transcript file
  *
  * Not part of the test suite because it makes a real paid API call.
  */
@@ -52,8 +54,9 @@ if (!record.sessionId) {
 }
 
 const transcriptService = new TranscriptService(db);
-const jsonlPath =
+const defaultJsonlPath =
   "/Users/edobry/.claude/projects/-Users-edobry-Projects-minsky/f7dd3fee-977d-40f2-bcdc-a26f573b2117.jsonl";
+const jsonlPath = process.argv[2] ?? defaultJsonlPath;
 console.log(`Ingesting ${jsonlPath} as session ${record.sessionId}...`);
 const stats = await transcriptService.ingestTranscript(record.sessionId, jsonlPath);
 console.log(`Ingested: ${JSON.stringify(stats)}`);
