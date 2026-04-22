@@ -445,5 +445,17 @@ function arrayBufferToBase64Url(buf: ArrayBuffer): string {
 
 console.log(`Server running at http://localhost:${port}`);
 console.log(`Creating App: ${name} for repo ${repo}`);
-console.log("Opening browser...");
-Bun.spawn(["open", `http://localhost:${port}`]);
+console.log(`\nIf the browser does not open automatically, visit: http://localhost:${port}\n`);
+
+// Cross-platform browser open: macOS uses `open`, Linux uses `xdg-open`, Windows uses `start`.
+const openCmd =
+  process.platform === "darwin"
+    ? ["open", `http://localhost:${port}`]
+    : process.platform === "win32"
+      ? ["cmd", "/c", "start", `http://localhost:${port}`]
+      : ["xdg-open", `http://localhost:${port}`];
+try {
+  Bun.spawn(openCmd);
+} catch {
+  // Fire-and-forget; if spawn fails the user still sees the URL above.
+}

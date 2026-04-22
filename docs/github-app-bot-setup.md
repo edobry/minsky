@@ -119,6 +119,10 @@ Never commit the `.pem` file to version control.
 
 You can supply the GitHub App credentials via a config file or environment variables. Environment variables take precedence.
 
+**If you used the automated path (`scripts/create-github-app.ts`):** the script wrote credentials to `~/.config/minsky/<name>.pem` (private key) and `~/.config/minsky/<name>.json` (metadata including `appId`, `installationId`, and `privateKeyFile`). Paste the `appId`, `installationId`, and `privateKeyFile` values from the JSON into the examples below — they are filled in for you.
+
+**If you used the manual UI path:** substitute the App ID, installation ID from section 2, and the private-key path you chose in section 3.
+
 ### Option A: Config File
 
 Add the `serviceAccount` block under `github` in `~/.config/minsky/config.yaml`:
@@ -129,7 +133,7 @@ github:
   serviceAccount:
     type: github-app
     appId: <YOUR-APP-ID>
-    privateKeyFile: /Users/you/.config/minsky/minsky-app.pem
+    privateKeyFile: /Users/you/.config/minsky/<name>.pem # where <name> matches --name (e.g., minsky-ai, minsky-reviewer)
     installationId: <YOUR-INSTALLATION-ID>
 ```
 
@@ -139,7 +143,7 @@ github:
 
 ```bash
 export MINSKY_APP_ID=<YOUR-APP-ID>
-export MINSKY_APP_PRIVATE_KEY_FILE=~/.config/minsky/minsky-app.pem
+export MINSKY_APP_PRIVATE_KEY_FILE=~/.config/minsky/<name>.pem  # where <name> matches --name
 export MINSKY_APP_INSTALLATION_ID=<YOUR-INSTALLATION-ID>
 ```
 
