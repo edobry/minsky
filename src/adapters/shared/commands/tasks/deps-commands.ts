@@ -2,37 +2,44 @@ import { z } from "zod";
 import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
+// Reusable task-id schema: must be a non-empty qualified id (e.g. mt#123).
+// This rejects empty strings at the MCP boundary before any DB query is issued.
+const taskIdSchema = z
+  .string()
+  .min(1, "Task ID must not be empty")
+  .regex(/^[a-z]+#.+$/, "Task ID must be a qualified id like mt#123, md#456, gh#789");
+
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsAddParams = {
   task: {
-    schema: z.string(),
-    description: "Task that will depend on another task",
+    schema: taskIdSchema,
+    description: "Task that will depend on another task (e.g. mt#123)",
     required: true,
   },
   dependsOn: {
-    schema: z.string(),
-    description: "Task that is the dependency",
+    schema: taskIdSchema,
+    description: "Task that is the dependency (e.g. mt#456)",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksDepsRmParams = {
   task: {
-    schema: z.string(),
-    description: "Task that depends on another task",
+    schema: taskIdSchema,
+    description: "Task that depends on another task (e.g. mt#123)",
     required: true,
   },
   dependsOn: {
-    schema: z.string(),
-    description: "Task that is the dependency",
+    schema: taskIdSchema,
+    description: "Task that is the dependency (e.g. mt#456)",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksDepsListParams = {
   task: {
-    schema: z.string(),
-    description: "ID of the task to list dependencies for",
+    schema: taskIdSchema,
+    description: "ID of the task to list dependencies for (e.g. mt#123)",
     required: true,
   },
   verbose: {
@@ -142,16 +149,16 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
 
 const tasksChildrenParams = {
   task: {
-    schema: z.string(),
-    description: "ID of the parent task to list children for",
+    schema: taskIdSchema,
+    description: "ID of the parent task to list children for (e.g. mt#123)",
     required: true,
   },
 } satisfies CommandParameterMap;
 
 const tasksParentParams = {
   task: {
-    schema: z.string(),
-    description: "ID of the task to find parent of",
+    schema: taskIdSchema,
+    description: "ID of the task to find parent of (e.g. mt#123)",
     required: true,
   },
 } satisfies CommandParameterMap;
