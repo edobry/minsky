@@ -80,6 +80,90 @@ curl https://<railway-domain>/health
 2. Observe Railway logs for a `review_result` event.
 3. Check the PR — `minsky-reviewer[bot]` should have posted a review.
 
+## Production deploy (auto-deploy from main)
+
+Steady state: **Railway rebuilds and redeploys the service automatically whenever a commit lands on `main` that touches `services/reviewer/`.** No manual `railway up` required.
+
+This is configured as a Railway **deployment trigger** (GraphQL type `DeploymentTrigger`) linking the service to `edobry/minsky` branch `main` with `rootDirectory: /services/reviewer`.
+
+### Prerequisite: grant Railway access to the repo
+
+Railway's GitHub App must have access to `edobry/minsky`. Without this, the trigger creation fails with _"no one in the project has access to it"_.
+
+One-time grant:
+
+1. Visit <https://github.com/apps/railway-app/installations/new>
+2. Select the `edobry` account (or the org that owns `minsky`)
+3. Either _All repositories_ or _Only select repositories_ → add `edobry/minsky`
+4. Click _Install_ / _Save_
+
+### Configure the deployment trigger
+
+Project ID: `41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b`
+Environment ID (production): `b3ea3f5d-8560-40ea-8824-17fe3ca0b32a`
+Service ID (minsky-reviewer-webhook): `3913e8a4-81ab-465a-aad8-b76b5e3f66ed`
+
+GraphQL mutation against `https://backboard.railway.com/graphql/v2` with a Railway bearer token:
+
+```graphql
+mutation Create($input: DeploymentTriggerCreateInput!) {
+  deploymentTriggerCreate(input: $input) {
+    id
+    branch
+    repository
+    provider
+  }
+}
+```
+
+Variables:
+
+```json
+{
+  "input": {
+    "projectId": "41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b",
+    "environmentId": "b3ea3f5d-8560-40ea-8824-17fe3ca0b32a",
+    "serviceId": "3913e8a4-81ab-465a-aad8-b76b5e3f66ed",
+    "branch": "main",
+    "repository": "edobry/minsky",
+    "provider": "github",
+    "rootDirectory": "/services/reviewer"
+  }
+}
+```
+
+The Railway CLI does not expose a first-class `trigger create` command at 4.40.x — the GraphQL path is the canonical option. Railway web UI also supports it (service settings → _Source_ → _Connect Repo_).
+
+### What happens after a merge
+
+1. GitHub sends a webhook to Railway when `main` moves.
+2. Railway checks whether any file under `rootDirectory` (`/services/reviewer`) changed.
+3. If yes, Railway builds from the new SHA using the Dockerfile at `services/reviewer/Dockerfile` and deploys the new image to `production`.
+4. If no, no rebuild is triggered.
+
+Railway's _Deployments_ tab in the web UI and the `railway logs` CLI show each auto-triggered build. The build metadata includes `RAILWAY_GIT_COMMIT_SHA` so you can correlate back to the merge commit.
+
+### Verify auto-deploy
+
+```bash
+# After merging a PR that touches services/reviewer/
+railway deployments list --service minsky-reviewer-webhook --lines 5 --json
+# Newest entry should have meta.commitSha matching the merge commit.
+
+curl https://<railway-domain>/health
+# Confirms the new code is serving traffic.
+```
+
+If no new deployment appears within ~60s of the merge, check:
+
+- The GitHub App grant is live (`Installed` at <https://github.com/settings/installations>)
+- The deployment trigger exists (query `service.repoTriggers` via GraphQL)
+- The merge commit actually touched a file under `rootDirectory`
+
+### Manual deploy still works
+
+`railway up --detach` remains available for out-of-band pushes (e.g. testing uncommitted code on the production service). Prefer merge-to-main for anything reviewed; use manual deploy only for transient testing.
+
 ## Troubleshooting
 
 **Service boots but no webhooks arrive:** check the webhook URL in the App settings, check Railway domain is public, check the "Recent deliveries" in the App webhook settings page.
