@@ -598,6 +598,8 @@ must be set. Direct `token:` is the standard pattern, matching how GitHub auth w
 | -------------------------------------------------------------------- | --------------------------------------------------------------------- | -------- |
 | [ADR-002](architecture/adr-002-persistence-provider-architecture.md) | Persistence Provider Architecture with Type-Safe Capability Detection | Accepted |
 | [ADR-003](architecture/adr-003-project-level-repository-backend.md)  | Project-Level Repository Backend Configuration                        | Accepted |
+| [ADR-004](architecture/adr-004-two-phase-command-execution.md)       | Two-Phase Command Execution                                           | Accepted |
+| [ADR-005](architecture/adr-005-cognition-provider-abstraction.md)    | Cognition Provider Abstraction for Dual-Mode AI Operation             | Proposed |
 
 Additional architectural context:
 
