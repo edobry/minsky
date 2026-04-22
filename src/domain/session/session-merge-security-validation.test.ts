@@ -30,6 +30,12 @@ const mockSessionProvider = {
   getSessionWorkdir: mock(() => Promise.resolve("/test/session/workdir")),
 };
 
+const mockTaskService = {
+  setTaskStatus: async () => {},
+  getTaskStatus: async () => "IN-REVIEW",
+  getTask: async () => null,
+} as any;
+
 const mockMerge = mock();
 const mockApprove = mock();
 const mockGetApprovalStatus = mock();
@@ -186,12 +192,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        ValidationError
-      );
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        /PR must be approved/
-      );
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(/PR must be approved/);
 
       // Repository backend should NEVER be called for unapproved sessions
       expect(mockMerge).not.toHaveBeenCalled();
@@ -218,12 +224,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        ValidationError
-      );
-      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        /has no PR branch/
-      );
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        mergeSessionPr(params, { sessionDB: mockSessionProvider, taskService: mockTaskService })
+      ).rejects.toThrow(/has no PR branch/);
 
       // Repository backend should NEVER be called for sessions without PR
       expect(mockMerge).not.toHaveBeenCalled();
