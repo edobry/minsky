@@ -25,15 +25,6 @@ import type {
   UpdateRuleResult,
 } from "./types";
 
-/**
- * Structural subset of fs/promises used by compileRules (check mode).
- * Declared structurally so in-memory test fakes assign without casts.
- */
-export interface CompileRulesFs {
-  readFile(path: string, encoding: BufferEncoding): Promise<string>;
-  readdir(path: string): Promise<string[]>;
-}
-
 // ─── List Rules ──────────────────────────────────────────────────────────────
 
 /**
@@ -85,23 +76,25 @@ export async function listRulesFiltered(options: ListRulesOptions): Promise<List
  * Compile rules into a monolithic file, with optional check (staleness) mode.
  *
  * `deps` exists so tests can inject an in-memory fs (and optionally a pre-built
- * RuleService) without touching the real filesystem.
+ * RuleService) without touching the real filesystem. `fs` uses the same
+ * RuleServiceFs shape so a single mock can flow into both this function and
+ * any internally-constructed RuleService.
  */
 export async function compileRules(
   options: CompileRulesOptions,
   deps?: {
-    fs?: CompileRulesFs;
+    fs?: RuleServiceFs;
     ruleService?: RuleService;
   }
 ): Promise<CompileRulesResult> {
   const { createCompileService } = await import("../compile/compile-service");
 
-  const fs: CompileRulesFs = deps?.fs ?? nodeFs;
+  const fs: RuleServiceFs = deps?.fs ?? (nodeFs as RuleServiceFs);
   const targetId = options.target || "agents.md";
   const ruleService =
     deps?.ruleService ??
     new RuleService(options.workspacePath, {
-      fsPromises: deps?.fs as RuleServiceFs | undefined,
+      fsPromises: deps?.fs,
     });
   const compileService = createCompileService();
 

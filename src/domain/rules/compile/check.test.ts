@@ -159,35 +159,44 @@ describe("compileRules --check staleness detection", () => {
 });
 
 // ─── cursor-rules multi-file check scenario (d) ─────────────────────────────
-// One of many files is modified → stale. Tests the per-file comparison logic
-// in buildCursorRulesContent, independent of compileRules orchestration.
+// One of many files is modified → stale. Exercises the full compileRules
+// orchestration for the multi-file cursor-rules target via the DI seam.
 
 describe("cursor-rules multi-file staleness (d)", () => {
-  it("one of many files modified → stale file is identified", async () => {
+  it("one of many files modified → compileRules identifies the stale file", async () => {
     const rules = [
       makeRule("rule-a", "Content A"),
       makeRule("rule-b", "Content B"),
       makeRule("rule-c", "Content C"),
     ];
-    const { files } = buildCursorRulesContent(rules, OUTPUT_DIR);
 
-    // Build in-memory "existing" content: rule-a/c match, rule-b is corrupted.
-    const existingByPath = new Map<string, string>();
-    for (const { path: filePath, content } of files) {
-      existingByPath.set(filePath, filePath.endsWith("rule-b.mdc") ? "WRONG CONTENT" : content);
+    // Seed output dir: rule-a/c match expected content; rule-b is corrupted.
+    const { files: expected } = buildCursorRulesContent(rules, OUTPUT_DIR);
+    const initialFiles: Record<string, string> = {};
+    for (const { path: filePath, content } of expected) {
+      initialFiles[filePath] = filePath.endsWith("rule-b.mdc") ? "WRONG CONTENT" : content;
     }
 
-    // Simulate the per-file check loop from crud-operations.ts
-    let foundStale: string | undefined;
-    for (const { path: filePath, content: expectedContent } of files) {
-      const existingContent = existingByPath.get(filePath);
-      if (existingContent !== expectedContent) {
-        foundStale = filePath;
-        break;
-      }
-    }
+    // Inject a stub RuleService that returns the rules directly, skipping the
+    // listRules filesystem path (which suffers cross-test pollution in the full
+    // suite — tracked separately; the DI seam itself is what we're verifying).
+    const fs = createMockFs(initialFiles);
+    const ruleService = {
+      listRules: async () => rules,
+    } as unknown as RuleService;
 
-    expect(foundStale).toBeDefined();
-    expect(foundStale).toContain("rule-b.mdc");
+    const result = await compileRules(
+      {
+        workspacePath: WORKSPACE,
+        target: "cursor-rules",
+        output: OUTPUT_DIR,
+        check: true,
+      },
+      { fs, ruleService }
+    );
+
+    expect(result.check).toBe(true);
+    expect(result.stale).toBe(true);
+    expect(result.staleFile).toContain("rule-b.mdc");
   });
 });
