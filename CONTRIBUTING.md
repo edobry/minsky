@@ -199,6 +199,35 @@ The project enforces 12 custom rules under the `custom/` prefix:
 | `no-unsafe-git-exec`            | error | All git operations must have timeout protection |
 | `no-excessive-as-unknown`       | warn  | Discourages overuse of `as unknown` casts       |
 
+## Rules Storage Model
+
+Minsky rules are authored in `.minsky/rules/` and compiled to harness-specific outputs
+(`.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`). The split matters:
+
+- **`.minsky/rules/`** — canonical source. Edit rule files here. `minsky rules create`
+  lands new rules here by default.
+- **`.cursor/rules/`** — compile output, regenerated from `.minsky/rules/` by
+  `bun run minsky rules compile --target cursor-rules`. Do not hand-edit — changes will
+  be overwritten on the next compile.
+- **`AGENTS.md`, `CLAUDE.md`** — monolithic compile outputs; same "don't hand-edit"
+  rule applies. Both are in `.prettierignore` so Prettier doesn't fight the compiler.
+
+The pre-commit hook step 9 (see below) enforces that the committed `.cursor/rules/` and
+`AGENTS.md` match what the compiler would produce from `.minsky/rules/`. If you edit
+a rule, re-run `minsky rules compile` and commit both locations together.
+
+**Migrating an existing project** from `.cursor/rules/`-as-source to `.minsky/rules/`-as-source:
+
+```bash
+bun run minsky rules migrate        # copies .cursor/rules/*.mdc → .minsky/rules/*.mdc
+bun run minsky rules compile --target cursor-rules    # regenerate .cursor/rules/
+git add .minsky/rules/ .cursor/rules/
+```
+
+After migration, `.minsky/rules/` is authoritative. `minsky rules migrate --dry-run`
+shows what would change without writing, and `--force` overwrites any existing files
+in the destination.
+
 ## Pre-commit Hooks
 
 Husky runs a TypeScript pre-commit hook (`src/hooks/pre-commit.ts`) that enforces
