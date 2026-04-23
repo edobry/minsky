@@ -464,7 +464,7 @@ describe("5 core agent definitions — compile correctness", () => {
       description: "Structural refactoring agent.",
       model: "sonnet",
       skills: [SKILL_CODE_ORGANIZATION, "testing-guide"],
-      suggestedSubagentType: "refact",
+      suggestedSubagentType: "refactor",
       prompt: "# Refactorer\n\nRefactor code.\n",
     },
     {
