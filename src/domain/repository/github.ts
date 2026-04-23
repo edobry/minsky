@@ -573,6 +573,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       owner: this.owner,
       repo: this.repo,
       getToken: () => this.tokenProvider.getServiceToken(),
+      getUserToken: () => this.tokenProvider.getUserToken(),
     };
   }
 

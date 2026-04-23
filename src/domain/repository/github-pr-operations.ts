@@ -31,6 +31,8 @@ export interface GitHubContext {
   owner: string;
   repo: string;
   getToken: () => Promise<string>;
+  /** Optional user-token accessor for privileged fallback on permission failures. */
+  getUserToken?: () => Promise<string>;
 }
 
 /**
@@ -394,14 +396,59 @@ export async function mergePullRequest(
     const baseMessage = pr.body || "";
     const commitMessage = mergeTrailers ? baseMessage + mergeTrailers : baseMessage;
 
-    const mergeResponse = await octokit.rest.pulls.merge({
+    const mergeParams = {
       owner: gh.owner,
       repo: gh.repo,
       pull_number: prNumber,
-      merge_method: "merge",
+      merge_method: "merge" as const,
       commit_title: pr.title || `Merge pull request #${prNumber} from ${pr.head.ref}`,
       commit_message: commitMessage,
-    });
+    };
+
+    let mergeResponse: Awaited<ReturnType<typeof octokit.rest.pulls.merge>>;
+    try {
+      mergeResponse = await octokit.rest.pulls.merge(mergeParams);
+    } catch (mergeError) {
+      const mergeInfo = classifyOctokitError(mergeError);
+      // Only attempt user-token fallback on 403 permission errors, not on 405/422 merge conflicts
+      const is403 =
+        mergeInfo.status === 403 ||
+        (mergeInfo.messageLower.includes("403") && !mergeInfo.messageLower.includes("422"));
+      const is405or422 = mergeInfo.status === 405 || mergeInfo.status === 422;
+
+      if (is403 && !is405or422 && !tokenOverride && gh.getUserToken) {
+        // Bot token lacks merge rights — attempt fallback to user PAT
+        log.warn(
+          `[merge] Bot token lacked merge permission on ${gh.owner}/${gh.repo}#${prNumber}; ` +
+            `retrying with user PAT. Fix: grant the App contents:write + pull_requests:write on this repo.`
+        );
+        try {
+          const userToken = await gh.getUserToken();
+          const userOctokit = createOctokit(userToken);
+          mergeResponse = await userOctokit.rest.pulls.merge(mergeParams);
+          log.warn(`[merge] Bot token lacked permission; succeeded with user PAT fallback.`);
+        } catch (userMergeError) {
+          throw new MinskyError(
+            `Bot token lacks merge rights for ${gh.owner}/${gh.repo}#${prNumber}. ` +
+              `User PAT fallback also failed: ${getErrorMessage(userMergeError)}. To fix:\n` +
+              `  (a) Grant the GitHub App contents:write + pull_requests:write permissions on this repo\n` +
+              `  (b) Ensure the user PAT has merge rights\n` +
+              `Run \`gh pr merge ${prNumber}\` manually to unblock this PR in the meantime.`
+          );
+        }
+      } else if (is403 && !is405or422 && !tokenOverride) {
+        // 403 with no user token fallback available (getUserToken not provided)
+        throw new MinskyError(
+          `Bot token lacks merge rights for ${gh.owner}/${gh.repo}#${prNumber}. To fix:\n` +
+            `  (a) Grant the GitHub App contents:write + pull_requests:write permissions on this repo\n` +
+            `  (b) Ensure the user PAT has merge rights (currently the TokenProvider returned no user token, so fallback was skipped)\n` +
+            `Run \`gh pr merge ${prNumber}\` manually to unblock this PR in the meantime.`
+        );
+      } else {
+        // Re-throw for the outer catch to handle (405/422 merge conflicts, tokenOverride 403s, etc.)
+        throw mergeError;
+      }
+    }
 
     const merge = mergeResponse.data;
 
