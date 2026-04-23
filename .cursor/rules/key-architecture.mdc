@@ -1,0 +1,15 @@
+---
+name: Key Architecture
+description: 'Minsky architectural overview - clean architecture layers, command routing, DI, persistence providers.'
+alwaysApply: true
+tags:
+  - minsky
+  - architecture
+---
+# Key Architecture
+
+- Clean architecture: Domain → Adapters → Infrastructure
+- Shared command registry: commands defined once, adapted to CLI and MCP
+- Capability-based persistence providers (ADR-002)
+- Multi-backend tasks: GitHub Issues, Minsky DB
+- Dependency injection via tsyringe (`docs/architecture.md` §6)

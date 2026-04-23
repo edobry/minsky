@@ -18,6 +18,14 @@ Optional: task ID (e.g., `/orchestrate mt#123`). If omitted, lists available tas
 
 ## Workflow Sequence
 
+### 0. Retrieve relevant memory context
+
+Before any task work, call `memory_search` to retrieve durable context that may affect execution:
+
+- Call `memory_search` with a query matching the task's domain (e.g., "task orchestration", the task ID, or the technology area)
+- Review any returned memories for constraints, preferences, or prior decisions
+- This replaces the always-loaded MEMORY.md preamble — context is fetched on-demand, not pre-loaded
+
 ### 1. Task selection and status verification
 
 - List available tasks: `mcp__minsky__tasks_list` (filter by `status: "TODO"`)

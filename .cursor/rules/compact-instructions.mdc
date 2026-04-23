@@ -1,0 +1,11 @@
+---
+name: Compact Instructions
+description: What to preserve and drop when compacting conversation context.
+alwaysApply: true
+tags:
+  - minsky
+  - context
+---
+# Compact Instructions
+
+When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.

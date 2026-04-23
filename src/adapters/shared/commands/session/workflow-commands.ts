@@ -29,6 +29,7 @@ export { createSessionPrOpenCommand } from "./pr-open-command";
 export { createSessionPrChecksCommand } from "./pr-checks-command";
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
+export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
 
 export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {

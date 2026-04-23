@@ -2,6 +2,10 @@
  * CLAUDE.md Compile Target
  *
  * Compiles rules into a CLAUDE.md file. By default, only includes ALWAYS_APPLY rules.
+ *
+ * The `memory-usage` rule (id: "memory-usage", tag: "memory") is always-apply by default,
+ * but is suppressed when `memoryLoadingMode` is `"legacy"`. This allows a soft-transition
+ * window where operators can fall back to MEMORY.md preamble loading.
  */
 
 import { join } from "path";
@@ -10,10 +14,19 @@ import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
 
+/** The canonical rule ID for the memory-usage directive. */
+const MEMORY_USAGE_RULE_ID = "memory-usage";
+
 /**
- * Build CLAUDE.md content from always-apply rules
+ * Build CLAUDE.md content from always-apply rules.
+ *
+ * @param allRules - All rules available from the rule service
+ * @param options - Optional target options; `memoryLoadingMode` controls memory directive emission
  */
-function buildClaudeMdContent(allRules: Rule[]): {
+function buildClaudeMdContent(
+  allRules: Rule[],
+  options?: Pick<TargetOptions, "memoryLoadingMode">
+): {
   content: string;
   rulesIncluded: string[];
   rulesSkipped: string[];
@@ -21,11 +34,18 @@ function buildClaudeMdContent(allRules: Rule[]): {
   const rulesIncluded: string[] = [];
   const rulesSkipped: string[] = [];
 
+  const memoryLoadingMode = options?.memoryLoadingMode ?? "on_demand";
+
   // Filter to only ALWAYS_APPLY rules by default
   const alwaysApplyRules: Rule[] = [];
   for (const rule of allRules) {
     const ruleType = classifyRuleType(rule);
     if (ruleType === RuleType.ALWAYS_APPLY) {
+      // In legacy mode, suppress the memory-usage directive so the MEMORY.md preamble takes effect
+      if (memoryLoadingMode === "legacy" && rule.id === MEMORY_USAGE_RULE_ID) {
+        rulesSkipped.push(rule.id);
+        continue;
+      }
       alwaysApplyRules.push(rule);
       rulesIncluded.push(rule.id);
     } else {
@@ -75,7 +95,7 @@ export const claudeMdTarget: CompileTarget = {
   ): Promise<CompileResult> {
     const outputPath = options.outputPath || this.defaultOutputPath(workspacePath);
 
-    const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules);
+    const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
 
     await fs.writeFile(outputPath, content, "utf-8");
 

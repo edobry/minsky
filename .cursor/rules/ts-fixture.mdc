@@ -1,11 +1,10 @@
 ---
+name: ts-fixture
 description: Fixture rule for the cursor-rules-ts compile target.
 alwaysApply: false
 tags:
   - testing
-name: ts-fixture
 ---
-
 # TS Fixture Rule
 
 This rule exists solely as a compile-target fixture.

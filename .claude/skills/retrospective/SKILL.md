@@ -138,10 +138,10 @@ Make the changes. This typically means editing some combination of:
 
 - `CLAUDE.md` — policy and protocol updates
 - `.claude/skills/*/SKILL.md` — process step additions
-- Memory files — feedback entries for future conversations
+- **Memory entries** — call `memory_create` to persist durable feedback (do NOT write to memory `.md` files)
 - `.cursor/rules/*.mdc` — enforcement rules
 
-Use sessions for any repo file changes. Memory updates can be done directly.
+Use sessions for any repo file changes. Call `memory_create` directly for persistent feedback entries — the memory system stores durably in the database, not in files.
 
 ### 6. Verify the fix
 
