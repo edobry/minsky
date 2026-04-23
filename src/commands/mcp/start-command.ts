@@ -35,6 +35,21 @@ const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
 
 /**
+ * Check a bearer-token authorization header against the expected token.
+ *
+ * Returns true only when the header is present in the form `Bearer <token>`
+ * (case-insensitive on the scheme) AND the presented token matches exactly.
+ *
+ * Exported for tests. Callers with auth disabled should not invoke this.
+ */
+export function checkBearerAuth(header: string | undefined, expectedToken: string): boolean {
+  if (!header || !expectedToken) return false;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const presented = match?.[1]?.trim();
+  return !!presented && presented === expectedToken;
+}
+
+/**
  * Register all MCP tool adapters on the given command mapper.
  */
 async function registerAllTools(
@@ -125,17 +140,42 @@ async function startHttpServer(
     port: string;
     host: string;
     endpoint: string;
+    requireAuth?: boolean;
   },
   projectContext?: ReturnType<typeof createProjectContext>
 ): Promise<void> {
   const app = express();
   app.use(express.json());
 
+  // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
+  // --require-auth was passed. /health remains public for Railway probes.
+  // When --require-auth is explicit but no token configured, refuse startup
+  // — silent no-auth with --require-auth would be the worst possible outcome.
+  const rawToken = process.env.MINSKY_MCP_AUTH_TOKEN?.trim();
+  const token = rawToken && rawToken.length > 0 ? rawToken : undefined;
+  if (options.requireAuth && !token) {
+    log.cliError(
+      "--require-auth passed but MINSKY_MCP_AUTH_TOKEN env var is not set. " +
+        "Set the token or omit --require-auth. Refusing to start in an undefined auth state."
+    );
+    exit(1);
+  }
+  type AuthState = { enabled: false } | { enabled: true; token: string };
+  const auth: AuthState = token ? { enabled: true, token } : { enabled: false };
+  if (auth.enabled) {
+    log.cli(`HTTP MCP auth: bearer-token required (token length=${auth.token.length})`);
+  } else {
+    log.warn(
+      "HTTP MCP starting WITHOUT authentication. Set MINSKY_MCP_AUTH_TOKEN to enable. " +
+        "This is only safe on localhost or in a private network."
+    );
+  }
+
   // Set up CORS for development
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.header("Access-Control-Allow-Headers", "Authorization, Content-Type, mcp-session-id");
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
     } else {
@@ -143,8 +183,18 @@ async function startHttpServer(
     }
   });
 
-  // Set up MCP endpoint
+  // Set up MCP endpoint (auth-gated when enabled)
   app.all(options.endpoint, async (req, res) => {
+    if (auth.enabled) {
+      const header = req.header("authorization") ?? req.header("Authorization");
+      if (!checkBearerAuth(header, auth.token)) {
+        res.status(401).json({
+          error: "unauthorized",
+          message: "valid bearer token required",
+        });
+        return;
+      }
+    }
     try {
       await server.handleHttpRequest(req, res);
     } catch (error) {
@@ -160,13 +210,13 @@ async function startHttpServer(
     }
   });
 
-  // Health check endpoint
-  app.get("/health", (req, res) => {
+  // Health check endpoint — always public, minimal body (safe to expose).
+  // Railway and other uptime probes hit this; don't leak internal state.
+  app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
       server: "Minsky MCP Server",
       transport: "http",
-      endpoint: options.endpoint,
       timestamp: new Date().toISOString(),
     });
   });
@@ -214,6 +264,10 @@ export function createStartCommand(
       "--endpoint <path>",
       `HTTP endpoint path (default: ${DEFAULT_HTTP_ENDPOINT})`,
       DEFAULT_HTTP_ENDPOINT
+    )
+    .option(
+      "--require-auth",
+      "Require bearer-token auth on the HTTP MCP endpoint (token from MINSKY_MCP_AUTH_TOKEN env)"
     )
     .action(async (options) => {
       try {
@@ -306,7 +360,16 @@ export function createStartCommand(
 
         // Start the server
         if (transportType === "http") {
-          await startHttpServer(server, options, projectContext);
+          await startHttpServer(
+            server,
+            {
+              port: options.port,
+              host: options.host,
+              endpoint: options.endpoint,
+              requireAuth: options.requireAuth,
+            },
+            projectContext
+          );
         } else {
           // Stdio transport
           if (!options.withInspector) {
