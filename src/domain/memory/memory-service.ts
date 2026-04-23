@@ -16,7 +16,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and, isNull, inArray, or, lt, asc, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, or, lt, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
@@ -213,10 +213,7 @@ export class MemoryService implements MemoryServiceSurface {
     // When stale filter is active, sort by lastAccessedAt ASC NULLS FIRST so the
     // oldest/never-accessed records appear first.
     const rows = filter?.stale
-      ? await filteredQuery.orderBy(
-          asc(memoriesTable.lastAccessedAt),
-          sql`${memoriesTable.lastAccessedAt} NULLS FIRST`
-        )
+      ? await filteredQuery.orderBy(sql`${memoriesTable.lastAccessedAt} ASC NULLS FIRST`)
       : await filteredQuery;
 
     return (rows as Record<string, unknown>[]).map(rowToRecord);
@@ -349,6 +346,10 @@ export class MemoryService implements MemoryServiceSurface {
     id: string,
     opts?: Pick<MemorySearchOptions, "limit" | "threshold">
   ): Promise<MemorySearchResult[]> {
+    // Note: this.get(id) below bumps the source record's access_count via
+    // bumpAccessCount. That is intentional — a similar(id) call counts as an
+    // access of the source as well as the neighbors. If this turns out to be
+    // wrong, revisit the bump semantics at that point.
     const embeddingMeta = await this.deps.vectorStorage.getMetadata?.(id);
     if (!embeddingMeta) {
       return [];
