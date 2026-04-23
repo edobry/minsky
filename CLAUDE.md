@@ -53,7 +53,7 @@ Transitions are enforced in the domain layer. `session_start` blocks from TODO/P
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
 - **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
-- **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
+- **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge AND immediately after `session_pr_create` (a PostToolUse hook enforces the latter — do not write summaries that punt review to the user).
 - **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
 
 ## MCP Tools
