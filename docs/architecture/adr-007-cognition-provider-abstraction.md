@@ -1,4 +1,4 @@
-# ADR-005: Cognition Provider Abstraction for Dual-Mode AI Operation
+# ADR-007: Cognition Provider Abstraction for Dual-Mode AI Operation
 
 ## Status
 
