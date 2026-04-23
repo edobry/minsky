@@ -16,6 +16,8 @@ import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+/** Minimal container interface required by buildSessionMergeDeps. */
+type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
 // Re-export PR subcommand factories so consumers can import the full set
 // from workflow-commands.
@@ -356,7 +358,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
  */
 export function buildSessionMergeDeps(
   deps: Awaited<ReturnType<LazySessionDeps>>,
-  container: { has(key: string): boolean; get(key: string): unknown } | undefined
+  container: MergeDepContainer | undefined
 ): SessionMergeDependencies {
   return {
     sessionDB: deps.sessionProvider,
@@ -393,12 +395,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
             json: params.json as boolean | undefined,
             cleanupSession: shouldCleanup,
           },
-          buildSessionMergeDeps(
-            deps,
-            context.container as
-              | { has(key: string): boolean; get(key: string): unknown }
-              | undefined
-          )
+          buildSessionMergeDeps(deps, context.container)
         );
 
         return { success: true, result, printed: true };

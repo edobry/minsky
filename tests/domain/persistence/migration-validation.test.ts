@@ -15,6 +15,11 @@ import type {
   JournalEntry,
 } from "../../../src/domain/persistence/postgres-migration-operations";
 
+// Shared migration tags used across the test journal fixtures.
+const MIGRATION_A = "0000_migration_a";
+const MIGRATION_B = "0001_migration_b";
+const MIGRATION_C = "0002_migration_c";
+
 // Helper to build a minimal Journal for tests
 function makeJournal(entries: Array<{ idx: number; when: number; tag: string }>): Journal {
   return {
@@ -35,18 +40,18 @@ function makeJournal(entries: Array<{ idx: number; when: number; tag: string }>)
 describe("validateJournalTimestamps", () => {
   it("accepts valid monotonically increasing timestamps", () => {
     const journal = makeJournal([
-      { idx: 0, when: 100, tag: "0000_migration_a" },
-      { idx: 1, when: 200, tag: "0001_migration_b" },
-      { idx: 2, when: 300, tag: "0002_migration_c" },
+      { idx: 0, when: 100, tag: MIGRATION_A },
+      { idx: 1, when: 200, tag: MIGRATION_B },
+      { idx: 2, when: 300, tag: MIGRATION_C },
     ]);
     expect(() => validateJournalTimestamps(journal)).not.toThrow();
   });
 
   it("throws on out-of-order timestamps", () => {
     const journal = makeJournal([
-      { idx: 0, when: 100, tag: "0000_migration_a" },
-      { idx: 1, when: 300, tag: "0001_migration_b" },
-      { idx: 2, when: 200, tag: "0002_migration_c" },
+      { idx: 0, when: 100, tag: MIGRATION_A },
+      { idx: 1, when: 300, tag: MIGRATION_B },
+      { idx: 2, when: 200, tag: MIGRATION_C },
     ]);
     expect(() => validateJournalTimestamps(journal)).toThrow(
       /timestamps out of order.*0001_migration_b.*0002_migration_c/s
@@ -55,15 +60,15 @@ describe("validateJournalTimestamps", () => {
 
   it("throws on equal timestamps", () => {
     const journal = makeJournal([
-      { idx: 0, when: 100, tag: "0000_migration_a" },
-      { idx: 1, when: 200, tag: "0001_migration_b" },
-      { idx: 2, when: 200, tag: "0002_migration_c" },
+      { idx: 0, when: 100, tag: MIGRATION_A },
+      { idx: 1, when: 200, tag: MIGRATION_B },
+      { idx: 2, when: 200, tag: MIGRATION_C },
     ]);
     expect(() => validateJournalTimestamps(journal)).toThrow(/timestamps out of order/);
   });
 
   it("accepts single entry journal", () => {
-    const journal = makeJournal([{ idx: 0, when: 100, tag: "0000_migration_a" }]);
+    const journal = makeJournal([{ idx: 0, when: 100, tag: MIGRATION_A }]);
     expect(() => validateJournalTimestamps(journal)).not.toThrow();
   });
 

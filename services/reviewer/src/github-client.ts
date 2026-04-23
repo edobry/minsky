@@ -99,7 +99,40 @@ export async function submitReview(
   };
 }
 
-export async function getAppIdentity(octokit: Octokit): Promise<{ login: string }> {
-  const response = await octokit.rest.users.getAuthenticated();
-  return { login: response.data.login };
+/**
+ * Return the reviewer App's bot identity (login name) via the /app endpoint.
+ *
+ * This must use App-level JWT auth, not installation token auth. `/user`
+ * endpoints like `octokit.rest.users.getAuthenticated` require user-scoped
+ * tokens (PAT or OAuth) and return 403 "Resource not accessible by
+ * integration" when called with an installation token.
+ *
+ * The App's `slug` maps to the bot login as `${slug}[bot]`. Cached after
+ * the first call since the App identity is stable across the service's
+ * lifetime.
+ */
+let cachedAppIdentity: { login: string } | null = null;
+
+export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
+  if (cachedAppIdentity) return cachedAppIdentity;
+
+  const auth = createAppAuth({
+    appId: config.appId,
+    privateKey: config.privateKey,
+    installationId: config.installationId,
+  });
+
+  // `type: "app"` returns an App-level JWT (not an installation token), which
+  // is required for `/app` endpoints.
+  const { token } = await auth({ type: "app" });
+
+  const appOctokit = new Octokit({ auth: token });
+  const response = await appOctokit.rest.apps.getAuthenticated();
+  if (!response.data) {
+    throw new Error(
+      "apps.getAuthenticated returned no data; check App credentials and JWT generation."
+    );
+  }
+  cachedAppIdentity = { login: `${response.data.slug}[bot]` };
+  return cachedAppIdentity;
 }

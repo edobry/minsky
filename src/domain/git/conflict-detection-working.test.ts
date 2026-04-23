@@ -2,6 +2,9 @@ import { test, expect, describe, mock, beforeEach } from "bun:test";
 import { ConflictDetectionService, type ConflictDetectionDeps } from "./conflict-detection";
 import { ConflictType } from "./conflict-detection-types";
 
+type ExecAsyncFn = ConflictDetectionDeps["execAsync"];
+type GitFetchFn = ConflictDetectionDeps["gitFetchWithTimeout"];
+
 function createMockDeps(): ConflictDetectionDeps & {
   mockExecAsyncImpl: () => Promise<{ stdout: string; stderr: string }>;
   setExecAsyncImpl: (impl: () => Promise<{ stdout: string; stderr: string }>) => void;
@@ -11,9 +14,8 @@ function createMockDeps(): ConflictDetectionDeps & {
   const mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
   return {
-    execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
-    gitFetchWithTimeout:
-      mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+    execAsync: mockExecAsync as unknown as ExecAsyncFn,
+    gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
     log: {
       debug: mock(() => {}),
       warn: mock(() => {}),
@@ -205,8 +207,8 @@ describe("ConflictDetectionService", () => {
   });
 
   describe("smartSessionUpdate (mt#990 regression)", () => {
-    const CALL_TAG_EXEC = "execAsync";
-    const CALL_TAG_FETCH = "gitFetchWithTimeout";
+    const CALL_EXEC_ASYNC = "execAsync";
+    const CALL_GIT_FETCH = "gitFetchWithTimeout";
 
     test("fetches base branch before analyzing divergence", async () => {
       // Regression for mt#990: without an explicit fetch before divergence analysis,
@@ -216,18 +218,17 @@ describe("ConflictDetectionService", () => {
       // Record call order by tagging both mocks.
       const callOrder: string[] = [];
       const mockExecAsync = mock(() => {
-        callOrder.push(CALL_TAG_EXEC);
+        callOrder.push(CALL_EXEC_ASYNC);
         return Promise.resolve({ stdout: "0\t0", stderr: "" });
       });
       const mockGitFetchWithTimeout = mock(() => {
-        callOrder.push(CALL_TAG_FETCH);
+        callOrder.push(CALL_GIT_FETCH);
         return Promise.resolve({ stdout: "", stderr: "" });
       });
 
       const instrumentedDeps: ConflictDetectionDeps = {
-        execAsync: mockExecAsync as unknown as ConflictDetectionDeps["execAsync"],
-        gitFetchWithTimeout:
-          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        execAsync: mockExecAsync as unknown as ExecAsyncFn,
+        gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
         log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
       };
 
@@ -242,8 +243,8 @@ describe("ConflictDetectionService", () => {
       // Fetch must happen, and it must happen before any execAsync call that
       // reads tracking refs (rev-list / merge-base / etc. during divergence analysis).
       expect(mockGitFetchWithTimeout).toHaveBeenCalled();
-      const firstFetchIdx = callOrder.indexOf(CALL_TAG_FETCH);
-      const firstExecIdx = callOrder.indexOf(CALL_TAG_EXEC);
+      const firstFetchIdx = callOrder.indexOf(CALL_GIT_FETCH);
+      const firstExecIdx = callOrder.indexOf(CALL_EXEC_ASYNC);
       expect(firstFetchIdx).toBeGreaterThanOrEqual(0);
       if (firstExecIdx >= 0) {
         expect(firstFetchIdx).toBeLessThan(firstExecIdx);
@@ -255,9 +256,8 @@ describe("ConflictDetectionService", () => {
       const instrumentedDeps: ConflictDetectionDeps = {
         execAsync: mock(() =>
           Promise.resolve({ stdout: "0\t0", stderr: "" })
-        ) as unknown as ConflictDetectionDeps["execAsync"],
-        gitFetchWithTimeout:
-          mockGitFetchWithTimeout as unknown as ConflictDetectionDeps["gitFetchWithTimeout"],
+        ) as unknown as ExecAsyncFn,
+        gitFetchWithTimeout: mockGitFetchWithTimeout as unknown as GitFetchFn,
         log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
       };
 

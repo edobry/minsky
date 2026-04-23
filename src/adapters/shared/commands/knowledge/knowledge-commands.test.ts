@@ -12,7 +12,11 @@ const FETCH_CMD = "knowledge.fetch";
 const REGISTERED_MSG = "is registered with correct metadata";
 import { createSharedCommandRegistry } from "../../command-registry";
 import { registerKnowledgeCommands, type KnowledgeCommandsDeps } from "./index";
-import type { KnowledgeSourceConfig, SyncReport } from "../../../../domain/knowledge/types";
+import type {
+  KnowledgeSourceConfig,
+  SyncReport,
+  KnowledgeSearchResponse,
+} from "../../../../domain/knowledge/types";
 import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../../../../domain/storage/vector/types";
 import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
@@ -35,10 +39,20 @@ function makeFakeVectorStorage(results: SearchResult[] = []): VectorStorage {
   };
 }
 
+interface FakeReconciliationConfig {
+  staleness?: { agingDays?: number; staleDays?: number };
+  sourceAuthority?: Record<string, number>;
+  epsilon?: number;
+}
+
 function makeFakeConfig(
-  sources: KnowledgeSourceConfig[] = []
-): () => Promise<{ knowledgeBases: KnowledgeSourceConfig[] }> {
-  return async () => ({ knowledgeBases: sources });
+  sources: KnowledgeSourceConfig[] = [],
+  reconciliation?: FakeReconciliationConfig
+): () => Promise<{
+  knowledgeBases: KnowledgeSourceConfig[];
+  knowledgeReconciliation?: FakeReconciliationConfig;
+}> {
+  return async () => ({ knowledgeBases: sources, knowledgeReconciliation: reconciliation });
 }
 
 function makeFakeKnowledgeService(syncReports: SyncReport[] = []): () => KnowledgeService {
@@ -48,6 +62,15 @@ function makeFakeKnowledgeService(syncReports: SyncReport[] = []): () => Knowled
   } as unknown as KnowledgeService;
   return () => service;
 }
+
+// ─── Test constants ───────────────────────────────────────────────────────────
+
+/** Recent timestamp: 5 days before now — always "fresh" under default thresholds */
+const RECENT_ISO = new Date(new Date().getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
+/** Stale timestamp: 100 days before now — always "stale" under default thresholds */
+const STALE_ISO = new Date(new Date().getTime() - 100 * 24 * 60 * 60 * 1000).toISOString();
+/** Chunk ID used in full-shape tests */
+const CHUNK_ID_PAGE_1 = "my-notion:page-1:0";
 
 const SAMPLE_SOURCE: KnowledgeSourceConfig = {
   name: "my-notion",
@@ -82,16 +105,17 @@ describe("Knowledge Commands", () => {
       expect(cmd?.parameters["query"]?.required).toBe(true);
     });
 
-    test("returns results when embedding service and vector storage are injected", async () => {
+    test("returns structured KnowledgeSearchResponse when embedding service and vector storage are injected", async () => {
       const fakeResults: SearchResult[] = [
         {
-          id: "my-notion:page-1:0",
+          id: CHUNK_ID_PAGE_1,
           score: 0.95,
           metadata: {
             title: "Hello World",
             excerpt: "This is a snippet",
             url: "https://notion.so/page-1",
             sourceName: "my-notion",
+            lastModified: RECENT_ISO,
           },
         },
       ];
@@ -110,29 +134,146 @@ describe("Knowledge Commands", () => {
       const cmd = registry.getCommand(SEARCH_CMD);
       expect(cmd).toBeDefined();
 
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const result = (await cmd!.execute({ query: "test query" }, {})) as {
-        results: unknown[];
-        backend: string;
-        degraded: boolean;
-      };
+      const result = (await cmd?.execute({ query: "test query" }, {})) as
+        | (KnowledgeSearchResponse & { backend: string; degraded: boolean })
+        | undefined;
 
+      expect(result).toBeDefined();
+      if (!result) return;
+
+      // Core shape fields
       expect(result.backend).toBe("embeddings");
       expect(result.degraded).toBe(false);
-      expect(result.results).toHaveLength(1);
-      const first = result.results[0] as {
-        id: string;
-        title: string;
-        score: number;
-        source: string;
-      };
-      expect(first.id).toBe("my-notion:page-1:0");
-      expect(first.title).toBe("Hello World");
-      expect(first.score).toBe(0.95);
-      expect(first.source).toBe("my-notion");
+
+      // chunks field (primary result list)
+      expect(result.chunks).toHaveLength(1);
+      const firstChunk = result.chunks[0];
+      expect(firstChunk?.id).toBe(CHUNK_ID_PAGE_1);
+      expect(firstChunk?.title).toBe("Hello World");
+      expect(firstChunk?.score).toBe(0.95);
+      expect(firstChunk?.source).toBe("my-notion");
+
+      // freshness map
+      const chunkFreshness = result.freshness[CHUNK_ID_PAGE_1];
+      expect(chunkFreshness).toBeDefined();
+      expect(chunkFreshness?.staleness).toBe("fresh");
+      expect(chunkFreshness?.lastModified).toBe(RECENT_ISO);
+
+      // authority list
+      expect(Array.isArray(result.authority)).toBe(true);
+      expect(result.authority).toContain(CHUNK_ID_PAGE_1);
+
+      // Phase 2a stubs
+      expect(result.conflicts).toEqual([]);
+      expect(result.redundancies).toEqual([]);
     });
 
-    test("returns empty results when vector storage returns nothing", async () => {
+    test("backward compat: reading response.chunks still works unchanged", async () => {
+      const fakeResults: SearchResult[] = [
+        {
+          id: "chunk-1",
+          score: 0.8,
+          metadata: {
+            title: "Doc",
+            sourceName: "source-A",
+          },
+        },
+      ];
+      const fakeEmbed = makeFakeEmbeddingService();
+      const fakeStorage = makeFakeVectorStorage(fakeResults);
+
+      registry = createSharedCommandRegistry();
+      registerKnowledgeCommands(registry, {
+        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
+        vectorSearch: fakeStorage.search.bind(fakeStorage),
+      });
+
+      const cmd = registry.getCommand(SEARCH_CMD);
+      expect(cmd).toBeDefined();
+      // Simulate existing consumer pattern: only read `chunks`
+      const response = (await cmd?.execute({ query: "q" }, {})) as
+        | { chunks: unknown[] }
+        | undefined;
+      expect(response).toBeDefined();
+      expect(Array.isArray(response?.chunks)).toBe(true);
+      expect(response?.chunks).toHaveLength(1);
+    });
+
+    test("staleness rendering: stale chunk shows warning in freshness map", async () => {
+      // STALE_ISO is 100 days before 2024-06-01, well past the 90-day stale threshold
+      const fakeResults: SearchResult[] = [
+        {
+          id: "stale-chunk",
+          score: 0.7,
+          metadata: {
+            title: "Old Doc",
+            sourceName: "source-A",
+            lastModified: STALE_ISO,
+          },
+        },
+      ];
+
+      const fakeEmbed = makeFakeEmbeddingService();
+      const fakeStorage = makeFakeVectorStorage(fakeResults);
+
+      registry = createSharedCommandRegistry();
+      registerKnowledgeCommands(registry, {
+        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
+        vectorSearch: fakeStorage.search.bind(fakeStorage),
+      });
+
+      const cmd = registry.getCommand(SEARCH_CMD);
+      expect(cmd).toBeDefined();
+      const result = (await cmd?.execute({ query: "old" }, {})) as
+        | KnowledgeSearchResponse
+        | undefined;
+      expect(result).toBeDefined();
+      expect(result?.freshness["stale-chunk"]?.staleness).toBe("stale");
+    });
+
+    test("authority ranking: within-epsilon chunks sorted by source authority", async () => {
+      const fakeResults: SearchResult[] = [
+        {
+          id: "chunk-low",
+          score: 0.83,
+          metadata: { title: "Low Authority", sourceName: "low-source" },
+        },
+        {
+          id: "chunk-high",
+          score: 0.82,
+          metadata: { title: "High Authority", sourceName: "high-source" },
+        },
+      ];
+
+      const fakeEmbed = makeFakeEmbeddingService();
+      const fakeStorage = makeFakeVectorStorage(fakeResults);
+
+      registry = createSharedCommandRegistry();
+      registerKnowledgeCommands(registry, {
+        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
+        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        getConfig: makeFakeConfig([], {
+          sourceAuthority: { "high-source": 10, "low-source": 2 },
+          epsilon: 0.05,
+        }),
+      });
+
+      const cmd = registry.getCommand(SEARCH_CMD);
+      expect(cmd).toBeDefined();
+      const result = (await cmd?.execute({ query: "auth" }, {})) as
+        | KnowledgeSearchResponse
+        | undefined;
+      expect(result).toBeDefined();
+
+      // chunks is in relevance order: chunk-low (0.83) first
+      expect(result?.chunks[0]?.id).toBe("chunk-low");
+
+      // authority is in authority-priority order: chunk-high (auth=10) first
+      expect(result?.authority[0]).toBe("chunk-high");
+      expect(result?.authority[1]).toBe("chunk-low");
+    });
+
+    test("returns empty structured response when vector storage returns nothing", async () => {
       const fakeEmbed = makeFakeEmbeddingService();
       const fakeStorage = makeFakeVectorStorage([]);
 
@@ -145,19 +286,21 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const result = (await cmd!.execute({ query: "nothing" }, {})) as {
-        results: unknown[];
-        backend: string;
-        degraded: boolean;
-      };
+      expect(cmd).toBeDefined();
+      const result = (await cmd?.execute({ query: "nothing" }, {})) as
+        | (KnowledgeSearchResponse & { backend: string; degraded: boolean })
+        | undefined;
+      expect(result).toBeDefined();
 
-      expect(result.backend).toBe("embeddings");
-      expect(result.degraded).toBe(false);
-      expect(result.results).toHaveLength(0);
+      expect(result?.backend).toBe("embeddings");
+      expect(result?.degraded).toBe(false);
+      expect(result?.chunks).toHaveLength(0);
+      expect(result?.authority).toHaveLength(0);
+      expect(result?.conflicts).toEqual([]);
+      expect(result?.redundancies).toEqual([]);
     });
 
-    test("returns degraded result when no vector storage is provided", async () => {
+    test("returns degraded structured result when no vector storage is provided", async () => {
       const fakeEmbed = makeFakeEmbeddingService();
 
       // Only generateEmbedding injected, no vectorSearch
@@ -169,16 +312,17 @@ describe("Knowledge Commands", () => {
       registerKnowledgeCommands(registry, deps);
 
       const cmd = registry.getCommand(SEARCH_CMD);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const result = (await cmd!.execute({ query: "test" }, {})) as {
-        results: unknown[];
-        backend: string;
-        degraded: boolean;
-      };
+      expect(cmd).toBeDefined();
+      const result = (await cmd?.execute({ query: "test" }, {})) as
+        | (KnowledgeSearchResponse & { backend: string; degraded: boolean })
+        | undefined;
+      expect(result).toBeDefined();
 
-      expect(result.backend).toBe("none");
-      expect(result.degraded).toBe(true);
-      expect(result.results).toHaveLength(0);
+      expect(result?.backend).toBe("none");
+      expect(result?.degraded).toBe(true);
+      expect(result?.chunks).toHaveLength(0);
+      expect(result?.conflicts).toEqual([]);
+      expect(result?.redundancies).toEqual([]);
     });
   });
 

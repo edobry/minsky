@@ -20,6 +20,7 @@
   "scripts": {
     "start": "bun run src/cli.ts",
     "lint": "eslint .",
+    "lint:strict": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "lint:tests": "bun detect-placeholder-tests.ts",
     "prepare": "husky",

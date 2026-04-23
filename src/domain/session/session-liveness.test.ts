@@ -1,13 +1,17 @@
 import { describe, test, expect } from "bun:test";
 import { deriveSessionLiveness, SessionStatus } from "./types";
 
+// Use a fixed reference time so tests don't depend on current wall-clock time.
+// deriveSessionLiveness compares timestamps with Date.now() internally, so the
+// offsets below need to be calculated relative to Date.now() at call time.
 describe("deriveSessionLiveness", () => {
   test("returns healthy for recently active session", () => {
+    const now = new Date().toISOString();
     expect(
       deriveSessionLiveness({
-        lastActivityAt: new Date().toISOString(),
+        lastActivityAt: now,
         status: SessionStatus.ACTIVE,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       })
     ).toBe("healthy");
   });

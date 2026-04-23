@@ -37,6 +37,10 @@ import {
   type KnowledgeBaseEntry,
 } from "./knowledge-bases";
 import { memoryConfigSchema, type MemoryConfig, type MemoryLoadingMode } from "./memory";
+import {
+  knowledgeReconciliationSchema,
+  type KnowledgeReconciliationConfig,
+} from "./knowledge-reconciliation";
 
 /**
  * Complete application configuration schema
@@ -86,6 +90,9 @@ export const configurationSchema = z.looseObject({
 
   // Memory loading configuration
   memory: memoryConfigSchema,
+
+  // Knowledge reconciliation configuration (freshness + authority ranking)
+  knowledgeReconciliation: knowledgeReconciliationSchema.optional(),
 }); // looseObject allows extra properties (equivalent to passthrough)
 
 /**
@@ -264,6 +271,7 @@ export type {
   KnowledgeBaseEntry,
   MemoryConfig,
   MemoryLoadingMode,
+  KnowledgeReconciliationConfig,
 };
 
 // Re-export schemas for external use
@@ -282,6 +290,7 @@ export {
   mcpConfigSchema,
   knowledgeBasesConfigSchema,
   memoryConfigSchema,
+  knowledgeReconciliationSchema,
 };
 
 // Export the main schema as default

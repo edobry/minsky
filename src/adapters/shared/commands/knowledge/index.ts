@@ -21,8 +21,24 @@ import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
 import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
 import type { VectorStorage } from "../../../../domain/storage/vector/types";
-import type { KnowledgeSourceConfig, SyncReport } from "../../../../domain/knowledge/types";
+import type {
+  KnowledgeSourceConfig,
+  SyncReport,
+  KnowledgeSearchResponse,
+  ChunkResult,
+  ChunkFreshness,
+  ChunkId,
+} from "../../../../domain/knowledge/types";
 import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
+import { classifyFreshness } from "../../../../domain/knowledge/reconciliation/freshness";
+import { rankByAuthority } from "../../../../domain/knowledge/reconciliation/authority-ranker";
+import { buildRedundanciesFromMetadata } from "../../../../domain/knowledge/reconciliation/redundancy-reader";
+import {
+  AnthropicNliClassifier,
+  detectConflicts,
+  type NliClassifier,
+  type ClassifiableChunk,
+} from "../../../../domain/knowledge/reconciliation/conflicts";
 
 // ─── Parameter shapes ────────────────────────────────────────────────────────
 
@@ -103,14 +119,24 @@ export interface KnowledgeCommandsDeps {
   generateEmbedding?: EmbeddingService["generateEmbedding"];
   /** Override for the vector storage search */
   vectorSearch?: VectorStorage["search"];
-  /** Override for loading config (returns knowledgeBases array) */
-  getConfig?: () => Promise<{ knowledgeBases: KnowledgeSourceConfig[] }>;
+  /** Override for loading config (returns knowledgeBases array + optional reconciliation config) */
+  getConfig?: () => Promise<{
+    knowledgeBases: KnowledgeSourceConfig[];
+    knowledgeReconciliation?: {
+      staleness?: { agingDays?: number; staleDays?: number };
+      sourceAuthority?: Record<string, number>;
+      epsilon?: number;
+      conflictModel?: string;
+    };
+  }>;
   /** Override for creating a KnowledgeService */
   createKnowledgeService?: (deps: {
     embeddingService: EmbeddingService;
     vectorStorage: VectorStorage;
     config: { knowledgeBases: KnowledgeSourceConfig[] };
   }) => KnowledgeService;
+  /** Override NLI classifier for testing (pass null to disable conflict detection) */
+  nliClassifier?: NliClassifier | null;
 }
 
 // ─── Registration function ────────────────────────────────────────────────────
@@ -145,7 +171,11 @@ export function registerKnowledgeCommands(
         // No vector storage — return degraded result immediately
         log.warn("[knowledge.search] Vector storage not available, returning empty results");
         return {
-          results: [],
+          chunks: [],
+          freshness: {} as Record<ChunkId, ChunkFreshness>,
+          authority: [] as ChunkId[],
+          conflicts: [],
+          redundancies: [],
           backend: "none" as const,
           degraded: true,
         };
@@ -164,6 +194,29 @@ export function registerKnowledgeCommands(
         searchFn = vectorSearch;
       }
 
+      // Load reconciliation config for freshness + authority + conflict detection
+      let reconciliationConfig:
+        | {
+            staleness?: { agingDays?: number; staleDays?: number };
+            sourceAuthority?: Record<string, number>;
+            epsilon?: number;
+            conflictModel?: string;
+          }
+        | undefined;
+      try {
+        if (deps?.getConfig) {
+          const cfg = await deps.getConfig();
+          reconciliationConfig = cfg.knowledgeReconciliation;
+        } else {
+          const { getConfiguration } = await import("../../../../domain/configuration");
+          const cfg = getConfiguration();
+          reconciliationConfig = (cfg as { knowledgeReconciliation?: typeof reconciliationConfig })
+            .knowledgeReconciliation;
+        }
+      } catch {
+        // Reconciliation config is optional — proceed without it
+      }
+
       try {
         const queryVector = await embeddingFn(params.query);
         const rawResults = await searchFn(queryVector, {
@@ -171,7 +224,7 @@ export function registerKnowledgeCommands(
           filters: params.sources ? { sourceName: params.sources } : undefined,
         });
 
-        const results = rawResults.map((r) => ({
+        const chunks: ChunkResult[] = rawResults.map((r) => ({
           id: r.id,
           title: (r.metadata?.title as string) ?? r.id,
           excerpt: (r.metadata?.excerpt as string) ?? (r.metadata?.content as string) ?? "",
@@ -180,15 +233,94 @@ export function registerKnowledgeCommands(
           score: r.score,
         }));
 
-        return {
-          results,
+        // Build freshness map — classify each chunk
+        const freshness: Record<ChunkId, ChunkFreshness> = {};
+        for (const chunk of chunks) {
+          const rawResult = rawResults.find((r) => r.id === chunk.id);
+          const lastModifiedRaw = rawResult?.metadata?.["lastModified"];
+          const lastModified =
+            typeof lastModifiedRaw === "string" ? lastModifiedRaw : new Date(0).toISOString(); // fallback: epoch = stale
+          const staleness = classifyFreshness(lastModified, reconciliationConfig?.staleness);
+          freshness[chunk.id] = { lastModified, staleness };
+        }
+
+        // Build authority-ordered chunk ID list
+        const authority = rankByAuthority(chunks, {
+          sourceAuthority: reconciliationConfig?.sourceAuthority,
+          epsilon: reconciliationConfig?.epsilon,
+        });
+
+        // Build redundancies from cluster metadata written by reconcileAfterSync
+        const redundancies = buildRedundanciesFromMetadata(rawResults);
+
+        // Run pairwise NLI conflict detection over top-K chunks (K ≤ 10)
+        // - deps.nliClassifier === null  → explicitly disabled (test path)
+        // - deps.nliClassifier set       → use injected classifier (test path)
+        // - deps is undefined/no deps    → create real AnthropicNliClassifier (production)
+        // - deps provided but no nliClassifier → skip NLI (other test paths)
+        let nliClassifier: NliClassifier | null = null;
+        if (deps === undefined) {
+          // Production path: no deps injected, create real classifier
+          nliClassifier = new AnthropicNliClassifier({
+            model: reconciliationConfig?.conflictModel,
+          });
+        } else if (deps.nliClassifier !== undefined) {
+          // Explicitly injected (may be null to disable)
+          nliClassifier = deps.nliClassifier;
+        }
+        // Otherwise: deps provided but nliClassifier not set → skip NLI (test path)
+
+        let conflicts: import("../../../../domain/knowledge/types").ChunkConflict[] = [];
+        if (nliClassifier && chunks.length >= 2) {
+          const classifiableChunks: ClassifiableChunk[] = chunks.map((c) => ({
+            id: c.id,
+            text: c.excerpt,
+          }));
+          const detected = await detectConflicts(classifiableChunks, nliClassifier);
+          conflicts = detected.map((d) => ({
+            chunkA: d.chunkAId,
+            chunkB: d.chunkBId,
+            disagreement: d.disagreement,
+          }));
+
+          if (conflicts.length > 0) {
+            log.warn(
+              `[knowledge.search] Detected ${conflicts.length} conflict(s) among retrieved chunks`,
+              { conflictCount: conflicts.length }
+            );
+          }
+        }
+
+        const response: KnowledgeSearchResponse & {
+          backend: string;
+          degraded: boolean;
+          _conflictWarning?: string;
+        } = {
+          chunks,
+          freshness,
+          authority,
+          conflicts,
+          redundancies,
           backend: "embeddings" as const,
           degraded: false,
+          ...(conflicts.length > 0
+            ? {
+                _conflictWarning: `⚠️  KNOWLEDGE CONFLICTS DETECTED (${conflicts.length}): ${conflicts
+                  .map((c, i) => `[${i + 1}] ${c.chunkA} ↔ ${c.chunkB}: ${c.disagreement}`)
+                  .join(" | ")}`,
+              }
+            : {}),
         };
+
+        return response;
       } catch (error) {
         log.error("[knowledge.search] Search failed", { error: getErrorMessage(error) });
         return {
-          results: [],
+          chunks: [],
+          freshness: {} as Record<ChunkId, ChunkFreshness>,
+          authority: [] as ChunkId[],
+          conflicts: [],
+          redundancies: [],
           backend: "none" as const,
           degraded: true,
         };
