@@ -99,6 +99,20 @@ One-time grant:
 
 ### Configure the deployment trigger
 
+> **Critical ordering gotcha** — set `source.rootDirectory` on the service config via JSON patch BEFORE running the `deploymentTriggerCreate` mutation. Creating the trigger fires an immediate build against whatever `rootDirectory` is currently on the service; missing config → build runs from the repo root → wrong image gets deployed → service crashes. This cost ~20 minutes of reviewer-service downtime on 2026-04-22 when the ordering was reversed.
+>
+> Apply the rootDirectory patch first:
+>
+> ```bash
+> cat <<'EOF' | railway environment edit --json
+> {"services":{"<service-id>":{"source":{"rootDirectory":"/services/reviewer","repo":"edobry/minsky","branch":"main"}}}}
+> EOF
+> ```
+>
+> Verify it persisted with `railway environment config --json` before proceeding. The CLI's dot-path `--service-config source.rootDirectory ...` form silently no-ops for this field; JSON-patch is the working form.
+
+> **Note:** the project/environment/service UUIDs below are for the live `edobry` Railway deployment. Replace them with your own from `railway status --json` for any other deployment.
+
 Project ID: `41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b`
 Environment ID (production): `b3ea3f5d-8560-40ea-8824-17fe3ca0b32a`
 Service ID (minsky-reviewer-webhook): `3913e8a4-81ab-465a-aad8-b76b5e3f66ed`
@@ -147,7 +161,7 @@ Railway's _Deployments_ tab in the web UI and the `railway logs` CLI show each a
 
 ```bash
 # After merging a PR that touches services/reviewer/
-railway deployments list --service minsky-reviewer-webhook --lines 5 --json
+railway deployment list --service minsky-reviewer-webhook --limit 5 --json
 # Newest entry should have meta.commitSha matching the merge commit.
 
 curl https://<railway-domain>/health
