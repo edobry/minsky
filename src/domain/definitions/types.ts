@@ -72,6 +72,8 @@ export interface AgentDefinition {
   permissionMode?: AgentPermissionMode;
   /** Maximum agentic turns before stopping. */
   maxTurns?: number;
+  /** Minsky-only routing hint — points to a Claude Code subagent_type for dispatch. NOT emitted to compiled frontmatter. */
+  suggestedSubagentType?: string;
   /** The system prompt — markdown body defining agent behavior. */
   prompt: string;
 }
