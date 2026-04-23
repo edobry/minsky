@@ -109,4 +109,59 @@ describe("claude-md target: buildClaudeMdContent()", () => {
       expect(sectionHeaders).toHaveLength(0);
     });
   });
+
+  describe("memory-usage rule filtering", () => {
+    const MEMORY_DIRECTIVE = "Memory is stored in Minsky DB, not files. Use `memory_search`";
+
+    const memoryUsageRule = makeRule(
+      "memory-usage",
+      `${MEMORY_DIRECTIVE} with a query matching the user's intent at the start of any non-trivial conversation.`,
+      { alwaysApply: true, tags: ["memory"] }
+    );
+
+    const otherAlwaysRule = makeRule("other-always", ALWAYS_APPLY_CONTENT, { alwaysApply: true });
+
+    it("includes memory-usage rule by default (no options)", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent([memoryUsageRule]);
+
+      expect(content).toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).toContain("memory-usage");
+      expect(rulesSkipped).not.toContain("memory-usage");
+    });
+
+    it("includes memory-usage rule in on_demand mode", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(
+        [memoryUsageRule, otherAlwaysRule],
+        { memoryLoadingMode: "on_demand" }
+      );
+
+      expect(content).toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).toContain("memory-usage");
+      expect(rulesSkipped).not.toContain("memory-usage");
+    });
+
+    it("suppresses memory-usage rule in legacy mode", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(
+        [memoryUsageRule, otherAlwaysRule],
+        { memoryLoadingMode: "legacy" }
+      );
+
+      expect(content).not.toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).not.toContain("memory-usage");
+      expect(rulesSkipped).toContain("memory-usage");
+    });
+
+    it("legacy mode still includes other always-apply rules", () => {
+      const { content, rulesIncluded } = buildClaudeMdContent([memoryUsageRule, otherAlwaysRule], {
+        memoryLoadingMode: "legacy",
+      });
+
+      expect(content).toContain(ALWAYS_APPLY_CONTENT);
+      expect(rulesIncluded).toContain("other-always");
+    });
+
+    it("memory-usage rule is marked alwaysApply: true", () => {
+      expect(memoryUsageRule.alwaysApply).toBe(true);
+    });
+  });
 });

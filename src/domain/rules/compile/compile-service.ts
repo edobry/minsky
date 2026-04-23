@@ -120,7 +120,7 @@ async function compileDryRun(
 
   if (target.id === "claude.md") {
     const { buildClaudeMdContent } = await import("./targets/claude-md");
-    const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules);
+    const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
     return {
       target: target.id,
       filesWritten: [],

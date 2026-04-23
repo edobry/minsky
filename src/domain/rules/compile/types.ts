@@ -6,12 +6,19 @@
 
 import type { Rule } from "../types";
 import type { RuleType } from "../rule-classifier";
+import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
 
 export interface TargetOptions {
   outputPath?: string;
   ruleTypes?: RuleType[];
   tags?: string[];
   excludeTags?: string[];
+  /**
+   * Controls whether the memory-usage directive is emitted in CLAUDE.md.
+   * - `"on_demand"` (default): emit the directive so the agent calls `memory_search`
+   * - `"legacy"`: suppress the directive; relies on MEMORY.md preamble loader
+   */
+  memoryLoadingMode?: MemoryLoadingMode;
 }
 
 export interface CompileResult {

@@ -1,0 +1,15 @@
+---
+name: Code Style
+description: 'TypeScript code style standards - strict mode, double quotes, 2-space indent, 100-char line width, ESLint enforcement.'
+alwaysApply: true
+tags:
+  - minsky
+  - style
+---
+# Code Style
+
+- TypeScript strict mode, double quotes, 2-space indent, 100-char line width
+- ES5 trailing commas, LF line endings
+- Prefer template literals over string concatenation
+- Max 400 lines per file (warn), 1500 (error)
+- 10 custom ESLint rules enforce architectural patterns

@@ -1,0 +1,18 @@
+---
+name: Task Lifecycle
+description: Task state machine and transition rules for Minsky tasks.
+alwaysApply: true
+tags:
+  - minsky
+  - tasks
+---
+# Task Lifecycle
+
+```
+TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE
+       (investigate) (gate)  (session_start) (pr_create)  (verify + merge)
+
+Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state)
+```
+
+Transitions are enforced in the domain layer. `session_start` blocks from TODO/PLANNING — task must be READY first. See `/orchestrate` skill for full workflow details.
