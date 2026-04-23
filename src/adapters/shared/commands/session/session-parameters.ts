@@ -681,7 +681,7 @@ export const sessionPrReviewDismissCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   reviewId: {
-    schema: z.number().int().positive(),
+    schema: z.coerce.number().int().positive(),
     description: "GitHub review ID to dismiss (numeric — see PR review URLs)",
     required: true,
   },
