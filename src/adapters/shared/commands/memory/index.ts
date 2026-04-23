@@ -12,6 +12,7 @@
  *   - memory.delete    — delete a memory by id
  *   - memory.similar   — find memories similar to an existing one
  *   - memory.supersede — atomically replace an existing memory
+ *   - memory.lineage   — trace a memory's supersession chain
  */
 
 import { z } from "zod";
@@ -63,7 +64,13 @@ export interface MemoryListParams {
   scope?: MemoryScope;
   projectId?: string;
   excludeSuperseded?: boolean;
+  stale?: boolean;
+  stalenessDays?: number;
   limit?: number;
+}
+
+export interface MemoryLineageParams {
+  id: string;
 }
 
 export interface MemoryCreateParams {
@@ -187,10 +194,30 @@ const memoryListParams = {
     required: false as const,
     defaultValue: false,
   },
+  stale: {
+    schema: z.boolean(),
+    description:
+      "When true, filter to memories never accessed or older than the staleness threshold",
+    required: false as const,
+    defaultValue: false,
+  },
+  stalenessDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --stale filter; defaults to 90",
+    required: false as const,
+  },
   limit: {
     schema: z.number().int().positive(),
     description: "Maximum number of results to return",
     required: false as const,
+  },
+} satisfies CommandParameterMap;
+
+const memoryLineageParams = {
+  id: {
+    schema: z.string(),
+    description: "Memory record identifier to trace lineage for",
+    required: true as const,
   },
 } satisfies CommandParameterMap;
 
@@ -594,6 +621,8 @@ export function registerMemoryCommands(
         scope: params.scope,
         projectId: params.projectId,
         excludeSuperseded: params.excludeSuperseded,
+        stale: params.stale,
+        stalenessDays: params.stalenessDays,
       });
 
       if (params.limit !== undefined) {
@@ -743,6 +772,24 @@ export function registerMemoryCommands(
         params.reason
       );
 
+      return result;
+    },
+  });
+
+  // ── memory.lineage ────────────────────────────────────────────────────────
+  targetRegistry.registerCommand({
+    id: "memory.lineage",
+    category: CommandCategory.MEMORY,
+    name: "lineage",
+    description:
+      "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. " +
+      "Each step carries the supersession_reason in its metadata.",
+    parameters: memoryLineageParams,
+    execute: async (params: MemoryLineageParams, ctx?: CommandExecutionContext) => {
+      log.debug("Executing memory.lineage", { id: params.id });
+
+      const service = await resolveMemoryService(deps, ctx ?? {});
+      const result = await service.lineage(params.id);
       return result;
     },
   });

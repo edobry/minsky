@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { createSharedCommandRegistry } from "../../command-registry";
+import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerMemoryCommands, type MemoryCommandsDeps } from "./index";
 import type {
   MemoryRecord,
@@ -25,6 +25,7 @@ const UPDATE_CMD = "memory.update";
 const DELETE_CMD = "memory.delete";
 const SIMILAR_CMD = "memory.similar";
 const SUPERSEDE_CMD = "memory.supersede";
+const LINEAGE_CMD = "memory.lineage";
 const REGISTERED_MSG = "is registered with correct metadata";
 
 // ─── Fake helpers ─────────────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ function makeFakeMemoryService(
     updateResult: MemoryRecord | null;
     similarResults: MemorySearchResult[];
     supersedeResult: { old: MemoryRecord; replacement: MemoryRecord };
+    lineageResult: { chain: MemoryRecord[]; truncated: boolean };
   }> = {}
 ): MemoryServiceSurface {
   const defaultRecord = makeRecord();
@@ -92,6 +94,11 @@ function makeFakeMemoryService(
       overrides.supersedeResult !== undefined
         ? overrides.supersedeResult
         : { old: defaultRecord, replacement: defaultReplacement },
+
+    lineage: async (_id) =>
+      overrides.lineageResult !== undefined
+        ? overrides.lineageResult
+        : { chain: [], truncated: false },
   } satisfies MemoryServiceSurface;
 }
 
@@ -482,6 +489,56 @@ describe("Memory Commands", () => {
 
       expect(capturedReason).toBe(REFINED_REASON);
       expect(result.old.metadata?.["supersession_reason"]).toBe(REFINED_REASON);
+    });
+  });
+
+  // ── memory.lineage ───────────────────────────────────────────────────────────
+  describe(LINEAGE_CMD, () => {
+    test(REGISTERED_MSG, () => {
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {});
+      const cmd = registry.getCommand(LINEAGE_CMD);
+      expect(cmd).toBeDefined();
+      expect(cmd?.name).toBe("lineage");
+      expect(cmd?.parameters["id"]?.required).toBe(true);
+      expect(cmd?.category).toBe(CommandCategory.MEMORY);
+    });
+
+    test("returns chain and truncated=false from service", async () => {
+      const record1 = makeRecord({ id: "mem-a", name: "Ancestor" });
+      const record2 = makeRecord({ id: "mem-b", name: "Descendant" });
+      const lineageResult = { chain: [record1, record2], truncated: false };
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ lineageResult }));
+
+      const cmd = registry.getCommand(LINEAGE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ id: "mem-a" }, {})) as {
+        chain: MemoryRecord[];
+        truncated: boolean;
+      };
+
+      expect(result.truncated).toBe(false);
+      expect(result.chain).toHaveLength(2);
+      expect(result.chain[0]?.id).toBe("mem-a");
+      expect(result.chain[1]?.id).toBe("mem-b");
+    });
+
+    test("passes truncated=true through when chain was truncated", async () => {
+      const record1 = makeRecord({ id: "mem-x", name: "Truncated chain start" });
+      const lineageResult = { chain: [record1], truncated: true };
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ lineageResult }));
+
+      const cmd = registry.getCommand(LINEAGE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ id: "mem-x" }, {})) as {
+        chain: MemoryRecord[];
+        truncated: boolean;
+      };
+
+      expect(result.truncated).toBe(true);
+      expect(result.chain).toHaveLength(1);
     });
   });
 });
