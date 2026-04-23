@@ -216,8 +216,15 @@ const manifest = {
 };
 
 const manifestJson = JSON.stringify(manifest);
-// HTML attribute requires entity encoding for double quotes.
-const manifestHtmlSafe = manifestJson.replace(/"/g, "&quot;");
+// HTML attribute encoding: escape &, ", <, > so user-supplied values
+// (webhook URL with query-string, arbitrary name/repo strings) don't
+// break the form's HTML structure. Ampersand MUST be replaced first
+// so later replacements don't re-escape their introduced &.
+const manifestHtmlSafe = manifestJson
+  .replace(/&/g, "&amp;")
+  .replace(/"/g, "&quot;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;");
 
 const html = `<!DOCTYPE html>
 <html>
