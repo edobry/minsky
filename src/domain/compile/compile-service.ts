@@ -15,6 +15,8 @@ import type {
 } from "./types";
 import { checkStaleness } from "./staleness";
 import { claudeSkillsTarget } from "./targets/claude-skills";
+import { claudeAgentsTarget } from "./targets/claude-agents";
+import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
   workspacePath: string;
@@ -124,5 +126,7 @@ function buildExpectedContents(result: MinskyCompileResult): Map<string, string>
 export function createMinskyCompileService(): MinskyCompileService {
   const service = new MinskyCompileService();
   service.registerTarget(claudeSkillsTarget);
+  service.registerTarget(claudeAgentsTarget);
+  service.registerTarget(cursorRulesTsTarget);
   return service;
 }
