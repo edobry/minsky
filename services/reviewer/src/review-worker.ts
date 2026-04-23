@@ -14,7 +14,7 @@ import {
   type SubmittedReview,
 } from "./github-client";
 import { buildReviewPrompt, CRITIC_CONSTITUTION } from "./prompt";
-import { callReviewer } from "./providers";
+import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { decideRouting, extractTierFromPRBody, type AuthorshipTier } from "./tier-routing";
 
 export interface ReviewResult {
@@ -24,6 +24,31 @@ export interface ReviewResult {
   tier: AuthorshipTier;
   providerUsed?: string;
   providerModel?: string;
+  usage?: ReviewUsage;
+}
+
+/**
+ * Check whether a model output is suitable for posting. Reviewer-posted reviews
+ * must have non-empty content — otherwise GitHub shows what looks like an
+ * "approved with no issues" review that is actually "model produced no content".
+ *
+ * Exported for tests; runReview calls this right after the model response.
+ */
+export function validateReviewOutput(
+  output: ReviewOutput
+): { ok: true } | { ok: false; reason: string } {
+  if (output.text.trim().length > 0) return { ok: true };
+  const u = output.usage;
+  const tokenBreakdown = u
+    ? `prompt=${u.promptTokens ?? "?"} completion=${u.completionTokens ?? "?"} reasoning=${u.reasoningTokens ?? "?"} total=${u.totalTokens ?? "?"}`
+    : `tokensUsed=${output.tokensUsed ?? "?"}`;
+  return {
+    ok: false,
+    reason:
+      `Model ${output.provider}:${output.model} returned empty content (${tokenBreakdown}). ` +
+      `Not posting. Likely cause: reasoning tokens consumed the budget. ` +
+      `See mt#1125.`,
+  };
 }
 
 export async function runReview(
@@ -65,6 +90,22 @@ export async function runReview(
 
   const output = await callReviewer(config, CRITIC_CONSTITUTION, userPrompt);
 
+  // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
+  // on reasoning before producing visible output, yielding empty content.
+  // Posting that empty content as a review would look like "approved, no issues"
+  // when it's actually "model silently failed." Treat as error instead.
+  const validation = validateReviewOutput(output);
+  if (!validation.ok) {
+    return {
+      status: "error",
+      reason: validation.reason,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+    };
+  }
+
   const event = parseReviewEvent(output.text, isSelfReview);
 
   const review = await submitReview(
@@ -83,6 +124,7 @@ export async function runReview(
     tier,
     providerUsed: output.provider,
     providerModel: output.model,
+    usage: output.usage,
   };
 }
 

@@ -65,6 +65,7 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
       reviewUrl: result.review?.htmlUrl,
       provider: result.providerUsed,
       model: result.providerModel,
+      usage: result.usage,
     })
   );
 }
