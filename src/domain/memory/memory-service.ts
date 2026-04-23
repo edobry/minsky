@@ -16,7 +16,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { eq, and, isNull, inArray, or, lt, asc, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
@@ -78,6 +78,11 @@ export interface MemoryServiceSurface {
     newInput: MemoryCreateInput,
     reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }>;
+  /**
+   * Walk the supersession chain for a given memory ID and return the ordered chain
+   * from oldest ancestor to newest descendant.
+   */
+  lineage(id: string): Promise<{ chain: MemoryRecord[]; truncated: boolean }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +169,18 @@ export class MemoryService implements MemoryServiceSurface {
   // Read
   // -------------------------------------------------------------------------
 
+  /**
+   * Fetch a single memory record by ID.
+   * Access tracking: bumps last_accessed_at and access_count non-blocking (fire-and-forget).
+   */
   async get(id: string): Promise<MemoryRecord | null> {
     const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
 
     const row = rows[0] as Record<string, unknown> | undefined;
-    return row ? rowToRecord(row) : null;
+    if (!row) return null;
+    const record = rowToRecord(row);
+    this.bumpAccessCount([record.id]);
+    return record;
   }
 
   async list(filter?: MemoryListFilter): Promise<MemoryRecord[]> {
@@ -187,9 +199,25 @@ export class MemoryService implements MemoryServiceSurface {
     if (filter?.excludeSuperseded) {
       conditions.push(isNull(memoriesTable.supersededBy));
     }
+    if (filter?.stale) {
+      const days = filter.stalenessDays ?? 90;
+      const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      conditions.push(
+        or(isNull(memoriesTable.lastAccessedAt), lt(memoriesTable.lastAccessedAt, threshold))
+      );
+    }
 
-    const query = this.deps.db.select().from(memoriesTable);
-    const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
+    const baseQuery = this.deps.db.select().from(memoriesTable);
+    const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
+
+    // When stale filter is active, sort by lastAccessedAt ASC NULLS FIRST so the
+    // oldest/never-accessed records appear first.
+    const rows = filter?.stale
+      ? await filteredQuery.orderBy(
+          asc(memoriesTable.lastAccessedAt),
+          sql`${memoriesTable.lastAccessedAt} NULLS FIRST`
+        )
+      : await filteredQuery;
 
     return (rows as Record<string, unknown>[]).map(rowToRecord);
   }
@@ -307,6 +335,9 @@ export class MemoryService implements MemoryServiceSurface {
       }
     }
 
+    // Access tracking: bump non-blocking (fire-and-forget).
+    this.bumpAccessCount(results.map((r) => r.record.id));
+
     return { results, backend: "embeddings", degraded: false };
   }
 
@@ -352,12 +383,17 @@ export class MemoryService implements MemoryServiceSurface {
 
     const rowById = new Map(rows.map((r) => [String(r["id"]), r]));
 
-    return filtered
+    const similarResults = filtered
       .map((sr) => {
         const row = rowById.get(sr.id);
         return row ? { record: rowToRecord(row), score: sr.score } : null;
       })
       .filter((r): r is MemorySearchResult => r !== null);
+
+    // Access tracking: bump non-blocking (fire-and-forget).
+    this.bumpAccessCount(similarResults.map((r) => r.record.id));
+
+    return similarResults;
   }
 
   // -------------------------------------------------------------------------
@@ -433,8 +469,119 @@ export class MemoryService implements MemoryServiceSurface {
   }
 
   // -------------------------------------------------------------------------
+  // Lineage
+  // -------------------------------------------------------------------------
+
+  /**
+   * Walk the supersession chain for a given memory ID and return the ordered chain
+   * from oldest ancestor to newest descendant.
+   *
+   * Algorithm:
+   * 1. Load the starting record.
+   * 2. Walk BACKWARD: find records A where A.supersededBy === current.id (predecessors).
+   * 3. Walk FORWARD: follow current.supersededBy to find newer replacements.
+   * 4. Return chain ordered [oldest ancestor, ..., newest descendant].
+   * 5. Cycle guard: track visited IDs; break + set truncated=true on repeat.
+   * 6. Max depth: 100 iterations total to prevent runaway.
+   */
+  async lineage(id: string): Promise<{ chain: MemoryRecord[]; truncated: boolean }> {
+    const MAX_DEPTH = 100;
+    const visited = new Set<string>();
+    let truncated = false;
+
+    // Load the starting record.
+    const start = await this.getById(id);
+    if (!start) return { chain: [], truncated: false };
+
+    // Walk BACKWARD to find oldest ancestor.
+    const ancestors: MemoryRecord[] = [];
+    let current = start;
+    let depth = 0;
+    while (depth < MAX_DEPTH) {
+      if (visited.has(current.id)) {
+        truncated = true;
+        break;
+      }
+      visited.add(current.id);
+
+      // Find the predecessor: a record whose supersededBy points to current.id
+      const predecessorRows = (await this.deps.db
+        .select()
+        .from(memoriesTable)
+        .where(eq(memoriesTable.supersededBy, current.id))) as Record<string, unknown>[];
+
+      if (predecessorRows.length === 0) break;
+      const predecessor = rowToRecord(predecessorRows[0] as Record<string, unknown>);
+      ancestors.push(predecessor);
+      current = predecessor;
+      depth++;
+    }
+
+    if (depth >= MAX_DEPTH) truncated = true;
+
+    // ancestors is [direct predecessor, ..., oldest ancestor] — reverse to get [oldest, ...]
+    ancestors.reverse();
+
+    // Walk FORWARD from start to find newer replacements.
+    const descendants: MemoryRecord[] = [];
+    current = start;
+    depth = 0;
+    while (depth < MAX_DEPTH && current.supersededBy) {
+      if (visited.has(current.supersededBy)) {
+        truncated = true;
+        break;
+      }
+      visited.add(current.supersededBy);
+
+      const nextRecord = await this.getById(current.supersededBy);
+      if (!nextRecord) break;
+      descendants.push(nextRecord);
+      current = nextRecord;
+      depth++;
+    }
+
+    if (depth >= MAX_DEPTH) truncated = true;
+
+    const chain = [...ancestors, start, ...descendants];
+    return { chain, truncated };
+  }
+
+  // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * Fetch a record by ID without triggering access tracking (internal helper).
+   */
+  private async getById(id: string): Promise<MemoryRecord | null> {
+    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? rowToRecord(row) : null;
+  }
+
+  /**
+   * Fire-and-forget access tracking bump.
+   * Updates last_accessed_at = NOW() and access_count += 1 for the given IDs.
+   * Non-blocking: search/get latency is not gated on this update.
+   * Errors are logged as warnings but do not propagate to callers.
+   */
+  private bumpAccessCount(ids: string[]): void {
+    if (ids.length === 0) return;
+    // Wrap in Promise.resolve so we can attach .catch even if the underlying
+    // query-builder doesn't return a native Promise (e.g., fake DBs in tests
+    // that model the Drizzle chain with plain objects).
+    Promise.resolve(
+      this.deps.db
+        .update(memoriesTable)
+        .set({
+          lastAccessedAt: new Date(),
+          accessCount: sql`${memoriesTable.accessCount} + 1`,
+        })
+        .where(inArray(memoriesTable.id, ids))
+    ).catch((err: unknown) => {
+      log.warn("[memory] access tracking bump failed", { err });
+    });
+  }
 
   private async tryStoreEmbedding(id: string, content: string): Promise<void> {
     try {

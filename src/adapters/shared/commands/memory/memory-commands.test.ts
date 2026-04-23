@@ -92,6 +92,8 @@ function makeFakeMemoryService(
       overrides.supersedeResult !== undefined
         ? overrides.supersedeResult
         : { old: defaultRecord, replacement: defaultReplacement },
+
+    lineage: async (_id) => ({ chain: [], truncated: false }),
   } satisfies MemoryServiceSurface;
 }
 
