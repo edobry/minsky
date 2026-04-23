@@ -44,6 +44,7 @@
 import { serve } from "bun";
 import { writeFileSync, mkdirSync, chmodSync } from "fs";
 import { join } from "path";
+import { pemToPkcs8ArrayBuffer } from "./lib/pem-utils";
 
 // ---------------------------------------------------------------------------
 // Arg parsing (inline, zero-dep so the script runs from fresh checkouts)
@@ -288,7 +289,7 @@ const server = serve({
 
       const key = await crypto.subtle.importKey(
         "pkcs8",
-        pemToArrayBuffer(privateKey),
+        pemToPkcs8ArrayBuffer(privateKey),
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
         false,
         ["sign"]
@@ -372,7 +373,7 @@ const server = serve({
       const signingInput = `${header}.${payload}`;
       const key = await crypto.subtle.importKey(
         "pkcs8",
-        pemToArrayBuffer(privateKey),
+        pemToPkcs8ArrayBuffer(privateKey),
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
         false,
         ["sign"]
@@ -427,14 +428,6 @@ const server = serve({
     return new Response("Not found", { status: 404 });
   },
 });
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const b64 = pem.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "");
-  const binary = atob(b64);
-  const buf = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
-  return buf.buffer;
-}
 
 function arrayBufferToBase64Url(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
