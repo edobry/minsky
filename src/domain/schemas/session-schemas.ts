@@ -71,6 +71,12 @@ export const SessionStartParametersSchema = z
     skipInstall: z.boolean().default(false),
     noStatusUpdate: z.boolean().default(false),
     quiet: QuietSchema,
+    recover: z
+      .boolean()
+      .optional()
+      .describe(
+        "Delete existing stale/orphaned session for this task and create fresh (use with caution)"
+      ),
   })
   .extend(BaseBackendParametersSchema.shape)
   .extend(BaseExecutionContextSchema.shape);

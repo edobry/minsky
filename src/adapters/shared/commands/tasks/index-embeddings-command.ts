@@ -20,16 +20,13 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
   readonly parameters = tasksIndexEmbeddingsParams;
 
   constructor(
-    private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getPersistenceProvider: () => PersistenceProvider,
+    private readonly getTaskService: () => TaskServiceInterface
   ) {
     super();
   }
 
   async execute(params: TasksIndexEmbeddingsParams, ctx: CommandExecutionContext) {
-    if (!this.getPersistenceProvider)
-      throw new Error("Persistence provider required for indexing embeddings");
-    if (!this.getTaskService) throw new Error("Task service required for indexing embeddings");
     const service = await createTaskSimilarityService(
       this.getPersistenceProvider(),
       this.getTaskService()

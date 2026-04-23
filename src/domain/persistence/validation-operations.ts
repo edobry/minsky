@@ -93,7 +93,7 @@ export async function validateSqliteBackend(filePath: string | undefined): Promi
 /**
  * Validate PostgreSQL backend
  */
-export async function validatePostgresBackend(persistenceProvider?: PersistenceProvider): Promise<{
+export async function validatePostgresBackend(persistenceProvider: PersistenceProvider): Promise<{
   success: boolean;
   details: string;
   issues?: string[];
@@ -129,15 +129,6 @@ export async function validatePostgresBackend(persistenceProvider?: PersistenceP
       `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
     );
 
-    if (!persistenceProvider) {
-      issues.push("No persistence provider injected for PostgreSQL validation");
-      return {
-        success: false,
-        details: "PostgreSQL validation requires a persistence provider",
-        issues,
-        suggestions: ["Ensure persistence provider is passed to validatePostgresBackend()"],
-      };
-    }
     const provider: PersistenceProvider = persistenceProvider;
 
     // Test basic connectivity

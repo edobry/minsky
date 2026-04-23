@@ -64,6 +64,10 @@ export const claudeMdTarget: CompileTarget = {
     return join(workspacePath, "CLAUDE.md");
   },
 
+  listOutputFiles(_rules: Rule[], options: TargetOptions, workspacePath: string): string[] {
+    return [options.outputPath || this.defaultOutputPath(workspacePath)];
+  },
+
   async compile(
     rules: Rule[],
     options: TargetOptions,

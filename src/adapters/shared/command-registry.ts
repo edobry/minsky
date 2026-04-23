@@ -43,6 +43,8 @@ export enum CommandCategory {
   MCP = "MCP",
   KNOWLEDGE = "KNOWLEDGE",
   PROVENANCE = "PROVENANCE",
+  MEMORY = "MEMORY",
+  COMPILE = "COMPILE",
 }
 
 /**

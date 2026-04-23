@@ -17,6 +17,7 @@ import { type GitServiceInterface } from "../../git";
 import { taskIdToBranchName } from "../../tasks/task-id";
 import { findPRNumberForBranch, createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
+import { projectPrState } from "../session-update-operations";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -427,7 +428,7 @@ async function applyRepair(
   issue: RepairIssue,
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface,
-  gitService: GitServiceInterface
+  _gitService: GitServiceInterface
 ): Promise<RepairAction> {
   switch (issue.type) {
     case "branch-format":
@@ -450,7 +451,7 @@ async function applyRepair(
 /**
  * Repair incorrect branch format for GitHub backend
  */
-async function repairBranchFormat(
+export async function repairBranchFormat(
   issue: RepairIssue,
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
@@ -458,10 +459,9 @@ async function repairBranchFormat(
   const correctBranch = issue.details?.expectedBranch as string;
 
   await sessionDB.updateSession(sessionRecord.session, {
-    ...sessionRecord,
     prBranch: correctBranch,
     prState: {
-      ...sessionRecord.prState,
+      ...(sessionRecord.prState ? projectPrState(sessionRecord.prState) : {}),
       branchName: correctBranch,
       lastChecked: new Date().toISOString(),
     },
@@ -483,7 +483,6 @@ async function repairPRState(
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   await sessionDB.updateSession(sessionRecord.session, {
-    ...sessionRecord,
     prBranch: undefined,
     prState: undefined,
     pullRequest: undefined,
@@ -527,7 +526,6 @@ async function repairBackendSync(
   }
 
   await sessionDB.updateSession(sessionRecord.session, {
-    ...sessionRecord,
     backendType: newBackendType as "github",
   });
 

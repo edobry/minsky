@@ -37,6 +37,12 @@ class ConsoleUsageLinter {
     "**/build/**",
     "**/.git/**",
     "**/coverage/**",
+    // The minsky-reviewer service (services/reviewer) is a standalone
+    // deployable that does not share Minsky's logger; it uses structured
+    // JSON logging via console.log for production observability. Scope
+    // narrow to this service specifically — future services must be added
+    // here explicitly, not inherit the exemption.
+    "**/services/reviewer/**",
     // CLI tools that legitimately need console output
     "**/test-quality-cli.ts",
     "**/scripts/**", // Scripts may use console for output

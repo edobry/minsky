@@ -3,7 +3,8 @@ echo "Running tests before push..."
 # Match pre-commit hook: --timeout prevents hung tests, --bail stops on first failure
 # AGENT=1 ensures clean non-interactive output
 TEST_OUTPUT_FILE=$(mktemp)
-AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
+# Use ./src (not bare 'src') to avoid matching services/reviewer/src via Bun path-substring match
+AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
 TEST_EXIT_CODE=$?
 
 # Show only the summary line

@@ -132,7 +132,7 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
     meta: RuleMeta;
     options: CreateRuleOptions;
   }): Promise<Rule> {
-    const format = params.options.format || "cursor";
+    const format = params.options.format || "minsky";
     const dirPath = this.getRuleDirPath(format);
     const filePath = this.getRuleFilePath(params.id, format);
 
@@ -179,7 +179,7 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
   }): Record<string, unknown> {
     return {
       ruleId: params.id,
-      format: params.options.format || "cursor",
+      format: params.options.format || "minsky",
       hasContent: !!params.content,
       metaKeys: Object.keys(params.meta),
     };

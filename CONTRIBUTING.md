@@ -31,7 +31,7 @@ The test suite uses Bun's built-in test runner. All test commands preload
 
 ```bash
 # Unit tests (default — fast, no external deps)
-bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain
+bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain
 
 # Shorthand via npm script
 bun run test
@@ -199,6 +199,94 @@ The project enforces 12 custom rules under the `custom/` prefix:
 | `no-unsafe-git-exec`            | error | All git operations must have timeout protection |
 | `no-excessive-as-unknown`       | warn  | Discourages overuse of `as unknown` casts       |
 
+## Rules Storage Model
+
+Minsky rules are authored in `.minsky/rules/` and compiled to harness-specific outputs
+(`.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`). The split matters:
+
+- **`.minsky/rules/`** — canonical source. Edit rule files here. `minsky rules create`
+  lands new rules here by default.
+- **`.cursor/rules/`** — compile output, regenerated from `.minsky/rules/` by
+  `bun run minsky rules compile --target cursor-rules`. Do not hand-edit — changes will
+  be overwritten on the next compile.
+- **`AGENTS.md`, `CLAUDE.md`** — monolithic compile outputs; same "don't hand-edit"
+  rule applies. Both are in `.prettierignore` so Prettier doesn't fight the compiler.
+
+The pre-commit hook step 9 (see below) enforces that the committed `.cursor/rules/` and
+`AGENTS.md` match what the compiler would produce from `.minsky/rules/`. If you edit
+a rule, re-run `minsky rules compile` and commit both locations together.
+
+**Migrating an existing project** from `.cursor/rules/`-as-source to `.minsky/rules/`-as-source:
+
+```bash
+bun run minsky rules migrate        # copies .cursor/rules/*.mdc → .minsky/rules/*.mdc
+bun run minsky rules compile --target cursor-rules    # regenerate .cursor/rules/
+git add .minsky/rules/ .cursor/rules/
+```
+
+After migration, `.minsky/rules/` is authoritative. `minsky rules migrate --dry-run`
+shows what would change without writing, and `--force` overwrites any existing files
+in the destination.
+
+## TypeScript-First Compile Pipeline
+
+Skills, agents, and rules can all be authored as TypeScript modules using the
+`@minsky/definitions` factories, then compiled to the harness-specific formats Claude
+Code and Cursor expect. The pipeline ships three targets (mt#913) — pick whichever
+matches the kind of artifact you are authoring:
+
+| Target            | Source                           | Output                           | Format                    |
+| ----------------- | -------------------------------- | -------------------------------- | ------------------------- |
+| `claude-skills`   | `.minsky/skills/<name>/skill.ts` | `.claude/skills/<name>/SKILL.md` | Agent Skills YAML + body  |
+| `claude-agents`   | `.minsky/agents/<name>/agent.ts` | `.claude/agents/<name>.md`       | Claude Code agent format  |
+| `cursor-rules-ts` | `.minsky/rules/<name>/rule.ts`   | `.cursor/rules/<name>.mdc`       | Cursor `.mdc` rule format |
+
+Run one target at a time:
+
+```bash
+bun run minsky compile --target claude-skills       # compile all skills
+bun run minsky compile --target claude-agents       # compile all agents
+bun run minsky compile --target cursor-rules-ts     # compile all TS-authored rules
+bun run minsky compile --target <id> --check        # exit non-zero if output is stale
+bun run minsky compile --target <id> --dry-run      # print what would change
+```
+
+### Invariant: directory name must equal the definition's `name`
+
+For each target, the source directory name must equal the `name` declared in the
+TypeScript definition. For example, `.minsky/agents/implementer/agent.ts` must set
+`agent.name: "implementer"`. Definitions that violate this invariant are silently
+skipped during compile (pushed to `definitionsSkipped` in the result).
+
+Why: `listOutputFiles` (which powers `--check`) only sees directory names — it cannot
+load every definition to discover the declared name. Enforcing equality keeps the
+check and compile paths in lockstep without an expensive load-all step.
+
+### Coexistence with the legacy `rules compile`
+
+The older `bun run minsky rules compile --target cursor-rules` reads flat
+`.minsky/rules/*.mdc` files and writes to the same `.cursor/rules/` directory. It
+predates the TS-first pipeline and still runs today, including in the pre-commit hook.
+
+Both pipelines can operate safely on `.cursor/rules/`: the legacy `--check` filters
+out TS-owned rule IDs (those with a `.minsky/rules/<name>/rule.ts` source) before
+comparing content or doing orphan detection. Until all rules migrate to TypeScript
+sources (tracked separately), the two pipelines coexist.
+
+### Shared output directories
+
+`.claude/skills/`, `.claude/agents/`, and `.cursor/rules/` all host hand-authored
+artifacts alongside compile output. Targets declare `sharedOutputDirectory: true` so
+`--check` skips orphan detection — a hand-authored SKILL.md next to a compiled one is
+not a stale file.
+
+### Migrating existing `.cursor/rules/` to TS sources
+
+See the preceding "Rules Storage Model" section for the one-time migration from
+`.cursor/rules/`-as-source to `.minsky/rules/*.mdc`-as-source (mt#588 / mt#1090).
+Migrating further from `.mdc` sources to `rule.ts` sources is a separate follow-on and
+not automated yet.
+
 ## Pre-commit Hooks
 
 Husky runs a TypeScript pre-commit hook (`src/hooks/pre-commit.ts`) that enforces
@@ -212,6 +300,11 @@ quality gates in order from fastest to slowest:
 6. **Secret scanning** — gitleaks (~2–3s)
 7. **Unit tests** — full test suite (~15–30s)
 8. **ESLint rule tests** — tests for the custom lint rules
+9. **Rules compile staleness check** — runs `minsky rules compile --check` for each
+   opted-in target (AGENTS.md, CLAUDE.md, `.cursor/rules/`). If a compiled output is
+   out of date relative to the source rules, the commit is blocked with a message
+   naming the stale file. Remediation: run `bun run minsky rules compile --target <target>`
+   and re-stage the regenerated output.
 
 The **commit-msg** hook validates commit message format (Conventional Commits style:
 `type(scope): description`).

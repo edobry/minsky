@@ -60,7 +60,7 @@ Your final output MUST follow this structure exactly:
 
 After checking all spec criteria, ALWAYS run these baseline checks regardless of whether the spec mentions them. These catch integration issues that spec criteria may not cover:
 
-1. **Full test suite**: `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain` — report pass count and any failures
+1. **Full test suite**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain` — report pass count and any failures
 2. **Type check**: `bun run tsc --noEmit` — report clean or errors
 3. **Lint**: `bun run lint` — report new errors (pre-existing errors in unrelated files are noted but not blocking)
 4. **E2E smoke test**: Run at least one CLI command that exercises the changed code path (e.g., if the task changed DI, run `bun src/cli.ts tasks list` to verify the container initializes correctly)

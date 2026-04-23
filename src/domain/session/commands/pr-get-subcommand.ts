@@ -241,7 +241,7 @@ export async function sessionPrGet(
     }
 
     // If still no PR data after repair attempt, throw error
-    if (!finalPullRequest && !prState?.commitHash) {
+    if (!finalPullRequest && !prState?.exists) {
       throw new ResourceNotFoundError(
         `No pull request found for session '${resolvedContext.sessionId}'. ` +
           `Use 'minsky session pr create' to create a PR first.`
@@ -306,7 +306,7 @@ export async function sessionPrGet(
         sessionRecord.backendType === "github"
           ? fp?.headBranch || currentBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.branch || sessionRecord.session}`,
-      status: livePrData?.state || fp?.state || (prState?.commitHash ? "created" : "not_found"),
+      status: livePrData?.state || fp?.state || (prState?.exists ? "created" : "not_found"),
       url: livePrData?.html_url || fp?.url,
       // Use live timestamps when available
       createdAt: livePrData?.created_at || fp?.createdAt || prState?.createdAt,

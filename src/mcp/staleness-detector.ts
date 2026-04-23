@@ -12,15 +12,22 @@ import { log } from "../utils/logger";
 /** How often to re-check git HEAD (milliseconds) */
 const CHECK_INTERVAL_MS = 60_000; // 60 seconds
 
+type ExecFn = (
+  cmd: string,
+  opts: { cwd: string; timeout: number; stdio: unknown }
+) => Buffer | string;
+
 export class StalenessDetector {
   private startupHead: string | null = null;
   private workspacePath: string;
   private isStale = false;
   private staleMessage: string | null = null;
   private lastCheckTime = 0;
+  private exec: ExecFn;
 
-  constructor(workspacePath: string) {
+  constructor(workspacePath: string, exec?: ExecFn) {
     this.workspacePath = workspacePath;
+    this.exec = exec ?? ((cmd, opts) => execSync(cmd, opts as Parameters<typeof execSync>[1]));
     this.startupHead = this.getGitHead();
     if (this.startupHead) {
       log.debug(`StalenessDetector: startup HEAD is ${this.startupHead.slice(0, 8)}`);
@@ -32,7 +39,7 @@ export class StalenessDetector {
    */
   private getGitHead(): string | null {
     try {
-      return execSync("git rev-parse HEAD", {
+      return this.exec("git rev-parse HEAD", {
         cwd: this.workspacePath,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -50,7 +57,7 @@ export class StalenessDetector {
   private checkSrcChanged(currentHead: string): boolean {
     if (!this.startupHead) return false;
     try {
-      const diff = execSync(`git diff --name-only ${this.startupHead} ${currentHead} -- src/`, {
+      const diff = this.exec(`git diff --name-only ${this.startupHead} ${currentHead} -- src/`, {
         cwd: this.workspacePath,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -61,6 +68,14 @@ export class StalenessDetector {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Whether the server has been detected as stale (cached result).
+   * Distinct from `getStaleWarning()` which does a fresh check on first call.
+   */
+  isCurrentlyStale(): boolean {
+    return this.isStale;
   }
 
   /**

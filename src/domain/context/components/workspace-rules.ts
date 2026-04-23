@@ -1,7 +1,7 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import type { Rule } from "../../rules/types";
 import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enhanced";
-import { createRuleSimilarityService } from "../../rules/rule-similarity-service";
+import { RuleSimilarityService } from "../../rules/rule-similarity-service";
 import { RuleService } from "../../rules";
 import { log } from "../../../utils/logger";
 
@@ -43,7 +43,9 @@ export const WorkspaceRulesComponent: ContextComponent = {
       if (shouldUseEnhancedFiltering) {
         try {
           // Use enhanced rule suggestion
-          const similarityService = await createRuleSimilarityService();
+          const similarityService = RuleSimilarityService.createWithWorkspacePath(
+            context.workspacePath || process.cwd()
+          );
 
           filteredRules = await suggestRules(
             {

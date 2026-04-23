@@ -1,0 +1,29 @@
+{
+  "name": "@minsky/reviewer",
+  "version": "0.1.0",
+  "description": "Standalone adversarial PR review service (minsky-reviewer[bot])",
+  "private": true,
+  "type": "module",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "bun run --hot src/server.ts",
+    "start": "bun run src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --preload ../../tests/setup.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@google/generative-ai": "^0.21.0",
+    "@octokit/auth-app": "^7.1.0",
+    "@octokit/rest": "^21.0.0",
+    "@octokit/webhooks": "^13.3.0",
+    "openai": "^4.68.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

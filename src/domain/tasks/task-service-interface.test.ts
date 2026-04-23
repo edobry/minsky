@@ -6,6 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import { createConfiguredTaskService, type TaskServiceInterface } from "./taskService";
 import { TASK_STATUS } from "./taskConstants";
+import { FakePersistenceProvider } from "../persistence/fake-persistence-provider";
 
 describe("TaskService Interface Compatibility", () => {
   test("should provide setTaskStatus method", async () => {
@@ -14,6 +15,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
+      persistenceProvider: new FakePersistenceProvider(),
       // no specific backend: uses multi-backend mode
     });
 
@@ -33,6 +35,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
+      persistenceProvider: new FakePersistenceProvider(),
       // no specific backend: uses multi-backend mode
     });
 
@@ -49,6 +52,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
+      persistenceProvider: new FakePersistenceProvider(),
       // no specific backend: uses multi-backend mode
     });
 
@@ -71,6 +75,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
+      persistenceProvider: new FakePersistenceProvider(),
       // no specific backend: uses multi-backend mode
     });
 

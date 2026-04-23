@@ -27,6 +27,7 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
+import { buildAndStartScheduler } from "./scheduler-wiring";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -260,6 +261,12 @@ export function createStartCommand(
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         await registerAllTools(commandMapper, container);
 
+        // Wire the container into the server so agentId can be written to session records
+        // (must happen after registerAllTools which triggers container.initialize())
+        if (container) {
+          server.setContainer(container);
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
 
@@ -314,15 +321,18 @@ export function createStartCommand(
         // Fire-and-forget background embedding sweep for missing tasks
         import("../../adapters/shared/commands/tasks/startup-embedding-sweep")
           .then(({ triggerStartupEmbeddingSweep }) => {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            const taskService = container?.has("taskService")
-              ? container.get("taskService")
-              : undefined;
-            return triggerStartupEmbeddingSweep(persistence, taskService);
+            if (!container) return;
+            return triggerStartupEmbeddingSweep(
+              container.get("persistence"),
+              container.get("taskService")
+            );
           })
           .catch(() => {}); // Embedding sweep is best-effort
+
+        // Start the knowledge sync scheduler (best-effort; non-blocking)
+        // ADR-002: scheduler is only constructed here, inside the MCP server start
+        // path — never from `minsky --help` or any CLI-only code path.
+        const scheduler = await buildAndStartScheduler(container);
 
         log.cli("Press Ctrl+C to stop");
 
@@ -330,6 +340,11 @@ export function createStartCommand(
         const cleanup = async () => {
           log.cli("\nStopping Minsky MCP Server...");
           try {
+            // Stop the scheduler first so in-flight syncs complete before closing.
+            if (scheduler) {
+              await scheduler.stop();
+              log.debug("[scheduler] Knowledge sync scheduler stopped");
+            }
             await server.drain();
           } catch (error) {
             log.warn("Error during server cleanup", {

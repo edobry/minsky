@@ -5,7 +5,6 @@
  */
 import { injectable } from "tsyringe";
 import { promises as nodeFsPromises } from "fs";
-import { HTTP_OK } from "../../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync as nodeExistsSync } from "fs";
@@ -150,8 +149,6 @@ export class RuleService {
         const content = String(await this.fs.readFile(filePath, "utf-8")) as string;
 
         try {
-          // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
-          // Some rule files may have formatting issues in their frontmatter that cause gray-matter to throw
           const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
@@ -173,39 +170,22 @@ export class RuleService {
             format: requestedFormat,
             path: filePath,
           };
-        } catch (error) {
-          // FIXED: Gracefully handle errors in frontmatter parsing
-          // This allows rules with invalid YAML frontmatter to still be loaded and used
-          if (options.debug) {
-            log.error("Error parsing frontmatter", {
-              filePath,
-              error: getErrorMessage(error),
-              content: content.toString().substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
-            });
-          }
-
-          // If there's an issue with the frontmatter, try to handle it gracefully
-          // Just extract content after the second '---' or use the whole content if no frontmatter markers
-          let extractedContent = content;
-          const frontmatterEndIndex = content.toString().indexOf("---", 3);
-          if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content
-              .toString()
-              .substring(frontmatterEndIndex + 3)
-              .toString()
-              .trim();
-          }
-
-          // Return a basic rule object with just the content, missing the metadata from frontmatter
-          // This is better than failing completely as we still provide the rule content
-          return {
-            id: bareId,
-            content: extractedContent,
-            format: requestedFormat,
-            path: filePath,
-          };
+        } catch (parseError) {
+          // Re-throw with the file path included so callers can surface the problem.
+          // Silently swallowing YAML errors produces rules with empty frontmatter,
+          // which causes data loss during compile (e.g. globs/description wiped to {}).
+          throw new Error(
+            `Failed to parse YAML frontmatter in rule file "${filePath}": ${getErrorMessage(parseError)}`
+          );
         }
       } catch (error) {
+        // If it's a frontmatter parse error we just threw, propagate it up.
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Failed to parse YAML frontmatter")
+        ) {
+          throw error;
+        }
         // Rule not found in the requested format
         if (options.debug) {
           log.debug("File not found in requested format", {
@@ -243,7 +223,6 @@ export class RuleService {
         const content = String(await this.fs.readFile(filePath, "utf-8")) as string;
 
         try {
-          // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
           const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
@@ -287,35 +266,22 @@ export class RuleService {
             format,
             path: filePath,
           };
-        } catch (error) {
-          // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
-          if (options.debug) {
-            log.error("Error parsing frontmatter in alternative format", {
-              filePath,
-              error: getErrorMessage(error),
-              content: content.toString().substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
-            });
-          }
-
-          // Same frontmatter error handling as above for consistency
-          let extractedContent = content;
-          const frontmatterEndIndex = content.toString().indexOf("---", 3);
-          if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content
-              .toString()
-              .substring(frontmatterEndIndex + 3)
-              .toString()
-              .trim();
-          }
-
-          return {
-            id: bareId,
-            content: extractedContent,
-            format,
-            path: filePath,
-          };
+        } catch (parseError) {
+          // Re-throw with the file path so callers can surface the problem.
+          // Silently swallowing YAML errors produces rules with empty frontmatter,
+          // causing data loss during compile (e.g. globs/description wiped to {}).
+          throw new Error(
+            `Failed to parse YAML frontmatter in rule file "${filePath}": ${getErrorMessage(parseError)}`
+          );
         }
       } catch (error) {
+        // If it's a frontmatter parse error we just threw, propagate it up.
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Failed to parse YAML frontmatter")
+        ) {
+          throw error;
+        }
         // File doesn't exist in this format, try the next one
         if (options.debug) {
           log.debug("File not found in alternative format", {
@@ -365,7 +331,7 @@ export class RuleService {
     meta: RuleMeta,
     options: CreateRuleOptions = {}
   ): Promise<Rule> {
-    const format = options.format || "cursor";
+    const format = options.format || "minsky";
     const dirPath = this.getRuleDirPath(format);
     const filePath = join(dirPath, `${id}.mdc`);
 
