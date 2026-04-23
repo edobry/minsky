@@ -278,6 +278,11 @@ export interface ReviewOperations {
       comments?: Array<{ path: string; line: number; body: string; side?: "LEFT" | "RIGHT" }>;
     }
   ): Promise<{ reviewId: number; htmlUrl: string }>;
+  dismissReview?(
+    prIdentifier: string | number,
+    reviewId: number,
+    options: { message: string }
+  ): Promise<{ reviewId: number; htmlUrl: string; state: string }>;
 }
 
 // Completely rewritten repository backend interface with flexible types
