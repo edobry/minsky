@@ -4,7 +4,9 @@
 
 An external agent **can** drive Minsky end-to-end through the MCP server. The infrastructure works: connect via stdio, list tools, call them in sequence, complete a task lifecycle. But the experience surfaces nine distinct friction points and confirms six enforcement gaps. The friction is mostly interface-design inconsistencies that Claude Code papers over; the gaps are exactly what the mt#054 audit predicted.
 
-The PoC did one end-to-end run: `tasks.create` → status transitions → `session.start` → `session.dir` → `session.write_file` → `session.commit`. The commit step failed on an unrelated workspace issue (stale rules compile output), but in a meaningful way — it proved that **portable enforcement (git hooks) fires identically regardless of harness**. That's the thesis of mt#054 confirmed from the other direction.
+The PoC does one end-to-end run: `tasks.create` → status transitions → `session.start` → `session.dir` → `session.write_file` → `session.commit` → `session.pr.create` (draft) → `tasks.status.set(CLOSED)`. The portable enforcement layer (git hooks) fires identically regardless of harness, which is the thesis of mt#054 confirmed from the other direction.
+
+> Note: Each end-to-end run of this PoC creates one throwaway GitHub PR in draft mode. That PR is safe to close by hand after the run.
 
 ## What worked
 
