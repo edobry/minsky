@@ -168,11 +168,27 @@ export class CategoryCommandHandler {
   }
 
   /**
-   * Parse command hierarchy from ID and name
-   * E.g., id: "tasks.status.get", name: "status get" -> ["status", "get"]
-   * E.g., id: "ai.models.list", name: "list" -> ["ai", "models", "list"]
+   * Parse command hierarchy from ID and name.
+   * Preferred: single-word leaf `name` matching the last segment of a dotted `id`
+   * (e.g., id: "ai.models.list", name: "list" -> ["ai", "models", "list"]).
+   * Multi-word names are tolerated: only the last word is compared against the last ID
+   * segment, so (id: "tasks.status.get", name: "status get") resolves to ["status","get"]
+   * rather than double-nesting to ["status","get","status get"].
    */
   private parseCommandHierarchy(commandDef: SharedCommand): string[] {
+    // Warn in dev when a dotted ID is paired with a multi-word `name`. The last-word
+    // comparison below prevents the double-nesting bug, but the preferred convention is
+    // a single-word leaf name that matches the last ID segment.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      commandDef.id.includes(".") &&
+      commandDef.name.includes(" ")
+    ) {
+      log.warn(
+        `[Category Command Handler] Command '${commandDef.id}' has multi-word name '${commandDef.name}'. Prefer a single-word leaf name (e.g., '${commandDef.name.split(" ").at(-1)}').`
+      );
+    }
+
     // Check if ID has category-based structure (e.g., "tasks.status.get", "ai.models.list")
     const categoryPrefix = `${commandDef.category.toLowerCase()}.`;
 
@@ -181,9 +197,7 @@ export class CategoryCommandHandler {
       const hierarchyPart = commandDef.id.substring(categoryPrefix.length);
       const idParts = hierarchyPart.split(".");
 
-      // The last part should match the command name
-      const lastPart = idParts[idParts.length - 1];
-      if (lastPart === commandDef.name) {
+      if (this.nameMatchesLastIdSegment(commandDef.name, idParts)) {
         return idParts;
       }
       // If name doesn't match last ID part, append it
@@ -193,15 +207,25 @@ export class CategoryCommandHandler {
     // If ID contains dots but doesn't start with category, parse the whole ID
     if (commandDef.id.includes(".")) {
       const idParts = commandDef.id.split(".");
-      const lastPart = idParts[idParts.length - 1];
-      if (lastPart === commandDef.name) {
+      if (this.nameMatchesLastIdSegment(commandDef.name, idParts)) {
         return idParts;
       }
       return [...idParts, commandDef.name];
     }
 
-    // Fallback: split on spaces (legacy support)
+    // Fallback: split on spaces (legacy support for commands without dotted IDs)
     return commandDef.name.split(" ");
+  }
+
+  /**
+   * True if the last word of `name` matches the last ID segment — which means the
+   * dotted ID already fully expresses the hierarchy and `name` would otherwise
+   * double-nest.
+   */
+  private nameMatchesLastIdSegment(name: string, idParts: string[]): boolean {
+    const lastIdSegment = idParts[idParts.length - 1];
+    const lastNameWord = name.split(" ").at(-1);
+    return lastIdSegment === lastNameWord;
   }
 
   /**
