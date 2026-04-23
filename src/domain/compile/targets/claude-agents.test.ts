@@ -89,6 +89,16 @@ function makeImportStub(
   };
 }
 
+/**
+ * Extract the YAML frontmatter block (between the opening and closing `---`)
+ * from a markdown string produced by buildAgentMd. Returns "" if no frontmatter.
+ * Used to scope assertions to frontmatter and avoid false positives in the body.
+ */
+function extractFrontmatter(md: string): string {
+  const match = md.match(/^---\n([\s\S]*?)\n---/);
+  return match?.[1] ?? "";
+}
+
 // ─── buildAgentMd ─────────────────────────────────────────────────────────────
 
 describe("buildAgentMd", () => {
@@ -402,9 +412,11 @@ describe("suggestedSubagentType — schema acceptance and compile omission", () 
       suggestedSubagentType: "refactor",
     };
     const md = buildAgentMd(agentWithSubagentType);
-    expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
-    expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
-    expect(md).not.toContain("refactor");
+    const frontmatter = extractFrontmatter(md);
+    expect(frontmatter).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
+    expect(frontmatter).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
+    // Scoped to frontmatter to avoid false positives if prompt/description mentions "refactor"
+    expect(frontmatter).not.toContain("refactor");
   });
 
   it("compile does NOT emit suggestedSubagentType in compiled .md output", async () => {
