@@ -356,3 +356,204 @@ describe("claudeAgentsTarget.compile (dryRun)", () => {
     expect(result.contentsByPath.get(outPath)).toContain("name: my-agent");
   });
 });
+
+// ─── suggestedSubagentType — schema + compile ─────────────────────────────────
+
+/** Frontmatter key as authored in TypeScript (camelCase) — must NOT appear in compiled output. */
+const SUGGESTED_SUBAGENT_TYPE_CAMEL = "suggestedSubagentType";
+/** Frontmatter key as kebab-case — must NOT appear in compiled output. */
+const SUGGESTED_SUBAGENT_TYPE_KEBAB = "suggested-subagent-type";
+/** Shared skill name used across both refactorer and cleaner fixtures. */
+const SKILL_CODE_ORGANIZATION = "code-organization";
+
+describe("suggestedSubagentType — schema acceptance and compile omission", () => {
+  it("agentDefinitionSchema accepts suggestedSubagentType", () => {
+    const { agentDefinitionSchema } = require("../../definitions/schemas");
+    const result = agentDefinitionSchema.safeParse({
+      name: "test-agent",
+      description: "A test agent.",
+      model: "sonnet",
+      suggestedSubagentType: "refactor",
+      prompt: "# Test\n",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.suggestedSubagentType).toBe("refactor");
+    }
+  });
+
+  it("agentDefinitionSchema accepts an agent without suggestedSubagentType", () => {
+    const { agentDefinitionSchema } = require("../../definitions/schemas");
+    const result = agentDefinitionSchema.safeParse({
+      name: "test-agent",
+      description: "A test agent.",
+      model: "sonnet",
+      prompt: "# Test\n",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.suggestedSubagentType).toBeUndefined();
+    }
+  });
+
+  it("buildAgentMd does NOT emit suggestedSubagentType in frontmatter", () => {
+    const agentWithSubagentType: AgentDefinition = {
+      ...sampleAgent,
+      suggestedSubagentType: "refactor",
+    };
+    const md = buildAgentMd(agentWithSubagentType);
+    expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
+    expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
+    expect(md).not.toContain("refactor");
+  });
+
+  it("compile does NOT emit suggestedSubagentType in compiled .md output", async () => {
+    const written: Record<string, string> = {};
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeAgentFs("refactorer"),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+
+    const refactorerAgent: AgentDefinition = {
+      name: "refactorer",
+      description: "Structural refactoring agent.",
+      model: "sonnet",
+      skills: [SKILL_CODE_ORGANIZATION, "testing-guide"],
+      suggestedSubagentType: "refactor",
+      prompt: "# Refactorer\n\nDo refactoring.\n",
+    };
+
+    const importStub = makeImportStub({ [agentSourcePath("refactorer")]: refactorerAgent });
+    const target = makeClaudeAgentsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toEqual(["refactorer"]);
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    const content = written[outPath];
+    if (content === undefined) throw new Error("expected written content to be defined");
+    expect(content).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
+    expect(content).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
+  });
+});
+
+// ─── 5 core agent definitions — compile correctness ───────────────────────────
+
+describe("5 core agent definitions — compile correctness", () => {
+  const coreAgents: AgentDefinition[] = [
+    {
+      name: "implementer",
+      description: "Full-cycle implementation agent.",
+      model: "sonnet",
+      skills: ["implement-task", "prepare-pr", "testing-guide", "error-handling"],
+      prompt: "# Implementer\n\nImplement tasks.\n",
+    },
+    {
+      name: "reviewer",
+      description: "Read-only code review agent.",
+      model: "sonnet",
+      skills: ["review-pr"],
+      tools: ["Read", "Glob", "Grep", "Bash"],
+      prompt: "# Reviewer\n\nReview code.\n",
+    },
+    {
+      name: "refactorer",
+      description: "Structural refactoring agent.",
+      model: "sonnet",
+      skills: [SKILL_CODE_ORGANIZATION, "testing-guide"],
+      suggestedSubagentType: "refact",
+      prompt: "# Refactorer\n\nRefactor code.\n",
+    },
+    {
+      name: "cleaner",
+      description: "Technical debt cleanup agent.",
+      model: "sonnet",
+      skills: [SKILL_CODE_ORGANIZATION, "fix-skipped-tests"],
+      prompt: "# Cleaner\n\nClean up code.\n",
+    },
+    {
+      name: "auditor",
+      description: "Spec-verification agent.",
+      model: "sonnet",
+      skills: [],
+      tools: [
+        "Read",
+        "Glob",
+        "Grep",
+        "Bash",
+        "mcp__minsky__tasks_get",
+        "mcp__minsky__tasks_spec_get",
+      ],
+      suggestedSubagentType: "verify-completion",
+      prompt: "# Auditor\n\nVerify specs.\n",
+    },
+  ];
+
+  for (const agent of coreAgents) {
+    const agentName = agent.name;
+
+    it(`${agentName}: compiles successfully and produces .md output`, async () => {
+      const written: Record<string, string> = {};
+      const fakeFs: MinskyCompileFsDeps = {
+        ...makeAgentFs(agentName),
+        async writeFile(path: string, data: string): Promise<void> {
+          written[path] = data;
+        },
+      };
+
+      const importStub = makeImportStub({ [agentSourcePath(agentName)]: agent });
+      const target = makeClaudeAgentsTarget(importStub);
+
+      const result = await target.compile({}, WORKSPACE, fakeFs);
+
+      expect(result.definitionsIncluded).toEqual([agentName]);
+      expect(result.definitionsSkipped).toEqual([]);
+      expect(result.filesWritten).toHaveLength(1);
+      const outPath = result.filesWritten[0];
+      if (outPath === undefined) throw new Error("expected filesWritten[0]");
+      expect(outPath).toMatch(new RegExp(`\\.claude/agents/${agentName}\\.md$`));
+    });
+
+    it(`${agentName}: compiled frontmatter contains correct name`, async () => {
+      const md = buildAgentMd(agent);
+      expect(md).toContain(`name: ${agentName}`);
+    });
+
+    it(`${agentName}: compiled frontmatter does NOT contain suggestedSubagentType`, async () => {
+      const md = buildAgentMd(agent);
+      expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
+      expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
+    });
+
+    if (agent.skills !== undefined && agent.skills.length > 0) {
+      it(`${agentName}: compiled frontmatter contains correct skills`, async () => {
+        const md = buildAgentMd(agent);
+        expect(md).toContain("skills:");
+        for (const skill of agent.skills ?? []) {
+          expect(md).toContain(skill);
+        }
+      });
+    }
+  }
+
+  it("dirName !== agent.name causes compile to skip the agent (invariant)", async () => {
+    const fakeFs = makeAgentFs("reviewer");
+    // Agent with a different name than the directory
+    const agentWithWrongName: AgentDefinition = {
+      name: "impl",
+      description: "Wrong name.",
+      model: "sonnet",
+      prompt: "# Wrong\n",
+    };
+    const importStub = makeImportStub({ [agentSourcePath("reviewer")]: agentWithWrongName });
+    const target = makeClaudeAgentsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toEqual(["reviewer"]);
+    expect(result.definitionsIncluded).toEqual([]);
+  });
+});
