@@ -266,6 +266,8 @@ export default [
             "**/src/domain/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
+            // Hook entry points (run outside DI container — legitimate bootstrap)
+            "**/src/hooks/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
             "**/src/adapters/shared/commands/**/*.ts",
             // CLI command composition roots

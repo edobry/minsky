@@ -50,7 +50,7 @@ export class RuleService {
     }
   ) {
     this.workspacePath = workspacePath;
-    this.fs = deps?.fsPromises || (nodeFsPromises as unknown as RuleServiceFs);
+    this.fs = deps?.fsPromises || (nodeFsPromises as RuleServiceFs);
     this.existsSyncFn = deps?.existsSyncFn || nodeExistsSync;
     // Log workspace path on initialization for debugging
     log.debug("RuleService initialized", { workspacePath });
