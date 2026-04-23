@@ -24,6 +24,12 @@ const promptCommandParams = {
     description: "Comma-separated list of file paths to constrain to",
     required: false,
   },
+  omitOperatingEnvelope: {
+    schema: z.boolean(),
+    description:
+      "Suppress the Operating Envelope block (budget awareness, graceful exit, handoff-note convention). Default: envelope is included.",
+    required: false,
+  },
 };
 
 export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -49,6 +55,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       const type = params.type as "implementation" | "refactor" | "review" | "cleanup" | "audit";
       const instructions = params.instructions as string;
       const scopeRaw = params.scope as string | undefined;
+      const omitOperatingEnvelope = params.omitOperatingEnvelope as boolean | undefined;
 
       const session = await service.get({ task });
 
@@ -77,6 +84,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         type,
         instructions,
         scope,
+        omitOperatingEnvelope,
       });
 
       return { success: true, ...result };
