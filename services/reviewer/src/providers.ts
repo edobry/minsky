@@ -30,6 +30,24 @@ export interface ReviewOutput {
   model: string;
 }
 
+/**
+ * Whether the given OpenAI model supports the `reasoning_effort` parameter.
+ *
+ * OpenAI's `reasoning_effort` parameter is documented as "o-series models
+ * only" — the API returns 400 when passed to non-reasoning models (gpt-4o,
+ * gpt-4, gpt-3.5, etc.). As of 2026-04, `gpt-5` is also a reasoning model
+ * and accepts the field.
+ *
+ * Exported for tests.
+ */
+export function isReasoningModel(model: string): boolean {
+  // o1, o3, o4 and future o-series reasoning models
+  if (/^o\d/.test(model)) return true;
+  // gpt-5 family (gpt-5, gpt-5-turbo, gpt-5-mini, etc.)
+  if (/^gpt-5(\b|-)/.test(model)) return true;
+  return false;
+}
+
 export async function callReviewer(
   config: ReviewerConfig,
   systemPrompt: string,
@@ -57,15 +75,16 @@ async function callOpenAI(
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    // Reasoning models (GPT-5) consume this budget for hidden reasoning tokens
-    // as well as output. 8192 was too tight — reasoning sometimes exhausted the
-    // budget before producing any output, yielding empty reviews. 16384 gives
-    // enough runway for both a full adversarial analysis AND a detailed output.
-    // See mt#1125 for the empty-review failure mode this mitigates.
+    // Reasoning models (GPT-5, o-series) consume this budget for hidden
+    // reasoning tokens as well as output. 8192 was too tight — reasoning
+    // sometimes exhausted the budget before producing any output, yielding
+    // empty reviews. 16384 gives enough runway for both a full adversarial
+    // analysis AND a detailed output. See mt#1125.
     max_completion_tokens: 16384,
-    // Explicit reasoning_effort for predictability — "medium" is the GPT-5
-    // default; declaring it removes dependence on future default changes.
-    reasoning_effort: "medium",
+    // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
+    // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
+    // API — so only include it when the configured model supports it.
+    ...(isReasoningModel(config.providerModel) ? { reasoning_effort: "medium" as const } : {}),
   });
 
   const text = response.choices[0]?.message?.content ?? "";
