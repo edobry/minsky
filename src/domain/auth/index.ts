@@ -25,6 +25,7 @@ export function createTokenProvider(config: GitHubConfig, userToken: string): To
     return new GitHubAppTokenProvider({
       appId: config.serviceAccount.appId,
       privateKeyFile: config.serviceAccount.privateKeyFile,
+      privateKey: config.serviceAccount.privateKey,
       installationId: config.serviceAccount.installationId,
       userToken,
     });

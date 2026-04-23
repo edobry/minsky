@@ -7,6 +7,7 @@ import { FallbackTokenProvider } from "./fallback-token-provider";
 import { GitHubAppTokenProvider } from "./github-app-token-provider";
 import { createTokenProvider } from "./index";
 import type { GitHubConfig } from "../configuration/schemas/github";
+import { githubServiceAccountSchema } from "../configuration/schemas/github";
 
 // ---------------------------------------------------------------------------
 // Test RSA private key (PKCS#1) — generated for testing only
@@ -293,6 +294,131 @@ describe("GitHubAppTokenProvider", () => {
         );
       });
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Private-key resolution: env-var (inline) vs file vs neither.
+  // These tests do NOT inject `privateKeyLoader` — they exercise the real
+  // `resolvePrivateKey` method end-to-end, which is the whole point of mt#1138.
+  // -------------------------------------------------------------------------
+  describe("private key resolution", () => {
+    it("resolves from inline privateKey without touching the filesystem", () => {
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        privateKey: TEST_PRIVATE_KEY,
+        privateKeyFile: "/definitely/does/not/exist.pem",
+        installationId: 1,
+        userToken: "u",
+      });
+      // JWT generation exercises the full resolution path through crypto.sign.
+      // If the key came from the nonexistent file, we'd get ENOENT; if the key
+      // came from `privateKey` inline, signing succeeds and we get 3 dot-parts.
+      const jwt = provider.generateJwt();
+      expect(jwt.split(".")).toHaveLength(3);
+    });
+
+    it("privateKey takes precedence over privateKeyFile", () => {
+      // Same setup — both set, file path bogus. Only precedence makes this work.
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        privateKey: TEST_PRIVATE_KEY,
+        privateKeyFile: "/definitely/does/not/exist.pem",
+        installationId: 1,
+        userToken: "u",
+      });
+      expect(() => provider.generateJwt()).not.toThrow();
+    });
+
+    it("normalizes single-line \\n-escaped PEM (Railway multiline flattening) to real newlines", () => {
+      const flattened = TEST_PRIVATE_KEY.replace(/\n/g, "\\n");
+      // Sanity check: flattened form genuinely has no real newlines.
+      expect(flattened.includes("\n")).toBe(false);
+      expect(flattened.includes("\\n")).toBe(true);
+
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        privateKey: flattened,
+        installationId: 1,
+        userToken: "u",
+      });
+      // Without normalization, crypto.sign rejects the PEM; JWT generation throws.
+      // With normalization, signing succeeds.
+      expect(() => provider.generateJwt()).not.toThrow();
+    });
+
+    it("throws a clear error mentioning the env var name when neither is set", () => {
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        installationId: 1,
+        userToken: "u",
+      });
+      expect(() => provider.generateJwt()).toThrow(/MINSKY_GITHUB_APP_PRIVATE_KEY/);
+      expect(() => provider.generateJwt()).toThrow(/privateKeyFile/);
+    });
+
+    it("throws when privateKey is malformed PEM", () => {
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nnot-actually-valid-base64-content\n-----END RSA PRIVATE KEY-----",
+        installationId: 1,
+        userToken: "u",
+      });
+      expect(() => provider.generateJwt()).toThrow();
+    });
+
+    it("does not leak PEM content in the 'neither set' error message", () => {
+      const provider = new GitHubAppTokenProvider({
+        appId: 1,
+        installationId: 1,
+        userToken: "u",
+      });
+      try {
+        provider.generateJwt();
+      } catch (err) {
+        const msg = (err as Error).message;
+        expect(msg).not.toContain("-----BEGIN");
+        expect(msg).not.toContain("-----END");
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema-level validation: at-least-one-of privateKey/privateKeyFile required
+// when serviceAccount is configured.
+// ---------------------------------------------------------------------------
+describe("githubServiceAccountSchema", () => {
+  const base = { type: "github-app" as const, appId: 1, installationId: 1 };
+
+  it("accepts serviceAccount with only privateKeyFile", () => {
+    const result = githubServiceAccountSchema.safeParse({
+      ...base,
+      privateKeyFile: "/path/to/key.pem",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts serviceAccount with only privateKey", () => {
+    const result = githubServiceAccountSchema.safeParse({
+      ...base,
+      privateKey: "some-pem-content",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts serviceAccount with both privateKey and privateKeyFile set", () => {
+    const result = githubServiceAccountSchema.safeParse({
+      ...base,
+      privateKey: "pem",
+      privateKeyFile: "/path/to/key.pem",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects serviceAccount with neither privateKey nor privateKeyFile", () => {
+    const result = githubServiceAccountSchema.safeParse({ ...base });
+    expect(result.success).toBe(false);
   });
 });
 

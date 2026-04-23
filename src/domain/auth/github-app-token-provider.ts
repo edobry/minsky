@@ -14,7 +14,10 @@ import type { TokenProvider } from "./token-provider";
 
 export interface GitHubAppConfig {
   appId: number;
-  privateKeyFile: string;
+  /** Path to the PEM private key file. At least one of privateKey or privateKeyFile must be set. */
+  privateKeyFile?: string;
+  /** Raw PEM content (e.g., from MINSKY_GITHUB_APP_PRIVATE_KEY env var). Takes precedence over privateKeyFile. */
+  privateKey?: string;
   installationId: number;
   userToken: string;
   /** Optional override for loading the private key — used in tests to avoid real file I/O. */
@@ -38,7 +41,8 @@ const REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 
 export class GitHubAppTokenProvider implements TokenProvider {
   private readonly appId: number;
-  private readonly privateKeyFile: string;
+  private readonly privateKeyFile: string | undefined;
+  private readonly privateKey: string | undefined;
   private readonly installationId: number;
   private readonly userToken: string;
   private readonly privateKeyLoader: () => string;
@@ -50,9 +54,10 @@ export class GitHubAppTokenProvider implements TokenProvider {
   constructor(config: GitHubAppConfig) {
     this.appId = config.appId;
     this.privateKeyFile = config.privateKeyFile;
+    this.privateKey = config.privateKey;
     this.installationId = config.installationId;
     this.userToken = config.userToken;
-    this.privateKeyLoader = config.privateKeyLoader ?? (() => this.loadPrivateKeyFromFile());
+    this.privateKeyLoader = config.privateKeyLoader ?? (() => this.resolvePrivateKey());
   }
 
   // ---------------------------------------------------------------------------
@@ -123,15 +128,41 @@ export class GitHubAppTokenProvider implements TokenProvider {
     return timeUntilExpiry > REFRESH_THRESHOLD_MS;
   }
 
-  private loadPrivateKeyFromFile(): string {
+  /**
+   * Resolves the private key with precedence: privateKey (inline) > privateKeyFile > error.
+   * Normalizes single-line `\n`-escaped PEM form (Railway-style) to real newlines.
+   */
+  private resolvePrivateKey(): string {
     if (this.privateKeyCache) return this.privateKeyCache;
+
+    if (this.privateKey) {
+      // Normalize Railway-style single-line form: literal \n → real newlines
+      this.privateKeyCache = this.privateKey.replace(/\\n/g, "\n");
+      return this.privateKeyCache;
+    }
+
+    if (this.privateKeyFile) {
+      this.privateKeyCache = this.loadPrivateKeyFromFile();
+      return this.privateKeyCache;
+    }
+
+    throw new Error(
+      "GitHub App private key is not configured: set MINSKY_GITHUB_APP_PRIVATE_KEY (env var) or github.serviceAccount.privateKeyFile (config file)"
+    );
+  }
+
+  private loadPrivateKeyFromFile(): string {
+    if (!this.privateKeyFile) {
+      throw new Error(
+        "GitHub App private key is not configured: set MINSKY_GITHUB_APP_PRIVATE_KEY (env var) or github.serviceAccount.privateKeyFile (config file)"
+      );
+    }
 
     const resolvedPath = this.privateKeyFile.startsWith("~/")
       ? join(homedir(), this.privateKeyFile.slice(2))
       : this.privateKeyFile;
 
-    this.privateKeyCache = readFileSync(resolvedPath, "utf8") as string;
-    return this.privateKeyCache;
+    return readFileSync(resolvedPath, "utf8") as string;
   }
 
   /**
