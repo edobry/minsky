@@ -65,7 +65,6 @@ export async function sessionPr(
 
       // Clear prState to allow recreation
       await sessionDB.updateSession(resolvedContext.sessionId, {
-        ...sessionRecord,
         prBranch: undefined, // Clear prBranch field too
         prState: undefined,
       });

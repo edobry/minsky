@@ -167,8 +167,7 @@ export async function createPullRequest(
         const sessionDB = await getSessionDB();
         const sessionRecord = await sessionDB.getSession(session);
         if (sessionRecord) {
-          const updatedSession = {
-            ...sessionRecord,
+          await sessionDB.updateSession(session, {
             lastActivityAt: new Date().toISOString(),
             status: SessionStatus.PR_OPEN,
             pullRequest: {
@@ -189,8 +188,7 @@ export async function createPullRequest(
               },
               lastSynced: new Date().toISOString(),
             },
-          };
-          await sessionDB.updateSession(session, updatedSession);
+          });
           log.debug(`Updated session record for ${session} with PR #${pr.number}`);
         }
       } catch (error) {
