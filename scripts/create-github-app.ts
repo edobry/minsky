@@ -57,6 +57,8 @@ interface ParsedArgs {
   permissions: Record<string, string>;
   events: string[];
   port: number;
+  webhookUrl?: string;
+  inactive: boolean;
 }
 
 function printUsage(): void {
@@ -73,22 +75,26 @@ Required:
 Optional:
   --permissions k:v,k:v     Default: pull_requests:write,contents:read,metadata:read
   --events e1,e2            Default: (none)
+  --webhook-url <url>       Prefill the App webhook URL. Default: placeholder.
+  --inactive                Create the App with webhooks disabled. Default: active.
   --port <n>                Default: 9847
   --help / -h               Print this usage
 
 Examples:
 
-  # Implementer App (code author, PR creator):
+  # Implementer App (code author, PR creator; no webhook needed):
   bun scripts/create-github-app.ts \\
     --name minsky-ai \\
-    --repo edobry/minsky
+    --repo edobry/minsky \\
+    --inactive
 
-  # Reviewer App (Chinese-wall adversarial reviewer):
+  # Reviewer App (Chinese-wall adversarial reviewer, webhook-driven):
   bun scripts/create-github-app.ts \\
     --name minsky-reviewer \\
     --repo edobry/minsky \\
     --permissions pull_requests:write,contents:read,metadata:read \\
-    --events pull_request
+    --events pull_request \\
+    --webhook-url https://minsky-reviewer.example.com/webhook
 `.trim();
   console.log(usage);
 }
@@ -101,11 +107,17 @@ function parseArgs(argv: string[]): ParsedArgs {
     process.exit(0);
   }
 
+  const BOOLEAN_FLAGS = new Set(["inactive"]);
+
   const map = new Map<string, string>();
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a && a.startsWith("--")) {
       const key = a.slice(2);
+      if (BOOLEAN_FLAGS.has(key)) {
+        map.set(key, "true");
+        continue;
+      }
       const value = args[i + 1];
       if (!value || value.startsWith("--")) {
         console.error(`Missing value for --${key}`);
@@ -157,6 +169,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     process.exit(1);
   }
 
+  const webhookUrl = map.get("webhook-url");
+  const inactive = map.get("inactive") === "true";
+
   return {
     name,
     repo,
@@ -164,6 +179,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     permissions,
     events,
     port,
+    webhookUrl,
+    inactive,
   };
 }
 
@@ -172,7 +189,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 // ---------------------------------------------------------------------------
 
 const parsed = parseArgs(process.argv);
-const { name, repo, owner, permissions, events, port } = parsed;
+const { name, repo, owner, permissions, events, port, webhookUrl, inactive } = parsed;
 
 const HOME = process.env.HOME;
 if (!HOME) {
@@ -184,13 +201,14 @@ const CONFIG_DIR = join(HOME, ".config", "minsky");
 const KEY_PATH = join(CONFIG_DIR, `${name}.pem`);
 const META_PATH = join(CONFIG_DIR, `${name}.json`);
 
-// Manifest per GitHub docs — hook_attributes.url is REQUIRED even if inactive.
+// Manifest per GitHub docs — hook_attributes.url is REQUIRED even when webhooks
+// are inactive, so we provide a placeholder if --webhook-url wasn't given.
 const manifest = {
   name,
   url: `https://github.com/${repo}`,
   hook_attributes: {
-    url: "https://example.com/unused",
-    active: false,
+    url: webhookUrl ?? "https://example.com/unused",
+    active: !inactive,
   },
   redirect_url: `http://localhost:${port}/callback`,
   public: false,
@@ -199,8 +217,15 @@ const manifest = {
 };
 
 const manifestJson = JSON.stringify(manifest);
-// HTML attribute requires entity encoding for double quotes.
-const manifestHtmlSafe = manifestJson.replace(/"/g, "&quot;");
+// HTML attribute encoding: escape &, ", <, > so user-supplied values
+// (webhook URL with query-string, arbitrary name/repo strings) don't
+// break the form's HTML structure. Ampersand MUST be replaced first
+// so later replacements don't re-escape their introduced &.
+const manifestHtmlSafe = manifestJson
+  .replace(/&/g, "&amp;")
+  .replace(/"/g, "&quot;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;");
 
 const html = `<!DOCTYPE html>
 <html>

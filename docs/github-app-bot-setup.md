@@ -33,17 +33,19 @@ Run the script with the App name, target repo, and optional permission/event ove
 Canonical invocations:
 
 ```bash
-# Implementer App (code author, PR creator):
+# Implementer App (code author, PR creator; no webhook needed):
 bun scripts/create-github-app.ts \
   --name minsky-ai \
-  --repo <your-owner>/<your-repo>
+  --repo <your-owner>/<your-repo> \
+  --inactive
 
-# Reviewer App (Chinese-wall adversarial reviewer, mt#1073):
+# Reviewer App (Chinese-wall adversarial reviewer, mt#1073; webhook-driven):
 bun scripts/create-github-app.ts \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
-  --events pull_request
+  --events pull_request \
+  --webhook-url https://minsky-reviewer.example.com/webhook
 ```
 
 The script writes:
@@ -57,6 +59,8 @@ Flags:
 - `--repo <owner/repo>` — required. Owner is matched against the install account during installation lookup.
 - `--permissions <k:v,...>` — optional. Default: `pull_requests:write,contents:read,metadata:read`.
 - `--events <e1,e2,...>` — optional. Default: none.
+- `--webhook-url <url>` — optional. Prefills `hook_attributes.url` in the App manifest. Use this for webhook-driven Apps (reviewer, automation services). Without it, a placeholder URL is submitted (GitHub requires the field).
+- `--inactive` — optional. Creates the App with `hook_attributes.active=false`. Default: active. Use this for Apps that don't need webhooks (the `minsky-ai` implementer App). Note that GitHub's REST API has no endpoint to toggle `active` later, so choose correctly up front — the only remediation is a manual toggle in the App settings UI.
 - `--port <n>` — optional. Default: `9847`.
 - `--help` / `-h` — print usage.
 
