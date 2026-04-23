@@ -6,6 +6,7 @@
  */
 
 import type { RuleFormat } from "../../rules";
+import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ export interface CompileRulesOptions {
   output?: string;
   dryRun?: boolean;
   check?: boolean;
+  memoryLoadingMode?: MemoryLoadingMode;
 }
 
 export interface CompileRulesResult {

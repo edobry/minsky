@@ -88,6 +88,7 @@ export async function compileRules(options: CompileRulesOptions): Promise<Compil
       workspacePath: options.workspacePath,
       outputPath: options.output,
       dryRun: true,
+      memoryLoadingMode: options.memoryLoadingMode,
     });
 
     // Get the registered target so we can call listOutputFiles (generalized target map)
@@ -176,6 +177,7 @@ export async function compileRules(options: CompileRulesOptions): Promise<Compil
     workspacePath: options.workspacePath,
     outputPath: options.output,
     dryRun: options.dryRun || false,
+    memoryLoadingMode: options.memoryLoadingMode,
   });
 
   if (options.dryRun) {

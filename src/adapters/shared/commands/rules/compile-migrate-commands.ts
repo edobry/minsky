@@ -29,12 +29,28 @@ export function registerCompileMigrateCommands(targetRegistry: {
       log.debug("Executing rules.compile command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
+
+        // Read memory.loadingMode from config; fall back gracefully if config unavailable
+        let memoryLoadingMode:
+          | import("../../../../domain/configuration/schemas/memory").MemoryLoadingMode
+          | undefined;
+        try {
+          const { getConfigurationProvider } = await import(
+            "../../../../domain/configuration/index"
+          );
+          const config = getConfigurationProvider().getConfig();
+          memoryLoadingMode = config.memory?.loadingMode;
+        } catch {
+          // Config not yet initialized or unavailable — use target default (on_demand)
+        }
+
         const result = await compileRules({
           workspacePath,
           target: params.target,
           output: params.output,
           dryRun: params.dryRun,
           check: params.check,
+          memoryLoadingMode,
         });
 
         // --check mode: exit non-zero when output is stale so CI/hooks can detect it.
