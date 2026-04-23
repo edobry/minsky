@@ -17,7 +17,7 @@ import { RuleService } from "../rule-service";
 import { createMockFs } from "../../interfaces/mock-fs";
 import { buildContent, DEFAULT_AGENTS_MD_SECTIONS } from "./targets/agents-md";
 import { buildClaudeMdContent } from "./targets/claude-md";
-import { buildCursorRulesContent } from "./targets/cursor-rules";
+import { buildCursorRulesContent, serializeRuleToMdc } from "./targets/cursor-rules";
 import { makeRule } from "./test-utils";
 
 const WORKSPACE = "/mock/workspace";
@@ -169,21 +169,18 @@ describe("cursor-rules multi-file staleness (d)", () => {
       makeRule("rule-b", "Content B"),
       makeRule("rule-c", "Content C"),
     ];
+    const sourceDir = `${WORKSPACE}/.cursor/rules`;
 
-    // Seed output dir: rule-a/c match expected content; rule-b is corrupted.
-    const { files: expected } = buildCursorRulesContent(rules, OUTPUT_DIR);
     const initialFiles: Record<string, string> = {};
+    for (const rule of rules) {
+      initialFiles[`${sourceDir}/${rule.id}.mdc`] = serializeRuleToMdc(rule);
+    }
+    const { files: expected } = buildCursorRulesContent(rules, OUTPUT_DIR);
     for (const { path: filePath, content } of expected) {
       initialFiles[filePath] = filePath.endsWith("rule-b.mdc") ? "WRONG CONTENT" : content;
     }
 
-    // Inject a stub RuleService that returns the rules directly, skipping the
-    // listRules filesystem path (which suffers cross-test pollution in the full
-    // suite — tracked separately; the DI seam itself is what we're verifying).
-    const fs = createMockFs(initialFiles);
-    const ruleService = {
-      listRules: async () => rules,
-    } as unknown as RuleService;
+    const { fs, ruleService } = setupMockFs(initialFiles);
 
     const result = await compileRules(
       {
