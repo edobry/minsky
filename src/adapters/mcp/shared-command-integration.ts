@@ -154,11 +154,14 @@ export function registerSharedCommandsWithMcp(
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
 
           try {
-            // Create execution context for shared command
+            // Create execution context for shared command.
+            // MCP is a structured-data interface — always use JSON format so
+            // commands' formatResult() returns structured data, not human-
+            // readable text that discards the underlying payload.
             const context: CommandExecutionContext = {
               interface: "mcp",
               debug: Boolean(args?.debug),
-              format: args?.json === "true" ? "json" : "text",
+              format: "json",
               container: config.container,
             };
             log.debug(`[MCP] Created execution context: ${command.id}`, { context });
@@ -168,6 +171,13 @@ export function registerSharedCommandsWithMcp(
             log.debug(`[MCP] Processing args: ${command.id}`, { filteredArgs });
 
             const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            // Force json=true so commands that gate on params.json (rather
+            // than ctx.format) return structured data to MCP callers. The
+            // `json` parameter is stripped from the MCP-facing schema, so
+            // clients never set it — we set it here for the bridge.
+            if ("json" in command.parameters) {
+              parameters.json = true;
+            }
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
 
             // Guard: verify the project is initialized before executing non-exempt commands
