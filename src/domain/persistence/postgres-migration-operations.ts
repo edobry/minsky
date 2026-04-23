@@ -29,10 +29,9 @@ export interface Journal {
  * migrations by timestamp order. Out-of-order timestamps cause silent skips.
  */
 export function validateJournalTimestamps(journal: Journal): void {
-  for (let i = 1; i < journal.entries.length; i++) {
-    const prev = journal.entries[i - 1]!;
-    const curr = journal.entries[i]!;
-    if (curr.when <= prev.when) {
+  let prev: JournalEntry | undefined;
+  for (const curr of journal.entries) {
+    if (prev && curr.when <= prev.when) {
       throw new Error(
         `Migration journal timestamps out of order: ` +
           `${prev.tag} (idx=${prev.idx}, when=${prev.when}) >= ` +
@@ -40,6 +39,7 @@ export function validateJournalTimestamps(journal: Journal): void {
           `Fix the 'when' values in _journal.json to be monotonically increasing.`
       );
     }
+    prev = curr;
   }
 }
 
@@ -277,7 +277,7 @@ export async function runPostgresSchemaMigrations(
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
   const { readdirSync, readFileSync } = await import("fs");
-  const { basename, join } = await import("path");
+  const { basename: _basename, join } = await import("path");
 
   const sql = postgres(connectionString, {
     prepare: false,

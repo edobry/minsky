@@ -233,7 +233,8 @@ export class ProvenanceService {
       }
 
       const record = toProvenanceRecord(row);
-      // sessionId is guaranteed non-null because the query filters isNotNull
+      // Query filters isNotNull(sessionId) so this should never be null at runtime,
+      // but the TS return type still includes null. Guard for safety.
       if (!record.sessionId) continue;
       const sessionId = record.sessionId;
 
@@ -268,7 +269,7 @@ export class ProvenanceService {
             oldTier: oldTier,
             newTier: judgment.tier,
           });
-        } else {
+        } else if (!dryRun) {
           await this.updateWithJudgment(record.artifactId, record.artifactType, judgment);
         }
       } catch (error) {

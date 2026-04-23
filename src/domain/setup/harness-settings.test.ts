@@ -19,6 +19,10 @@ const CLAUDE_DIR = path.join(TEST_HOME, ".claude");
 const claudeInstalled = (p: string) => p === CLAUDE_DIR;
 const nothingInstalled = (_p: string) => false;
 
+function assertDefined<T>(value: T | undefined, message: string): asserts value is T {
+  if (value === undefined) throw new Error(message);
+}
+
 describe("detectClaudeCodeInstalled", () => {
   test("returns true when ~/.claude directory exists", () => {
     expect(detectClaudeCodeInstalled(TEST_HOME, claudeInstalled)).toBe(true);
@@ -57,8 +61,8 @@ describe("applyClaudeCodeSettings", () => {
     expect(result.settingsPath).toBe(SETTINGS_PATH);
 
     const written = mockFs.files.get(SETTINGS_PATH);
-    expect(written).toBeDefined();
-    const parsed = JSON.parse(written ?? "{}");
+    assertDefined(written, "Expected settings.json to be written");
+    const parsed = JSON.parse(written);
     expect(parsed.model).toBe("sonnet");
     expect(parsed.env?.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("60");
   });
@@ -99,7 +103,9 @@ describe("applyClaudeCodeSettings", () => {
     );
 
     expect(result.status).toBe("applied");
-    const parsed = JSON.parse(mockFs.files.get(SETTINGS_PATH) ?? "{}");
+    const writtenMerge = mockFs.files.get(SETTINGS_PATH);
+    assertDefined(writtenMerge, "Expected settings.json to be written");
+    const parsed = JSON.parse(writtenMerge);
     expect(parsed.model).toBe("sonnet");
     expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("60");
     expect(parsed.theme).toBe("dark");
@@ -113,7 +119,9 @@ describe("applyClaudeCodeSettings", () => {
 
     await applyClaudeCodeSettings({ homeDir: TEST_HOME, checkExists: claudeInstalled }, mockFs);
 
-    const parsed = JSON.parse(mockFs.files.get(SETTINGS_PATH) ?? "{}");
+    const writtenEnv = mockFs.files.get(SETTINGS_PATH);
+    assertDefined(writtenEnv, "Expected settings.json to be written");
+    const parsed = JSON.parse(writtenEnv);
     expect(parsed.env.EXISTING_VAR).toBe("keep-me");
     expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("60");
   });
@@ -162,9 +170,10 @@ describe("applyClaudeCodeSettings", () => {
     expect(result.status).toBe("applied");
     expect(result.changes).toHaveLength(1);
     const [envChange] = result.changes;
-    expect(envChange?.key).toBe("env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
-    expect(envChange?.from).toBeUndefined();
-    expect(envChange?.to).toBe("60");
+    assertDefined(envChange, "Expected one env change");
+    expect(envChange.key).toBe("env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
+    expect(envChange.from).toBeUndefined();
+    expect(envChange.to).toBe("60");
   });
 
   test("reports change when existing model differs from recommended", async () => {
@@ -240,7 +249,8 @@ describe("applyHarnessSettings", () => {
 
     expect(results).toHaveLength(1);
     const [claudeResult] = results;
-    expect(claudeResult?.harness).toBe("claude-code");
+    assertDefined(claudeResult, "Expected one harness result");
+    expect(claudeResult.harness).toBe("claude-code");
   });
 
   test("returns not-detected when no harnesses installed", async () => {
@@ -251,6 +261,7 @@ describe("applyHarnessSettings", () => {
 
     expect(results).toHaveLength(1);
     const [claudeResult] = results;
-    expect(claudeResult?.status).toBe("not-detected");
+    assertDefined(claudeResult, "Expected one harness result");
+    expect(claudeResult.status).toBe("not-detected");
   });
 });

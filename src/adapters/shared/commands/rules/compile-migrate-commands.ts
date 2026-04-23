@@ -12,6 +12,7 @@ import { log } from "../../../../utils/logger";
 import { resolveWorkspacePath } from "../../../../domain/workspace";
 import { compileRules, migrateRules } from "../../../../domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
+import type { MemoryLoadingMode } from "../../../../domain/configuration/schemas/memory";
 
 export function registerCompileMigrateCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -31,9 +32,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
         const workspacePath = await resolveWorkspacePath({});
 
         // Read memory.loadingMode from config; fall back gracefully if config unavailable
-        let memoryLoadingMode:
-          | import("../../../../domain/configuration/schemas/memory").MemoryLoadingMode
-          | undefined;
+        let memoryLoadingMode: MemoryLoadingMode | undefined;
         try {
           const { getConfigurationProvider } = await import(
             "../../../../domain/configuration/index"

@@ -2,7 +2,7 @@
  * Knowledge Sync Runner
  *
  * Orchestrates the sync pipeline for a single knowledge source:
- * list documents → hash check → chunk → embed → store.
+ * list documents → hash check → chunk → embed → store → reconcile (cluster).
  */
 
 import { createHash } from "crypto";
@@ -11,10 +11,16 @@ import type { VectorStorage } from "../../storage/vector/types";
 import type { KnowledgeSourceProvider, SyncReport } from "../types";
 import { chunkContent } from "./chunker";
 import { log } from "../../../utils/logger";
+import { reconcileAfterSync } from "../reconciliation/sync-reconciler";
 
 export interface SyncRunnerDeps {
   embeddingService: EmbeddingService;
   vectorStorage: VectorStorage;
+  /** Optional reconciliation options (threshold, authority map) */
+  reconciliation?: {
+    threshold?: number;
+    sourceAuthority?: Record<string, number>;
+  };
 }
 
 /**
@@ -61,6 +67,15 @@ export async function runSync(
 
   // Track all chunk IDs we wrote during this sync
   const seenIds = new Set<string>();
+
+  // Collect chunk data for post-sync clustering
+  const clusteredChunks: Array<{
+    id: string;
+    vector: number[];
+    lastModified: string;
+    sourceName: string;
+    existingMetadata: Record<string, unknown>;
+  }> = [];
 
   for await (const document of provider.listDocuments()) {
     try {
@@ -116,6 +131,15 @@ export async function runSync(
 
           await vectorStorage.store(id, vector, metadata);
           seenIds.add(id);
+
+          // Collect for clustering
+          clusteredChunks.push({
+            id,
+            vector,
+            lastModified: document.lastModified.toISOString(),
+            sourceName: provider.sourceName,
+            existingMetadata: metadata,
+          });
         } catch (err) {
           docFailed = true;
           errors.push({
@@ -172,6 +196,20 @@ export async function runSync(
     }
   } catch {
     // ignore stale detection errors
+  }
+
+  // Post-sync clustering: compute near-duplicate clusters and write metadata back
+  if (clusteredChunks.length > 0) {
+    try {
+      await reconcileAfterSync(clusteredChunks, vectorStorage, deps.reconciliation);
+    } catch (err) {
+      // Non-fatal: clustering failures don't block the sync report
+      log.warn(
+        `[sync-runner] post-sync reconciliation failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
   }
 
   const duration = Date.now() - startTime;
