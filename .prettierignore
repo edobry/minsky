@@ -11,5 +11,6 @@ coverage/
 .claude/worktrees/
 
 # Compiled rule outputs — managed by "minsky rules compile", not Prettier
+CLAUDE.md
 AGENTS.md
 .cursor/rules/

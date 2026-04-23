@@ -30,6 +30,10 @@ Always commit and push all code changes without waiting for an explicit request 
    - Rule updates
    - Task management operations
 
+## Minsky Session Workspaces
+
+For code operations inside a Minsky session, use `mcp__minsky__session_commit` via MCP — do not run `git commit` directly. The auto-commit directive applies only to non-session workspaces or to the main workspace when not inside a session context.
+
 ## Verification Checklist
 
 Before considering any implementation complete, verify:
