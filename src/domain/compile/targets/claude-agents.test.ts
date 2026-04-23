@@ -5,6 +5,9 @@
  */
 
 import { describe, it, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- used only by the cross-file-reference-integrity describe block below, which intentionally reads real repo state
+import { existsSync, readdirSync, readFileSync } from "fs";
+import { join, resolve } from "path";
 import { makeClaudeAgentsTarget, buildAgentMd } from "./claude-agents";
 import type { MinskyCompileFsDeps } from "../types";
 import type { AgentDefinition } from "../../definitions/types";
@@ -375,6 +378,9 @@ const SUGGESTED_SUBAGENT_TYPE_CAMEL = "suggestedSubagentType";
 const SUGGESTED_SUBAGENT_TYPE_KEBAB = "suggested-subagent-type";
 /** Shared skill name used across both refactorer and cleaner fixtures. */
 const SKILL_CODE_ORGANIZATION = "code-organization";
+/** MCP tool names used in fixtures — declared as constants to avoid magic-string duplication. */
+const MCP_TASKS_GET = "mcp__minsky__tasks_get";
+const MCP_TASKS_SPEC_GET = "mcp__minsky__tasks_spec_get";
 
 describe("suggestedSubagentType — schema acceptance and compile omission", () => {
   it("agentDefinitionSchema accepts suggestedSubagentType", () => {
@@ -569,3 +575,88 @@ describe("5 core agent definitions — compile correctness", () => {
     expect(result.definitionsIncluded).toEqual([]);
   });
 });
+
+// ─── tools serialization coverage ─────────────────────────────────────────────
+
+describe("buildAgentMd — tools serialization", () => {
+  it("serializes tools as a comma-separated scalar string (Claude Code format)", () => {
+    const md = buildAgentMd({
+      ...sampleAgent,
+      tools: ["Read", "Edit", "Bash"],
+    });
+    const frontmatter = extractFrontmatter(md);
+    // Claude Code reads tools as a comma-separated string, not a YAML array.
+    // gray-matter renders strings containing commas as quoted scalars (single
+    // or double quotes depending on content).
+    expect(frontmatter).toContain("tools:");
+    expect(frontmatter).toMatch(/tools:\s*['"]?Read,\s*Edit,\s*Bash['"]?/);
+    // Should NOT serialize as a YAML array
+    expect(frontmatter).not.toMatch(/^tools:\s*\n\s*- Read/m);
+  });
+
+  it("serializes MCP tool names with namespaced format intact", () => {
+    const md = buildAgentMd({
+      ...sampleAgent,
+      tools: ["Read", MCP_TASKS_GET, MCP_TASKS_SPEC_GET],
+    });
+    const frontmatter = extractFrontmatter(md);
+    expect(frontmatter).toContain(MCP_TASKS_GET);
+    expect(frontmatter).toContain(MCP_TASKS_SPEC_GET);
+  });
+
+  it("disallowed-tools follows the same comma-separated format", () => {
+    const md = buildAgentMd({
+      ...sampleAgent,
+      disallowedTools: ["Bash", "Write"],
+    });
+    const frontmatter = extractFrontmatter(md);
+    expect(frontmatter).toContain("disallowed-tools:");
+    expect(frontmatter).toMatch(/disallowed-tools:\s*['"]?Bash,\s*Write['"]?/);
+  });
+});
+
+// ─── cross-file reference integrity ───────────────────────────────────────────
+
+/**
+ * Some prompt.md files reference sibling agent files (e.g., refactorer routes to
+ * refactor.md; auditor routes to verify-completion.md). When those references drift
+ * (target file renamed or removed), the Minsky agents silently document a dead link
+ * in the compiled Claude Code prompt. This suite asserts that every cross-reference
+ * of the form `.claude/agents/<name>.md` actually resolves to a file on disk.
+ *
+ * Legitimately uses the real filesystem — the whole point is to verify real repo state.
+ */
+/* eslint-disable custom/no-real-fs-in-tests -- repo-integrity check intentionally reads real files */
+describe("cross-file references in .minsky/agents prompts resolve to existing files", () => {
+  const repoRoot = resolve(__dirname, "..", "..", "..", "..");
+  const agentsSourceDir = join(repoRoot, ".minsky", "agents");
+  const referencePattern = /\.claude\/agents\/([a-z0-9-]+)\.md/g;
+
+  const agentDirs = existsSync(agentsSourceDir)
+    ? readdirSync(agentsSourceDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+    : [];
+
+  for (const dirName of agentDirs) {
+    const promptPath = join(agentsSourceDir, dirName, "prompt.md");
+    if (!existsSync(promptPath)) continue;
+
+    it(`${dirName}/prompt.md — all .claude/agents/*.md references exist`, () => {
+      const content = readFileSync(promptPath, "utf-8") as string;
+      const references: string[] = [];
+      for (const match of content.matchAll(referencePattern)) {
+        const captured = match[1];
+        if (captured !== undefined) references.push(captured);
+      }
+      for (const referencedName of references) {
+        const referencedPath = join(repoRoot, ".claude", "agents", `${referencedName}.md`);
+        expect(
+          existsSync(referencedPath),
+          `${dirName}/prompt.md references .claude/agents/${referencedName}.md but that file does not exist at ${referencedPath}`
+        ).toBe(true);
+      }
+    });
+  }
+});
+/* eslint-enable custom/no-real-fs-in-tests */
