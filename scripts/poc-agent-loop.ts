@@ -33,7 +33,11 @@ async function main(): Promise<void> {
   console.log("Step 1: Connect to MCP server via stdio");
   // The MCP server's cwd determines its workspace. From inside a session, session.start
   // refuses to run (nested-session guard). Point cwd at the main workspace.
-  const mainWorkspace = "/Users/edobry/Projects/minsky";
+  // Resolution order: $MINSKY_MAIN_WORKSPACE env var → current working directory.
+  const mainWorkspace = process.env.MINSKY_MAIN_WORKSPACE ?? process.cwd();
+  if (!process.env.MINSKY_MAIN_WORKSPACE) {
+    console.log(`  (using cwd=${mainWorkspace}; set MINSKY_MAIN_WORKSPACE to override)`);
+  }
   const transport = new StdioClientTransport({
     command: "bun",
     args: ["run", "src/cli.ts", "mcp", "start"],
@@ -106,9 +110,9 @@ async function main(): Promise<void> {
         "gap",
         `Could not parse task ID from response: ${text.slice(0, 120)}`
       );
-    } else {
-      observe("tasks-create", "success", `Created ${taskId}`);
+      throw new Error("Task ID not parseable — cannot continue lifecycle");
     }
+    observe("tasks-create", "success", `Created ${taskId}`);
   } catch (err) {
     observe("tasks-create", "gap", `tasks_create failed: ${(err as Error).message}`);
     throw err;
@@ -161,16 +165,16 @@ async function main(): Promise<void> {
       const idMatch = /Session ID:\s*([a-f0-9-]+)/.exec(text);
       sessionId = idMatch?.[1];
     }
-    if (sessionId) {
-      observe("session-start", "success", `Session ${sessionId.slice(0, 8)}... started`);
-      observe(
-        "session-start",
-        "friction",
-        "Response is JSON, not prose — tool output format is tool-specific. Agents need per-tool parsers or a uniform envelope."
-      );
-    } else {
+    if (!sessionId) {
       observe("session-start", "gap", `Could not parse session ID: ${text.slice(0, 200)}`);
+      throw new Error("Session ID not parseable — cannot continue lifecycle");
     }
+    observe("session-start", "success", `Session ${sessionId.slice(0, 8)}... started`);
+    observe(
+      "session-start",
+      "friction",
+      "Response is JSON, not prose — tool output format is tool-specific. Agents need per-tool parsers or a uniform envelope."
+    );
   } catch (err) {
     observe("session-start", "gap", `session_start failed: ${(err as Error).message}`);
     throw err;
@@ -179,24 +183,19 @@ async function main(): Promise<void> {
   // 6. Get session directory so we can edit a file
   console.log("\nStep 6: Resolve session directory");
   try {
-    // session.dir's `name` param didn't accept the session UUID; fall back to `task`.
+    if (!sessionId) throw new Error("sessionId missing — cannot call session.dir");
     const result = await client.callTool({
       name: "session.dir",
-      arguments: { task: taskId },
+      arguments: { name: sessionId },
     });
     const dirText = extractText(result).trim();
     try {
       const parsed = JSON.parse(dirText);
-      _sessionDir = parsed?.path || parsed?.directory || parsed?.dir || dirText;
+      _sessionDir = parsed?.directory || parsed?.path || parsed?.dir || dirText;
     } catch {
       _sessionDir = dirText;
     }
     observe("session-dir", "success", `Session dir resolved`);
-    observe(
-      "session-dir",
-      "friction",
-      "session.dir's `name` param didn't accept the session UUID returned by session.start. Had to fall back to `task`. Parameter semantics vary across session tools."
-    );
   } catch (err) {
     observe("session-dir", "gap", `session_dir failed: ${(err as Error).message}`);
     throw err;

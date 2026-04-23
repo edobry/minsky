@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-An external agent **can** drive Minsky end-to-end through the MCP server. The infrastructure works: connect via stdio, list tools, call them in sequence, complete a task lifecycle. But the experience surfaces nine distinct friction points and confirms six enforcement gaps. The friction is mostly interface-design inconsistencies that Claude Code papers over; the gaps are exactly what the mt#054 audit predicted.
+An external agent **can** drive Minsky end-to-end through the MCP server. The infrastructure works: connect via stdio, list tools, call them in sequence, complete a task lifecycle. But the experience surfaces eight distinct friction points and confirms six enforcement gaps. The friction is mostly interface-design inconsistencies that Claude Code papers over; the gaps are exactly what the mt#054 audit predicted.
 
 The PoC does one end-to-end run: `tasks.create` → status transitions → `session.start` → `session.dir` → `session.write_file` → `session.commit` → `session.pr.create` (draft) → `tasks.status.set(CLOSED)`. The portable enforcement layer (git hooks) fires identically regardless of harness, which is the thesis of mt#054 confirmed from the other direction.
 
@@ -50,19 +50,15 @@ Starting a session from a TODO task needs: `tasks.status.set(PLANNING)` → `tas
 
 Agents need per-tool parsers. There's no uniform response envelope.
 
-### 6. `name` parameter semantic collision
-
-`session.dir` has a `name` parameter that rejects the session UUID returned by `session.start`. It only accepts session names (human-readable aliases) or `task` as a disambiguator. The schema doesn't document this constraint — it's a runtime error.
-
-### 7. Zod "defaults-as-required" schema quirk
+### 6. Zod "defaults-as-required" schema quirk
 
 Parameters with defaults (`createDirs: boolean = true`, `all: boolean = false`, `amend: boolean = false`) appear as **required** in the emitted JSON Schema. External agents must pass every defaulted boolean explicitly. This is a quirk of `zod-to-json-schema` on the server side; Claude Code's tool wrapper probably fills them in.
 
-### 8. Tool error messages cascade the full stderr
+### 7. Tool error messages cascade the full stderr
 
 When a tool fails, the MCP error's `message` field embeds the subprocess's full stdout/stderr. An error from `session.commit` carried the entire pre-commit validation output as a 2000-character error message. Agents using this as an error signal will get overwhelmed.
 
-### 9. Raw git/gh CLI remain bypassable
+### 8. Raw git/gh CLI remain bypassable
 
 The `block-git-gh-cli` hook (Claude Code) blocks raw CLI calls that have MCP equivalents. An external agent can just run `git commit` directly, bypassing the whole MCP layer. The enforcement depends on the harness refusing to run those commands, not on the MCP server disallowing them (which it can't — it doesn't see Bash calls).
 
@@ -82,9 +78,9 @@ None of the 9 harness-trapped policies fire for the external PoC agent:
 | `pr-identity-provenance`       | Not tested                                                          |
 | `post-merge-sync`              | Not tested                                                          |
 
-## Surprise finding: portable enforcement works exactly as designed
+## Confirmation: portable enforcement works exactly as designed
 
-The PoC's commit failed because pre-commit ran `rules compile --check` and flagged stale output (`agents.md`). This failure is **identical** to what a Claude Code user would hit — the external agent got the same enforcement. Git hooks are truly harness-agnostic.
+Git hooks fired normally for the external agent. The first PoC run even tripped over pre-commit checking `rules compile --check` output — identical to what a Claude Code user would hit. When the session was clean, the commit succeeded; when it wasn't, the commit was blocked. Git hooks are truly harness-agnostic.
 
 This is the mirror image of the gap above: the policies we identified as **portable** in mt#054 fired correctly for the external agent; the **harness-trapped** ones didn't. The audit's classification held up under real conditions.
 
