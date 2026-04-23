@@ -1,4 +1,4 @@
-# ADR-007: Cognition Provider Abstraction for Dual-Mode AI Operation
+# ADR-007: Cognition Provider Abstraction for Multi-Mode AI Operation
 
 ## Status
 
@@ -41,17 +41,19 @@ Mode resolution happens once per command invocation at the composition root. Fea
 ```typescript
 // Pure declaration of cognitive work — no execution coupling.
 interface CognitionTask<T> {
+  id: string; // stable identifier for result correlation in delegated mode
   kind: string; // e.g. "evaluate-criterion", "synthesize-narrative"
   systemPrompt: string;
   userPrompt: string;
   evidence: Record<string, unknown>; // structured input the prompt references
-  schema: ZodType<T>;
+  schema: ZodType<T>; // Zod is the established schema lib for this codebase (see mt#321 / mt#1063 consumers); alternative libs can be swapped behind a narrower Schema<T> adapter at implementation time if needed
   model?: ModelHint; // advisory, not prescriptive
 }
 
 // Bundle returned by delegated mode for external execution.
 interface CognitionBundle {
-  tasks: CognitionTask<unknown>[];
+  id: string; // stable identifier for the bundle as a unit
+  tasks: CognitionTask<unknown>[]; // heterogeneous tasks permitted; see performBatch typing below
   order: "parallel" | "sequential";
   contextHint?: string; // free-form guidance for the executing harness
 }
@@ -64,7 +66,12 @@ type CognitionResult<T> =
 
 interface CognitionProvider {
   perform<T>(task: CognitionTask<T>): Promise<CognitionResult<T>>;
-  performBatch<T>(tasks: CognitionTask<T>[]): Promise<CognitionResult<T[]>>;
+  // Heterogeneous tasks in one batch: per-task output types are preserved via tuple inference.
+  performBatch<Ts extends readonly CognitionTask<unknown>[]>(
+    tasks: Ts
+  ): Promise<
+    CognitionResult<{ [K in keyof Ts]: Ts[K] extends CognitionTask<infer R> ? R : never }>
+  >;
 }
 ```
 
@@ -103,7 +110,7 @@ function resolveCognitionMode(ctx: CognitionResolutionContext): CognitionMode {
 
 `CognitionResolutionContext` includes the command invocation kind (CLI, MCP, skill), an explicit override (`--cognition-mode=...`), and access to the harness-detection layer at `src/domain/runtime/harness-detection.ts`.
 
-MCP invocations default to delegated because the caller is almost always an AI agent. CLI invocations default to direct when possible. Tests inject the provider explicitly.
+The pseudocode above describes the _target_ resolution once all phases land. Before Phase 5 (see Implementation Plan), MCP invocations continue to default to **direct** so that existing AI-using features are not forced into delegated mode before the retrofit (mt#1058) completes. The Phase 5 change flips the MCP default to delegated, matching the pseudocode. CLI invocations default to direct throughout. Tests inject the provider explicitly.
 
 ## Consequences
 
@@ -121,7 +128,7 @@ MCP invocations default to delegated because the caller is almost always an AI a
 - **Another abstraction layer.** Every AI-using feature now routes through `CognitionProvider`. Readers must learn one more interface.
 - **Delegated mode has different external UX.** Features that complete synchronously in direct mode return a bundle in delegated mode; the command's contract is mode-dependent. Callers must handle both kinds.
 - **Retrofit debt.** Existing AI-using features (task embeddings, code review, task decomposition) use `AICompletionService` directly. They will need migration. Tracked separately as mt#1058; not a blocker.
-- **Streaming semantics differ.** Direct mode can stream partial results; delegated mode cannot. Features relying on streaming in direct mode must render a static output in delegated mode.
+- **Streaming semantics differ.** Direct mode can stream partial results; delegated mode typically does not stream (harness-dependent — some MCP hosts support progressive tool outputs, others do not). Features relying on streaming in direct mode should be prepared to render a static output when delegated.
 
 ### Neutral / Follow-ups
 
@@ -173,12 +180,14 @@ MCP invocations default to delegated because the caller is almost always an AI a
 
 ## References
 
-- ADR-002: Persistence Provider Architecture with Type-Safe Capability Detection
-- ADR-003: Project-Level Repository Backend Configuration
-- ADR-004: Two-Phase Command Execution
-- `src/domain/ai/types.ts` — existing `AICompletionService` interface
-- `src/domain/runtime/harness-detection.ts` — existing mode-detection helpers
-- `docs/theory-of-operation.md` §System 4 — VSM framing
+- [ADR-002: Persistence Provider Architecture with Type-Safe Capability Detection](./adr-002-persistence-provider-architecture.md)
+- [ADR-003: Project-Level Repository Backend Configuration](./adr-003-project-level-repository-backend.md)
+- [ADR-004: Two-Phase Command Execution](./adr-004-two-phase-command-execution.md)
+- [ADR-005: ForgeBackend Sub-Interfaces](./adr-005-forgebackend-subinterfaces.md)
+- [ADR-006: Agent Identity Scheme for MCP Callers](./adr-006-agent-identity.md)
+- [`src/domain/ai/types.ts`](../../src/domain/ai/types.ts) — existing `AICompletionService` interface
+- [`src/domain/runtime/harness-detection.ts`](../../src/domain/runtime/harness-detection.ts) — existing mode-detection helpers
+- [`docs/theory-of-operation.md`](../theory-of-operation.md) §System 4 — VSM framing
 - mt#321 — agent-readiness assessment (first consumer)
 - mt#800 / mt#915 — skills architecture with dual-path prompt generation
 - mt#762 — agent-agnostic enforcement research (separate pattern, not this ADR)
