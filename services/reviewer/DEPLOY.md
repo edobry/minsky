@@ -82,9 +82,11 @@ curl https://<railway-domain>/health
 
 ## Production deploy (auto-deploy from main)
 
-Steady state: **Railway rebuilds and redeploys the service automatically whenever a commit lands on `main` that touches `services/reviewer/`.** No manual `railway up` required.
+> **Disclaimer:** behaviors documented below were observed during the 2026-04-22 deploy on Railway CLI 4.40.2. The CLI and GraphQL API surface can change between versions, and Railway does not publish a formal schema guarantee. Verify against `railway --version` and Railway's current docs before relying on specifics — especially CLI subcommand/flag names and mutation input fields.
 
-This is configured as a Railway **deployment trigger** (GraphQL type `DeploymentTrigger`) linking the service to `edobry/minsky` branch `main` with `rootDirectory: /services/reviewer`.
+Steady state: pushes to `main` that land in the watched branch cause Railway to start a build. Whether a rebuild actually runs for a given push (path-filtered vs branch-wide) depends on Railway's internal change-detection logic for the deployment trigger, which is not publicly specified. Plan for the conservative case — rebuilds may fire on any main push, not only those touching `services/reviewer/`.
+
+This is configured as a Railway **deployment trigger** (GraphQL type `DeploymentTrigger`) linking the service to `edobry/minsky` branch `main`. The service-level `source.rootDirectory` tells Railway where in the repo to run the build from.
 
 ### Prerequisite: grant Railway access to the repo
 
@@ -99,17 +101,17 @@ One-time grant:
 
 ### Configure the deployment trigger
 
-> **Critical ordering gotcha** — set `source.rootDirectory` on the service config via JSON patch BEFORE running the `deploymentTriggerCreate` mutation. Creating the trigger fires an immediate build against whatever `rootDirectory` is currently on the service; missing config → build runs from the repo root → wrong image gets deployed → service crashes. This cost ~20 minutes of reviewer-service downtime on 2026-04-22 when the ordering was reversed.
+> **Critical ordering gotcha** — set `source.rootDirectory` on the service config via a JSON config merge BEFORE running the `deploymentTriggerCreate` mutation. Creating the trigger fires an immediate build against whatever `rootDirectory` is currently on the service; missing config → build runs from the repo root → wrong image gets deployed → service crashes. This cost ~20 minutes of reviewer-service downtime on 2026-04-22 when the ordering was reversed.
 >
-> Apply the rootDirectory patch first:
+> Apply the rootDirectory merge first (note: this is a shallow document merge, not an RFC 6902 JSON Patch):
 >
 > ```bash
 > cat <<'EOF' | railway environment edit --json
-> {"services":{"<service-id>":{"source":{"rootDirectory":"/services/reviewer","repo":"edobry/minsky","branch":"main"}}}}
+> {"services":{"<service-id>":{"source":{"rootDirectory":"services/reviewer","repo":"edobry/minsky","branch":"main"}}}}
 > EOF
 > ```
 >
-> Verify it persisted with `railway environment config --json` before proceeding. The CLI's dot-path `--service-config source.rootDirectory ...` form silently no-ops for this field; JSON-patch is the working form.
+> Verify it persisted with `railway environment config --json` before proceeding. The CLI's dot-path `--service-config source.rootDirectory ...` form was observed to silently no-op for this field on CLI 4.40.2; the JSON-merge form worked. If that silent no-op is reproducible on your install, consider filing upstream against Railway.
 
 > **Note:** the project/environment/service UUIDs below are for the live `edobry` Railway deployment. Replace them with your own from `railway status --json` for any other deployment.
 
@@ -130,7 +132,7 @@ mutation Create($input: DeploymentTriggerCreateInput!) {
 }
 ```
 
-Variables:
+Variables (note: `rootDirectory` is a **service-config** field, not a trigger field — set it via the JSON config merge above, not here):
 
 ```json
 {
@@ -140,8 +142,7 @@ Variables:
     "serviceId": "3913e8a4-81ab-465a-aad8-b76b5e3f66ed",
     "branch": "main",
     "repository": "edobry/minsky",
-    "provider": "github",
-    "rootDirectory": "/services/reviewer"
+    "provider": "github"
   }
 }
 ```
@@ -151,9 +152,8 @@ The Railway CLI does not expose a first-class `trigger create` command at 4.40.x
 ### What happens after a merge
 
 1. GitHub sends a webhook to Railway when `main` moves.
-2. Railway checks whether any file under `rootDirectory` (`/services/reviewer`) changed.
-3. If yes, Railway builds from the new SHA using the Dockerfile at `services/reviewer/Dockerfile` and deploys the new image to `production`.
-4. If no, no rebuild is triggered.
+2. Railway decides whether to run a build. Observed behavior on 2026-04-22: the service rebuilt even on main commits that didn't touch `services/reviewer/`, suggesting the deployment trigger is branch-wide rather than path-filtered. **Plan for this — do not assume path-filtered rebuilds.** If you need strict path filtering, configure `build.watchPatterns` separately on the service.
+3. When Railway does build, it uses the Dockerfile at `services/reviewer/Dockerfile` (resolved from the `rootDirectory` in the service's `source` config) and deploys the new image to `production`.
 
 Railway's _Deployments_ tab in the web UI and the `railway logs` CLI show each auto-triggered build. The build metadata includes `RAILWAY_GIT_COMMIT_SHA` so you can correlate back to the merge commit.
 
@@ -162,7 +162,9 @@ Railway's _Deployments_ tab in the web UI and the `railway logs` CLI show each a
 ```bash
 # After merging a PR that touches services/reviewer/
 railway deployment list --service minsky-reviewer-webhook --limit 5 --json
-# Newest entry should have meta.commitSha matching the merge commit.
+# Newest entry should be status=SUCCESS and reference the recent commit.
+# JSON field names may vary by CLI version — run `railway deployment list --help`
+# to see the schema for your install.
 
 curl https://<railway-domain>/health
 # Confirms the new code is serving traffic.
@@ -171,8 +173,8 @@ curl https://<railway-domain>/health
 If no new deployment appears within ~60s of the merge, check:
 
 - The GitHub App grant is live (`Installed` at <https://github.com/settings/installations>)
-- The deployment trigger exists (query `service.repoTriggers` via GraphQL)
-- The merge commit actually touched a file under `rootDirectory`
+- The deployment trigger exists (query `service.repoTriggers` via GraphQL — exact field names subject to API version)
+- The merge commit actually touched a file under `rootDirectory` (if you configured `build.watchPatterns`; otherwise every main push triggers)
 
 ### Manual deploy still works
 
