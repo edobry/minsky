@@ -139,3 +139,150 @@ tags: [testing]
     expect(rule.tags).toEqual(["testing"]);
   });
 });
+
+// ─── listRules deduplication tests ──────────────────────────────────────────
+
+/**
+ * Fake fs for listRules tests. readdir returns string[] (filenames) as the real
+ * fs/promises.readdir does by default — unlike makeFakeFs above which returns
+ * FakeDirent objects (needed by getRule tests for the .name property).
+ */
+function makeStringFs(files: Record<string, string>): FakeFs {
+  return {
+    async readdir(pathArg: unknown): Promise<FakeDirent[]> {
+      const dir = String(pathArg);
+      const prefix = dir.endsWith("/") ? dir : `${dir}/`;
+      const names = Object.keys(files)
+        .filter((f) => f.startsWith(prefix) && !f.slice(prefix.length).includes("/"))
+        .map((f) => f.slice(prefix.length));
+      // Return as "strings" cast through the FakeDirent union — RuleService uses
+      // for...of and calls .endsWith() on each element, which works for plain strings.
+      return names as unknown as FakeDirent[];
+    },
+    async access(pathArg: unknown): Promise<void> {
+      const p = String(pathArg);
+      if (!(p in files)) {
+        const err = Object.assign(new Error(`ENOENT: no such file: ${p}`), { code: "ENOENT" });
+        throw err;
+      }
+    },
+    async readFile(pathArg: unknown): Promise<Buffer> {
+      const p = String(pathArg);
+      const content = files[p];
+      if (content === undefined) {
+        const err = Object.assign(new Error(`ENOENT: no such file: ${p}`), { code: "ENOENT" });
+        throw err;
+      }
+      return Buffer.from(content);
+    },
+    async mkdir(): Promise<undefined> {
+      return undefined;
+    },
+    async writeFile(): Promise<void> {
+      return undefined;
+    },
+  };
+}
+
+describe("RuleService.listRules() — cross-directory deduplication", () => {
+  const minskyRuleMdc = `---
+name: Shared Rule
+description: Rule present in both minsky and cursor dirs
+alwaysApply: true
+---
+# Shared Rule (minsky source)
+Content from minsky source.
+`;
+
+  const cursorRuleMdc = `---
+name: Shared Rule
+description: Rule present in both minsky and cursor dirs
+alwaysApply: true
+---
+# Shared Rule (cursor source)
+Content from cursor source.
+`;
+
+  const cursorOnlyMdc = `---
+name: Cursor Only Rule
+description: Rule only in cursor dir
+alwaysApply: true
+---
+# Cursor Only Rule
+Cursor-only content.
+`;
+
+  it("deduplicates rules present in both .minsky/rules/ and .cursor/rules/", async () => {
+    const workspacePath = "/workspace";
+    const files: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/shared-rule.mdc`]: minskyRuleMdc,
+      [`${workspacePath}/.cursor/rules/shared-rule.mdc`]: cursorRuleMdc,
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const rules = await service.listRules({});
+    const sharedRules = rules.filter((r) => r.id === "shared-rule");
+
+    expect(sharedRules).toHaveLength(1);
+  });
+
+  it("prefers .minsky/rules/ version when the same ID exists in both dirs", async () => {
+    const workspacePath = "/workspace";
+    const files: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/shared-rule.mdc`]: minskyRuleMdc,
+      [`${workspacePath}/.cursor/rules/shared-rule.mdc`]: cursorRuleMdc,
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const rules = await service.listRules({});
+    const rule = rules.find((r) => r.id === "shared-rule");
+
+    expect(rule).toBeDefined();
+    expect(rule?.format).toBe("minsky");
+    expect(rule?.content).toContain("minsky source");
+  });
+
+  it("still includes rules that only appear in .cursor/rules/", async () => {
+    const workspacePath = "/workspace";
+    const files: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/shared-rule.mdc`]: minskyRuleMdc,
+      [`${workspacePath}/.cursor/rules/shared-rule.mdc`]: cursorRuleMdc,
+      [`${workspacePath}/.cursor/rules/cursor-only.mdc`]: cursorOnlyMdc,
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const rules = await service.listRules({});
+
+    expect(rules.some((r) => r.id === "cursor-only")).toBe(true);
+    expect(rules.filter((r) => r.id === "shared-rule")).toHaveLength(1);
+    expect(rules).toHaveLength(2);
+  });
+
+  it("does not deduplicate when a specific format is requested", async () => {
+    // When format is specified, return all rules in that dir without dedup
+    const workspacePath = "/workspace";
+    const files: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/shared-rule.mdc`]: minskyRuleMdc,
+      [`${workspacePath}/.cursor/rules/shared-rule.mdc`]: cursorRuleMdc,
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const cursorRules = await service.listRules({ format: "cursor" });
+    // With format specified, returns only cursor rules (no cross-dir dedup needed)
+    expect(cursorRules).toHaveLength(1);
+    expect(cursorRules[0]?.format).toBe("cursor");
+    expect(cursorRules[0]?.content).toContain("cursor source");
+  });
+});

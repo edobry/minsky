@@ -1,0 +1,15 @@
+---
+name: Work Completion
+description: 'Rules for completing work - do not defer, do not self-scope, artifact creation is not progress.'
+alwaysApply: true
+tags:
+  - minsky
+  - discipline
+---
+# Work Completion
+
+- **Do not defer identified, actionable work.** Complete unmet success criteria before proposing to ship.
+- **The user decides scope, not the agent.** Never unilaterally decide "this is a good stopping point."
+- **Artifact creation is not progress.** Creating tasks/specs/rules is not a substitute for doing the work.
+- **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
+- **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.

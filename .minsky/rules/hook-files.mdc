@@ -1,0 +1,11 @@
+---
+name: Hook Files
+description: All .claude/hooks/*.ts files must have execute permission (chmod +x). Pre-commit hook enforces this.
+alwaysApply: true
+tags:
+  - minsky
+  - hooks
+---
+# Hook Files
+
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
