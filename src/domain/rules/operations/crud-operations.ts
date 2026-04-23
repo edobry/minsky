@@ -4,9 +4,9 @@
  * Functions for listing, getting, creating, updating, generating, and compiling rules.
  */
 
-import fs from "fs/promises";
+import nodeFs from "fs/promises";
 import path from "path";
-import { RuleService, type RuleFormat } from "../../rules";
+import { RuleService, type RuleFormat, type RuleServiceFs } from "../../rules";
 import { createRuleTemplateService } from "../rule-template-service";
 import { type RuleGenerationConfig } from "../template-system";
 import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
@@ -51,7 +51,7 @@ export async function listRulesFiltered(options: ListRulesOptions): Promise<List
       const withUpdatedAt = await Promise.all(
         rules.map(async (rule): Promise<RuleWithUpdatedAt> => {
           try {
-            const stat = await fs.stat(rule.path);
+            const stat = await nodeFs.stat(rule.path);
             return { ...rule, updatedAt: new Date(stat.mtimeMs) };
           } catch {
             return { ...rule };
@@ -74,12 +74,28 @@ export async function listRulesFiltered(options: ListRulesOptions): Promise<List
 
 /**
  * Compile rules into a monolithic file, with optional check (staleness) mode.
+ *
+ * `deps` exists so tests can inject an in-memory fs (and optionally a pre-built
+ * RuleService) without touching the real filesystem. `fs` uses the same
+ * RuleServiceFs shape so a single mock can flow into both this function and
+ * any internally-constructed RuleService.
  */
-export async function compileRules(options: CompileRulesOptions): Promise<CompileRulesResult> {
+export async function compileRules(
+  options: CompileRulesOptions,
+  deps?: {
+    fs?: RuleServiceFs;
+    ruleService?: RuleService;
+  }
+): Promise<CompileRulesResult> {
   const { createCompileService } = await import("../compile/compile-service");
 
+  const fs: RuleServiceFs = deps?.fs ?? (nodeFs as RuleServiceFs);
   const targetId = options.target || "agents.md";
-  const ruleService = new RuleService(options.workspacePath);
+  const ruleService =
+    deps?.ruleService ??
+    new RuleService(options.workspacePath, {
+      fsPromises: deps?.fs,
+    });
   const compileService = createCompileService();
 
   // For check mode, do a dry-run first to get the compiled content, then compare on disk

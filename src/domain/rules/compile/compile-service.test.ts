@@ -3,24 +3,13 @@ import { CompileService, createCompileService } from "./compile-service";
 import type { CompileTarget, CompileResult, TargetOptions } from "./types";
 import type { Rule } from "../types";
 import type { RuleService } from "../../rules";
+import { makeRule } from "./test-utils";
 
 // Helper to create a mock RuleService
 function createMockRuleService(rules: Rule[]): RuleService {
   return {
     listRules: async () => rules,
   } as unknown as RuleService;
-}
-
-// Helper to create a minimal Rule object
-function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
-  return {
-    id,
-    content,
-    format: "cursor",
-    path: `/fake/path/${id}.mdc`,
-    alwaysApply: false,
-    ...opts,
-  };
 }
 
 // Mock target that captures calls

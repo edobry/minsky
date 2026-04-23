@@ -2,19 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { cursorRulesTarget, buildCursorRulesContent, serializeRuleToMdc } from "./cursor-rules";
 import type { Rule } from "../../types";
 import { SOME_RULE_CONTENT } from "./test-fixtures";
+import { makeRule } from "../test-utils";
 import { first } from "../../../../utils/array-safety";
-
-// Helper to create a minimal Rule object
-function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
-  return {
-    id,
-    content,
-    format: "cursor",
-    path: `/fake/path/${id}.mdc`,
-    alwaysApply: false,
-    ...opts,
-  };
-}
 
 describe("cursor-rules target", () => {
   describe("target metadata", () => {
@@ -29,6 +18,26 @@ describe("cursor-rules target", () => {
     it("defaultOutputPath returns .cursor/rules/ under workspace", () => {
       const result = cursorRulesTarget.defaultOutputPath("/workspace");
       expect(result).toBe("/workspace/.cursor/rules");
+    });
+  });
+
+  describe("listOutputFiles()", () => {
+    it("returns one path per rule", () => {
+      const rules = [
+        makeRule("rule-a", "Content A"),
+        makeRule("rule-b", "Content B"),
+        makeRule("rule-c", "Content C"),
+      ];
+      const paths = cursorRulesTarget.listOutputFiles(rules, {}, "/workspace");
+      expect(paths).toHaveLength(3);
+      expect(paths).toContain("/workspace/.cursor/rules/rule-a.mdc");
+      expect(paths).toContain("/workspace/.cursor/rules/rule-b.mdc");
+      expect(paths).toContain("/workspace/.cursor/rules/rule-c.mdc");
+    });
+
+    it("returns empty list for zero rules", () => {
+      const paths = cursorRulesTarget.listOutputFiles([], {}, "/workspace");
+      expect(paths).toHaveLength(0);
     });
   });
 
