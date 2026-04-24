@@ -78,13 +78,14 @@ Use `{ cause: err }` when re-throwing to maintain the chain, and add contextual 
 
 ```typescript
 // AVOID
-throw new Error(`Failed: ${err.message}`);
+throw new Error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
 
 // PREFER
 try {
   await processFile(filePath);
 } catch (err) {
-  throw new Error(`Failed to process file ${filePath}: ${err.message}`, { cause: err });
+  const message = err instanceof Error ? err.message : String(err);
+  throw new Error(`Failed to process file ${filePath}: ${message}`, { cause: err });
 }
 ```
 
@@ -127,8 +128,7 @@ Prevent hanging operations with proper timeouts:
 ```typescript
 // Set up a timeout with proper cleanup
 const timeoutPromise = new Promise((_, reject) => {
-  const id = setTimeout(() => {
-    clearTimeout(id);
+  setTimeout(() => {
     reject(new Error(`Operation timed out after ${timeoutMs}ms`));
   }, timeoutMs);
 });
@@ -139,12 +139,7 @@ return Promise.race([operation(), timeoutPromise]);
 
 ### 8. ALL errors are blockers
 
-Every error MUST be fixed before task completion — including warnings, linting errors, type errors, and build errors. If fixing requires scope expansion:
-
-1. Acknowledge the error explicitly
-2. Propose a plan for the fix
-3. Ask for confirmation if the fix expands scope
-4. Never mark a task complete while errors remain
+See the `dont-ignore-errors` rule (`.minsky/rules/dont-ignore-errors.mdc`) for the hard policy: all errors must be fixed before task completion.
 
 ## User-facing error messages
 
