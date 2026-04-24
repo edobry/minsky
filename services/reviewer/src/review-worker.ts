@@ -364,6 +364,40 @@ export async function runReview(
     attempt,
   });
 
+  // On the sanitize=errored path, mirror the mt#1125 empty-output pattern:
+  // defensively post the service-error notice in try/catch so a secondary
+  // posting failure doesn't mask the primary error, and do NOT populate the
+  // `review` field — downstream consumers treat status="error" as "no review
+  // confirmed posted" per the empty-output precedent.
+  //
+  // On the reviewed path, let submitReview failures bubble up so the webhook
+  // retries the delivery (same behavior as the pre-mt#1212 normal path).
+  if (outcome.status === "error") {
+    try {
+      await submitReview(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        outcome.event,
+        annotateReviewBody(sanitized.body, output, tier, isSelfReview)
+      );
+    } catch {
+      // Primary error is still captured in outcome.reason + status below.
+    }
+    return {
+      status: "error",
+      reason: outcome.reason,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+      attempt,
+      retryAttempted,
+      taskSpecFetch,
+    };
+  }
+
   const review = await submitReview(
     octokit,
     owner,

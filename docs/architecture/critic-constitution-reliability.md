@@ -95,7 +95,18 @@ apostrophes in prose, so scratch phrases like `I'll`, `I'll`, `Let's`,
 `Let's` all match. The blank-line-run regex accepts both LF and CRLF line
 endings. The `Calling <tool>` narration pattern requires either a
 snake_case tool name or an `on <path>` segment, avoiding false positives
-on ordinary prose like "Calling maintainers,".
+on ordinary prose like "Calling maintainers,". Trailing punctuation on the
+`Calling` pattern is optional — the earlier stricter form missed
+"Calling read_file\n" without a period.
+
+**Error-path return shape.** On the sanitize=errored path, the worker
+follows the mt#1125 empty-output precedent: `submitReview` is wrapped in
+`try/catch` (so a secondary posting failure doesn't mask the primary CoT
+error), and the returned `ReviewResult.review` field is NOT populated.
+Downstream consumers must key on `status === "reviewed"` rather than the
+presence of a `review` object to determine whether a successful review
+was recorded. This matches the empty-output error path and keeps both
+reliability guards structurally consistent.
 
 **Observability.** When the guard fires, `review-worker.ts` logs a
 structured event `reviewer.cot_leak_detected` with:

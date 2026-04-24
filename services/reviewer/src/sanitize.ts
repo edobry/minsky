@@ -48,14 +48,16 @@ const STRUCTURAL_HEADING_RE =
 // in prose, and the PR #758 R3 reviewer flagged the ASCII-only variants as
 // a gap.
 const STRONG_SCRATCH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
-  // "Calling read_file on src/foo.ts." / "Calling list_directory."
+  // "Calling read_file on src/foo.ts." / "Calling list_directory" —
   //
   // Two alternatives — either the tool name is snake_case (contains an
   // underscore), OR the call includes an `on <path>` segment. Keeps real
   // tool-call narration captured while excluding prose like
-  // "Calling maintainers," or "Calling this." (R3 non-blocking finding).
+  // "Calling maintainers," or "Calling this." Trailing punctuation is
+  // optional so "Calling read_file\n" (no period, just a newline) also
+  // matches — R5 reviewer flagged the stricter form as a recall gap.
   {
-    pattern: /\bCalling\s+(?:[a-z_][a-z_0-9]*_[a-z_0-9]+|[a-z_][a-z_0-9]*\s+on\s+\S+)[.,]/i,
+    pattern: /\bCalling\s+(?:[a-z_][a-z_0-9]*_[a-z_0-9]+|[a-z_][a-z_0-9]*\s+on\s+\S+)/i,
     name: "scratch:tool-call-narration",
   },
   { pattern: /\bThis time for sure\b/i, name: "scratch:this-time-for-sure" },

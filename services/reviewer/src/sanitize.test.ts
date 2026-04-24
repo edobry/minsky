@@ -252,6 +252,18 @@ describe("sanitizeReviewBody", () => {
     expect(r2.meta.reason).toContain(SIGNAL_TOOL_CALL);
   });
 
+  test("Calling-tool regex matches without trailing punctuation (R5 recall gap)", () => {
+    // The R5 reviewer's specific failing scenario: no period after the path.
+    const r1 = sanitizeReviewBody("Calling read_file on src/foo.ts\n## Findings\n- ok");
+    expect(r1.action).toBe("stripped");
+    expect(r1.meta.reason).toContain(SIGNAL_TOOL_CALL);
+
+    // snake_case tool name alone, no punctuation either.
+    const r2 = sanitizeReviewBody("Calling read_file\n## Findings\n- ok");
+    expect(r2.action).toBe("stripped");
+    expect(r2.meta.reason).toContain(SIGNAL_TOOL_CALL);
+  });
+
   test("CRLF line endings in a blank-line run are still detected", () => {
     const body = ["Some intro.", ...Array(30).fill(""), "## Findings", "- ok"].join("\r\n");
     const result = sanitizeReviewBody(body);
