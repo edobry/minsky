@@ -19,6 +19,24 @@ import {
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
+import { withPgPoolRetry } from "../postgres-retry";
+
+// Per-process default pool size. Intentionally small: Minsky shares a single
+// Supabase/Supavisor session-mode pooler across multiple consumers (laptop
+// MCP, Railway MCP, ad-hoc scripts). A high per-process max saturates the
+// pooler's global ceiling. Override via persistence.postgres.maxConnections
+// in config or MINSKY_POSTGRES_MAX_CONNECTIONS env var (mt#1193).
+const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
+
+function resolveMaxConnections(configured: number | undefined): number {
+  if (typeof configured === "number" && configured > 0) return configured;
+  const envRaw = process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+  if (envRaw) {
+    const parsed = Number(envRaw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_POSTGRES_MAX_CONNECTIONS;
+}
 
 /**
  * Base PostgreSQL persistence provider (without vector storage)
@@ -79,9 +97,9 @@ export class PostgresPersistenceProvider
       const sql =
         deps?.sqlClient ??
         postgres(pgConfig.connectionString, {
-          max: pgConfig.maxConnections || 10,
-          connect_timeout: pgConfig.connectTimeout || 10,
-          idle_timeout: pgConfig.idleTimeout || 60,
+          max: resolveMaxConnections(pgConfig.maxConnections),
+          connect_timeout: pgConfig.connectTimeout ?? 10,
+          idle_timeout: pgConfig.idleTimeout ?? 60,
           prepare: pgConfig.prepareStatements ?? false,
         });
 
@@ -94,8 +112,8 @@ export class PostgresPersistenceProvider
       // Create Drizzle instance
       const db = drizzle(sql);
 
-      // Verify connection
-      await sql`SELECT 1`;
+      // Verify connection — retry on pool saturation (mt#1193)
+      await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
 
       // All checks passed — now cache
       this.sql = sql;
@@ -147,8 +165,8 @@ export class PostgresPersistenceProvider
     const storage = new PostgresStorage(
       {
         connectionString: this.pgConfig.connectionString,
-        maxConnections: this.pgConfig.maxConnections || 10,
-        connectTimeout: this.pgConfig.connectTimeout || 30,
+        maxConnections: resolveMaxConnections(this.pgConfig.maxConnections),
+        connectTimeout: this.pgConfig.connectTimeout ?? 30,
       },
       this // Pass provider so storage reuses our connections
     );

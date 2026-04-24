@@ -79,7 +79,8 @@ describe("Cache-before-init detection", () => {
     const method = source.match(/async initialize\(deps[\s\S]*?throw error;\s*\}\s*\}/)?.[0];
     expect(method).toBeDefined();
 
-    const verifyIdx = method?.indexOf("await sql`SELECT 1`") ?? -1;
+    // Accept either the original literal form or the withPgPoolRetry wrapper (mt#1193).
+    const verifyIdx = method?.search(/sql`SELECT 1`/) ?? -1;
     const assignIdx = method?.indexOf("this.sql = sql") ?? -1;
     expect(verifyIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
