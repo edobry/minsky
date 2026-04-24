@@ -254,6 +254,17 @@ export interface CommandRegistry {
    * @returns All registered command definitions
    */
   getAllCommands(): SharedCommand[];
+
+  /**
+   * Remove a command from the registry.
+   *
+   * Intended primarily for test teardown; production code should not
+   * unregister commands during normal operation.
+   *
+   * @param id Command identifier
+   * @returns True if a command was removed; false if no command with that id existed
+   */
+  unregisterCommand(id: string): boolean;
 }
 
 /**
@@ -340,6 +351,17 @@ export class SharedCommandRegistry implements CommandRegistry {
    */
   clear(): void {
     this.commands.clear();
+  }
+
+  /**
+   * Remove a single command from the registry.
+   *
+   * Intended primarily for test teardown so test-only commands do not
+   * persist in the global registry across tests. Returns true if a command
+   * was removed; false if the id was not registered.
+   */
+  unregisterCommand(id: string): boolean {
+    return this.commands.delete(id);
   }
 }
 
