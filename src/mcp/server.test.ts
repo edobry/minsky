@@ -11,6 +11,10 @@ import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
+// Shared HTTP content-type constants used across integration tests
+const CONTENT_TYPE_JSON = "application/json";
+const ACCEPT_MCP = "application/json, text/event-stream";
+
 describe("MCP Server", () => {
   beforeEach(() => {
     setupTestMocks();
@@ -128,8 +132,8 @@ describe("MCP Server", () => {
         fetch(baseUrl, {
           method: "POST",
           headers: {
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
+            "content-type": CONTENT_TYPE_JSON,
+            accept: ACCEPT_MCP,
           },
           body: initBody(clientName),
         });
@@ -242,5 +246,53 @@ describe("MCP Server", () => {
     expect(serverAsAny.httpSessions.has("idle")).toBe(false);
 
     await server.close();
+  });
+
+  test("HTTP transport: missing body-parser returns 500 JSON-RPC -32603", async () => {
+    // Regression guard: if express.json() is omitted, req.body is undefined and the
+    // old code would emit a confusing 400 protocol-violation error. With the guard in
+    // place the handler must return 500 with code -32603 and a message that names
+    // "express.json()" so the operator knows exactly what to fix.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Intentionally omit express.json() so req.body is undefined
+    const app = express();
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, {
+        method: "POST",
+        headers: { "content-type": CONTENT_TYPE_JSON },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      });
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32603 },
+        id: null,
+      });
+      expect((body.error.message as string).toLowerCase()).toContain("express.json()");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
   });
 });
