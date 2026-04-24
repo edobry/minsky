@@ -204,9 +204,12 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return await withPgPoolRetry(async () => {
         log.debug("PostgreSQL readState: Starting");
         await this.ensureConnection();
-        log.debug("PostgreSQL readState: Connection established, calling getEntities");
+        log.debug("PostgreSQL readState: Connection established, calling getEntitiesInternal");
+        // Call the non-retrying internal variant: readState is already wrapped
+        // by withPgPoolRetry above, so routing through public getEntities would
+        // nest retries and multiply backoff delays on sustained saturation.
         const sessions = await this.getEntitiesInternal();
-        log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntities`);
+        log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntitiesInternal`);
 
         const state: SessionDbState = {
           sessions,

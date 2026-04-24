@@ -162,12 +162,10 @@ export class PostgresPersistenceProvider
     }
 
     const { PostgresStorage } = require("../../storage/backends/postgres-storage");
+    // PostgresStorage reuses this provider's sql client (see constructor); it
+    // does not open its own sockets, so only connectionString is needed.
     const storage = new PostgresStorage(
-      {
-        connectionString: this.pgConfig.connectionString,
-        maxConnections: resolveMaxConnections(this.pgConfig.maxConnections),
-        connectTimeout: this.pgConfig.connectTimeout ?? 30,
-      },
+      { connectionString: this.pgConfig.connectionString },
       this // Pass provider so storage reuses our connections
     );
 
