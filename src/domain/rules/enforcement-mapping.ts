@@ -168,21 +168,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // ── Type safety: excessive as-unknown ────────────────────────────────────
-  {
-    ruleId: "robust-error-handling",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "custom/no-excessive-as-unknown",
-        description:
-          "Warns on high-risk 'as unknown' type assertions that mask real type errors; allows legitimate patterns via configurable allowedPatterns",
-        configPath: "eslint-rules/no-excessive-as-unknown.js",
-        portability: "portable",
-      },
-    ],
-  },
-
   // ── Constants / magic string duplication ─────────────────────────────────
   {
     ruleId: "constants-management",

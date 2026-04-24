@@ -1,5 +1,5 @@
 ---
-description: Use when encountering any error. Apply with robust-error-handling for complete error handling strategy.
+description: Use when encountering any error. Apply with the error-handling skill for complete error handling strategy.
 alwaysApply: false
 tags:
   - safety
