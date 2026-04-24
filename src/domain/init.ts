@@ -5,10 +5,7 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
-import {
-  generateRulesWithTemplateSystem,
-  generateMcpRuleWithTemplateSystem,
-} from "./init/rule-templates";
+import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -31,7 +28,6 @@ export {
   getMinskyRuleContent,
   getRulesIndexContent,
   generateRulesWithTemplateSystem,
-  generateMcpRuleWithTemplateSystem,
 } from "./init/rule-templates";
 
 export const initializeProjectParamsSchema = z.object({
@@ -166,13 +162,6 @@ export async function initializeProject(
         : path.join(repoPath, ".ai", "rules");
 
     await createDirectoryIfNotExists(mcpRulesDirPath, fileSystem);
-
-    // Generate MCP rule using template system (tolerate missing command registry in tests)
-    try {
-      await generateMcpRuleWithTemplateSystem(mcpRulesDirPath, ruleFormat, overwrite, mcp);
-    } catch (_e) {
-      // Skip in unit tests without registry
-    }
   }
 
   // === Phase 2: Developer-local setup ===

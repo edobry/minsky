@@ -238,7 +238,6 @@ ${helpers.command("session.pr.create")}
 This rule integrates with:
 
 - **task-implementation-workflow**: For complete task implementation process
-- **session-first-workflow**: For the requirement that all implementation happens in sessions
 - **pr-preparation-workflow**: For creating PRs from sessions
 - **task-status-protocol**: For status updates during session operations`;
   },

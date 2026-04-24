@@ -442,7 +442,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testable-design, orchestrate skill, session-first-workflow
+- See also: testable-design, orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -629,29 +629,6 @@ See also: `testing-boundaries` for specific guidance on CLI and framework testin
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
 
-## Minsky Workflow
-
-# Session-First Workflow
-
-All code, test, and configuration changes for a task MUST be made exclusively within the session workspace.
-
-## Requirements
-
-- All file operations in session workspaces MUST use absolute paths.
-- Session directory pattern: `/Users/edobry/.local/state/minsky/sessions/<session-id>/`
-- Never edit files in the main workspace while implementing a task.
-- If the main project has a bug, create a separate task — do not fix it in-place.
-- Never copy files between session and main workspace manually. Use the branch/PR process.
-
-## Main Workspace Edits Prohibition
-
-NEVER make direct code changes to files within the main Minsky project workspace (e.g., `/Users/edobry/Projects/minsky`). All fixes must go through a task's dedicated session workspace and the standard PR process.
-
-## See also
-
-- `implement-task` skill for the full implementation lifecycle
-- `orchestrate` skill for the master workflow
-
 ## Git & PR Workflow
 
 # Git Usage Policy
@@ -671,7 +648,6 @@ General best practices for Git usage in the Minsky project. For safety protocols
 
 - `git-safety` skill: Safety protocols for destructive git operations
 - `orchestrate` skill: How Git operations fit into the broader Minsky workflow
-- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
 
 ## Boundaries
 
