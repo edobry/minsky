@@ -3,10 +3,33 @@
 //
 // Rationale: Minsky provides MCP tools for all common git/gh operations.
 // Using raw CLI bypasses session resolution, auto-push, and audit trails.
-// This hook intercepts Bash tool calls and denies known-equivalent operations.
+// This hook intercepts both `Bash` AND `mcp__minsky__session_exec` tool calls
+// (both accept a `command` parameter) and denies known-equivalent operations.
+//
+// A small subset of rules (`git status`, `git stash`, `git reset`, `git -C`)
+// have denial messages that explicitly redirect to `session_exec` as the
+// allowed path. Those rules are tagged `allowedInSessionExec: true` and skipped
+// when the invocation is already via session_exec — otherwise the hook would
+// contradict its own guidance.
+//
+// @see mt#1196 — extending this hook to cover session_exec after PR #717
+// retrospective surfaced the loophole.
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+
+// ---------------------------------------------------------------------------
+// Tool context
+// ---------------------------------------------------------------------------
+
+export type HookTool = "bash" | "session_exec";
+
+export const SESSION_EXEC_TOOL_NAME = "mcp__minsky__session_exec";
+
+/** Derive a HookTool tag from the raw `tool_name` field. */
+export function toolContextFromName(toolName: string): HookTool {
+  return toolName === SESSION_EXEC_TOOL_NAME ? "session_exec" : "bash";
+}
 
 // ---------------------------------------------------------------------------
 // Denial table types
@@ -15,6 +38,13 @@ import type { ToolHookInput } from "./types";
 export interface DenialRule {
   match: (args: string[]) => boolean;
   reason: string;
+  /**
+   * When true, this rule is SKIPPED when the invocation comes via
+   * `mcp__minsky__session_exec`. Used for rules whose reason explicitly
+   * redirects to session_exec — applying them on session_exec itself would
+   * be self-contradictory.
+   */
+  allowedInSessionExec?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -22,11 +52,13 @@ export interface DenialRule {
 // ---------------------------------------------------------------------------
 
 export const gitDenials: DenialRule[] = [
-  // git -C <path> anything — always deny, point to session_exec
+  // git -C <path> anything — always deny on Bash; on session_exec it's
+  // redundant-but-harmless (session_exec sets cwd), so skip.
   {
     match: (args) => args[0] === "-C",
     reason:
       "Use `mcp__minsky__session_exec(task, command)` instead of `git -C <path>`. It resolves the session directory automatically.",
+    allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "add",
@@ -45,6 +77,8 @@ export const gitDenials: DenialRule[] = [
     match: (args) => args[0] === "status",
     reason:
       "Use `mcp__minsky__session_exec(task, 'git status')` inside a session, or avoid the call if context is available from diff/log tools.",
+    // On session_exec itself, `git status` is the recommended path — don't block.
+    allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "log",
@@ -91,11 +125,15 @@ export const gitDenials: DenialRule[] = [
     match: (args) => args[0] === "reset",
     reason:
       "Use `mcp__minsky__session_exec(task, 'git reset ...')` if you genuinely need a reset in a session. This is a destructive operation — consider the revert alternative first.",
+    // On session_exec itself, `git reset` is the recommended escape hatch — don't block.
+    allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "stash",
     reason:
       "No first-class MCP equivalent. If you need to stash in a session, use `mcp__minsky__session_exec(task, 'git stash')` — the call runs server-side and is not blocked by this hook.",
+    // On session_exec itself, `git stash` is the recommended escape hatch — don't block.
+    allowedInSessionExec: true,
   },
 ];
 
@@ -213,12 +251,17 @@ export function parseCommands(command: string): ParsedCommand[] {
 }
 
 /**
- * Check a parsed command against the denial tables.
+ * Check a parsed command against the denial tables, taking the invoking tool
+ * context into account. Rules tagged `allowedInSessionExec` are skipped when
+ * `context === "session_exec"` — their reasons redirect to session_exec, so
+ * applying them on session_exec itself would be self-contradictory.
+ *
  * Returns the denial reason string if denied, or null if allowed.
  */
-export function checkDenial(parsed: ParsedCommand): string | null {
+export function checkDenial(parsed: ParsedCommand, context: HookTool = "bash"): string | null {
   const denials = parsed.binary === "git" ? gitDenials : ghDenials;
   for (const rule of denials) {
+    if (context === "session_exec" && rule.allowedInSessionExec) continue;
     if (rule.match(parsed.args)) {
       return rule.reason;
     }
@@ -230,23 +273,26 @@ export function checkDenial(parsed: ParsedCommand): string | null {
 // Hook entry point
 // ---------------------------------------------------------------------------
 
-const input = await readInput<ToolHookInput>();
-const command = (input.tool_input.command as string) ?? "";
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+  const command = (input.tool_input.command as string) ?? "";
+  const context = toolContextFromName(input.tool_name);
 
-const parsedCommands = parseCommands(command);
+  const parsedCommands = parseCommands(command);
 
-for (const parsed of parsedCommands) {
-  const reason = checkDenial(parsed);
-  if (reason) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: reason,
-      },
-    });
-    process.exit(0);
+  for (const parsed of parsedCommands) {
+    const reason = checkDenial(parsed, context);
+    if (reason) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
+        },
+      });
+      process.exit(0);
+    }
   }
-}
 
-process.exit(0);
+  process.exit(0);
+}
