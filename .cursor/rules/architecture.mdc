@@ -1,0 +1,16 @@
+---
+description: 'Minsky architecture: interface-agnostic clean architecture with domain/adapters/commands layers'
+globs: []
+alwaysApply: false
+tags:
+  - architecture
+---
+# Architecture
+
+Minsky follows clean architecture:
+- `src/domain/` — core business logic, pure TypeScript, no framework deps
+- `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
+- Commands defined once in shared registry, exposed via CLI + MCP
+- Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
+
+See `.claude/skills/code-organization/SKILL.md` for deeper guidance.

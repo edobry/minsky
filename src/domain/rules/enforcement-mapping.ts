@@ -69,21 +69,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // ── Git operation safety ──────────────────────────────────────────────────
-  {
-    ruleId: "git-usage-policy",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "custom/no-unsafe-git-exec",
-        description:
-          "Errors on execAsync/exec calls containing git network operations (push/pull/fetch/clone) without timeout protection; warns on other git operations",
-        configPath: "eslint-rules/no-unsafe-git-exec.js",
-        portability: "portable",
-      },
-    ],
-  },
-
   // ── Test patterns: no Jest ────────────────────────────────────────────────
   {
     ruleId: "bun-test-patterns",
@@ -289,6 +274,21 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
         name: "CI: lint",
         description: "GitHub Actions CI runs `bun run lint` on every push/PR to main",
         configPath: ".github/workflows/ci.yml",
+        portability: "portable",
+      },
+    ],
+  },
+
+  // ── Git safety (destructive operation guard) ──────────────────────────────
+  {
+    ruleId: "git-safety",
+    mechanisms: [
+      {
+        type: "eslint",
+        name: "custom/no-unsafe-git-exec",
+        description:
+          "Errors on direct shell execution of git commands without the structured git-safety skill protocol; prevents untimed destructive git operations",
+        configPath: "eslint-rules/no-unsafe-git-exec.js",
         portability: "portable",
       },
     ],

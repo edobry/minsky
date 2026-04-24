@@ -235,7 +235,6 @@ These rules ensure consistent organization and structure in the codebase:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **module-organization** | Enforces separation between business logic and CLI concerns | When designing new modules or features |
-| **command-organization** | Standards for structuring CLI commands | When creating new commands or modifying existing ones |
 | **domain-oriented-modules** | Promotes organizing code by domain concepts | When designing module structure or refactoring |
 | **constants-management** | Best practices for organizing constants | When adding new constants or refactoring existing ones |
 
@@ -314,7 +313,7 @@ ${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **module-organization** & **command-organization** - Understand the codebase structure
+2. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
 
 ### When Implementing Features
 
@@ -355,8 +354,8 @@ When developing new Minsky rules:
 For initializing new projects with Minsky:
 
 1. **minsky-workflow** - Establish the core workflow
-3. **changelog** - Set up change tracking
-4. **module-organization** & **command-organization** - If developing with the same architecture
+2. **changelog** - Set up change tracking
+3. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
 
 ## Rule Relationships
 
