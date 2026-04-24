@@ -53,14 +53,23 @@ export function convertParametersToZodSchema(
 
     let schema = param.schema;
 
-    // Make optional if not required
+    // Make optional if not required.
+    // Use z.optional(schema) (functional form) rather than schema.optional() so
+    // this is immune to:
+    //   (a) plain-object schemas that don't have the .optional() method, and
+    //   (b) duplicate-zod-instance issues (monorepo / pnpm dedupe) where the
+    //       schema's prototype chain doesn't match the local z.ZodType class.
     if (!param.required) {
-      schema = schema.optional();
+      schema = z.optional(schema as z.ZodTypeAny);
     }
 
-    // Add default value if present
+    // Add default value if present.
+    // Guard with a typeof check for the same reasons as above.
     if (param.defaultValue !== undefined) {
-      schema = schema.default(param.defaultValue);
+      const schemaAny = schema as z.ZodTypeAny;
+      if (typeof schemaAny.default === "function") {
+        schema = schemaAny.default(param.defaultValue);
+      }
     }
 
     shape[key] = schema;
