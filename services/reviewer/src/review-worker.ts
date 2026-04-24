@@ -244,7 +244,7 @@ export async function decideToolsActive(
   if (!accessible) {
     return {
       toolsActive: false,
-      reason: `fork-access probe failed for PR ${pr.number} (App lacks read access to fork head)`,
+      reason: `fork-access probe failed for PR ${pr.number} (App lacks read access to fork, OR both README.md and package.json are absent at HEAD)`,
     };
   }
   return { toolsActive: true };

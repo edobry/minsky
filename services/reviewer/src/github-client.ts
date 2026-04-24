@@ -169,7 +169,7 @@ export interface DirEntry {
  */
 export type ReadFileResult =
   | { kind: "text"; content: string; truncated: boolean }
-  | { kind: "binary"; size: number };
+  | { kind: "binary"; size: number; truncated: boolean };
 
 /**
  * Heuristic binary detection: scan the first `sampleBytes` of the buffer for
@@ -225,10 +225,18 @@ export async function readFileAtRef(
       throw new Error(`Unexpected response shape for "${path}": no content field`);
     }
     const buf = Buffer.from(data.content, "base64");
-    if (isBinaryBuffer(buf)) {
-      return { kind: "binary", size: buf.length };
-    }
+    // GitHub's Contents API reports truncation on files above ~1MB; when set,
+    // `content` is only a partial snippet and `data.size` is still the full
+    // repository-stored size. Preserve both facts on the result so callers
+    // (envelope, prompt, model) can disambiguate snippet-vs-file boundaries.
     const truncated = "truncated" in data && (data as { truncated?: boolean }).truncated === true;
+    const apiSize =
+      typeof (data as { size?: unknown }).size === "number"
+        ? (data as { size: number }).size
+        : buf.length;
+    if (isBinaryBuffer(buf)) {
+      return { kind: "binary", size: apiSize, truncated };
+    }
     return { kind: "text", content: buf.toString("utf-8"), truncated };
   } catch (err: unknown) {
     if (

@@ -90,11 +90,33 @@ describe("readFileAtRef", () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xde, 0xad, 0xbe, 0xef]);
     const content = bytes.toString("base64");
     const octokit = makeOctokit(() => ({
-      data: { type: "file", content, encoding: "base64" },
+      data: { type: "file", content, encoding: "base64", size: bytes.length },
     }));
 
     const result = await readFileAtRef(octokit, OWNER, REPO, "assets/logo.png", REF);
-    expect(result).toEqual({ kind: "binary", size: bytes.length });
+    expect(result).toEqual({ kind: "binary", size: bytes.length, truncated: false });
+  });
+
+  test("binary + truncated: uses API size (not snippet length) and surfaces truncated:true", async () => {
+    // Regression guard against a bug where buildReadFileEnvelope force-set
+    // truncated:false for binary and used buf.length as size. For large
+    // binaries (>~1MB) GitHub's Contents API returns truncated:true with a
+    // partial snippet and a `size` field that's the full repo-stored size.
+    const snippet = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xde, 0xad, 0xbe, 0xef]);
+    const content = snippet.toString("base64");
+    const actualSize = 2_500_000;
+    const octokit = makeOctokit(() => ({
+      data: {
+        type: "file",
+        content,
+        encoding: "base64",
+        truncated: true,
+        size: actualSize,
+      },
+    }));
+
+    const result = await readFileAtRef(octokit, OWNER, REPO, "assets/huge.png", REF);
+    expect(result).toEqual({ kind: "binary", size: actualSize, truncated: true });
   });
 
   test("empty file (zero bytes) is still treated as text", async () => {

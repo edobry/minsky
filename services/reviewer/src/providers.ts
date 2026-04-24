@@ -100,8 +100,8 @@ const MAX_TOOL_ROUNDS = 10;
  * success branch and `error` on the failure branch.
  */
 export type ReadFileEnvelope =
-  | { ok: true; content: string; truncated: boolean; binary?: false }
-  | { ok: true; content: string; truncated: false; binary: true; size: number }
+  | { ok: true; content: string; truncated: boolean }
+  | { ok: true; content: string; truncated: boolean; binary: true; size: number }
   | { ok: false; error: string };
 
 export type ListDirectoryEnvelope =
@@ -115,10 +115,11 @@ export type ListDirectoryEnvelope =
 export function buildReadFileEnvelope(result: ReadFileResult | null): ReadFileEnvelope {
   if (result === null) return { ok: false, error: "not_found" };
   if (result.kind === "binary") {
+    const suffix = result.truncated ? ", truncated snippet" : "";
     return {
       ok: true,
-      content: `[BINARY FILE: ${result.size} bytes, not decoded]`,
-      truncated: false,
+      content: `[BINARY FILE: ${result.size} bytes${suffix}, not decoded]`,
+      truncated: result.truncated,
       binary: true,
       size: result.size,
     };

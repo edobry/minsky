@@ -101,13 +101,31 @@ describe("buildReadFileEnvelope", () => {
   });
 
   test("binary result surfaces size and a placeholder content string", () => {
-    const envelope = buildReadFileEnvelope({ kind: "binary", size: 4096 });
+    const envelope = buildReadFileEnvelope({ kind: "binary", size: 4096, truncated: false });
     expect(envelope).toEqual({
       ok: true,
       content: "[BINARY FILE: 4096 bytes, not decoded]",
       truncated: false,
       binary: true,
       size: 4096,
+    });
+  });
+
+  test("binary + truncated: envelope propagates truncated:true and annotates placeholder", () => {
+    // Regression guard: a prior revision hardcoded truncated:false on the
+    // binary branch. For large binaries GitHub sets truncated:true and the
+    // model needs to know the snippet isn't authoritative.
+    const envelope = buildReadFileEnvelope({
+      kind: "binary",
+      size: 2_500_000,
+      truncated: true,
+    });
+    expect(envelope).toEqual({
+      ok: true,
+      content: "[BINARY FILE: 2500000 bytes, truncated snippet, not decoded]",
+      truncated: true,
+      binary: true,
+      size: 2_500_000,
     });
   });
 

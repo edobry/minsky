@@ -72,7 +72,7 @@ Both tools return a JSON envelope — see **Tool result envelope** below for the
 
 Both tools use the `contents: read` permission the App already holds.
 
-**Provider support (MVP):** OpenAI only. The reviewer runs a multi-turn completion loop — when the model returns tool calls, they are executed and results appended as messages, then the model is called again. Gemini and Anthropic fall back to the single-turn no-tools path and the service logs a warning (`[mt#1126] Running review without tools: …`) so operators can see why tool verification is absent.
+**Provider support (MVP):** OpenAI only. The reviewer runs a multi-turn completion loop — when the model returns tool calls, they are executed and results appended as messages, then the model is called again. Gemini and Anthropic fall back to the single-turn no-tools path and the service logs a warning (`[mt#1126/mt#1216] Running review without tools: …`) so operators can see why tool verification is absent.
 
 **Tool gating (two axes):**
 
@@ -88,7 +88,7 @@ Both tools use the `contents: read` permission the App already holds.
 **Tool result envelope:** Every tool call returns a JSON envelope so the model can disambiguate success/failure and parse structured metadata:
 
 - `read_file` on a text file → `{"ok": true, "content": string, "truncated": boolean}`. `truncated: true` means GitHub's Contents API returned only a partial snippet (files above ~1MB); the prompt tells the model to mark any claim about the full contents as `NEEDS VERIFICATION`.
-- `read_file` on a binary file → `{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": false, "binary": true, "size": N}`. Binary files are detected by a NUL byte in the first 8KB (the `file(1)` heuristic); they are not decoded as UTF-8 because doing so would burn context on gibberish.
+- `read_file` on a binary file → `{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": boolean, "binary": true, "size": N}`. Binary files are detected by a NUL byte in the first 8KB (the `file(1)` heuristic); they are not decoded as UTF-8 because doing so would burn context on gibberish. `size` is the authoritative repository-stored file size reported by the GitHub Contents API (not the bytes fetched). `truncated: true` indicates the binary exceeded the API's ~1MB threshold (rare in practice since we never decode the snippet anyway, but surfaced for completeness).
 - `read_file` on a missing file → `{"ok": false, "error": "not_found"}`.
 - `list_directory` on a directory → `{"ok": true, "entries": [{"name", "type"}, …]}` where `type` is one of `file`, `dir`, `symlink`, or `submodule`. The four types are passed through so the model can see symlinked configs and submodule references accurately.
 - Unexpected errors on either tool → `{"ok": false, "error": "<message>"}`.

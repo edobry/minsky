@@ -76,7 +76,7 @@ Both tools return their result as a JSON envelope. Parse the JSON before acting 
 **\`read_file\` envelope:**
 
 - \`{"ok": true, "content": string, "truncated": boolean}\` — file read successfully. \`truncated: true\` means the file exceeded GitHub's ~1MB Contents API limit and \`content\` holds only a partial snippet; do not make claims about the full file contents — mark any such claim as NEEDS VERIFICATION.
-- \`{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": false, "binary": true, "size": N}\` — the file is binary (null byte in the first 8KB) and was not decoded. Do not attempt to reason about its contents from \`content\`; \`content\` is a placeholder, not the real bytes.
+- \`{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": boolean, "binary": true, "size": N}\` — the file is binary (null byte in the first 8KB) and was not decoded. Do not attempt to reason about its contents from \`content\`; \`content\` is a placeholder, not the real bytes. \`size\` is the authoritative file size reported by GitHub's Contents API; \`truncated: true\` means the binary exceeded the API's ~1MB threshold (the file is still N bytes, but no snippet was returned for decoding since we never decode binary anyway).
 - \`{"ok": false, "error": "not_found"}\` — the file does not exist at HEAD. This is a definitive negative; you may state the file does not exist without a NEEDS VERIFICATION qualifier.
 - \`{"ok": false, "error": "<message>"}\` — an unexpected error occurred (permissions, malformed response, etc.). Treat as "unknown" — do not make claims about the file.
 
