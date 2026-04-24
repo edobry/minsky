@@ -689,21 +689,21 @@ Keep potentially destructive operations safe by default.
 
 // AVOID: applying by default
 ```
-minsky sessiondb migrate
+minsky persistence migrate
 # applies immediately
 ```
 
 // PREFER: safe default with explicit execution
 ```
 # preview
-minsky sessiondb migrate --dry-run
+minsky persistence migrate --dry-run
 
 # apply (must be explicit)
-minsky sessiondb migrate --execute
+minsky persistence migrate --execute
 ```
 
 ## Cross-References
-- See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
+- See `persistence.migrate` behavior and other commands using `--execute` semantics.
 
 # Terminal Command Best Practices
 

@@ -172,7 +172,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           `Connection: ${masked}`,
           "Run schema migrations:",
           "  minsky persistence migrate --dry-run",
-          "  minsky persistence migrate",
+          "  minsky persistence migrate --execute",
         ].join("\n");
         throw new Error(guidance);
       }
