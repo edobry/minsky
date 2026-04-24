@@ -20,7 +20,7 @@ describe("active suite", () => {
 describe("outer", () => {
   describe("inner", () => {
     it("nested test", () => {
-      expect(true).toBe(true);
+      expect(42).toBe(42);
     });
   });
 });
