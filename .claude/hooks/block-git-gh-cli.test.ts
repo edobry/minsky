@@ -8,6 +8,9 @@ import {
   splitOnShellOperators,
   stripEnvVarAssignments,
   toolContextFromName,
+  findGhApiMethod,
+  findGhApiEndpoint,
+  findGhApiField,
   SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
 
@@ -706,5 +709,117 @@ describe("denial table sanity", () => {
         expect(rule.reason).toContain("session_exec");
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gh api merge-method enforcement (mt#1228)
+// ---------------------------------------------------------------------------
+
+/** Test literals for the merge-method values; hoisted to avoid magic-string-duplication lint warnings. */
+const MERGE_METHOD_MERGE = "merge_method=merge";
+const MERGE_METHOD_SQUASH = "merge_method=squash";
+const MERGE_METHOD_REBASE = "merge_method=rebase";
+
+describe("findGhApiMethod", () => {
+  it("defaults to GET when no method flag present", () => {
+    expect(findGhApiMethod(["api", "repos/o/r"])).toBe("GET");
+  });
+
+  it("returns PUT for -X PUT", () => {
+    expect(findGhApiMethod(["api", "-X", "PUT", "repos/o/r/pulls/1/merge"])).toBe("PUT");
+  });
+
+  it("returns PUT for --method PUT (long-form)", () => {
+    expect(findGhApiMethod(["api", "--method", "PUT", "repos/o/r/pulls/1/merge"])).toBe("PUT");
+  });
+
+  it("returns POST for -X POST", () => {
+    expect(findGhApiMethod(["api", "-X", "POST", "repos/o/r/issues"])).toBe("POST");
+  });
+});
+
+describe("findGhApiEndpoint", () => {
+  it("extracts the first positional after flag/value pairs", () => {
+    expect(
+      findGhApiEndpoint([
+        "api",
+        "-X",
+        "PUT",
+        "repos/o/r/pulls/42/merge",
+        "-f",
+        "merge_method=merge",
+      ])
+    ).toBe("repos/o/r/pulls/42/merge");
+  });
+
+  it("extracts the positional when it precedes flags", () => {
+    expect(findGhApiEndpoint(["api", "repos/o/r", "-q", ".name"])).toBe("repos/o/r");
+  });
+
+  it("returns null when no positional is present", () => {
+    expect(findGhApiEndpoint(["api", "-X", "GET"])).toBeNull();
+  });
+});
+
+describe("findGhApiField", () => {
+  it("extracts a -f KEY=VALUE value", () => {
+    expect(
+      findGhApiField(["api", "-X", "PUT", "endpoint", "-f", MERGE_METHOD_MERGE], "merge_method")
+    ).toBe("merge");
+  });
+
+  it("returns null when the key is absent", () => {
+    expect(findGhApiField(["api", "-X", "PUT", "endpoint"], "merge_method")).toBeNull();
+  });
+
+  it("does not match on partial prefix", () => {
+    // `merge_methodology` should not match `merge_method` (the prefix check uses "=").
+    expect(findGhApiField(["api", "-f", "merge_methodology=squash"], "merge_method")).toBeNull();
+  });
+});
+
+describe("checkDenial — gh api PR-merge endpoint (mt#1228)", () => {
+  const ghApi = (argString: string) =>
+    checkDenial({ binary: "gh", args: argString.split(/\s+/).filter(Boolean) });
+
+  it("blocks PUT /pulls/N/merge with merge_method=squash", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`)).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge with merge_method=rebase", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_REBASE}`)).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge with no merge_method (ambiguous intent)", () => {
+    expect(ghApi("api -X PUT repos/o/r/pulls/42/merge")).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge via --method long-form with merge_method=squash", () => {
+    expect(
+      ghApi(`api --method PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`)
+    ).not.toBeNull();
+  });
+
+  it("allows PUT /pulls/N/merge with merge_method=merge", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_MERGE}`)).toBeNull();
+  });
+
+  it("allows PUT /pulls/N/reviews/REVIEW_ID/dismissals (different endpoint)", () => {
+    expect(ghApi("api -X PUT repos/o/r/pulls/42/reviews/123/dismissals -f message=why")).toBeNull();
+  });
+
+  it("allows GET /pulls/N/merge (not a merge operation)", () => {
+    expect(ghApi("api -X GET repos/o/r/pulls/42/merge")).toBeNull();
+  });
+
+  it("allows generic `gh api repos/o/r` (default GET, no body)", () => {
+    expect(ghApi("api repos/o/r")).toBeNull();
+  });
+
+  it("denial reason mentions merge_method=merge and links to policy docs", () => {
+    const reason = ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`);
+    expect(reason).toContain(MERGE_METHOD_MERGE);
+    expect(reason).toMatch(/pr-workflow|gh_api_bypass/);
   });
 });

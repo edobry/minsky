@@ -180,6 +180,35 @@ export const ghDenials: DenialRule[] = [
       args[0] === "issue" && (args[1] === "create" || args[1] === "list" || args[1] === "view"),
     reason: "Use `mcp__github__issue_write` / `mcp__github__issue_read` instead of `gh issue`.",
   },
+  {
+    // Minsky policy: the PR-merge bypass (feedback_gh_api_bypass.md) and
+    // the documented workflow (docs/pr-workflow.md) BOTH require
+    // merge_method=merge — we preserve merge commits for the linear-history-
+    // with-meaningful-merge-commits pattern. This rule blocks `gh api` calls
+    // that would squash- or rebase-merge a PR, plus calls that omit
+    // merge_method entirely (ambiguous intent; GitHub's own default is
+    // merge but not explicitly saying so has burned us before).
+    //
+    // Filed and enforced as mt#1228 after three squash-merges landed by
+    // accident in one session on 2026-04-24 despite the policy being
+    // cited in every bypass commit message.
+    match: (args) => {
+      if (args[0] !== "api") return false;
+      const method = findGhApiMethod(args);
+      if (method !== "PUT") return false;
+      const endpoint = findGhApiEndpoint(args);
+      if (endpoint === null) return false;
+      if (!PR_MERGE_ENDPOINT_RE.test(endpoint)) return false;
+      const mergeMethod = findGhApiField(args, "merge_method");
+      // Block when absent OR anything other than "merge".
+      return mergeMethod !== "merge";
+    },
+    reason:
+      "`gh api PUT .../pulls/N/merge` must use `-f merge_method=merge`. Minsky preserves " +
+      "merge commits for clean linear history — see docs/pr-workflow.md and " +
+      "feedback_gh_api_bypass.md. Squash-merges erase PR-branch history and invalidate " +
+      "review-evidence links. If you truly need the bypass, retry with `-f merge_method=merge`.",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -264,6 +293,91 @@ export function parseCommands(command: string): ParsedCommand[] {
   }
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// gh api argument helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flags that consume a separate value token on `gh api` (e.g., `-X PUT`, `-H "Accept: ..."`).
+ * Used by findGhApiEndpoint to skip flag-value pairs when scanning for the first positional.
+ */
+const GH_API_VALUE_FLAGS = new Set([
+  "-X",
+  "--method",
+  "-H",
+  "--header",
+  "-f",
+  "--raw-field",
+  "-F",
+  "--field",
+  "--input",
+  "-q",
+  "--jq",
+  "-t",
+  "--template",
+  "--hostname",
+  "--cache",
+]);
+
+/**
+ * Extract the HTTP method from `gh api` args. Defaults to "GET" when neither
+ * -X nor --method is supplied. Expects `args` to start with the sub-command
+ * ("api"); scans the rest for the flag.
+ */
+export function findGhApiMethod(args: string[]): string {
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "-X" || args[i] === "--method") {
+      return args[i + 1] ?? "GET";
+    }
+  }
+  return "GET";
+}
+
+/**
+ * Extract the endpoint path from `gh api` args — the first positional argument
+ * after flag/value pairs are stripped. Returns null if no positional is found.
+ *
+ * e.g., `gh api -X PUT repos/owner/repo/pulls/42/merge -f merge_method=merge`
+ *   → "repos/owner/repo/pulls/42/merge"
+ */
+export function findGhApiEndpoint(args: string[]): string | null {
+  let i = 1; // skip "api"
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg.startsWith("-")) {
+      if (GH_API_VALUE_FLAGS.has(arg)) {
+        i += 2; // flag + its value
+        continue;
+      }
+      i += 1; // standalone flag
+      continue;
+    }
+    return arg;
+  }
+  return null;
+}
+
+/**
+ * Extract the value of a named `-f KEY=VALUE` / `--field KEY=VALUE` /
+ * `--raw-field KEY=VALUE` from `gh api` args. Returns null if the field is
+ * not present.
+ */
+export function findGhApiField(args: string[], key: string): string | null {
+  const prefix = `${key}=`;
+  for (const arg of args) {
+    if (arg.startsWith(prefix)) {
+      return arg.slice(prefix.length);
+    }
+  }
+  return null;
+}
+
+/**
+ * Matches `repos/OWNER/REPO/pulls/N/merge` — the PR merge endpoint. Does NOT
+ * match `/merges`, `/merge-upstream`, or any sub-resource.
+ */
+const PR_MERGE_ENDPOINT_RE = /(^|\/)pulls\/\d+\/merge$/;
 
 /**
  * Check a parsed command against the denial tables, taking the invoking tool
