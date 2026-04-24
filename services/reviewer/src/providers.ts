@@ -32,6 +32,22 @@ export interface ReviewOutput {
 }
 
 /**
+ * Per-call overrides for the reviewer model invocation.
+ *
+ * Currently only `reasoningEffort` is configurable; it maps to OpenAI's
+ * `reasoning_effort` parameter on o-series and gpt-5 reasoning models.
+ * Google and Anthropic paths have no equivalent knob and ignore this option.
+ *
+ * Used primarily by the retry path in `review-worker.ts`: when a reasoning
+ * model exhausts its output budget on hidden reasoning tokens, a second
+ * attempt with `reasoningEffort: "low"` shifts the budget toward visible
+ * output and usually succeeds.
+ */
+export interface CallReviewerOptions {
+  reasoningEffort?: "low" | "medium" | "high";
+}
+
+/**
  * Whether the given OpenAI model supports the `reasoning_effort` parameter.
  *
  * OpenAI's `reasoning_effort` parameter is documented as "o-series models
@@ -57,11 +73,12 @@ export async function callReviewer(
   config: ReviewerConfig,
   systemPrompt: string,
   userPrompt: string,
-  tools?: ReviewerToolContext
+  tools?: ReviewerToolContext,
+  options?: CallReviewerOptions
 ): Promise<ReviewOutput> {
   switch (config.provider) {
     case "openai":
-      return callOpenAI(config, systemPrompt, userPrompt, tools);
+      return callOpenAI(config, systemPrompt, userPrompt, tools, options);
     case "google":
       return callGoogle(config, systemPrompt, userPrompt, tools);
     case "anthropic":
@@ -123,7 +140,8 @@ export async function callOpenAIWithClient(
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  tools?: ReviewerToolContext
+  tools?: ReviewerToolContext,
+  options?: CallReviewerOptions
 ): Promise<ReviewOutput> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -140,8 +158,12 @@ export async function callOpenAIWithClient(
     max_completion_tokens: 16384,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
-    // API — so only include it when the configured model supports it.
-    ...(isReasoningModel(model) ? { reasoning_effort: "medium" as const } : {}),
+    // API — so only include it when the configured model supports it. The
+    // default is "medium"; retries override with "low" to shift the budget
+    // toward visible output when the first attempt returned empty (mt#1131).
+    ...(isReasoningModel(model)
+      ? { reasoning_effort: options?.reasoningEffort ?? ("medium" as const) }
+      : {}),
   };
 
   // No tools provided — preserve original single-turn behavior.
@@ -266,10 +288,18 @@ async function callOpenAI(
   config: ReviewerConfig,
   systemPrompt: string,
   userPrompt: string,
-  tools?: ReviewerToolContext
+  tools?: ReviewerToolContext,
+  options?: CallReviewerOptions
 ): Promise<ReviewOutput> {
   const client = new OpenAI({ apiKey: config.providerApiKey });
-  return callOpenAIWithClient(client, config.providerModel, systemPrompt, userPrompt, tools);
+  return callOpenAIWithClient(
+    client,
+    config.providerModel,
+    systemPrompt,
+    userPrompt,
+    tools,
+    options
+  );
 }
 
 async function callGoogle(
