@@ -15,11 +15,22 @@ export interface PgPoolRetryOptions {
   maxAttempts?: number;
   initialDelayMs?: number;
   maxDelayMs?: number;
+  /**
+   * Deterministic jitter override for tests. In production, jitter is
+   * sampled from Math.random(); tests can pass a fixed value in [0, 1)
+   * to make backoff timing reproducible.
+   */
+  jitter?: () => number;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_INITIAL_DELAY_MS = 150;
 const DEFAULT_MAX_DELAY_MS = 2000;
+// ±20% jitter multiplier range: [0.8, 1.2). Spreads synchronized retries
+// across concurrent callers so they don't all reattempt in lock-step
+// against the same saturated pool ("thundering herd").
+const JITTER_SPREAD = 0.4;
+const JITTER_FLOOR = 0.8;
 
 export function isPgPoolExhaustionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -27,9 +38,11 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
   // postgres-js sets `query` on errors that came back from the server after
   // the query was transmitted. Pool saturation manifests during connection
   // acquisition (before any query reaches the server) and must have no
-  // `query` field. Skipping errors with `query` guarantees retries are safe
-  // on mutating callers (no at-least-once effects).
-  if (e.query) return false;
+  // `query` field. Skipping errors where `query` is present guarantees
+  // retries are safe on mutating callers (no at-least-once effects).
+  // Use presence check (`in`) rather than truthiness so an empty-string
+  // marker from a wrapper doesn't slip through.
+  if ("query" in e) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (
@@ -49,6 +62,7 @@ export async function withPgPoolRetry<T>(
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const initialDelayMs = opts.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS;
   const maxDelayMs = opts.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
+  const jitter = opts.jitter ?? Math.random;
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -59,9 +73,15 @@ export async function withPgPoolRetry<T>(
         throw err;
       }
       lastErr = err;
-      const delay = Math.min(initialDelayMs * 2 ** (attempt - 1), maxDelayMs);
+      const base = Math.min(initialDelayMs * 2 ** (attempt - 1), maxDelayMs);
+      const multiplier = JITTER_FLOOR + jitter() * JITTER_SPREAD;
+      const delay = Math.round(base * multiplier);
+      const e = err as { code?: unknown; message?: unknown };
+      const errCode = typeof e.code === "string" ? e.code : "?";
+      const rawMessage = typeof e.message === "string" ? e.message : String(err);
+      const errSummary = rawMessage.length > 120 ? `${rawMessage.slice(0, 117)}...` : rawMessage;
       log.warn(
-        `[retry ${attempt}/${maxAttempts}] ${label}: pg pool saturation, retrying in ${delay}ms`
+        `[retry ${attempt}/${maxAttempts}] ${label}: pg pool saturation (code=${errCode}): ${errSummary} — retrying in ${delay}ms`
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

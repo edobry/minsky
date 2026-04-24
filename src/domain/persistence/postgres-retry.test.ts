@@ -50,6 +50,18 @@ describe("isPgPoolExhaustionError", () => {
   test("matches PgBouncer 'sorry, too many clients already'", () => {
     expect(isPgPoolExhaustionError(new Error("FATAL: sorry, too many clients already"))).toBe(true);
   });
+
+  test("rejects errors with empty-string `query` field (presence check, not truthiness)", () => {
+    // A wrapper that zeros out query would pass a truthiness check but we
+    // still don't know the query didn't reach the server — reject to stay safe.
+    expect(
+      isPgPoolExhaustionError({
+        code: "53300",
+        message: SUPAVISOR_SATURATION_MESSAGE,
+        query: "",
+      })
+    ).toBe(false);
+  });
 });
 
 describe("withPgPoolRetry", () => {
@@ -110,5 +122,67 @@ describe("withPgPoolRetry", () => {
       )
     ).rejects.toThrow(SUPAVISOR_SATURATION_MESSAGE);
     expect(calls).toBe(2);
+  });
+});
+
+describe("withPgPoolRetry backoff timing", () => {
+  test("jitter=0 produces delay at 0.8× base", async () => {
+    const delays: number[] = [];
+    const originalSetTimeout = globalThis.setTimeout;
+    // Capture setTimeout delay arguments without actually waiting
+    (globalThis as { setTimeout: typeof setTimeout }).setTimeout = ((
+      fn: () => void,
+      ms: number
+    ) => {
+      delays.push(ms);
+      return originalSetTimeout(fn, 0);
+    }) as typeof setTimeout;
+
+    try {
+      let calls = 0;
+      await withPgPoolRetry(
+        async () => {
+          calls += 1;
+          if (calls < 2) throw new Error(SUPAVISOR_SATURATION_MESSAGE);
+          return "ok";
+        },
+        "test.jitter-low",
+        { initialDelayMs: 100, maxDelayMs: 1000, jitter: () => 0 }
+      );
+      // base = 100 * 2^0 = 100; multiplier = 0.8 + 0 * 0.4 = 0.8 → delay = 80
+      expect(delays[0]).toBe(80);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+
+  test("jitter=0.9999 produces delay near 1.2× base", async () => {
+    const delays: number[] = [];
+    const originalSetTimeout = globalThis.setTimeout;
+    (globalThis as { setTimeout: typeof setTimeout }).setTimeout = ((
+      fn: () => void,
+      ms: number
+    ) => {
+      delays.push(ms);
+      return originalSetTimeout(fn, 0);
+    }) as typeof setTimeout;
+
+    try {
+      let calls = 0;
+      await withPgPoolRetry(
+        async () => {
+          calls += 1;
+          if (calls < 2) throw new Error(SUPAVISOR_SATURATION_MESSAGE);
+          return "ok";
+        },
+        "test.jitter-high",
+        { initialDelayMs: 100, maxDelayMs: 1000, jitter: () => 0.9999 }
+      );
+      // base = 100; multiplier ≈ 0.8 + 0.9999 * 0.4 ≈ 1.19996 → delay ≈ 120
+      expect(delays[0]).toBeGreaterThanOrEqual(119);
+      expect(delays[0]).toBeLessThanOrEqual(120);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
   });
 });
