@@ -247,7 +247,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           }
         });
 
-        return { success: true as const, bytesWritten: state.sessions.length };
+        return { success: true as const, bytesWritten: sessions.length };
       }, "postgres-storage.writeState");
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
@@ -316,17 +316,19 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Get a single session by ID
    */
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
-    return withPgPoolRetry(async () => {
-      await this.ensureConnection();
+    return withPgPoolRetry(() => this.getEntityInternal(id), "postgres-storage.getEntity");
+  }
 
-      const result = await this.db
-        .select()
-        .from(postgresSessions)
-        .where(eq(postgresSessions.session, id))
-        .limit(1);
+  private async getEntityInternal(id: string): Promise<SessionRecord | null> {
+    await this.ensureConnection();
 
-      return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
-    }, "postgres-storage.getEntity");
+    const result = await this.db
+      .select()
+      .from(postgresSessions)
+      .where(eq(postgresSessions.session, id))
+      .limit(1);
+
+    return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
   }
 
   /**
@@ -381,8 +383,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       return await withPgPoolRetry(async () => {
         await this.ensureConnection();
-        // Get existing session
-        const existing = await this.getEntity(id);
+        // Use the non-retrying internal variant to avoid nested retry
+        // multiplying backoff delays and attempt counts.
+        const existing = await this.getEntityInternal(id);
         if (!existing) {
           return null;
         }

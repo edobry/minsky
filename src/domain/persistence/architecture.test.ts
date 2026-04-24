@@ -86,6 +86,12 @@ describe("Cache-before-init detection", () => {
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(verifyIdx);
 
+    // The SELECT 1 must be wrapped by withPgPoolRetry so boot-time pool
+    // saturation is absorbed rather than cascading to init failure (mt#1193).
+    const retryIdx = method?.indexOf("withPgPoolRetry") ?? -1;
+    expect(retryIdx).toBeGreaterThan(-1);
+    expect(retryIdx).toBeLessThan(verifyIdx);
+
     const catchBlock = method?.match(/catch[\s\S]*?throw error/)?.[0];
     expect(catchBlock).toContain("this.sql = null");
     expect(catchBlock).toContain("this.db = null");

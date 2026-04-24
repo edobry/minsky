@@ -98,8 +98,8 @@ export class PostgresPersistenceProvider
         deps?.sqlClient ??
         postgres(pgConfig.connectionString, {
           max: resolveMaxConnections(pgConfig.maxConnections),
-          connect_timeout: pgConfig.connectTimeout ?? 10,
-          idle_timeout: pgConfig.idleTimeout ?? 60,
+          connect_timeout: pgConfig.connectTimeout || 10,
+          idle_timeout: pgConfig.idleTimeout || 60,
           prepare: pgConfig.prepareStatements ?? false,
         });
 

@@ -34,6 +34,22 @@ describe("isPgPoolExhaustionError", () => {
     expect(isPgPoolExhaustionError(undefined)).toBe(false);
     expect(isPgPoolExhaustionError("string error")).toBe(false);
   });
+
+  test("rejects errors with a `query` field (query already reached server)", () => {
+    // Even if the message matches, presence of `query` means the query was
+    // transmitted — retrying could double-apply mutations. Must be rejected.
+    expect(
+      isPgPoolExhaustionError({
+        code: "XX000",
+        message: SUPAVISOR_SATURATION_MESSAGE,
+        query: "SELECT 1",
+      })
+    ).toBe(false);
+  });
+
+  test("matches PgBouncer 'sorry, too many clients already'", () => {
+    expect(isPgPoolExhaustionError(new Error("FATAL: sorry, too many clients already"))).toBe(true);
+  });
 });
 
 describe("withPgPoolRetry", () => {

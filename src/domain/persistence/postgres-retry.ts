@@ -24,13 +24,20 @@ const DEFAULT_MAX_DELAY_MS = 2000;
 export function isPgPoolExhaustionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
+  // postgres-js sets `query` on errors that came back from the server after
+  // the query was transmitted. Pool saturation manifests during connection
+  // acquisition (before any query reaches the server) and must have no
+  // `query` field. Skipping errors with `query` guarantees retries are safe
+  // on mutating callers (no at-least-once effects).
+  if (e.query) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (
     code === "53300" ||
     (code === "XX000" && /max clients reached/i.test(message)) ||
     /max clients reached/i.test(message) ||
-    /too_many_connections/i.test(message)
+    /too_many_connections/i.test(message) ||
+    /sorry, too many clients already/i.test(message)
   );
 }
 
