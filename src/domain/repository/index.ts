@@ -283,6 +283,47 @@ export interface ReviewOperations {
     reviewId: number,
     options: { message: string }
   ): Promise<{ reviewId: number; htmlUrl: string; state: string }>;
+  /**
+   * List all reviews on a pull request, ordered as the forge returns them
+   * (GitHub: chronological by submission time).
+   *
+   * Introduced for `session_pr_wait_for_review` (mt#1203): the polling loop
+   * needs to detect when a new review has been posted since a given timestamp,
+   * optionally filtered by reviewer identity.
+   *
+   * Non-GitHub backends may not implement this yet; callers should treat
+   * `undefined` as "listing not supported on this backend."
+   */
+  listReviews?(prIdentifier: string | number): Promise<ReviewListEntry[]>;
+}
+
+/**
+ * Structured review metadata returned by `ReviewOperations.listReviews`.
+ *
+ * Intentionally a narrow projection of forge-specific review objects so
+ * non-GitHub backends can implement the method without leaking GitHub
+ * payload shape into domain code.
+ */
+export interface ReviewListEntry {
+  /** Forge-assigned review ID. */
+  reviewId: number;
+  /**
+   * Review verdict at submission time.
+   *
+   * "APPROVED" / "CHANGES_REQUESTED" / "COMMENTED" map directly to GitHub's
+   * states. "PENDING" covers reviews that the reviewer has drafted but not
+   * submitted; these rarely appear via list endpoints but are listed for
+   * completeness.
+   */
+  state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED" | "PENDING";
+  /** ISO-8601 submission timestamp (absent for truly-PENDING drafts). */
+  submittedAt?: string;
+  /** Reviewer login (human or bot). May be null when the forge stripped the author. */
+  reviewerLogin: string | null;
+  /** Review body (may be empty for APPROVE-with-no-comment). */
+  body: string;
+  /** Web URL of the review, if the forge exposes one. */
+  htmlUrl?: string;
 }
 
 // Completely rewritten repository backend interface with flexible types
