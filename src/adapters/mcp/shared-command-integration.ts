@@ -186,7 +186,7 @@ export function registerSharedCommandsWithMcp(
             const filteredArgs = { ...args };
             log.debug(`[MCP] Processing args: ${command.id}`, { filteredArgs });
 
-            const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            const parameters = { ...convertMcpArgsToParameters(filteredArgs, command.parameters) };
             // Force json=true so commands that gate on params.json (rather
             // than ctx.format) return structured data to MCP callers. The
             // `json` parameter is stripped from the MCP-facing schema, so

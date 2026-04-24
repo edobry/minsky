@@ -233,7 +233,8 @@ describe("MCP shared-command bridge", () => {
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call).toBeDefined();
-    expect(call ? "json" in call.params : true).toBe(false);
+    if (!call) return;
+    expect("json" in call.params).toBe(false);
   });
 
   test("does not override json parameter when its schema is not boolean-compatible", async () => {

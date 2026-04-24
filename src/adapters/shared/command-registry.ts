@@ -254,17 +254,6 @@ export interface CommandRegistry {
    * @returns All registered command definitions
    */
   getAllCommands(): SharedCommand[];
-
-  /**
-   * Remove a command from the registry.
-   *
-   * Intended primarily for test teardown; production code should not
-   * unregister commands during normal operation.
-   *
-   * @param id Command identifier
-   * @returns True if a command was removed; false if no command with that id existed
-   */
-  unregisterCommand(id: string): boolean;
 }
 
 /**
