@@ -35,6 +35,9 @@ const tier2On: ReviewerConfig = {
 
 const tier2Off: ReviewerConfig = { ...tier2On, tier2Enabled: false };
 
+// Reusable PR-body marker strings for tests.
+const TIER1_MARKER = "<!-- minsky:tier=1 -->";
+
 describe("extractTierFromPRBody", () => {
   test("extracts tier=1 from HTML comment hint", () => {
     expect(extractTierFromPRBody("<!-- minsky:tier=1 -->")).toBe(1);
@@ -120,23 +123,26 @@ describe("resolveTier", () => {
     // undefined from lookup means no record found or error.
     const fakeLookup = mock(() => Promise.resolve(undefined));
 
-    const tier = await resolveTier(99, "<!-- minsky:tier=1 -->", mcpConfig, fakeLookup);
+    const tier = await resolveTier(99, TIER1_MARKER, mcpConfig, fakeLookup);
     expect(tier).toBe(1);
   });
 
-  test("falls to null default when MCP lookup returns undefined and no body marker", async () => {
+  test("returns Tier 3 when MCP is configured, lookup returns undefined, and no body marker (fail-closed)", async () => {
+    // MCP is configured (mcpConfig has mcpUrl+mcpToken) but lookup returns undefined
+    // (no record / HTTP error). No body marker. → fail-closed: must return 3.
     const fakeLookup = mock(() => Promise.resolve(undefined));
 
     const tier = await resolveTier(99, "No marker here", mcpConfig, fakeLookup);
-    expect(tier).toBeNull();
+    expect(tier).toBe(3);
   });
 
-  test("falls to null default when MCP lookup returns null and no body marker", async () => {
-    // authorshipTier===null + no body marker → null (Tier 2 default via decideRouting)
+  test("returns Tier 3 when MCP is configured, lookup returns null, and no body marker (fail-closed)", async () => {
+    // authorshipTier===null (record exists but tier not yet computed) + no body marker
+    // + MCP configured → fail-closed: must return 3.
     const fakeLookup = mock(() => Promise.resolve(null as null));
 
     const tier = await resolveTier(99, "No marker here", mcpConfig, fakeLookup);
-    expect(tier).toBeNull();
+    expect(tier).toBe(3);
   });
 
   test("falls through to body marker when MCP config is missing (no lookup override)", async () => {
@@ -157,5 +163,46 @@ describe("resolveTier", () => {
     // decideRouting must mandate review for Tier 3.
     const routing = decideRouting(tier, mcpConfig);
     expect(routing.shouldReview).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Hybrid fail-closed / fail-open policy (mt#1085 Sprint B)
+  // ---------------------------------------------------------------------------
+
+  test("returns Tier 3 when MCP is configured, lookup errors, and no body marker (fail-closed)", async () => {
+    // MCP configured + lookup returns undefined (HTTP error / no record) + empty body
+    // → must fail-closed: mandatory review.
+    const fakeLookup = mock(() => Promise.resolve(undefined));
+
+    const tier = await resolveTier(101, "", mcpConfig, fakeLookup);
+    expect(tier).toBe(3);
+  });
+
+  test("returns Tier 3 when MCP is configured, record has null tier, and no body marker (fail-closed)", async () => {
+    // MCP configured + lookup returns null (record exists, authorshipTier===null) + empty body
+    // → must fail-closed: mandatory review.
+    const fakeLookup = mock(() => Promise.resolve(null as null));
+
+    const tier = await resolveTier(102, "", mcpConfig, fakeLookup);
+    expect(tier).toBe(3);
+  });
+
+  test("returns null when MCP is NOT configured and no body marker (fail-open)", async () => {
+    // MCP not configured (mcpUrl/mcpToken undefined) + empty body
+    // → must fail-open: preserve Sprint A behavior (null → decideRouting defaults Tier 2).
+    const noMcpConfig = { ...tier2On, mcpUrl: undefined, mcpToken: undefined };
+    const fakeLookup = mock(() => Promise.resolve(undefined));
+
+    const tier = await resolveTier(103, "", noMcpConfig, fakeLookup);
+    expect(tier).toBeNull();
+  });
+
+  test("returns body tier when MCP fails but body marker provides a tier (body wins)", async () => {
+    // MCP configured + lookup returns undefined (error) + body has tier=1
+    // → body marker wins before reaching the fail-closed default.
+    const fakeLookup = mock(() => Promise.resolve(undefined));
+
+    const tier = await resolveTier(104, TIER1_MARKER, mcpConfig, fakeLookup);
+    expect(tier).toBe(1);
   });
 });

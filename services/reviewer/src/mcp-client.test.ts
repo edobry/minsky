@@ -296,4 +296,41 @@ describe("callProvenanceGet", () => {
 
     expect(result).toBeNull();
   });
+
+  test("uses the LAST SSE data event when a progress event precedes the tool result", async () => {
+    // Real MCP streamable-HTTP responses may emit a progress event first and the
+    // actual tool result last. extractJsonFromBody must return the final payload.
+    const progressEvent = { type: "progress", message: "looking up record..." };
+    const toolResult = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ artifactId: "77", artifactType: "pr", authorshipTier: 2 }),
+          },
+        ],
+      },
+    };
+
+    const sseBody = `data: ${JSON.stringify(progressEvent)}\n\ndata: ${JSON.stringify(toolResult)}\n\n`;
+
+    setFetch(() =>
+      Promise.resolve(
+        new Response(sseBody, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      )
+    );
+
+    const { callProvenanceGet } = await import("./mcp-client");
+    const result = await callProvenanceGet("77", "pr", CONFIG_WITH_MCP);
+
+    // Should pick the tool-result event (last), not the progress event (first).
+    expect(result).not.toBeNull();
+    expect(result?.authorshipTier).toBe(2);
+    expect(result?.artifactId).toBe("77");
+  });
 });

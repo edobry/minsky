@@ -14,10 +14,19 @@
  * Fallback chain:
  *   1. MCP provenance record (authorshipTier field) — authoritative.
  *   2. PR-body HTML comment marker (<!-- minsky:tier=N -->).
- *   3. Tier 2 (CO_AUTHORED) default.
+ *   3. Hybrid default: fail-closed when MCP is configured, fail-open otherwise.
+ *
+ * Hybrid fail-closed policy (mt#1085):
+ *   - MCP NOT configured (mcpUrl or mcpToken unset): fail-OPEN. resolveTier
+ *     returns null → decideRouting defaults to Tier 2. Preserves Sprint A
+ *     behavior for deployments without an MCP endpoint.
+ *   - MCP configured but lookup misses (record absent, HTTP error, parse error,
+ *     authorshipTier===null) AND no body marker: fail-CLOSED. resolveTier
+ *     returns 3 (Tier 3 / mandatory review). Rationale: when MCP is meant to be
+ *     authoritative, an unresolvable tier must not silently default to skippable.
  *
  * A record present but with authorshipTier === null falls THROUGH to
- * the body-marker path (tier not yet computed), not to the Tier-2 default.
+ * the body-marker path (tier not yet computed), not directly to the default.
  */
 
 import type { ReviewerConfig } from "./config";
@@ -88,7 +97,12 @@ export async function lookupTierFromMCP(
  * Resolve the authorship tier for a PR using the full fallback chain:
  *   1. MCP provenance record
  *   2. PR-body HTML comment marker
- *   3. null (Tier 2 default applied by decideRouting)
+ *   3. Hybrid default — see module-level docstring for the fail-open / fail-closed policy.
+ *
+ * When MCP is configured and the lookup misses (no record, HTTP error, null tier) AND the
+ * body has no marker, returns 3 (fail-closed: mandatory review). When MCP is not configured,
+ * returns null (fail-open: decideRouting defaults to Tier 2 behavior), preserving Sprint A
+ * graceful-degradation semantics.
  *
  * @param mcpLookupFn Optional override for the MCP lookup function (injectable for tests).
  *   Defaults to `lookupTierFromMCP`.
@@ -102,10 +116,12 @@ export async function resolveTier(
     config: ReviewerConfig
   ) => Promise<AuthorshipTier | null | undefined> = lookupTierFromMCP
 ): Promise<AuthorshipTier> {
-  // Step 1: MCP provenance lookup.
+  const mcpConfigured = !!(config.mcpUrl && config.mcpToken);
+
+  // Step 1: MCP provenance lookup (no-op if unconfigured; callProvenanceGet early-returns null).
   const mcpTier = await mcpLookupFn(prNumber, config);
 
-  if (mcpTier !== undefined && mcpTier !== null) {
+  if (mcpTier === 1 || mcpTier === 2 || mcpTier === 3) {
     // Got a concrete tier from MCP — use it.
     return mcpTier;
   }
@@ -119,7 +135,12 @@ export async function resolveTier(
     return bodyTier;
   }
 
-  // Step 3: Default — null signals Tier 2 behavior to decideRouting.
+  // Step 3: Hybrid default.
+  if (mcpConfigured) {
+    // Fail-closed: MCP was expected to have the answer, didn't. Mandate review.
+    return 3;
+  }
+  // Fail-open: MCP unconfigured — preserve Sprint A behavior (Tier 2 default via decideRouting).
   return null;
 }
 

@@ -202,32 +202,38 @@ export async function callProvenanceGet(
 }
 
 /**
- * Extract the first JSON object or array from a possibly SSE-formatted body.
+ * Extract the last JSON object or array from a possibly SSE-formatted body.
  *
  * SSE lines look like:
  *   data: {"jsonrpc":"2.0",...}
  *
  * Plain JSON bodies are returned as-is.
+ *
+ * For SSE responses, the LAST well-formed JSON payload is returned rather than
+ * the first, because real MCP streamable-HTTP responses may emit progress events
+ * before the final tool-result event. Returning the first event would capture a
+ * progress/log entry instead of the actual result.
  */
 function extractJsonFromBody(body: string): string | null {
   const trimmed = body.trim();
   if (!trimmed) return null;
 
-  // Try plain JSON first.
+  // Plain JSON (no SSE framing).
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return trimmed;
   }
 
-  // SSE format: scan for a "data:" line that starts with {
+  // SSE framing: scan for data: lines, return the LAST well-formed JSON payload.
+  // Earlier events may be progress/logs; the final event carries the tool result.
+  let last: string | null = null;
   for (const line of trimmed.split("\n")) {
     const stripped = line.trim();
     if (stripped.startsWith("data:")) {
       const payload = stripped.slice("data:".length).trim();
       if (payload.startsWith("{") || payload.startsWith("[")) {
-        return payload;
+        last = payload;
       }
     }
   }
-
-  return null;
+  return last;
 }
