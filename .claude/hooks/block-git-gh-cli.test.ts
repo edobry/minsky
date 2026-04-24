@@ -57,10 +57,40 @@ describe("checkDenial — session_exec context", () => {
     expect(deniedViaSessionExec("reset", ["--hard", "HEAD"])).toBeNull();
   });
 
-  it("allows `git -C <path>` via session_exec (redundant but harmless)", () => {
+  it("denies `git -C <path> status` via session_exec (prevents bypass)", () => {
+    // Regression guard for the mt#1196 minsky-reviewer finding: -C was
+    // originally carved out as `allowedInSessionExec: true`. That let
+    // `git -C /anywhere commit|push|merge|...` slip through because the -C
+    // rule fired first (args[0] === "-C"), got skipped as a carve-out, and
+    // no subsequent rule matched (they all check args[0] for a subcommand).
+    // Denying -C unconditionally closes the bypass.
     expect(
       checkDenial({ binary: "git", args: ["-C", "/some/path", "status"] }, "session_exec")
-    ).toBeNull();
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> commit` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "commit", "-m", "x"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> push` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial({ binary: "git", args: ["-C", "/some/path", "push"] }, "session_exec")
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> merge` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "merge", "origin/main"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
   });
 
   // All other git denials still fire via session_exec — these are the loophole

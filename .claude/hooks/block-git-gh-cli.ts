@@ -52,13 +52,20 @@ export interface DenialRule {
 // ---------------------------------------------------------------------------
 
 export const gitDenials: DenialRule[] = [
-  // git -C <path> anything — always deny on Bash; on session_exec it's
-  // redundant-but-harmless (session_exec sets cwd), so skip.
+  // git -C <path> <anything> — always denied on both Bash and session_exec.
+  // - On Bash: redirect to session_exec (which sets cwd automatically).
+  // - On session_exec: -C is redundant (cwd is the session root) AND dangerous.
+  //   Dangerous because: before the mt#1196 review fix, -C was carved out on
+  //   session_exec via allowedInSessionExec. That match()-skip fired first
+  //   (args[0] === "-C"); subsequent rules all check args[0] for a subcommand,
+  //   so `git -C /anywhere commit` (push/merge/rebase/…) would slip through
+  //   untouched — a bigger loophole than the one the carve-out was meant to
+  //   preserve. Also: -C lets callers scope operations outside the session
+  //   root, violating session isolation. Denying unconditionally closes both.
   {
     match: (args) => args[0] === "-C",
     reason:
-      "Use `mcp__minsky__session_exec(task, command)` instead of `git -C <path>`. It resolves the session directory automatically.",
-    allowedInSessionExec: true,
+      "`git -C` is not allowed. On Bash, use `mcp__minsky__session_exec(task, command)`. Inside session_exec, omit `-C` — the session cwd is already set. Session isolation: `-C` could point git at paths outside the session root.",
   },
   {
     match: (args) => args[0] === "add",
