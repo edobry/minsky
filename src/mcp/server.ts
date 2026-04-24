@@ -242,8 +242,11 @@ export class MinskyMCPServer {
       return;
     }
 
-    // New session: only allow if this is an initialize request
-    if (!sessionId && isInitializeRequest(req.body)) {
+    // New session: only allow if this is an initialize request (single or batch)
+    const bodyIsInitialize =
+      isInitializeRequest(req.body) ||
+      (Array.isArray(req.body) && req.body.some((item: unknown) => isInitializeRequest(item)));
+    if (!sessionId && bodyIsInitialize) {
       // Create a fresh Server instance for this session
       const sessionServer = new Server(
         { name: this.options.name, version: this.options.version },

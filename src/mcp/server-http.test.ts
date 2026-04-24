@@ -151,6 +151,22 @@ describe("MinskyMCPServer HTTP transport multi-session (mt#1175)", () => {
     expect(listText).toContain("ping");
   });
 
+  test("JSON-RPC batch containing only an initialize request creates a session (batch-initialize acceptance)", async () => {
+    // A JSON-RPC batch whose sole element is initialize must be routed to the
+    // new-session branch, not rejected with 400. The MCP SDK itself enforces that
+    // initialize must be the only message in a batch, so we send [initializeBody].
+    const batchBody = [initializeBody(1)];
+    const res = await postJSON(harness.url, batchBody);
+    // Batch-initialize must be accepted as a new-session request
+    expect(res.status).toBe(200);
+    const sessionId = res.headers.get("mcp-session-id");
+    if (!sessionId) throw new Error("expected mcp-session-id header on batch initialize response");
+
+    const body = await res.text();
+    // Initialize response (id:1) must appear in the batch response
+    expect(body).toContain('"id":1');
+  });
+
   test("two concurrent initialize calls produce distinct session ids and independent tools/list responses", async () => {
     const [r1, r2] = await Promise.all([
       postJSON(harness.url, initializeBody(1)),
