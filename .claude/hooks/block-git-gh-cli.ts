@@ -6,11 +6,19 @@
 // This hook intercepts both `Bash` AND `mcp__minsky__session_exec` tool calls
 // (both accept a `command` parameter) and denies known-equivalent operations.
 //
-// A small subset of rules (`git status`, `git stash`, `git reset`, `git -C`)
-// have denial messages that explicitly redirect to `session_exec` as the
-// allowed path. Those rules are tagged `allowedInSessionExec: true` and skipped
-// when the invocation is already via session_exec — otherwise the hook would
-// contradict its own guidance.
+// Three rules (`git status`, `git stash`, `git reset`) have denial messages
+// that explicitly redirect to `session_exec` as the allowed path. Those rules
+// are tagged `allowedInSessionExec: true` and skipped when the invocation is
+// already via session_exec — otherwise the hook would contradict its own
+// guidance.
+//
+// `git -C` is NOT carved out: the -C rule previously had allowedInSessionExec,
+// but minsky-reviewer (mt#1196 review 4167154239) correctly identified that
+// the carve-out was a bypass. Because the -C rule matches args[0] === "-C"
+// and subsequent rules all check args[0] for a subcommand, a skipped -C rule
+// let `git -C /anywhere commit|push|merge` slip through untouched. Also,
+// allowing -C on session_exec would let callers scope operations outside the
+// session root, violating session isolation. Denied unconditionally.
 //
 // @see mt#1196 — extending this hook to cover session_exec after PR #717
 // retrospective surfaced the loophole.
