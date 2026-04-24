@@ -3,6 +3,7 @@ import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands, type RulesCommandsDeps } from "./rules";
 import { first, elementAt } from "../../../utils/array-safety";
+import { RuleService } from "../../../domain/rules";
 
 /** Shape returned by rules.generate command */
 interface RulesGenerateResult {
@@ -50,6 +51,10 @@ describe("Rules Commands", () => {
   };
 
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
+  // Save the original RuleService.prototype.listRules so tests that
+  // prototype-patch it for mocking can restore it in afterEach — otherwise
+  // the mutation leaks across test files (mt#1115).
+  let originalListRules: unknown;
 
   beforeEach(() => {
     // Create a fresh registry for each test to avoid interference
@@ -57,10 +62,14 @@ describe("Rules Commands", () => {
 
     // Register commands in the test registry with injected deps
     registerRulesCommands(testRegistry, mockDeps);
+
+    originalListRules = RuleService.prototype.listRules;
   });
 
   afterEach(() => {
-    // No cleanup needed - each test gets a fresh registry
+    // Restore RuleService.prototype.listRules to prevent prototype pollution
+    // leaking into other test files.
+    RuleService.prototype.listRules = originalListRules as typeof RuleService.prototype.listRules;
   });
 
   describe("rules.generate", () => {
@@ -253,7 +262,6 @@ describe("Rules Commands", () => {
       ];
 
       // Mock the RuleService
-      const { RuleService } = await import("../../../domain/rules");
       const mockListRules = mock(() =>
         Promise.resolve(mockRules)
       ) as unknown as typeof RuleService.prototype.listRules;
@@ -304,7 +312,6 @@ describe("Rules Commands", () => {
     test("should pass through filtering parameters to domain service", async () => {
       const mockRules: unknown[] = [];
 
-      const { RuleService } = await import("../../../domain/rules");
       const mockListRules = mock(() =>
         Promise.resolve(mockRules)
       ) as unknown as typeof RuleService.prototype.listRules;

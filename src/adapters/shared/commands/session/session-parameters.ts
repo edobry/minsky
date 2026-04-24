@@ -666,6 +666,37 @@ export const sessionPrReviewSubmitCommandParams = {
 };
 
 /**
+ * Session PR Review Dismiss command parameters
+ * Dismisses a GitHub PR review (typically a stale adversarial review after
+ * the blocker has been addressed). Posts the dismissal through Minsky using
+ * the configured bot identity.
+ */
+export const sessionPrReviewDismissCommandParams = {
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  reviewId: {
+    schema: z.coerce.number().int().positive(),
+    description: "GitHub review ID to dismiss (numeric — see PR review URLs)",
+    required: true,
+  },
+  message: {
+    schema: z.string().min(1),
+    description:
+      "Dismissal reason / message — required by the GitHub API and shown on " +
+      "the dismissed review. Include why the review is stale (e.g. 'covers " +
+      "commit <sha>; blocker addressed in <sha>').",
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */

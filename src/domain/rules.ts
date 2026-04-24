@@ -6,3 +6,4 @@
  */
 export * from "./rules/types";
 export { RuleService } from "./rules/rule-service";
+export type { RuleServiceFs } from "./rules/rule-service";

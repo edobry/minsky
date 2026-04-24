@@ -111,6 +111,16 @@ export interface MemoryListFilter {
   projectId?: string;
   /** When true, excludes memories that have been superseded (superseded_by IS NOT NULL) */
   excludeSuperseded?: boolean;
+  /**
+   * When true, filter to records with last_accessed_at IS NULL OR older than stalenessDays.
+   * Results are sorted by lastAccessedAt ASC NULLS FIRST (oldest/never-accessed first).
+   */
+  stale?: boolean;
+  /**
+   * Threshold in days for the stale filter. Defaults to 90.
+   * Ignored unless stale is true.
+   */
+  stalenessDays?: number;
 }
 
 /**

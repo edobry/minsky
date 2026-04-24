@@ -31,6 +31,7 @@ export const environmentMappings = {
   MINSKY_APP_ID: "github.serviceAccount.appId",
   MINSKY_APP_PRIVATE_KEY_FILE: "github.serviceAccount.privateKeyFile",
   MINSKY_APP_INSTALLATION_ID: "github.serviceAccount.installationId",
+  MINSKY_GITHUB_APP_PRIVATE_KEY: "github.serviceAccount.privateKey",
 
   // AI provider configuration
   OPENAI_API_KEY: "ai.providers.openai.apiKey",

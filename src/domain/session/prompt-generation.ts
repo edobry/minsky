@@ -13,6 +13,7 @@ export interface GeneratePromptParams {
   type: PromptType;
   instructions: string;
   scope?: string[];
+  omitOperatingEnvelope?: boolean;
 }
 
 export interface GeneratePromptResult {
@@ -28,6 +29,7 @@ export interface GeneratePromptResult {
 const SCOPE_WARNING_THRESHOLD = 40;
 const BATCH_SIZE = 30;
 export const PROMPT_WATERMARK = "<!-- minsky:prompt:v1 -->";
+export const ENVELOPE_HEADER = "## Operating Envelope";
 
 const SKILL_REFERENCES: Record<PromptType, string[]> = {
   implementation: ["implement-task", "prepare-pr", "testing-guide", "error-handling"],
@@ -87,6 +89,51 @@ function renderToolingNote(): string {
 Do NOT run Bash commands for formatting, linting, type-checking, or tests — the pre-commit hooks handle all of that.`;
 }
 
+function renderSubagentOperatingEnvelope(
+  sessionId: string,
+  taskId: string,
+  readOnly: boolean
+): string {
+  if (readOnly) {
+    return `
+${ENVELOPE_HEADER}
+
+You have a bounded tool-call budget per dispatch. Recent dispatches have cut off between 24 and 65 tool uses — typically with substantial investigation done but nothing handed off. To land softly:
+
+**Budget awareness.** Hand off *before* you run out, not after. Don't save the summary for the end.
+
+**Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop investigating new areas:
+1. Write a handoff note to \`.minsky/sessions/${sessionId}/handoff.md\` with four fields:
+   - **Done:** findings produced this dispatch
+   - **In progress:** partial investigation, with file paths and line ranges
+   - **Remaining:** what still needs reviewing
+   - **Known issues:** concerns or blockers encountered
+2. Exit early with a brief summary citing the handoff path
+
+**Handoff path convention.** The canonical handoff location is \`.minsky/sessions/${sessionId}/handoff.md\`. Main-agent recovery reads this first — leaving it unwritten forces expensive re-investigation.`;
+  }
+
+  return `
+${ENVELOPE_HEADER}
+
+You have a bounded tool-call budget per dispatch. Recent dispatches have cut off between 24 and 65 tool uses — typically with substantial work done but uncommitted. To land softly:
+
+**Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
+
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use \`wip(mt#${taskId}): <what's done>\` for intermediate commits — the \`wip\` prefix signals in-progress state.
+
+**Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
+1. If code is modified, commit with \`wip(mt#${taskId}): <status>\` via \`mcp__minsky__session_commit\`
+2. Write a handoff note to \`.minsky/sessions/${sessionId}/handoff.md\` with four fields:
+   - **Done:** what shipped this dispatch
+   - **In progress:** partial work, with file paths and line ranges
+   - **Remaining:** what still needs doing
+   - **Known issues:** bugs/blockers encountered
+3. Exit early with a brief summary citing the handoff path
+
+**Handoff path convention.** The canonical handoff location is \`.minsky/sessions/${sessionId}/handoff.md\`. Main-agent recovery reads this first — leaving it unwritten forces expensive state reconstruction from \`git diff\`.`;
+}
+
 function renderSessionExecNote(taskId: string): string {
   return `
 ## Running commands in the session
@@ -100,7 +147,7 @@ function generateSinglePrompt(
   batchIndex?: number,
   totalBatches?: number
 ): string {
-  const { type, scope, sessionId, taskId } = params;
+  const { type, scope, sessionId, taskId, omitOperatingEnvelope } = params;
   const effectiveScope = batchScope ?? scope;
 
   const sections: string[] = [];
@@ -126,6 +173,9 @@ function generateSinglePrompt(
 ## Review Instructions
 
 Report findings as structured output. Do NOT make any changes.`);
+    if (!omitOperatingEnvelope) {
+      sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, /* readOnly */ true));
+    }
     sections.push(renderToolingNote());
     sections.push(`\n${PROMPT_WATERMARK}`);
     return sections.join("\n");
@@ -139,6 +189,9 @@ Verify the merged changes against the task spec. For each success criterion, che
 - **Met** — criterion satisfied, with file:line evidence
 - **Not met** — criterion not delivered
 - **Not applicable** — criterion stale or already satisfied`);
+    if (!omitOperatingEnvelope) {
+      sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, /* readOnly */ true));
+    }
     sections.push(renderToolingNote());
     sections.push(`\n${PROMPT_WATERMARK}`);
     return sections.join("\n");
@@ -156,6 +209,10 @@ After making changes, re-read each modified file end-to-end and verify: no stale
 ## Batching Guidance
 
 For large scopes, commit after each batch of ~10 files rather than all at once.`);
+  }
+
+  if (!omitOperatingEnvelope) {
+    sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, /* readOnly */ false));
   }
 
   if (batchIndex !== undefined && totalBatches !== undefined && batchIndex < totalBatches) {

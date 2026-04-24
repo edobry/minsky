@@ -33,17 +33,19 @@ Run the script with the App name, target repo, and optional permission/event ove
 Canonical invocations:
 
 ```bash
-# Implementer App (code author, PR creator):
+# Implementer App (code author, PR creator; no webhook needed):
 bun scripts/create-github-app.ts \
   --name minsky-ai \
-  --repo <your-owner>/<your-repo>
+  --repo <your-owner>/<your-repo> \
+  --inactive
 
-# Reviewer App (Chinese-wall adversarial reviewer, mt#1073):
+# Reviewer App (Chinese-wall adversarial reviewer, mt#1073; webhook-driven):
 bun scripts/create-github-app.ts \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
-  --events pull_request
+  --events pull_request \
+  --webhook-url https://minsky-reviewer.example.com/webhook
 ```
 
 The script writes:
@@ -57,6 +59,8 @@ Flags:
 - `--repo <owner/repo>` — required. Owner is matched against the install account during installation lookup.
 - `--permissions <k:v,...>` — optional. Default: `pull_requests:write,contents:read,metadata:read`.
 - `--events <e1,e2,...>` — optional. Default: none.
+- `--webhook-url <url>` — optional. Prefills `hook_attributes.url` in the App manifest. Use this for webhook-driven Apps (reviewer, automation services). Without it, a placeholder URL is submitted (GitHub requires the field).
+- `--inactive` — optional. Creates the App with `hook_attributes.active=false`. Default: active. Use this for Apps that don't need webhooks (the `minsky-ai` implementer App). Note that GitHub's REST API has no endpoint to toggle `active` later, so choose correctly up front — the only remediation is a manual toggle in the App settings UI.
 - `--port <n>` — optional. Default: `9847`.
 - `--help` / `-h` — print usage.
 
@@ -139,7 +143,7 @@ github:
 
 `token` is your existing personal access token (unchanged). The `serviceAccount` block adds the bot identity on top of it.
 
-### Option B: Environment Variables
+### Option B: Environment Variables (local, file-backed key)
 
 ```bash
 export MINSKY_APP_ID=<YOUR-APP-ID>
@@ -150,6 +154,25 @@ export MINSKY_APP_INSTALLATION_ID=<YOUR-INSTALLATION-ID>
 Add these to your shell profile (`.zshrc`, `.bashrc`, etc.) to persist across sessions.
 
 When using environment variables, the `type: github-app` discriminant is inferred automatically — you do not need to set a separate env var for it.
+
+### Option C: Hosted / Containerized Deploy (inline PEM via env var)
+
+When running Minsky in a container or hosted environment (Railway, Docker, CI runners) there is no persistent filesystem to hold `~/.config/minsky/<name>.pem`. Instead of staging the key into the image at build time (which leaks it into every layer), pass the PEM content directly via `MINSKY_GITHUB_APP_PRIVATE_KEY`:
+
+```bash
+# Preferred — the shell preserves real newlines end-to-end:
+railway variables --set MINSKY_GITHUB_APP_PRIVATE_KEY="$(cat ~/.config/minsky/<name>.pem)"
+railway variables --set MINSKY_APP_ID=<YOUR-APP-ID>
+railway variables --set MINSKY_APP_INSTALLATION_ID=<YOUR-INSTALLATION-ID>
+```
+
+**Gotcha — Railway web UI flattens multi-line values.** If you paste the PEM into Railway's dashboard, Railway stores it as a single line with literal `\n` escape sequences instead of real newlines. Minsky's `GitHubAppTokenProvider` auto-normalizes the `\n`-escaped form back to real newlines before signing, so both shapes work. The CLI `$(cat ...)` form above avoids the flattening entirely and is less error-prone.
+
+**Precedence.** When both `privateKey` (inline) and `privateKeyFile` (path) are set, inline content wins. This lets you run the same image locally and in a container without reconfiguration — the container-only env var takes over when present, and your local file-path config is ignored.
+
+**Security note.** The PEM value is never logged, never surfaced in error messages, and the process never writes it back to disk. Treat the env var as you would a private key file — scope it to the single service that needs it and rotate if it leaks.
+
+See `docs/deploy-minsky-railway.md` for the full Railway deploy walkthrough that uses this env var.
 
 ## 5. Verify Configuration
 
@@ -239,7 +262,7 @@ The App is not installed on the account that owns the target repository. Return 
 Run `minsky config show` and verify `serviceAccount` appears in the output. If it is missing:
 
 - Check for YAML syntax errors in `~/.config/minsky/config.yaml` (indentation must be consistent).
-- If using env vars, verify `MINSKY_APP_ID`, `MINSKY_APP_PRIVATE_KEY_FILE`, and `MINSKY_APP_INSTALLATION_ID` are all exported (`echo $MINSKY_APP_ID` should return a value).
+- If using env vars, verify `MINSKY_APP_ID`, `MINSKY_APP_INSTALLATION_ID`, and **one** of `MINSKY_APP_PRIVATE_KEY_FILE` (local) or `MINSKY_GITHUB_APP_PRIVATE_KEY` (hosted, inline PEM) are all exported (`echo $MINSKY_APP_ID` should return a value). If neither key variable is set, Minsky raises `"GitHub App private key is not configured: set MINSKY_GITHUB_APP_PRIVATE_KEY (env var) or github.serviceAccount.privateKeyFile (config file)"`.
 
 **"Installation token expired" or stale token errors**
 

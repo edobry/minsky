@@ -36,6 +36,7 @@ import {
   type KnowledgeBasesConfig,
   type KnowledgeBaseEntry,
 } from "./knowledge-bases";
+import { memoryConfigSchema, type MemoryConfig, type MemoryLoadingMode } from "./memory";
 import {
   knowledgeReconciliationSchema,
   type KnowledgeReconciliationConfig,
@@ -86,6 +87,9 @@ export const configurationSchema = z.looseObject({
 
   // Knowledge base sources configuration
   knowledgeBases: knowledgeBasesConfigSchema,
+
+  // Memory loading configuration
+  memory: memoryConfigSchema,
 
   // Knowledge reconciliation configuration (freshness + authority ranking)
   knowledgeReconciliation: knowledgeReconciliationSchema.optional(),
@@ -265,6 +269,8 @@ export type {
   McpConfig,
   KnowledgeBasesConfig,
   KnowledgeBaseEntry,
+  MemoryConfig,
+  MemoryLoadingMode,
   KnowledgeReconciliationConfig,
 };
 
@@ -283,6 +289,7 @@ export {
   rulesConfigSchema,
   mcpConfigSchema,
   knowledgeBasesConfigSchema,
+  memoryConfigSchema,
   knowledgeReconciliationSchema,
 };
 

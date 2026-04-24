@@ -1,24 +1,20 @@
 import { describe, it, expect } from "bun:test";
-import { buildClaudeMdContent } from "./claude-md";
-import type { Rule } from "../../types";
+import { claudeMdTarget, buildClaudeMdContent } from "./claude-md";
 import {
   ALWAYS_APPLY_CONTENT,
   MANUAL_RULE_CONTENT,
   GLOB_RULE_CONTENT,
   PROJECT_INSTRUCTIONS_HEADER,
 } from "./test-fixtures";
+import { makeRule } from "../test-utils";
 
-// Helper to create a minimal Rule object
-function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
-  return {
-    id,
-    content,
-    format: "cursor",
-    path: `/fake/path/${id}.mdc`,
-    alwaysApply: false,
-    ...opts,
-  };
-}
+describe("claude-md target: listOutputFiles()", () => {
+  it("returns single path at <workspace>/CLAUDE.md", () => {
+    const paths = claudeMdTarget.listOutputFiles([], {}, "/workspace");
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toBe("/workspace/CLAUDE.md");
+  });
+});
 
 describe("claude-md target: buildClaudeMdContent()", () => {
   describe("basic compilation", () => {
@@ -107,6 +103,61 @@ describe("claude-md target: buildClaudeMdContent()", () => {
       const lines = content.split("\n");
       const sectionHeaders = lines.filter((l) => l.startsWith("## "));
       expect(sectionHeaders).toHaveLength(0);
+    });
+  });
+
+  describe("memory-usage rule filtering", () => {
+    const MEMORY_DIRECTIVE = "Memory is stored in Minsky DB, not files. Use `memory_search`";
+
+    const memoryUsageRule = makeRule(
+      "memory-usage",
+      `${MEMORY_DIRECTIVE} with a query matching the user's intent at the start of any non-trivial conversation.`,
+      { alwaysApply: true, tags: ["memory"] }
+    );
+
+    const otherAlwaysRule = makeRule("other-always", ALWAYS_APPLY_CONTENT, { alwaysApply: true });
+
+    it("includes memory-usage rule by default (no options)", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent([memoryUsageRule]);
+
+      expect(content).toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).toContain("memory-usage");
+      expect(rulesSkipped).not.toContain("memory-usage");
+    });
+
+    it("includes memory-usage rule in on_demand mode", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(
+        [memoryUsageRule, otherAlwaysRule],
+        { memoryLoadingMode: "on_demand" }
+      );
+
+      expect(content).toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).toContain("memory-usage");
+      expect(rulesSkipped).not.toContain("memory-usage");
+    });
+
+    it("suppresses memory-usage rule in legacy mode", () => {
+      const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(
+        [memoryUsageRule, otherAlwaysRule],
+        { memoryLoadingMode: "legacy" }
+      );
+
+      expect(content).not.toContain(MEMORY_DIRECTIVE);
+      expect(rulesIncluded).not.toContain("memory-usage");
+      expect(rulesSkipped).toContain("memory-usage");
+    });
+
+    it("legacy mode still includes other always-apply rules", () => {
+      const { content, rulesIncluded } = buildClaudeMdContent([memoryUsageRule, otherAlwaysRule], {
+        memoryLoadingMode: "legacy",
+      });
+
+      expect(content).toContain(ALWAYS_APPLY_CONTENT);
+      expect(rulesIncluded).toContain("other-always");
+    });
+
+    it("memory-usage rule is marked alwaysApply: true", () => {
+      expect(memoryUsageRule.alwaysApply).toBe(true);
     });
   });
 });

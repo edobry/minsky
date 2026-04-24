@@ -4,7 +4,7 @@ echo "Running tests before push..."
 # AGENT=1 ensures clean non-interactive output
 TEST_OUTPUT_FILE=$(mktemp)
 # Use ./src (not bare 'src') to avoid matching services/reviewer/src via Bun path-substring match
-AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
+AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain >"$TEST_OUTPUT_FILE" 2>&1
 TEST_EXIT_CODE=$?
 
 # Show only the summary line

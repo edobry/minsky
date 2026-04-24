@@ -24,6 +24,14 @@ Optional: task ID (e.g., `/implement-task mt#123`). If omitted, uses the current
 
 ## Process
 
+### 0. Retrieve relevant memory context
+
+Before reading the spec, call `memory_search` with the task ID and domain area:
+
+- Query: e.g., `"mt#<id>"` or the feature area (e.g., `"session liveness"`, `"compile pipeline"`)
+- Review any returned memories for prior decisions, user preferences, or architectural constraints that apply to this task
+- This replaces the always-loaded MEMORY.md preamble — context is fetched on-demand
+
 ### 1. Read and verify the task spec
 
 - Fetch the spec: `mcp__minsky__tasks_spec_get` with the task ID
