@@ -251,20 +251,53 @@ export class MinskyMCPServer {
       );
       this.setupRequestHandlers(sessionServer);
 
+      let sessionInitialized = false;
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
+          sessionInitialized = true;
           this.httpSessions.set(id, { server: sessionServer, transport });
           log.debug("HTTP session initialized", { sessionId: id });
         },
-        onsessionclosed: (id) => {
+        onsessionclosed: async (id) => {
+          const pair = this.httpSessions.get(id);
           this.httpSessions.delete(id);
           log.debug("HTTP session closed", { sessionId: id });
+          if (pair) {
+            try {
+              await pair.server.close();
+            } catch (err) {
+              log.warn("Error closing per-session Server on session close", {
+                sessionId: id,
+                error: getErrorMessage(err),
+              });
+            }
+          }
         },
       });
 
       await sessionServer.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      try {
+        await transport.handleRequest(req, res, req.body);
+      } finally {
+        if (!sessionInitialized) {
+          // Initialize failed before onsessioninitialized fired — clean up the orphan pair
+          try {
+            await transport.close();
+          } catch (err) {
+            log.warn("Error closing orphan transport after failed initialize", {
+              error: getErrorMessage(err),
+            });
+          }
+          try {
+            await sessionServer.close();
+          } catch (err) {
+            log.warn("Error closing orphan sessionServer after failed initialize", {
+              error: getErrorMessage(err),
+            });
+          }
+        }
+      }
       return;
     }
 
