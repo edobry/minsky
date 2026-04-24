@@ -101,6 +101,69 @@ describe("MinskyMCPServer HTTP transport multi-session (mt#1175)", () => {
     await harness.stop();
   });
 
+  test("POST with an unknown mcp-session-id returns 400 JSON-RPC -32600", async () => {
+    const res = await postJSON(
+      harness.url,
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      "unknown-session-id-that-does-not-exist"
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { jsonrpc: string; error?: { code: number }; id: unknown };
+    expect(json.jsonrpc).toBe("2.0");
+    expect(json.error?.code).toBe(INVALID_REQUEST);
+    expect(json.id).toBeNull();
+  });
+
+  test("POST without a parsed body (missing JSON middleware) returns 500 JSON-RPC -32603, not a silent 400", async () => {
+    // Call handleHttpRequest directly with req.body undefined (no express.json() middleware).
+    // Acceptance: distinguishes deployment misconfiguration from protocol violation.
+    const mcp = new MinskyMCPServer({
+      name: "Test MCP Server (no-body)",
+      version: "0.0.0-test",
+      transportType: "http",
+      projectContext: { repositoryPath: "/tmp/mt1192-test-repo-no-body" },
+    });
+    mcp.addTool({
+      name: "ping",
+      description: "test tool",
+      inputSchema: { type: "object" },
+      handler: async () => ({ pong: true }),
+    });
+    await mcp.start();
+
+    const app = express();
+    // NOTE: intentionally NOT calling app.use(express.json()) here.
+    app.all("/mcp", async (req: Request, res: ExpressResponse) => {
+      await mcp.handleHttpRequest(req, res);
+    });
+    const httpServer = await new Promise<import("node:http").Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+    try {
+      const addr = httpServer.address();
+      if (!addr || typeof addr === "string") throw new Error("no port");
+      const url = `http://127.0.0.1:${addr.port}/mcp`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: MCP_ACCEPT },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      });
+      expect(res.status).toBe(500);
+      const json = (await res.json()) as {
+        jsonrpc: string;
+        error?: { code: number; message: string };
+      };
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.error?.code).toBe(-32603);
+      expect(json.error?.message).toContain("JSON body parser");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await mcp.close();
+    }
+  });
+
   test("two back-to-back non-initialize POSTs without mcp-session-id both return 400 JSON-RPC -32600 (regression: mt#1175 500 'Already connected to a transport')", async () => {
     const body = {
       jsonrpc: "2.0",

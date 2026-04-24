@@ -234,6 +234,23 @@ export class MinskyMCPServer {
    * Handle HTTP POST requests - main MCP message handling
    */
   private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
+    // Fail loudly if upstream JSON body middleware is missing. The
+    // initialize-detection branch below depends on req.body being a parsed
+    // JSON object or array; a silent 400 here would look like a protocol
+    // violation instead of a deployment misconfiguration.
+    if (req.body === undefined) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message:
+            "Internal error: request body not parsed. HTTP transport requires a JSON body parser (e.g. express.json()) installed before handleHttpRequest.",
+        },
+        id: null,
+      });
+      return;
+    }
+
     // Reuse existing session if we have a valid session ID
     if (sessionId && this.httpSessions.has(sessionId)) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
