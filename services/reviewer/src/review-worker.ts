@@ -20,6 +20,7 @@ import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
+import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -161,6 +162,48 @@ export async function callReviewerWithRetry(
   };
 }
 
+/**
+ * Map a SanitizeResult to the (event, status, reason) tuple the worker posts
+ * and returns. Pure function — extracted from runReview (mt#1212) so the
+ * stripped / errored / passthrough branches can be tested without mocking
+ * octokit and the App-auth flow.
+ *
+ * Exported for tests.
+ */
+export function decidePostSanitizeOutcome(
+  sanitized: SanitizeResult,
+  isSelfReview: boolean,
+  ctx: {
+    reviewerLogin: string;
+    provider: string;
+    model: string;
+    attempt: ReviewAttemptTrace;
+  }
+): {
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  status: "reviewed" | "error";
+  reason: string;
+} {
+  if (sanitized.action === "errored") {
+    return {
+      event: "COMMENT",
+      status: "error",
+      reason:
+        `Posted service-error notice as ${ctx.reviewerLogin} ` +
+        `(provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt}): ` +
+        `CoT leakage with no recoverable review body (${sanitized.meta.reason})`,
+    };
+  }
+
+  const event = parseReviewEvent(sanitized.body, isSelfReview);
+  const leakSuffix = sanitized.action === "stripped" ? " [cot-leakage: stripped]" : "";
+  return {
+    event,
+    status: "reviewed",
+    reason: `Posted ${event} review as ${ctx.reviewerLogin} (provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt})${leakSuffix}`,
+  };
+}
+
 export async function runReview(
   config: ReviewerConfig,
   owner: string,
@@ -291,21 +334,83 @@ export async function runReview(
     };
   }
 
-  const event = parseReviewEvent(output.text, isSelfReview);
+  // CoT-leakage guard (mt#1212): detect model scratch leaking into the visible
+  // review body. Distinct from the empty-output guard above — here the model
+  // produced content, but part of it is internal reasoning that should not
+  // ship. Observed on PR #743 (2026-04-24). Either strip the leaked prefix
+  // (when a structural Findings section follows) or replace the body with a
+  // structured service-error notice (when the leak is the entire body).
+  const sanitized = sanitizeReviewBody(output.text);
+  if (sanitized.action !== "passthrough") {
+    console.log(
+      JSON.stringify({
+        event: "reviewer.cot_leak_detected",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        commitSha: pr.headSha,
+        originalLength: sanitized.meta.originalLength,
+        cleanedLength: sanitized.meta.cleanedLength,
+        action: sanitized.action,
+        reason: sanitized.meta.reason,
+        provider: output.provider,
+        model: output.model,
+      })
+    );
+  }
+
+  const outcome = decidePostSanitizeOutcome(sanitized, isSelfReview, {
+    reviewerLogin: reviewerIdentity.login,
+    provider: output.provider,
+    model: output.model,
+    attempt,
+  });
+
+  // On the sanitize=errored path, mirror the mt#1125 empty-output pattern:
+  // defensively post the service-error notice in try/catch so a secondary
+  // posting failure doesn't mask the primary error, and do NOT populate the
+  // `review` field — downstream consumers treat status="error" as "no review
+  // confirmed posted" per the empty-output precedent.
+  //
+  // On the reviewed path, let submitReview failures bubble up so the webhook
+  // retries the delivery (same behavior as the pre-mt#1212 normal path).
+  if (outcome.status === "error") {
+    try {
+      await submitReview(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        outcome.event,
+        annotateReviewBody(sanitized.body, output, tier, isSelfReview)
+      );
+    } catch {
+      // Primary error is still captured in outcome.reason + status below.
+    }
+    return {
+      status: "error",
+      reason: outcome.reason,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+      attempt,
+      retryAttempted,
+      taskSpecFetch,
+    };
+  }
 
   const review = await submitReview(
     octokit,
     owner,
     repo,
     prNumber,
-    event,
-    annotateReviewBody(output.text, output, tier, isSelfReview)
+    outcome.event,
+    annotateReviewBody(sanitized.body, output, tier, isSelfReview)
   );
 
   return {
-    status: "reviewed",
+    status: outcome.status,
     review,
-    reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model}, attempt=${attempt})`,
+    reason: outcome.reason,
     tier,
     providerUsed: output.provider,
     providerModel: output.model,
