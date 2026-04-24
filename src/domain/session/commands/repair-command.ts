@@ -75,7 +75,7 @@ export async function sessionRepair(
 
   // Resolve session context
   const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.name,
+    sessionId: params.name,
     task: params.task,
     repo: params.repo,
     sessionProvider: sessionDB,

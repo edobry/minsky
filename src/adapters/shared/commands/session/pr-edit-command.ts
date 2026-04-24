@@ -118,7 +118,7 @@ export async function executeSessionPrEdit(
           const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
           const resolved = await resolveSessionContextWithFeedback({
-            session: params.name,
+            sessionId: params.name,
             task: params.task,
             repo: params.repo,
             sessionProvider: deps.sessionProvider,

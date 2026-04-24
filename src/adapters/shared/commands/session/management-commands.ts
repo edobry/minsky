@@ -117,7 +117,7 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
         const gitService = deps.gitService;
 
         const resolved = await resolveSessionContextWithFeedback({
-          session: params.name as string | undefined,
+          sessionId: params.name as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           sessionProvider,

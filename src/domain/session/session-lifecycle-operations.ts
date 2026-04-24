@@ -33,7 +33,7 @@ export async function getSessionImpl(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      sessionId: name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -120,7 +120,7 @@ export async function deleteSessionImpl(
 
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      sessionId: name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,

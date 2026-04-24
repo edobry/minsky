@@ -30,7 +30,7 @@ export async function sessionPr(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session,
+      sessionId: session,
       task,
       repo,
       sessionProvider: sessionDB,

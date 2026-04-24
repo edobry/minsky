@@ -52,7 +52,7 @@ export async function sessionPrCreate(
   if (params.draft) {
     // Validate backend type for draft mode
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.name,
+      sessionId: params.name,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,

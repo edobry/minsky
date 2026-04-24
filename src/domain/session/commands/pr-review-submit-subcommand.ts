@@ -63,7 +63,7 @@ export async function sessionPrReviewSubmit(
 
   // Resolve session
   const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.sessionId ?? params.name,
+    sessionId: params.sessionId ?? params.name,
     task: params.task,
     repo: params.repo,
     sessionProvider: sessionDB,

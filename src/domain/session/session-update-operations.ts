@@ -48,7 +48,7 @@ export async function updateSessionImpl(
   let sessionId: string;
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      sessionId: name,
       task: params.task,
       repo: params.repo,
       sessionProvider: deps.sessionDB,

@@ -55,7 +55,7 @@ export async function checkIfPrCanBeRefreshed(
         "../../../../domain/session/session-context-resolver"
       );
       const resolved = await resolveSessionContextWithFeedback({
-        session: params.name,
+        sessionId: params.name,
         task: params.task,
         repo: params.repo,
         sessionProvider: deps.sessionProvider,
@@ -98,7 +98,7 @@ export async function validateNoPrExists(
         "../../../../domain/session/session-context-resolver"
       );
       const resolvedContext = await resolveSessionContextWithFeedback({
-        session: params.name,
+        sessionId: params.name,
         task: params.task,
         repo: params.repo,
         sessionProvider: deps.sessionProvider,
@@ -230,7 +230,7 @@ export async function executeSessionPrCreate(
         const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
         const resolved = await resolveSessionContextWithFeedback({
-          session: params.name,
+          sessionId: params.name,
           task: params.task,
           repo: params.repo,
           sessionProvider: deps.sessionProvider,

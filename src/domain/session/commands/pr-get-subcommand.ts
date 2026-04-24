@@ -80,7 +80,7 @@ export async function sessionPrGet(
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionId || params.name,
+      sessionId: params.sessionId || params.name,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
