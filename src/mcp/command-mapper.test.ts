@@ -173,5 +173,43 @@ describe("CommandMapper", () => {
         additionalProperties: false,
       });
     });
+
+    describe("default() field handling", () => {
+      test("mixed schema: required field stays required, defaulted and optional fields omitted from required", () => {
+        const zodSchema = z.object({
+          a: z.string(),
+          b: z.boolean().default(false),
+          c: z.string().optional(),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        expect(jsonSchema.required).toEqual(["a"]);
+      });
+
+      test("regression: purely required schema preserves all fields in required", () => {
+        const zodSchema = z.object({
+          a: z.string(),
+          b: z.number(),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        expect(jsonSchema.required).toEqual(["a", "b"]);
+      });
+
+      test("regression: purely optional/defaulted schema emits no required key", () => {
+        const zodSchema = z.object({
+          a: z.string().optional(),
+          b: z.boolean().default(true),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        // required should be absent or empty
+        const required = jsonSchema.required as string[] | undefined;
+        expect(required == null || required.length === 0).toBe(true);
+      });
+    });
   });
 });
