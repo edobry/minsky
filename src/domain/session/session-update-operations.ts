@@ -30,7 +30,6 @@ export async function updateSessionImpl(
   deps: UpdateSessionDependencies
 ): Promise<Session> {
   const {
-    name,
     sessionId: sessionIdParam,
     branch,
     remote,
@@ -43,29 +42,26 @@ export async function updateSessionImpl(
     skipIfAlreadyMerged,
   } = params;
 
-  // Prefer sessionId parameter; fall back to legacy name field
-  const identityParam = sessionIdParam ?? name;
-
   log.debug("updateSessionImpl called", { params });
 
   // Use unified session context resolver for consistent auto-detection
   let sessionId: string;
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: identityParam,
+      sessionId: sessionIdParam,
       task: params.task,
       repo: params.repo,
       sessionProvider: deps.sessionDB,
-      allowAutoDetection: !identityParam, // Only allow auto-detection if no identity provided
+      allowAutoDetection: !sessionIdParam, // Only allow auto-detection if no identity provided
       getCurrentSessionFn: deps.getCurrentSession,
     });
     sessionId = resolvedContext.sessionId;
     log.debug("Session resolved", { sessionId, resolvedBy: resolvedContext.resolvedBy });
   } catch (error) {
-    log.debug("Failed to resolve session", { error, sessionId: identityParam, task: params.task });
+    log.debug("Failed to resolve session", { error, sessionId: sessionIdParam, task: params.task });
     if (error instanceof ValidationError) {
       throw new ValidationError(
-        "Session ID is required. Either provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

@@ -126,7 +126,7 @@ export async function sessionPr(
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

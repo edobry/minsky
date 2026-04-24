@@ -96,7 +96,7 @@ export async function scanSessionConflicts(
 
       if (!context) {
         throw new Error(
-          "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
+          "No session detected. Please provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
         );
       }
 

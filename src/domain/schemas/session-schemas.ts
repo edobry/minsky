@@ -113,7 +113,6 @@ export const SessionDeleteParametersSchema = z
 export const SessionUpdateParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
     remote: z.string().optional(),
