@@ -7,7 +7,202 @@ import {
   parseSegment,
   splitOnShellOperators,
   stripEnvVarAssignments,
+  toolContextFromName,
+  SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
+
+/** Minsky MCP tool names referenced in denial reasons — hoisted to avoid magic-string duplication in tests. */
+const SESSION_COMMIT_TOOL = "mcp__minsky__session_commit";
+
+// ---------------------------------------------------------------------------
+// toolContextFromName
+// ---------------------------------------------------------------------------
+
+describe("toolContextFromName", () => {
+  it("maps session_exec tool name to 'session_exec' context", () => {
+    expect(toolContextFromName(SESSION_EXEC_TOOL_NAME)).toBe("session_exec");
+  });
+
+  it("maps Bash to 'bash' context", () => {
+    expect(toolContextFromName("Bash")).toBe("bash");
+  });
+
+  it("maps any other tool name to 'bash' context (default)", () => {
+    expect(toolContextFromName("Edit")).toBe("bash");
+    expect(toolContextFromName("")).toBe("bash");
+    expect(toolContextFromName("mcp__minsky__session_commit")).toBe("bash");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDenial — session_exec context (carve-outs preserved)
+// ---------------------------------------------------------------------------
+
+describe("checkDenial — session_exec context", () => {
+  const deniedViaSessionExec = (subcommand: string, extraArgs: string[] = []) =>
+    checkDenial({ binary: "git", args: [subcommand, ...extraArgs] }, "session_exec");
+
+  // The four rules that are self-referential on session_exec — MUST be allowed
+  // when invoked via session_exec (otherwise the rule's reason contradicts itself).
+  it("allows `git status` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("status")).toBeNull();
+  });
+
+  it("allows `git stash` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("stash")).toBeNull();
+  });
+
+  it("allows `git reset` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("reset")).toBeNull();
+    expect(deniedViaSessionExec("reset", ["--hard", "HEAD"])).toBeNull();
+  });
+
+  it("denies `git -C <path> status` via session_exec (prevents bypass)", () => {
+    // Regression guard for the mt#1196 minsky-reviewer finding: -C was
+    // originally carved out as `allowedInSessionExec: true`. That let
+    // `git -C /anywhere commit|push|merge|...` slip through because the -C
+    // rule fired first (args[0] === "-C"), got skipped as a carve-out, and
+    // no subsequent rule matched (they all check args[0] for a subcommand).
+    // Denying -C unconditionally closes the bypass.
+    expect(
+      checkDenial({ binary: "git", args: ["-C", "/some/path", "status"] }, "session_exec")
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> commit` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "commit", "-m", "x"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> push` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial({ binary: "git", args: ["-C", "/some/path", "push"] }, "session_exec")
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> merge` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "merge", "origin/main"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
+  });
+
+  // All other git denials still fire via session_exec — these are the loophole
+  // cases from the PR #717 incident retrospective (mt#1196).
+  it("denies `git log` via session_exec (use git_log MCP tool)", () => {
+    const reason = deniedViaSessionExec("log");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__git_log");
+  });
+
+  it("denies `git diff` via session_exec (use git_diff/session_diff MCP tools)", () => {
+    const reason = deniedViaSessionExec("diff");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__git_diff");
+  });
+
+  it("denies `git commit` via session_exec (use session_commit)", () => {
+    const reason = deniedViaSessionExec("commit");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain(SESSION_COMMIT_TOOL);
+  });
+
+  it("denies `git add` via session_exec (use session_commit all:true)", () => {
+    expect(deniedViaSessionExec("add")).not.toBeNull();
+  });
+
+  it("denies `git push` via session_exec", () => {
+    expect(deniedViaSessionExec("push")).not.toBeNull();
+  });
+
+  it("denies `git merge` via session_exec (use session_pr_merge)", () => {
+    const reason = deniedViaSessionExec("merge");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__session_pr_merge");
+  });
+
+  it("denies `git rebase` via session_exec (use session_update)", () => {
+    expect(deniedViaSessionExec("rebase")).not.toBeNull();
+  });
+
+  it("denies `git checkout` via session_exec", () => {
+    expect(deniedViaSessionExec("checkout")).not.toBeNull();
+  });
+
+  it("denies `git fetch` via session_exec (handled by session_update)", () => {
+    expect(deniedViaSessionExec("fetch")).not.toBeNull();
+  });
+
+  it("denies `git clone` via session_exec (use session_start)", () => {
+    expect(deniedViaSessionExec("clone")).not.toBeNull();
+  });
+
+  it("denies `git blame` via session_exec (use git_blame)", () => {
+    expect(deniedViaSessionExec("blame")).not.toBeNull();
+  });
+
+  it("denies `git branch` via session_exec", () => {
+    expect(deniedViaSessionExec("branch")).not.toBeNull();
+  });
+
+  it("denies `git pull` via session_exec", () => {
+    expect(deniedViaSessionExec("pull")).not.toBeNull();
+  });
+
+  it("allows `git show` via session_exec (not in denial table; real MCP gap)", () => {
+    expect(deniedViaSessionExec("show")).toBeNull();
+  });
+
+  it("allows `git cherry-pick` via session_exec (not in denial table)", () => {
+    expect(deniedViaSessionExec("cherry-pick")).toBeNull();
+  });
+
+  // All gh denials fire the same way on both contexts (no carve-outs).
+  it("denies `gh pr create` via session_exec", () => {
+    const reason = checkDenial({ binary: "gh", args: ["pr", "create"] }, "session_exec");
+    expect(reason).not.toBeNull();
+  });
+
+  it("denies `gh pr review` via session_exec", () => {
+    const reason = checkDenial({ binary: "gh", args: ["pr", "review"] }, "session_exec");
+    expect(reason).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDenial — bash context regression (default behavior unchanged)
+// ---------------------------------------------------------------------------
+
+describe("checkDenial — bash context (regression: no change from prior behavior)", () => {
+  const deniedViaBash = (subcommand: string) =>
+    checkDenial({ binary: "git", args: [subcommand] }, "bash");
+
+  it("still denies `git status` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("status")).not.toBeNull();
+  });
+
+  it("still denies `git stash` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("stash")).not.toBeNull();
+  });
+
+  it("still denies `git reset` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("reset")).not.toBeNull();
+  });
+
+  it("still denies `git -C <path>` on Bash (existing behavior)", () => {
+    expect(checkDenial({ binary: "git", args: ["-C", "/some/path"] }, "bash")).not.toBeNull();
+  });
+
+  it("default context (no arg) behaves as bash — denies `git status`", () => {
+    expect(checkDenial({ binary: "git", args: ["status"] })).not.toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // stripEnvVarAssignments
@@ -254,7 +449,7 @@ describe("checkDenial — git", () => {
 
   it("denial reason for git add references session_commit", () => {
     const reason = denied("add");
-    expect(reason).toContain("mcp__minsky__session_commit");
+    expect(reason).toContain(SESSION_COMMIT_TOOL);
   });
 
   it("denial reason for git -C references session_exec", () => {
@@ -393,6 +588,50 @@ describe("full command denial integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Integration: session_exec command string → denial
+// ---------------------------------------------------------------------------
+
+describe("full command denial integration — session_exec context", () => {
+  const firstSessionExecDenial = (cmd: string) => {
+    const parsed = parseCommands(cmd);
+    for (const p of parsed) {
+      const r = checkDenial(p, "session_exec");
+      if (r) return r;
+    }
+    return null;
+  };
+
+  it("denies `git log --oneline` via session_exec", () => {
+    expect(firstSessionExecDenial("git log --oneline")).not.toBeNull();
+  });
+
+  it("denies `git merge origin/main` via session_exec", () => {
+    expect(firstSessionExecDenial("git merge origin/main --no-edit")).not.toBeNull();
+  });
+
+  it("denies chained `git fetch && git log` via session_exec", () => {
+    expect(firstSessionExecDenial("git fetch origin main && git log --oneline")).not.toBeNull();
+  });
+
+  it("allows `git status` via session_exec", () => {
+    expect(firstSessionExecDenial("git status")).toBeNull();
+  });
+
+  it("allows `git stash pop` via session_exec", () => {
+    expect(firstSessionExecDenial("git stash pop")).toBeNull();
+  });
+
+  it("allows `git show origin/main:path/to/file` via session_exec (real MCP gap)", () => {
+    expect(firstSessionExecDenial("git show origin/main:path/to/file")).toBeNull();
+  });
+
+  it("allows arbitrary non-git commands via session_exec", () => {
+    expect(firstSessionExecDenial("bun test --preload ./tests/setup.ts")).toBeNull();
+    expect(firstSessionExecDenial("ls -la")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Known limitations — document expected-but-imperfect behavior
 // ---------------------------------------------------------------------------
 
@@ -403,7 +642,7 @@ describe("known limitations: shell quoting is not honored", () => {
     // This is the happy path even though parsing is technically broken.
     const cmd = `git commit -m "feat: pipe | this"`;
     const parsed = parseCommands(cmd);
-    const firstDenied = parsed.map(checkDenial).find((r) => r !== null);
+    const firstDenied = parsed.map((p) => checkDenial(p)).find((r) => r !== null);
     expect(firstDenied).not.toBeNull();
   });
 
@@ -425,7 +664,7 @@ describe("known limitations: shell quoting is not honored", () => {
     // The splitter sees `echo "hi ` and `git cherry-pick abc"` — the latter parses
     // as git cherry-pick, which is in the allowed list.
     expect(parsed.length).toBeGreaterThanOrEqual(1);
-    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    const anyDenied = parsed.map((p) => checkDenial(p)).some((r) => r !== null);
     expect(anyDenied).toBe(false); // Known-permissive: nothing denied
   });
 
@@ -435,7 +674,7 @@ describe("known limitations: shell quoting is not honored", () => {
     const cmd = `TAG=$(git log -1 --format=%s)`;
     const parsed = parseCommands(cmd);
     // Depending on the splitter, the outer command may not parse as git at all.
-    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    const anyDenied = parsed.map((p) => checkDenial(p)).some((r) => r !== null);
     // Current behavior: subshell content is not blocked. Known limitation.
     expect(anyDenied).toBe(false);
   });
@@ -455,6 +694,17 @@ describe("denial table sanity", () => {
   it("all ghDenials have non-empty reason strings", () => {
     for (const rule of ghDenials) {
       expect(rule.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("every gitDenial with `allowedInSessionExec: true` has a reason that references session_exec", () => {
+    // Sanity check: if a rule carves out session_exec, its reason message
+    // should actually guide the agent to use session_exec. Otherwise the
+    // carve-out is incoherent.
+    for (const rule of gitDenials) {
+      if (rule.allowedInSessionExec) {
+        expect(rule.reason).toContain("session_exec");
+      }
     }
   });
 });
