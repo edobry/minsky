@@ -22,20 +22,26 @@ interface PullRequestPayload {
     number: number;
     user: { login: string };
     draft: boolean;
+    head: { sha: string };
   };
   repository: { owner: { login: string }; name: string };
 }
 
-async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void> {
+async function handlePullRequestEvent(
+  payload: PullRequestPayload,
+  deliveryId: string
+): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const prNumber = payload.pull_request.number;
   const prAuthor = payload.pull_request.user.login;
+  const headSha = payload.pull_request.head.sha;
 
   if (payload.pull_request.draft) {
     console.log(
       JSON.stringify({
         event: "skip_draft",
+        delivery_id: deliveryId,
         pr: prNumber,
         owner,
         repo,
@@ -44,7 +50,7 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
     return;
   }
 
-  const result = await runReview(config, owner, repo, prNumber, prAuthor);
+  const result = await runReview(config, owner, repo, prNumber, prAuthor, deliveryId, headSha);
   // Note: runReview is NOT wrapped in try/catch here. Errors propagate to
   // webhooks.verifyAndReceive → HTTP 500 → GitHub retries the delivery.
   // This is load-bearing for the Tier-3 mandatory-review guarantee: a
@@ -56,6 +62,8 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
   console.log(
     JSON.stringify({
       event: "review_result",
+      delivery_id: deliveryId,
+      sha: headSha,
       pr: prNumber,
       owner,
       repo,
@@ -71,16 +79,16 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
   );
 }
 
-webhooks.on("pull_request.opened", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.opened", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
-webhooks.on("pull_request.synchronize", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.synchronize", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
-webhooks.on("pull_request.reopened", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.reopened", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
 const server = Bun.serve({
@@ -110,6 +118,15 @@ const server = Bun.serve({
         return new Response("missing signature or event headers", { status: 400 });
       }
 
+      console.log(
+        JSON.stringify({
+          event: "webhook_received",
+          delivery_id: deliveryId,
+          github_event: eventName,
+          signature_present: Boolean(signature),
+        })
+      );
+
       try {
         await webhooks.verifyAndReceive({
           id: deliveryId,
@@ -128,8 +145,8 @@ const server = Bun.serve({
         console.error(
           JSON.stringify({
             event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
-            deliveryId,
-            eventName,
+            delivery_id: deliveryId,
+            github_event: eventName,
             error: message,
           })
         );
