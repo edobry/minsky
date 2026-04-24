@@ -17,8 +17,25 @@ import {
 } from "./types";
 import { PersistenceProviderFactory } from "./factory";
 import { getConfiguration } from "../configuration";
+import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
+import { getDefaultSqliteDbPath } from "../../utils/paths";
 import { log } from "../../utils/logger";
 import type { VectorStorage } from "../storage/vector/types";
+import type { Configuration } from "../configuration/schemas";
+
+/**
+ * Pull tuning fields (maxConnections, timeouts, prepareStatements) from a legacy
+ * `sessiondb.postgres.*` block, excluding `connectionString` so the caller can apply
+ * precedence independently.
+ */
+function extractLegacyPostgresFields(config: Configuration): Record<string, unknown> {
+  const legacy = (config as Configuration & { sessiondb?: { postgres?: Record<string, unknown> } })
+    .sessiondb;
+  const legacyPostgres = legacy?.postgres;
+  if (!legacyPostgres || typeof legacyPostgres !== "object") return {};
+  const { connectionString: _ignored, ...rest } = legacyPostgres as Record<string, unknown>;
+  return rest;
+}
 
 /**
  * Persistence service — injectable instance.
@@ -68,16 +85,50 @@ export class PersistenceService {
 
   /**
    * Load configuration from runtime config.
-   * Static because it doesn't depend on instance state.
+   *
+   * Unified resolution: reads both the modern `persistence.*` and legacy `sessiondb.*`
+   * shapes plus env-var fallbacks via `getEffectivePersistenceConfig`, then rebuilds a
+   * `PersistenceConfig` (the nested factory shape) so env-only deployments work.
+   *
+   * Prior behavior returned `runtimeConfig.persistence` directly, which always resolved
+   * to the SQLite default when no `persistence.*` override existed — so
+   * `MINSKY_SESSIONDB_*` env vars (populating `config.sessiondb.*`) had no effect at
+   * bootstrap. See mt#1224.
    */
   private static loadConfiguration(): PersistenceConfig {
     const runtimeConfig = getConfiguration();
-    if (runtimeConfig.persistence) {
-      return runtimeConfig.persistence;
+    const effective = getEffectivePersistenceConfig(runtimeConfig);
+
+    switch (effective.backend) {
+      case "postgres": {
+        if (!effective.connectionString) {
+          throw new Error(
+            "Postgres persistence backend requires a connection string. Set " +
+              "`persistence.postgres.connectionString` in config, or the " +
+              "`MINSKY_PERSISTENCE_POSTGRES_URL` / `MINSKY_SESSIONDB_POSTGRES_URL` env var."
+          );
+        }
+        const legacyPostgres = extractLegacyPostgresFields(runtimeConfig);
+        return {
+          backend: "postgres",
+          postgres: {
+            ...(runtimeConfig.persistence?.postgres ?? {}),
+            ...legacyPostgres,
+            connectionString: effective.connectionString,
+          },
+        };
+      }
+      case "sqlite": {
+        return {
+          backend: "sqlite",
+          sqlite: {
+            dbPath: effective.dbPath ?? getDefaultSqliteDbPath(),
+          },
+        };
+      }
+      default:
+        throw new Error(`Unsupported persistence backend: ${String(effective.backend)}`);
     }
-    throw new Error(
-      "No persistence configuration found. Please configure 'persistence:' in your configuration."
-    );
   }
 
   /**

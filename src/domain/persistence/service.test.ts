@@ -114,6 +114,50 @@ describe("PersistenceService (instance)", () => {
     }
   });
 
+  test("loadConfiguration via initialize() resolves postgres from legacy sessiondb.* (mt#1224 regression)", async () => {
+    // Regression: the bootstrap used to read `config.persistence` only, so env vars
+    // that populate `config.sessiondb.*` had no effect. After mt#1275, the bootstrap
+    // uses getEffectivePersistenceConfig, so legacy shapes are honored.
+    const { mock: mockFn } = await import("bun:test");
+    // Use mock.module to replace `getConfiguration` — direct assignment fails in ESM.
+    mockFn.module("../configuration", () => ({
+      getConfiguration: () =>
+        ({
+          // note: no `persistence` override — defaults remain
+          sessiondb: {
+            backend: "postgres",
+            postgres: { connectionString: FAKE_CONNECTION_STRING },
+          },
+        }) as any,
+    }));
+
+    const service = new PersistenceService();
+    const { PersistenceProviderFactory } = await import("./factory");
+    const origCreate = PersistenceProviderFactory.create;
+
+    let capturedConfig: any = null;
+    PersistenceProviderFactory.create = mock(async (config: any) => {
+      capturedConfig = config;
+      return {
+        initialize: mock(() => Promise.resolve()),
+        getStorage: mock(() => ({})),
+        getCapabilities: mock(() => ({})),
+        close: mock(() => Promise.resolve()),
+      };
+    }) as any;
+
+    try {
+      // Call initialize() with NO explicit config — forces loadConfiguration() path.
+      await service.initialize();
+
+      expect(capturedConfig).not.toBeNull();
+      expect(capturedConfig.backend).toBe("postgres");
+      expect(capturedConfig.postgres?.connectionString).toBe(FAKE_CONNECTION_STRING);
+    } finally {
+      PersistenceProviderFactory.create = origCreate;
+    }
+  });
+
   test("close() delegates to provider.close() and nulls the provider (mt#1193)", async () => {
     const service = new PersistenceService();
     const { PersistenceProviderFactory } = await import("./factory");
