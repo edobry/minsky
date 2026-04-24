@@ -84,6 +84,9 @@ export function findMatchingReview(
   reviewer: string | undefined
 ): ReviewListEntry | undefined {
   for (const review of reviews) {
+    // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
+    // yet; they don't count as "a review has been posted" for waiter purposes.
+    if (review.state === "PENDING") continue;
     if (review.submittedAt === undefined) continue;
     const submittedMs = Date.parse(review.submittedAt);
     if (Number.isNaN(submittedMs)) continue;
@@ -161,7 +164,7 @@ export async function sessionPrWaitForReview(
     if (!backend.review.listReviews) {
       throw new MinskyError(
         `Repository backend does not support listing reviews. ` +
-          `session_pr_wait_for_review currently requires a GitHub backend.`
+          `session_pr_wait_for_review requires a backend implementing ReviewOperations.listReviews.`
       );
     }
 

@@ -664,8 +664,8 @@ export const sessionPrWaitForReviewCommandParams = {
   since: {
     schema: z.string(),
     description:
-      "ISO-8601 timestamp; reviews submitted before this time are ignored. " +
-      "Defaults to the call's start time.",
+      "ISO-8601 timestamp; only reviews submitted at or after this time count as matches " +
+      "(inclusive lower bound). Defaults to the call's start time.",
     required: false,
   },
 };

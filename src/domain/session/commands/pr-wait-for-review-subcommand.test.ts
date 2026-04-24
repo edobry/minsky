@@ -103,6 +103,28 @@ describe("findMatchingReview", () => {
     const r = findMatchingReview([], since, undefined);
     expect(r).toBeUndefined();
   });
+
+  test("excludes PENDING reviews from matching (drafts)", () => {
+    const r = findMatchingReview(
+      [
+        mkReview({
+          reviewId: 1,
+          state: "PENDING",
+          submittedAt: "2026-04-24T02:00:00Z",
+          reviewerLogin: "someone",
+        }),
+        mkReview({
+          reviewId: 2,
+          state: "APPROVED",
+          submittedAt: "2026-04-24T02:00:00Z",
+          reviewerLogin: "someone",
+        }),
+      ],
+      since,
+      undefined
+    );
+    expect(r?.reviewId).toBe(2);
+  });
 });
 
 describe("sessionPrWaitForReview", () => {

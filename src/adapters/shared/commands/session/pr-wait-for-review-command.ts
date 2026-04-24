@@ -60,7 +60,7 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
               review.htmlUrl ? `  URL:       ${review.htmlUrl}` : undefined,
               "",
               // First 40 lines of the body — enough to see the structure;
-              // callers who want full content use session_pr_review_context
+              // callers who want full content use session.pr.review-context
               // or the URL.
               review.body
                 ? review.body.split("\n").slice(0, 40).join("\n")

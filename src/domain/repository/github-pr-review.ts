@@ -257,26 +257,37 @@ export async function listReviews(
       repo: gh.repo,
     });
 
-    return reviews.map((r): ReviewListEntry => {
-      // Normalize GitHub's free-form state string to the ReviewListEntry union.
-      // Unknown states fall through to COMMENTED (the most neutral option)
-      // rather than throwing — listing must never fail on a single odd row.
-      const normalizedState: ReviewListEntry["state"] =
-        r.state === "APPROVED" ||
-        r.state === "CHANGES_REQUESTED" ||
-        r.state === "COMMENTED" ||
-        r.state === "DISMISSED" ||
-        r.state === "PENDING"
-          ? r.state
-          : "COMMENTED";
-      return {
-        reviewId: r.id,
-        state: normalizedState,
-        submittedAt: r.submitted_at ?? undefined,
-        reviewerLogin: r.user?.login ?? null,
-        body: r.body ?? "",
-        htmlUrl: r.html_url,
-      };
+    return reviews.flatMap((r): ReviewListEntry[] => {
+      // Only surface reviews whose state is one we recognize. Unknown states
+      // (e.g., a future GitHub state we haven't mapped yet) are skipped
+      // rather than coerced — coercing to COMMENTED would let the wait-for-
+      // review tool falsely match on them. Log a warning so an operator can
+      // notice if GitHub introduces a new state we should handle.
+      const state = r.state;
+      if (
+        state !== "APPROVED" &&
+        state !== "CHANGES_REQUESTED" &&
+        state !== "COMMENTED" &&
+        state !== "DISMISSED" &&
+        state !== "PENDING"
+      ) {
+        log.warn("GitHub review returned unrecognized state; skipping", {
+          prNumber,
+          reviewId: r.id,
+          state,
+        });
+        return [];
+      }
+      return [
+        {
+          reviewId: r.id,
+          state,
+          submittedAt: r.submitted_at ?? undefined,
+          reviewerLogin: r.user?.login ?? null,
+          body: r.body ?? "",
+          htmlUrl: r.html_url,
+        },
+      ];
     });
   } catch (error) {
     if (error instanceof MinskyError) throw error;
