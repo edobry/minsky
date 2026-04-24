@@ -19,7 +19,7 @@ import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
-import { sanitizeReviewBody } from "./sanitize";
+import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -73,6 +73,46 @@ export function buildEmptyOutputSkipNotice(output: ReviewOutput): string {
     `This is **not** an approval or a rejection. Manual review is recommended. ` +
     `Diagnostic details are available in the reviewer service logs.`
   );
+}
+
+/**
+ * Map a SanitizeResult to the (event, status, reason) tuple the worker posts
+ * and returns. Pure function — extracted from runReview so the stripped /
+ * errored / passthrough branches can be tested without mocking octokit and
+ * the App-auth flow.
+ *
+ * Exported for tests.
+ */
+export function decidePostSanitizeOutcome(
+  sanitized: SanitizeResult,
+  isSelfReview: boolean,
+  ctx: {
+    reviewerLogin: string;
+    provider: string;
+    model: string;
+  }
+): {
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  status: "reviewed" | "error";
+  reason: string;
+} {
+  if (sanitized.action === "errored") {
+    return {
+      event: "COMMENT",
+      status: "error",
+      reason:
+        `Posted service-error notice as ${ctx.reviewerLogin}: CoT leakage with no recoverable review body ` +
+        `(${sanitized.meta.reason})`,
+    };
+  }
+
+  const event = parseReviewEvent(sanitized.body, isSelfReview);
+  const leakSuffix = sanitized.action === "stripped" ? " [cot-leakage: stripped]" : "";
+  return {
+    event,
+    status: "reviewed",
+    reason: `Posted ${event} review as ${ctx.reviewerLogin} (provider=${ctx.provider}, model=${ctx.model})${leakSuffix}`,
+  };
 }
 
 export async function runReview(
@@ -209,38 +249,25 @@ export async function runReview(
     );
   }
 
-  const event =
-    sanitized.action === "errored" ? "COMMENT" : parseReviewEvent(sanitized.body, isSelfReview);
+  const outcome = decidePostSanitizeOutcome(sanitized, isSelfReview, {
+    reviewerLogin: reviewerIdentity.login,
+    provider: output.provider,
+    model: output.model,
+  });
 
   const review = await submitReview(
     octokit,
     owner,
     repo,
     prNumber,
-    event,
+    outcome.event,
     annotateReviewBody(sanitized.body, output, tier, isSelfReview)
   );
 
-  if (sanitized.action === "errored") {
-    return {
-      status: "error",
-      review,
-      reason:
-        `Posted service-error notice as ${reviewerIdentity.login}: CoT leakage with no recoverable review body ` +
-        `(${sanitized.meta.reason})`,
-      tier,
-      providerUsed: output.provider,
-      providerModel: output.model,
-      usage: output.usage,
-    };
-  }
-
   return {
-    status: "reviewed",
+    status: outcome.status,
     review,
-    reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model})${
-      sanitized.action === "stripped" ? " [cot-leakage: stripped]" : ""
-    }`,
+    reason: outcome.reason,
     tier,
     providerUsed: output.provider,
     providerModel: output.model,

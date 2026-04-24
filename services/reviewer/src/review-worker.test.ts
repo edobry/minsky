@@ -3,9 +3,11 @@ import {
   parseReviewEvent,
   validateReviewOutput,
   buildEmptyOutputSkipNotice,
+  decidePostSanitizeOutcome,
 } from "./review-worker";
 import type { ReviewOutput } from "./providers";
 import type { ReviewerToolContext } from "./tools";
+import type { SanitizeResult } from "./sanitize";
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -235,5 +237,98 @@ describe("ReviewerToolContext shape", () => {
 
     expect(await tools.listDirectory("src")).toEqual(entries);
     expect(await tools.listDirectory("missing-dir")).toBeNull();
+  });
+});
+
+// ----- decidePostSanitizeOutcome (mt#1212 integration branch) -----
+//
+// Covers the post-sanitize decision the worker applies to the three
+// SanitizeResult.action values (passthrough / stripped / errored).
+// Extracted into a pure helper so these branches can be tested without
+// mocking octokit + App auth + github-client. Resolves the reviewer
+// subagent's BLOCKING finding that the worker's stripped/errored branches
+// had no test coverage.
+
+describe("decidePostSanitizeOutcome", () => {
+  const REVIEWER_LOGIN = "minsky-reviewer[bot]";
+  const STRIPPED_LEAK_MARKER = "[cot-leakage: stripped]";
+
+  const ctx = {
+    reviewerLogin: REVIEWER_LOGIN,
+    provider: "openai",
+    model: "gpt-5",
+  };
+
+  const passthrough: SanitizeResult = {
+    action: "passthrough",
+    body: "## Findings\n\n- [NON-BLOCKING] src/foo.ts:1 — minor.\n\nEvent: APPROVE",
+    meta: { originalLength: 80, cleanedLength: 80 },
+  };
+
+  const stripped: SanitizeResult = {
+    action: "stripped",
+    body: "## Findings\n\n- [BLOCKING] src/foo.ts:1 — bad.\n\nEvent: REQUEST_CHANGES",
+    meta: {
+      originalLength: 5000,
+      cleanedLength: 80,
+      reason: "cot-leak:blank-line-run,scratch:this-time-for-sure",
+    },
+  };
+
+  const errored: SanitizeResult = {
+    action: "errored",
+    body: "**reviewer-service error: chain-of-thought leakage detected**\n\n...",
+    meta: {
+      originalLength: 1200,
+      cleanedLength: 200,
+      reason: "cot-leak:scratch:openai-tool-routing,long-narrative-prefix",
+    },
+  };
+
+  test("passthrough: parses event from body, status=reviewed, no leak marker", () => {
+    const outcome = decidePostSanitizeOutcome(passthrough, false, ctx);
+    expect(outcome.event).toBe("APPROVE");
+    expect(outcome.status).toBe("reviewed");
+    expect(outcome.reason).toContain("Posted APPROVE review");
+    expect(outcome.reason).toContain(REVIEWER_LOGIN);
+    expect(outcome.reason).toContain("openai");
+    expect(outcome.reason).toContain("gpt-5");
+    expect(outcome.reason).not.toContain(STRIPPED_LEAK_MARKER);
+  });
+
+  test("stripped: parses event from sanitised body, status=reviewed, appends leak marker", () => {
+    const outcome = decidePostSanitizeOutcome(stripped, false, ctx);
+    expect(outcome.event).toBe("REQUEST_CHANGES");
+    expect(outcome.status).toBe("reviewed");
+    expect(outcome.reason).toContain(STRIPPED_LEAK_MARKER);
+  });
+
+  test("errored: forces COMMENT event, status=error, reason cites sanitize reason", () => {
+    const outcome = decidePostSanitizeOutcome(errored, false, ctx);
+    expect(outcome.event).toBe("COMMENT");
+    expect(outcome.status).toBe("error");
+    expect(outcome.reason).toContain("service-error notice");
+    expect(outcome.reason).toContain(REVIEWER_LOGIN);
+    // Sanitize reason must be included so operators can see which signals fired.
+    expect(outcome.reason).toContain("cot-leak:scratch:openai-tool-routing");
+  });
+
+  test("errored: ignores isSelfReview (always COMMENT regardless)", () => {
+    const outcome = decidePostSanitizeOutcome(errored, true, ctx);
+    expect(outcome.event).toBe("COMMENT");
+    expect(outcome.status).toBe("error");
+  });
+
+  test("self-review on passthrough: parseReviewEvent returns COMMENT", () => {
+    const outcome = decidePostSanitizeOutcome(passthrough, true, ctx);
+    expect(outcome.event).toBe("COMMENT");
+    expect(outcome.status).toBe("reviewed");
+  });
+
+  test("self-review on stripped: parseReviewEvent returns COMMENT, leak marker still appended", () => {
+    const outcome = decidePostSanitizeOutcome(stripped, true, ctx);
+    expect(outcome.event).toBe("COMMENT");
+    expect(outcome.status).toBe("reviewed");
+    expect(outcome.reason).toContain(STRIPPED_LEAK_MARKER);
   });
 });
