@@ -6,6 +6,7 @@
  */
 
 import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
+import { SENSITIVE_KEY_PATTERNS } from "../../../../utils/redaction";
 
 /**
  * Masks sensitive credential values in configuration
@@ -65,14 +66,7 @@ export function maskCredentialsInEffectiveValues(
 
   // Helper to check if a path contains sensitive information
   const isSensitivePath = (path: string): boolean => {
-    return (
-      path.includes("token") ||
-      path.includes("apiKey") ||
-      path.includes("password") ||
-      path.includes("secret") ||
-      path.includes("key") ||
-      path.includes("connectionString")
-    );
+    return SENSITIVE_KEY_PATTERNS.some((pattern) => path.includes(pattern));
   };
 
   // Helper to mask value (but don't re-mask already masked values)
