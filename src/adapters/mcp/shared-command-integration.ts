@@ -17,6 +17,22 @@ import { z } from "zod";
 import { guardProjectSetup } from "../../domain/configuration/guard";
 
 /**
+ * Test whether a Zod schema accepts boolean values.
+ *
+ * Used to gate the MCP bridge's `params.json = true` override so it only
+ * fires on commands whose `json` parameter is a formatting flag, not a
+ * non-formatting parameter that happens to be named `json` (e.g., a JSON
+ * payload string).
+ *
+ * safeParse is preferred over `instanceof z.ZodBoolean` because it:
+ *   - Accepts wrapped schemas: `z.boolean().optional()`, `z.boolean().default(false)`, `z.preprocess(...)` wrapping a boolean.
+ *   - Is immune to duplicate-zod-instance identity issues that can arise from monorepo / pnpm dedupe.
+ */
+function isBooleanCompatibleSchema(schema: z.ZodType): boolean {
+  return schema.safeParse(true).success && schema.safeParse(false).success;
+}
+
+/**
  * Convert shared command parameters to a Zod schema that MCP can use
  */
 function convertParametersToZodSchema(
@@ -154,11 +170,14 @@ export function registerSharedCommandsWithMcp(
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
 
           try {
-            // Create execution context for shared command
+            // Create execution context for shared command.
+            // MCP is a structured-data interface — always use JSON format so
+            // commands' formatResult() returns structured data, not human-
+            // readable text that discards the underlying payload.
             const context: CommandExecutionContext = {
               interface: "mcp",
               debug: Boolean(args?.debug),
-              format: args?.json === "true" ? "json" : "text",
+              format: "json",
               container: config.container,
             };
             log.debug(`[MCP] Created execution context: ${command.id}`, { context });
@@ -167,7 +186,24 @@ export function registerSharedCommandsWithMcp(
             const filteredArgs = { ...args };
             log.debug(`[MCP] Processing args: ${command.id}`, { filteredArgs });
 
-            const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            const parameters = { ...convertMcpArgsToParameters(filteredArgs, command.parameters) };
+            // Force json=true so commands that gate on params.json (rather
+            // than ctx.format) return structured data to MCP callers. The
+            // `json` parameter is stripped from the MCP-facing schema, so
+            // clients never set it — we set it here for the bridge.
+            //
+            // Only override when the parameter's schema accepts boolean values,
+            // so a command that happens to name a non-formatting parameter
+            // `json` (e.g., a JSON payload string) is not silently mutated.
+            // Probe with safeParse(true) && safeParse(false) rather than
+            // `instanceof z.ZodBoolean` so wrapped schemas like
+            // `z.boolean().optional()` or `z.boolean().default(false)` are
+            // also matched, and the check is immune to duplicate-zod-instance
+            // identity issues (monorepo/pnpm dedupe).
+            const jsonParamDef = command.parameters?.json;
+            if (jsonParamDef && isBooleanCompatibleSchema(jsonParamDef.schema)) {
+              parameters.json = true;
+            }
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
 
             // Guard: verify the project is initialized before executing non-exempt commands
