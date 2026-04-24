@@ -97,14 +97,17 @@ describe("MCP server — agent identity integration (ADR-006)", () => {
   describe("resolveCallerAgentId()", () => {
     test("returns a non-empty agentId when no extras provided", () => {
       const server = makeServer();
-      const agentId = (server as any).resolveCallerAgentId(undefined) as string;
+      // Pass undefined as the Server instance — getClientVersion() is caught
+      // defensively, so clientInfoName stays undefined (no connected transport
+      // in these unit tests, which matches the original test intent).
+      const agentId = (server as any).resolveCallerAgentId(undefined, undefined) as string;
       expect(agentId).toBeTruthy();
       expect(typeof agentId).toBe("string");
     });
 
     test("returns a valid format: kind:scope:id", () => {
       const server = makeServer();
-      const agentId = (server as any).resolveCallerAgentId({}) as string;
+      const agentId = (server as any).resolveCallerAgentId(undefined, {}) as string;
       expect(agentId).toMatch(/^[^:@]+:[^:@]+:[^@]+/);
     });
 
@@ -113,14 +116,14 @@ describe("MCP server — agent identity integration (ADR-006)", () => {
       const declaredId =
         "minsky.native-subagent:run:task-mt999@com.anthropic.claude-code:proc:a1b2";
       const extras = { _meta: { [AGENT_ID_META_KEY]: declaredId } };
-      const agentId = (server as any).resolveCallerAgentId(extras) as string;
+      const agentId = (server as any).resolveCallerAgentId(undefined, extras) as string;
       expect(agentId).toBe(declaredId);
     });
 
     test("falls back to Layer 1 when _meta value is malformed", () => {
       const server = makeServer();
       const extras = { _meta: { [AGENT_ID_META_KEY]: "not-valid-format" } };
-      const agentId = (server as any).resolveCallerAgentId(extras) as string;
+      const agentId = (server as any).resolveCallerAgentId(undefined, extras) as string;
       // Must not return the malformed string
       expect(agentId).not.toBe("not-valid-format");
       // Must still be a valid format

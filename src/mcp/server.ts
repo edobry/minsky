@@ -122,8 +122,14 @@ export class MinskyMCPServer {
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
 
-  // For HTTP transport: map sessionId to transport for multiple clients
-  private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
+  // For HTTP transport: map sessionId → {server, transport}. Each MCP session
+  // owns its own Server instance because the SDK's Server class binds 1:1 with
+  // a Transport and rejects a second connect(). Multi-client HTTP therefore
+  // requires per-session Server instances; tool/resource/prompt definitions are
+  // shared via the Maps on this MinskyMCPServer and closed over by the handlers
+  // registered on each per-session Server.
+  private httpSessions: Map<string, { server: Server; transport: StreamableHTTPServerTransport }> =
+    new Map();
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
@@ -158,8 +164,36 @@ export class MinskyMCPServer {
     this.diag = createDiagnosticCapture();
     this.diag.captureProcess();
 
-    // Create server instance
-    this.server = new Server(
+    // Create the primary server instance. For stdio, this is THE server. For
+    // HTTP, each session creates an additional one via createConfiguredServer();
+    // this instance is never connected to a transport in HTTP mode.
+    this.server = this.createConfiguredServer();
+
+    // Create transport based on configuration
+    if (this.options.transportType === "stdio") {
+      this.transport = new StdioServerTransport();
+      log.debug("Created stdio transport");
+    } else {
+      // For HTTP transport, we'll create transports on-demand in handleHttpRequest
+      // This is a placeholder transport that won't be used
+      this.transport = new StdioServerTransport();
+      log.debug("HTTP transport mode - transports will be created on-demand");
+    }
+
+    log.systemDebug(
+      `[MCP] Server instance created with transport type: ${this.options.transportType}`
+    );
+  }
+
+  /**
+   * Construct a new Server with all request handlers and diagnostic capture
+   * wired up. Each HTTP session gets its own instance; stdio uses the singleton
+   * created in the constructor. Tools/resources/prompts are owned by
+   * MinskyMCPServer and shared across all Server instances via closures in the
+   * registered handlers.
+   */
+  private createConfiguredServer(): Server {
+    const server = new Server(
       {
         name: this.options.name,
         version: this.options.version,
@@ -173,26 +207,9 @@ export class MinskyMCPServer {
         },
       }
     );
-
-    this.diag.captureInit(this.server);
-
-    // Create transport based on configuration
-    if (this.options.transportType === "stdio") {
-      this.transport = new StdioServerTransport();
-      log.debug("Created stdio transport");
-    } else {
-      // For HTTP transport, we'll create transports on-demand in handleHttpRequest
-      // This is a placeholder transport that won't be used
-      this.transport = new StdioServerTransport();
-      log.debug("HTTP transport mode - transports will be created on-demand");
-    }
-
-    // Set up request handlers
-    this.setupRequestHandlers();
-
-    log.systemDebug(
-      `[MCP] Server instance created with transport type: ${this.options.transportType}`
-    );
+    this.diag.captureInit(server);
+    this.setupRequestHandlers(server);
+    return server;
   }
 
   /**
@@ -234,31 +251,52 @@ export class MinskyMCPServer {
    * Handle HTTP POST requests - main MCP message handling
    */
   private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
-    let transport: StreamableHTTPServerTransport;
+    let session: { server: Server; transport: StreamableHTTPServerTransport };
 
-    // Reuse existing transport if we have a session ID
-    if (sessionId && this.httpTransports.has(sessionId)) {
+    // Reuse existing session if we have a session ID
+    if (sessionId && this.httpSessions.has(sessionId)) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      transport = this.httpTransports.get(sessionId)!;
+      session = this.httpSessions.get(sessionId)!;
     } else {
-      // Create new transport for new session
-      transport = new StreamableHTTPServerTransport({
+      // New session: each HTTP session gets its own Server instance because
+      // the SDK's Server binds 1:1 with a Transport. A singleton Server across
+      // sessions rejects every connect() past the first.
+      const server = this.createConfiguredServer();
+      const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
 
-      // Connect server to transport
-      await this.server.connect(transport);
+      // Register cleanup: when the transport closes (client disconnect, session
+      // timeout, etc.), close the paired Server and drop it from the map so we
+      // don't leak Server instances over the service's lifetime.
+      transport.onclose = () => {
+        const closedId = transport.sessionId;
+        if (closedId && this.httpSessions.has(closedId)) {
+          this.httpSessions.delete(closedId);
+          log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
+        }
+        server.close().catch((error) => {
+          log.warn("Error closing per-session MCP Server", {
+            sessionId: closedId,
+            error: getErrorMessage(error),
+          });
+        });
+      };
 
-      log.debug("Created new HTTP transport", { sessionId: transport.sessionId });
+      // Connect server to its dedicated transport
+      await server.connect(transport);
+      session = { server, transport };
+
+      log.debug("Created new HTTP session", { sessionId: transport.sessionId });
     }
 
     // Handle the request
-    await transport.handleRequest(req, res, req.body);
+    await session.transport.handleRequest(req, res, req.body);
 
-    // Store transport if it has a session ID (only after first request)
-    if (transport.sessionId && !this.httpTransports.has(transport.sessionId)) {
-      this.httpTransports.set(transport.sessionId, transport);
-      log.debug("Stored HTTP transport", { sessionId: transport.sessionId });
+    // Store session if it has a session ID (only after first request)
+    if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
+      this.httpSessions.set(session.transport.sessionId, session);
+      log.debug("Stored HTTP session", { sessionId: session.transport.sessionId });
     }
   }
 
@@ -266,25 +304,27 @@ export class MinskyMCPServer {
    * Handle HTTP GET requests - SSE streaming
    */
   private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
-    if (!sessionId || !this.httpTransports.has(sessionId)) {
+    if (!sessionId || !this.httpSessions.has(sessionId)) {
       // Return 405 Method Not Allowed if no SSE stream available
       res.status(405).set("Allow", "POST").send("Method Not Allowed");
       return;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const transport = this.httpTransports.get(sessionId)!;
-    await transport.handleRequest(req, res);
+    const session = this.httpSessions.get(sessionId)!;
+    await session.transport.handleRequest(req, res);
 
     log.debug("Established SSE stream", { sessionId });
   }
 
   /**
-   * Set up request handlers for tools, resources, and prompts
+   * Set up request handlers for tools, resources, and prompts on the given
+   * Server instance. Called once per Server — once from the constructor for
+   * stdio, and once per HTTP session via createConfiguredServer.
    */
-  private setupRequestHandlers(): void {
+  private setupRequestHandlers(server: Server): void {
     // List tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
       return {
         tools: Array.from(this.tools.values()).map((tool) => ({
@@ -296,7 +336,7 @@ export class MinskyMCPServer {
     });
 
     // Call tool
-    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/call", request, extra);
       if (this.draining) {
         throw new Error("Server is shutting down");
@@ -306,7 +346,7 @@ export class MinskyMCPServer {
       this.inFlightRequests.set(trackingId, Date.now());
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
-      const agentId = this.resolveCallerAgentId(extra as RequestExtras | undefined);
+      const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
 
       try {
         const tool = this.tools.get(request.params.name);
@@ -364,7 +404,7 @@ export class MinskyMCPServer {
     });
 
     // List resources
-    this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
       this.diag.captureRequest("resources/list", request, extra);
       return {
         resources: Array.from(this.resources.values()).map((resource) => ({
@@ -376,7 +416,7 @@ export class MinskyMCPServer {
     });
 
     // Read resource
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
       this.diag.captureRequest("resources/read", request, extra);
       const resource = this.resources.get(request.params.uri);
       if (!resource) {
@@ -404,7 +444,7 @@ export class MinskyMCPServer {
     });
 
     // List prompts
-    this.server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("prompts/list", request, extra);
       return {
         prompts: Array.from(this.prompts.values()).map((prompt) => ({
@@ -415,7 +455,7 @@ export class MinskyMCPServer {
     });
 
     // Get prompt
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
+    server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
       this.diag.captureRequest("prompts/get", request, extra);
       const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
@@ -458,11 +498,14 @@ export class MinskyMCPServer {
    * Resolve the caller's agentId from MCP request extras.
    * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
    * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
+   *
+   * `server` is the Server instance handling this specific request — for HTTP,
+   * each session has its own Server and thus its own clientVersion.
    */
-  private resolveCallerAgentId(extras: RequestExtras | undefined): string {
+  private resolveCallerAgentId(server: Server, extras: RequestExtras | undefined): string {
     let clientInfoName: string | undefined;
     try {
-      const clientVersion = this.server.getClientVersion();
+      const clientVersion = server.getClientVersion();
       clientInfoName = (clientVersion as { name?: string })?.name;
     } catch {
       // getClientVersion() may throw if called before initialize completes
@@ -596,8 +639,8 @@ export class MinskyMCPServer {
   async close(): Promise<void> {
     try {
       if (this.options.transportType === "http") {
-        // Close all HTTP transports
-        for (const [sessionId, transport] of this.httpTransports.entries()) {
+        // Close all HTTP sessions (transport + per-session Server)
+        for (const [sessionId, { server, transport }] of this.httpSessions.entries()) {
           try {
             await transport.close();
             log.debug("Closed HTTP transport", { sessionId });
@@ -607,8 +650,17 @@ export class MinskyMCPServer {
               error: getErrorMessage(error),
             });
           }
+          try {
+            await server.close();
+            log.debug("Closed per-session MCP Server", { sessionId });
+          } catch (error) {
+            log.warn("Error closing per-session MCP Server", {
+              sessionId,
+              error: getErrorMessage(error),
+            });
+          }
         }
-        this.httpTransports.clear();
+        this.httpSessions.clear();
       }
 
       await this.server.close();
