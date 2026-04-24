@@ -144,22 +144,58 @@ export function normalizeContentPath(path: string): string {
   return path;
 }
 
-/** Sentinel returned by readFileAtRef when a file exceeds the API's truncation threshold. */
-export const TRUNCATED_FILE_NOTICE =
-  "[TRUNCATED] This file exceeds the GitHub Contents API size limit and only a partial snippet could be fetched. Do not make claims about the full file contents — mark any claim as NEEDS VERIFICATION.";
+/**
+ * Entry types reported by the GitHub Contents API.
+ *
+ * Beyond `file` and `dir`, the API also surfaces `symlink` (a git symbolic
+ * link entry) and `submodule` (a git submodule). Earlier revisions silently
+ * filtered the latter two; mt#1216 surfaces them so the reviewer can see
+ * symlinked configs and submodule references when verifying repo structure.
+ */
+export type DirEntryType = "file" | "dir" | "symlink" | "submodule";
+
+export interface DirEntry {
+  name: string;
+  type: DirEntryType;
+}
+
+/**
+ * Structured result from `readFileAtRef`.
+ *
+ * Truncation rides as a boolean flag rather than a string prefix on the
+ * content (mt#1216 — the prefix broke downstream parsing when the truncated
+ * file itself was JSON or another structured format). Binary files return a
+ * placeholder kind so the model doesn't burn context on raw UTF-8 garbage.
+ */
+export type ReadFileResult =
+  | { kind: "text"; content: string; truncated: boolean }
+  | { kind: "binary"; size: number; truncated: boolean };
+
+/**
+ * Heuristic binary detection: scan the first `sampleBytes` of the buffer for
+ * null bytes. Files with a NUL in their first ~8KB are treated as binary —
+ * the same heuristic file(1) and most tooling use. Decoding such a file as
+ * UTF-8 produces lossy garbage that wastes the model's context budget.
+ */
+function isBinaryBuffer(buf: Buffer, sampleBytes = 8192): boolean {
+  const limit = Math.min(buf.length, sampleBytes);
+  for (let i = 0; i < limit; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+}
 
 /**
  * Read the content of a file at a specific git ref.
  *
- * Returns the file content as a string, or null if the file does not exist
- * (404). Throws on unexpected errors (permissions, malformed response, etc.).
+ * Returns a discriminated union:
+ *   - `{ kind: "text", content, truncated }` for text files (truncated=true
+ *     when GitHub's Contents API returned a partial snippet for a >~1MB file)
+ *   - `{ kind: "binary", size }` for files whose decoded content contains
+ *     null bytes in the first 8KB (common heuristic)
+ *   - `null` when the file does not exist (404)
  *
- * For files that exceed the Contents API's ~1MB threshold, GitHub sets
- * `truncated: true` and returns only a snippet. Rather than silently return
- * partial content (which would let the reviewer model "verify" against
- * incomplete data and make confidently wrong claims — exactly the class of
- * error mt#1126 tries to prevent), prepend TRUNCATED_FILE_NOTICE so the
- * model sees the caveat inline with the content.
+ * Throws on unexpected errors (permissions, malformed response, etc.).
  */
 export async function readFileAtRef(
   octokit: Octokit,
@@ -167,7 +203,7 @@ export async function readFileAtRef(
   repo: string,
   path: string,
   ref: string
-): Promise<string | null> {
+): Promise<ReadFileResult | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
     const response = await octokit.rest.repos.getContent({
@@ -188,13 +224,20 @@ export async function readFileAtRef(
     if (!("content" in data) || typeof data.content !== "string") {
       throw new Error(`Unexpected response shape for "${path}": no content field`);
     }
-    const decoded = Buffer.from(data.content, "base64").toString("utf-8");
-    // The Contents API sets truncated: true when the file exceeds its size
-    // threshold (~1MB). Prepend a notice so the model doesn't treat the
-    // partial content as complete. A fuller fix would fall back to
-    // download_url / raw mediaType; deferring that as a follow-up.
-    const isTruncated = "truncated" in data && (data as { truncated?: boolean }).truncated === true;
-    return isTruncated ? `${TRUNCATED_FILE_NOTICE}\n\n${decoded}` : decoded;
+    const buf = Buffer.from(data.content, "base64");
+    // GitHub's Contents API reports truncation on files above ~1MB; when set,
+    // `content` is only a partial snippet and `data.size` is still the full
+    // repository-stored size. Preserve both facts on the result so callers
+    // (envelope, prompt, model) can disambiguate snippet-vs-file boundaries.
+    const truncated = "truncated" in data && (data as { truncated?: boolean }).truncated === true;
+    const apiSize =
+      typeof (data as { size?: unknown }).size === "number"
+        ? (data as { size: number }).size
+        : buf.length;
+    if (isBinaryBuffer(buf)) {
+      return { kind: "binary", size: apiSize, truncated };
+    }
+    return { kind: "text", content: buf.toString("utf-8"), truncated };
   } catch (err: unknown) {
     if (
       err instanceof Error &&
@@ -213,6 +256,9 @@ export async function readFileAtRef(
  *
  * Returns null if the path does not exist (404). Throws on unexpected errors.
  * Accepts ".", "./", "/" or "" for the repository root (normalized internally).
+ *
+ * Includes `symlink` and `submodule` entries with their real type so the
+ * reviewer can see them when verifying repo structure (mt#1216).
  */
 export async function listDirectoryAtRef(
   octokit: Octokit,
@@ -220,7 +266,7 @@ export async function listDirectoryAtRef(
   repo: string,
   path: string,
   ref: string
-): Promise<Array<{ name: string; type: "file" | "dir" }> | null> {
+): Promise<DirEntry[] | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
     const response = await octokit.rest.repos.getContent({
@@ -234,11 +280,14 @@ export async function listDirectoryAtRef(
       throw new Error(`Path "${path}" is not a directory`);
     }
     return data
-      .filter((entry) => entry.type === "file" || entry.type === "dir")
-      .map((entry) => ({
-        name: entry.name,
-        type: entry.type as "file" | "dir",
-      }));
+      .filter(
+        (entry): entry is typeof entry & { type: DirEntryType } =>
+          entry.type === "file" ||
+          entry.type === "dir" ||
+          entry.type === "symlink" ||
+          entry.type === "submodule"
+      )
+      .map((entry) => ({ name: entry.name, type: entry.type }));
   } catch (err: unknown) {
     if (
       err instanceof Error &&
