@@ -171,8 +171,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           `Applied migrations: ${appliedCount} / Files: ${fileCount}`,
           `Connection: ${masked}`,
           "Run schema migrations:",
-          "  minsky sessiondb migrate --dry-run",
-          "  minsky sessiondb migrate",
+          "  minsky persistence migrate --dry-run",
+          "  minsky persistence migrate",
         ].join("\n");
         throw new Error(guidance);
       }
