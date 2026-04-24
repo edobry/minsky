@@ -9,6 +9,10 @@ import { z } from "zod";
 import type { ProjectContext } from "../types/project";
 import type { MinskyMCPServer, ToolDefinition } from "./server";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { FileWriteSchema } from "../domain/schemas/file-schemas";
+import { sessionCommitCommandParams } from "../adapters/shared/commands/session-parameters";
+import { sessionStartCommandParams } from "../adapters/shared/commands/session/session-parameters";
+import { convertParametersToZodSchema } from "../adapters/mcp/shared-command-integration";
 
 // Mock MinskyMCPServer - using 'as any' for cleaner mock object creation
 const mockServer = {
@@ -171,6 +175,95 @@ describe("CommandMapper", () => {
           },
         },
         additionalProperties: false,
+      });
+    });
+
+    describe("default() field handling", () => {
+      test("mixed schema: required field stays required, defaulted and optional fields omitted from required", () => {
+        const zodSchema = z.object({
+          a: z.string(),
+          b: z.boolean().default(false),
+          c: z.string().optional(),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        expect(jsonSchema.required).toEqual(["a"]);
+      });
+
+      test("regression: purely required schema preserves all fields in required", () => {
+        const zodSchema = z.object({
+          a: z.string(),
+          b: z.number(),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        expect(jsonSchema.required).toEqual(["a", "b"]);
+      });
+
+      test("regression: purely optional/defaulted schema emits no required key", () => {
+        const zodSchema = z.object({
+          a: z.string().optional(),
+          b: z.boolean().default(true),
+        });
+
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        // required should be absent or empty
+        const required = jsonSchema.required as string[] | undefined;
+        expect(required == null || required.length === 0).toBe(true);
+      });
+    });
+
+    describe("real tool schemas (spec acceptance tests)", () => {
+      test("session.write_file: createDirs is not in required (it has a default)", () => {
+        // FileWriteSchema is the real Zod schema used by session.write_file in
+        // session-workspace.ts. createDirs has .default(true) so agents should
+        // never have to pass it explicitly.
+        const jsonSchema = commandMapper.zodToJsonSchema(FileWriteSchema) as any;
+
+        const required: string[] = jsonSchema.required ?? [];
+        expect(required).not.toContain("createDirs");
+        // sessionId and path ARE required (no default, not optional)
+        expect(required).toContain("sessionId");
+        expect(required).toContain("path");
+      });
+
+      test("session.commit: optional/defaulted flags are not in required; message is required", () => {
+        // sessionCommitCommandParams is the real CommandParameterMap registered for
+        // session.commit. convertParametersToZodSchema is the actual transformation
+        // from shared-command-integration.ts used by the MCP bridge.
+        const zodSchema = convertParametersToZodSchema(sessionCommitCommandParams);
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        const required: string[] = jsonSchema.required ?? [];
+
+        // Boolean flags with defaultValue: false must NOT appear in required
+        expect(required).not.toContain("all");
+        expect(required).not.toContain("amend");
+        expect(required).not.toContain("noStage");
+        expect(required).not.toContain("oneline");
+        expect(required).not.toContain("noFiles");
+
+        // message IS the only required field (required: true, no default)
+        expect(required).toContain("message");
+      });
+
+      test("session.start: all defaulted boolean flags are not in required", () => {
+        // sessionStartCommandParams is the real CommandParameterMap registered for
+        // session.start. All parameters are optional or carry defaults, so
+        // required should be absent or empty — agents are never forced to pass flags.
+        const zodSchema = convertParametersToZodSchema(sessionStartCommandParams);
+        const jsonSchema = commandMapper.zodToJsonSchema(zodSchema) as any;
+
+        const required: string[] = jsonSchema.required ?? [];
+
+        // Defaulted booleans declared in sessionStartCommandParams
+        expect(required).not.toContain("quiet");
+        expect(required).not.toContain("noStatusUpdate");
+        expect(required).not.toContain("skipInstall");
+        expect(required).not.toContain("recover");
       });
     });
   });

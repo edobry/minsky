@@ -35,7 +35,7 @@ function isBooleanCompatibleSchema(schema: z.ZodType): boolean {
 /**
  * Convert shared command parameters to a Zod schema that MCP can use
  */
-function convertParametersToZodSchema(
+export function convertParametersToZodSchema(
   parameters: CommandParameterMap
 ): z.ZodObject<Record<string, z.ZodType>> {
   // If no parameters, return empty object schema
