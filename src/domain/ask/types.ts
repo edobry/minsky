@@ -293,3 +293,26 @@ export interface Ask {
    */
   metadata: Record<string, unknown>;
 }
+
+/**
+ * Compile-time exhaustiveness guard for discriminated unions.
+ *
+ * Use in the default branch of a switch over `AskKind` or `AskState` to force
+ * TypeScript to error if a new variant is added without being handled. This is
+ * the mechanical guard the per-kind modules (payload / response / router) rely
+ * on — if the taxonomy grows, every consumer that exhaustively switches will
+ * break until updated.
+ *
+ * @example
+ *   function handle(kind: AskKind): string {
+ *     switch (kind) {
+ *       case "quality.review": return "review";
+ *       case "direction.decide": return "decide";
+ *       // ...all other kinds...
+ *       default: return assertNever(kind);
+ *     }
+ *   }
+ */
+export function assertNever(value: never): never {
+  throw new Error(`Unhandled variant: ${JSON.stringify(value)}`);
+}

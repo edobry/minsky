@@ -15,3 +15,5 @@ export type {
   TransportKind,
   Ask,
 } from "./types";
+
+export { assertNever } from "./types";
