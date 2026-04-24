@@ -102,7 +102,7 @@ export class DatabaseIntegrityChecker {
           result.suggestedActions.push({
             type: "migrate",
             description: `Found ${result.backupsFound.length} backup file(s). Restore from backup?`,
-            command: `minsky sessiondb migrate --from ${result.backupsFound[0]?.path ?? ""} --to ${expectedFormat}`,
+            command: `minsky persistence migrate --execute --from ${result.backupsFound[0]?.path ?? ""} --to ${expectedFormat}`,
             autoExecutable: true,
             priority: "high",
           });
@@ -153,7 +153,7 @@ export class DatabaseIntegrityChecker {
           result.suggestedActions.push({
             type: "restore",
             description: "Restore from backup (recommended)",
-            command: `minsky sessiondb migrate --from ${result.backupsFound[0]?.path ?? ""} --to ${expectedFormat}`,
+            command: `minsky persistence migrate --execute --from ${result.backupsFound[0]?.path ?? ""} --to ${expectedFormat}`,
             autoExecutable: true,
             priority: "high",
           });
@@ -177,7 +177,7 @@ export class DatabaseIntegrityChecker {
           result.suggestedActions.push({
             type: "migrate",
             description: `Migrate from ${actualFormat} to ${expectedFormat}`,
-            command: `minsky sessiondb migrate --from ${filePath} --to ${expectedFormat}`,
+            command: `minsky persistence migrate --execute --from ${filePath} --to ${expectedFormat}`,
             autoExecutable: true,
             priority: "high",
           });

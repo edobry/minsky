@@ -145,21 +145,21 @@ Keep potentially destructive operations safe by default.
 
 // AVOID: applying by default
 ```
-minsky sessiondb migrate
+minsky persistence migrate
 # applies immediately
 ```
 
 // PREFER: safe default with explicit execution
 ```
 # preview
-minsky sessiondb migrate --dry-run
+minsky persistence migrate --dry-run
 
 # apply (must be explicit)
-minsky sessiondb migrate --execute
+minsky persistence migrate --execute
 ```
 
 ## Cross-References
-- See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
+- See `persistence.migrate` behavior and other commands using `--execute` semantics.
 
 # Subagent Routing
 
@@ -240,6 +240,8 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 ```
 
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
+
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
 
 # Key Workflows (via skills)
 
