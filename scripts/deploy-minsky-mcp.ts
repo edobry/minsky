@@ -64,6 +64,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 
 // ---------------------------------------------------------------------------
 // Manifest — service-specific constants. Everything that isn't a secret.
@@ -1023,10 +1024,22 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   //    enumerates all Minsky adapters and their schemas — heavier than a
   //    simple HTTP round-trip.
   const INIT_TIMEOUT_MS = 30_000;
-  const probeInit = (url: string, init?: RequestInit): Promise<Response> => {
+  // Timer must stay armed across BOTH the fetch() and the body read — if we
+  // cleared on fetch resolve, a hung SSE body stream would hang indefinitely.
+  // Caller gets back a cancel() to release the timer after body consumption.
+  const probeInit = async (
+    url: string,
+    init?: RequestInit
+  ): Promise<{ resp: Response; cancel: () => void }> => {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), INIT_TIMEOUT_MS);
-    return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
+    try {
+      const resp = await fetch(url, { ...init, signal: ac.signal });
+      return { resp, cancel: () => clearTimeout(timer) };
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
   };
 
   let initOk = false;
@@ -1035,7 +1048,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   let toolsDetail = "";
 
   try {
-    const initResp = await probeInit(`${base}${MANIFEST.mcpPath}`, {
+    const { resp: initResp, cancel: initCancel } = await probeInit(`${base}${MANIFEST.mcpPath}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1047,7 +1060,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
         id: 1,
         method: "initialize",
         params: {
-          protocolVersion: "2025-06-18",
+          protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: "deploy-verify", version: "1.0.0" },
         },
@@ -1055,7 +1068,11 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     });
 
     // Consume the body to close any SSE stream before the next request.
-    await initResp.text();
+    try {
+      await initResp.text();
+    } finally {
+      initCancel();
+    }
 
     if (initResp.status !== 200) {
       initOk = false;
@@ -1077,20 +1094,28 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
         initDetail = `status=200, mcp-session-id present (${sessionId.length} chars)`;
 
         // Step 2: POST tools/list with the captured session id.
-        const toolsResp = await probeInit(`${base}${MANIFEST.mcpPath}`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-            "mcp-session-id": sessionId,
-          },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
-        });
+        const { resp: toolsResp, cancel: toolsCancel } = await probeInit(
+          `${base}${MANIFEST.mcpPath}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              "mcp-session-id": sessionId,
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+          }
+        );
 
         // Response may be JSON or SSE-framed. Compare raw text for well-known
         // Minsky tool names — both formats include the name as a literal string.
-        const toolsText = await toolsResp.text();
+        let toolsText: string;
+        try {
+          toolsText = await toolsResp.text();
+        } finally {
+          toolsCancel();
+        }
         const hasKnownTool = toolsText.includes("session_get") || toolsText.includes("tasks_list");
 
         if (toolsResp.status !== 200) {
