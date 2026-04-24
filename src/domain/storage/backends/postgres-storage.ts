@@ -22,6 +22,7 @@ import type {
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
 import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schemas/session-schema";
 import type { PersistenceProvider } from "../../persistence/types";
+import { withPgPoolRetry } from "../../persistence/postgres-retry";
 
 /**
  * PostgreSQL storage configuration
@@ -33,7 +34,9 @@ export interface PostgresStorageConfig {
   connectionString: string;
 
   /**
-   * Maximum number of connections in pool (default: 10)
+   * Informational: actual pool size is governed by PostgresPersistenceProvider
+   * (see DEFAULT_POSTGRES_MAX_CONNECTIONS in postgres-provider.ts). PostgresStorage
+   * reuses the provider's postgres-js client and does not open its own sockets.
    */
   maxConnections?: number;
 
@@ -198,18 +201,23 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     try {
-      log.debug("PostgreSQL readState: Starting");
-      await this.ensureConnection();
-      log.debug("PostgreSQL readState: Connection established, calling getEntities");
-      const sessions = await this.getEntities();
-      log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntities`);
+      return await withPgPoolRetry(async () => {
+        log.debug("PostgreSQL readState: Starting");
+        await this.ensureConnection();
+        log.debug("PostgreSQL readState: Connection established, calling getEntitiesInternal");
+        // Call the non-retrying internal variant: readState is already wrapped
+        // by withPgPoolRetry above, so routing through public getEntities would
+        // nest retries and multiply backoff delays on sustained saturation.
+        const sessions = await this.getEntitiesInternal();
+        log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntitiesInternal`);
 
-      const state: SessionDbState = {
-        sessions,
-        baseDir: getMinskyStateDir(), // Use proper Minsky state directory for session workspaces
-      };
+        const state: SessionDbState = {
+          sessions,
+          baseDir: getMinskyStateDir(), // Use proper Minsky state directory for session workspaces
+        };
 
-      return { success: true, data: state };
+        return { success: true as const, data: state };
+      }, "postgres-storage.readState");
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       // Keep user output concise; details available in debug logs
@@ -223,25 +231,27 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     try {
-      await this.ensureConnection();
-      const sessions = state.sessions || [];
+      return await withPgPoolRetry(async () => {
+        await this.ensureConnection();
+        const sessions = state.sessions || [];
 
-      await this.db.transaction(async (tx) => {
-        // Clear existing sessions
-        await tx.delete(postgresSessions);
+        await this.db.transaction(async (tx) => {
+          // Clear existing sessions
+          await tx.delete(postgresSessions);
 
-        // Insert new sessions using Drizzle schema mapping
-        if (sessions.length > 0) {
-          const BATCH_SIZE = 250;
-          for (let i = 0; i < sessions.length; i += BATCH_SIZE) {
-            const slice = sessions.slice(i, i + BATCH_SIZE);
-            const values = slice.map((s) => toPostgresInsert(s));
-            await tx.insert(postgresSessions).values(values);
+          // Insert new sessions using Drizzle schema mapping
+          if (sessions.length > 0) {
+            const BATCH_SIZE = 250;
+            for (let i = 0; i < sessions.length; i += BATCH_SIZE) {
+              const slice = sessions.slice(i, i + BATCH_SIZE);
+              const values = slice.map((s) => toPostgresInsert(s));
+              await tx.insert(postgresSessions).values(values);
+            }
           }
-        }
-      });
+        });
 
-      return { success: true, bytesWritten: state.sessions.length };
+        return { success: true as const, bytesWritten: sessions.length };
+      }, "postgres-storage.writeState");
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       // Prefer the underlying driver error message if available (no SQL query text)
@@ -309,6 +319,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Get a single session by ID
    */
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+    return withPgPoolRetry(() => this.getEntityInternal(id), "postgres-storage.getEntity");
+  }
+
+  private async getEntityInternal(id: string): Promise<SessionRecord | null> {
     await this.ensureConnection();
 
     const result = await this.db
@@ -324,6 +338,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Get all sessions that match the query options
    */
   async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
+    return withPgPoolRetry(() => this.getEntitiesInternal(), "postgres-storage.getEntities");
+  }
+
+  private async getEntitiesInternal(): Promise<SessionRecord[]> {
     await this.ensureConnection();
 
     const results = await this.db.select().from(postgresSessions);
@@ -347,11 +365,13 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async createEntity(entity: SessionRecord): Promise<SessionRecord> {
     try {
-      await this.ensureConnection();
-      const insertData = toPostgresInsert(entity);
+      return await withPgPoolRetry(async () => {
+        await this.ensureConnection();
+        const insertData = toPostgresInsert(entity);
 
-      await this.db.insert(postgresSessions).values(insertData);
-      return entity;
+        await this.db.insert(postgresSessions).values(insertData);
+        return entity;
+      }, "postgres-storage.createEntity");
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to create session in PostgreSQL: ${typedError.message}`);
@@ -364,22 +384,24 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     try {
-      await this.ensureConnection();
-      // Get existing session
-      const existing = await this.getEntity(id);
-      if (!existing) {
-        return null;
-      }
+      return await withPgPoolRetry(async () => {
+        // getEntityInternal calls ensureConnection; avoids nested retry
+        // doubling by bypassing the retrying public getEntity.
+        const existing = await this.getEntityInternal(id);
+        if (!existing) {
+          return null;
+        }
 
-      // Merge updates
-      const updated = { ...existing, ...updates };
-      const insertData = toPostgresInsert(updated);
+        // Merge updates
+        const updated = { ...existing, ...updates };
+        const insertData = toPostgresInsert(updated);
 
-      await this.db
-        .update(postgresSessions)
-        .set(insertData)
-        .where(eq(postgresSessions.session, id));
-      return updated;
+        await this.db
+          .update(postgresSessions)
+          .set(insertData)
+          .where(eq(postgresSessions.session, id));
+        return updated;
+      }, "postgres-storage.updateEntity");
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to update session in PostgreSQL: ${typedError.message}`);
@@ -393,13 +415,15 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Storage errors propagate — callers decide how to handle them.
    */
   async deleteEntity(id: string): Promise<boolean> {
-    await this.ensureConnection();
+    return withPgPoolRetry(async () => {
+      await this.ensureConnection();
 
-    const deleted = await this.db
-      .delete(postgresSessions)
-      .where(eq(postgresSessions.session, id))
-      .returning({ session: postgresSessions.session });
-    return deleted.length > 0;
+      const deleted = await this.db
+        .delete(postgresSessions)
+        .where(eq(postgresSessions.session, id))
+        .returning({ session: postgresSessions.session });
+      return deleted.length > 0;
+    }, "postgres-storage.deleteEntity");
   }
 
   /**
@@ -407,15 +431,17 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async entityExists(id: string): Promise<boolean> {
     try {
-      await this.ensureConnection();
+      return await withPgPoolRetry(async () => {
+        await this.ensureConnection();
 
-      const result = await this.db
-        .select({ session: postgresSessions.session })
-        .from(postgresSessions)
-        .where(eq(postgresSessions.session, id))
-        .limit(1);
+        const result = await this.db
+          .select({ session: postgresSessions.session })
+          .from(postgresSessions)
+          .where(eq(postgresSessions.session, id))
+          .limit(1);
 
-      return result.length > 0;
+        return result.length > 0;
+      }, "postgres-storage.entityExists");
     } catch (error) {
       log.error(
         "Failed to check session existence in PostgreSQL:",

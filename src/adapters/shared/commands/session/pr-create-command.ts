@@ -23,7 +23,6 @@ import { composeConventionalTitle } from "./pr-conventional-title";
  * Parameters accepted by the session PR create command.
  */
 export interface SessionPrCreateParams {
-  name?: string;
   sessionId?: string;
   task?: string;
   repo?: string;
@@ -49,13 +48,13 @@ export async function checkIfPrCanBeRefreshed(
   try {
     if (!deps.sessionProvider) return false;
 
-    let sessionId: string | undefined = params.name;
+    let sessionId: string | undefined = params.sessionId;
     if (!sessionId && params.task) {
       const { resolveSessionContextWithFeedback } = await import(
         "../../../../domain/session/session-context-resolver"
       );
       const resolved = await resolveSessionContextWithFeedback({
-        session: params.name,
+        sessionId: params.sessionId,
         task: params.task,
         repo: params.repo,
         sessionProvider: deps.sessionProvider,
@@ -83,7 +82,7 @@ export async function validateNoPrExists(
   const currentDir = process.cwd();
   const isSessionWorkspace = currentDir.includes("/sessions/");
 
-  let sessionId = params.name;
+  let sessionId = params.sessionId;
   if (!sessionId && isSessionWorkspace) {
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
@@ -98,7 +97,7 @@ export async function validateNoPrExists(
         "../../../../domain/session/session-context-resolver"
       );
       const resolvedContext = await resolveSessionContextWithFeedback({
-        session: params.name,
+        sessionId: params.sessionId,
         task: params.task,
         repo: params.repo,
         sessionProvider: deps.sessionProvider,
@@ -153,8 +152,8 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
   } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
     const sessionDisplay = params.task
       ? `task ${params.task}`
-      : params.name
-        ? `session '${params.name}'`
+      : params.sessionId
+        ? `session '${params.sessionId}'`
         : "the requested session";
     return new MinskyError(
       `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
@@ -175,11 +174,6 @@ export async function executeSessionPrCreate(
   params: SessionPrCreateParams,
   context: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
-  // Normalize sessionId to name for callers that use sessionId (e.g., MCP tools)
-  if (params.sessionId && !params.name) {
-    params.name = params.sessionId;
-  }
-
   if (!params.title) {
     throw new ValidationError(
       'Title is required for pull request creation.\nPlease provide:\n  --title <text>       PR title (description only; do not include "feat:")\n\nExample:\n  minsky session pr create --type feat --title "Add new feature"'
@@ -199,7 +193,7 @@ export async function executeSessionPrCreate(
     const interfaceType = context.interface as "cli" | "mcp";
 
     if (interfaceType === "mcp") {
-      let sessionId = params.name;
+      let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
@@ -230,7 +224,7 @@ export async function executeSessionPrCreate(
         const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
         const resolved = await resolveSessionContextWithFeedback({
-          session: params.name,
+          sessionId: params.sessionId,
           task: params.task,
           repo: params.repo,
           sessionProvider: deps.sessionProvider,
@@ -257,7 +251,7 @@ export async function executeSessionPrCreate(
         title: finalTitle,
         body: params.body,
         bodyPath: params.bodyPath,
-        name: params.name,
+        sessionId: params.sessionId,
         task: params.task,
         repo: params.repo,
         noStatusUpdate: params.noStatusUpdate,

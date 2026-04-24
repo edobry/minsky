@@ -21,11 +21,11 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
     validate: async (params: Record<string, unknown>) => {
-      const name = params.name as string | undefined;
+      const sessionId = params.sessionId as string | undefined;
       const task = params.task as string | undefined;
-      if (!name && !task) {
+      if (!sessionId && !task) {
         throw new ValidationError(
-          "Session identifier required. Provide either --name (session ID) or --task (task ID)."
+          "Session identifier required. Provide either --sessionId (session ID) or --task (task ID)."
         );
       }
     },
@@ -35,7 +35,7 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
       const service = new SessionService(deps);
 
       const result = await service.delete({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         force: (params.force as boolean | undefined) ?? false,
         repo: params.repo as string | undefined,
@@ -44,7 +44,7 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
 
       return {
         success: result.deleted,
-        session: params.name || params.task,
+        session: params.sessionId || params.task,
         ...(result.error ? { error: result.error } : {}),
       };
     }),
@@ -64,7 +64,7 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
       const service = new SessionService(deps);
 
       await service.update({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
         branch: params.branch as string | undefined,
@@ -81,7 +81,7 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
 
       return {
         success: true,
-        session: params.name || params.task,
+        session: params.sessionId || params.task,
       };
     }),
   };
@@ -117,7 +117,7 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
         const gitService = deps.gitService;
 
         const resolved = await resolveSessionContextWithFeedback({
-          session: params.name as string | undefined,
+          sessionId: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           sessionProvider,

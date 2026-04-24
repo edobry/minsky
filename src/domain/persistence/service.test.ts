@@ -113,4 +113,35 @@ describe("PersistenceService (instance)", () => {
       PersistenceProviderFactory.create = origCreate;
     }
   });
+
+  test("close() delegates to provider.close() and nulls the provider (mt#1193)", async () => {
+    const service = new PersistenceService();
+    const { PersistenceProviderFactory } = await import("./factory");
+    const origCreate = PersistenceProviderFactory.create;
+
+    const providerCloseMock = mock(() => Promise.resolve());
+    PersistenceProviderFactory.create = mock(async () => ({
+      initialize: mock(() => Promise.resolve()),
+      getStorage: mock(() => ({})),
+      getCapabilities: mock(() => ({})),
+      close: providerCloseMock,
+    })) as any;
+
+    try {
+      await service.initialize({
+        backend: "postgres",
+        postgres: { connectionString: FAKE_CONNECTION_STRING },
+      });
+      expect(service.isInitialized()).toBe(true);
+
+      await service.close();
+
+      // Must actually call provider.close() — the MCP SIGTERM handler
+      // (start-command.ts) depends on this to release pool sockets.
+      expect(providerCloseMock).toHaveBeenCalledTimes(1);
+      expect(service.isInitialized()).toBe(false);
+    } finally {
+      PersistenceProviderFactory.create = origCreate;
+    }
+  });
 });

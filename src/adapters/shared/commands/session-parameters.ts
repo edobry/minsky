@@ -31,7 +31,6 @@ export const sessionListCommandParams = composeParams(
 export const sessionGetCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
-    name: SessionParameters.name,
     task: CommonParameters.task,
     repo: CommonParameters.repo,
     json: CommonParameters.json,
@@ -44,7 +43,6 @@ export const sessionGetCommandParams = composeParams(
  */
 export const sessionStartCommandParams = composeParams(
   {
-    name: SessionParameters.name,
     task: CommonParameters.task,
     repo: CommonParameters.repo,
     json: CommonParameters.json,

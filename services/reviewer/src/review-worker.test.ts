@@ -1,11 +1,14 @@
-import { describe, expect, test, mock } from "bun:test";
+import { beforeEach, describe, expect, test, mock } from "bun:test";
 import {
   parseReviewEvent,
   validateReviewOutput,
   buildEmptyOutputSkipNotice,
   decidePostSanitizeOutcome,
+  callReviewerWithRetry,
+  type CallReviewerFn,
 } from "./review-worker";
-import type { ReviewOutput } from "./providers";
+import type { CallReviewerOptions, ReviewOutput } from "./providers";
+import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 
@@ -42,7 +45,6 @@ describe("parseReviewEvent", () => {
   test("only looks at the last 400 chars", () => {
     const prefix = `REQUEST_CHANGES${" filler".repeat(100)}`;
     const text = `${prefix}\n\nFinal: APPROVE`;
-    // REQUEST_CHANGES is at the start, way before the 400-char window; APPROVE wins.
     expect(parseReviewEvent(text, false)).toBe("APPROVE");
   });
 });
@@ -187,12 +189,173 @@ describe("buildEmptyOutputSkipNotice", () => {
   });
 
   test("skip notice never contains a parseable review-event marker", () => {
-    // parseReviewEvent looks at the LAST 400 chars for APPROVE / REQUEST_CHANGES.
-    // The skip notice must not accidentally signal either — it's a neutral comment.
     const notice = buildEmptyOutputSkipNotice(emptyOutput);
     const tail = notice.slice(-400).toUpperCase();
     expect(tail).not.toMatch(/\bREQUEST_CHANGES\b/);
     expect(tail).not.toMatch(/\bAPPROVE\b/);
+  });
+});
+
+describe("callReviewerWithRetry (mt#1131)", () => {
+  // Minimal fake config — the helper only passes this through to callReviewer;
+  // the fake implementation below never reads it.
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  /**
+   * Build a test-seam CallReviewerFn that returns outputs from a queue in
+   * sequence and records each invocation's options.
+   */
+  type Invocation = { options?: CallReviewerOptions };
+  function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      const next = outputs[i];
+      if (next === undefined) {
+        throw new Error(`fakeReviewer ran out of outputs (invocation ${i + 1})`);
+      }
+      i++;
+      return next;
+    };
+  }
+
+  const substantive: ReviewOutput = {
+    text: "Findings: something substantive.\n\nAPPROVE",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 500,
+    usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+  };
+
+  function makeEmpty(provider: "openai" | "google" | "anthropic"): ReviewOutput {
+    return {
+      text: "",
+      provider,
+      model:
+        provider === "openai"
+          ? "gpt-5"
+          : provider === "google"
+            ? "gemini-2.5-pro"
+            : "claude-opus-4-6",
+      tokensUsed: 16000,
+      usage: {
+        promptTokens: 4000,
+        completionTokens: 0,
+        reasoningTokens: 12000,
+        totalTokens: 16000,
+      },
+    };
+  }
+
+  let invocations: Invocation[];
+  beforeEach(() => {
+    invocations = [];
+  });
+
+  test("first call substantive → attempt=first-attempt-success, no retry", async () => {
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([substantive], invocations)
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]?.options).toBeUndefined();
+    expect(result.attempt).toBe("first-attempt-success");
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(true);
+    expect(result.output).toBe(substantive);
+  });
+
+  test("first empty (OpenAI), retry substantive → attempt=retry-success, reasoningEffort=low on retry", async () => {
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([makeEmpty("openai"), substantive], invocations)
+    );
+
+    expect(invocations).toHaveLength(2);
+    // First call must NOT have reasoningEffort set — the bridge only overrides
+    // on retry, preserving the configured default on the initial attempt.
+    expect(invocations[0]?.options).toBeUndefined();
+    expect(invocations[1]?.options).toEqual({ reasoningEffort: "low" });
+    expect(result.attempt).toBe("retry-success");
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(true);
+    expect(result.output).toBe(substantive);
+  });
+
+  test("first empty (OpenAI), retry also empty → attempt=retry-failed, validation not ok", async () => {
+    const retryEmpty: ReviewOutput = { ...makeEmpty("openai"), text: "" };
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([makeEmpty("openai"), retryEmpty], invocations)
+    );
+
+    expect(invocations).toHaveLength(2);
+    expect(invocations[1]?.options).toEqual({ reasoningEffort: "low" });
+    expect(result.attempt).toBe("retry-failed");
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(false);
+    expect(result.output).toBe(retryEmpty);
+  });
+
+  test("first empty (Google) → no retry attempted, attempt=retry-failed, retryAttempted=false", async () => {
+    const empty = makeEmpty("google");
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([empty], invocations)
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe("retry-failed");
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(false);
+    expect(result.output).toBe(empty);
+  });
+
+  test("first empty (Anthropic) → no retry attempted, attempt=retry-failed, retryAttempted=false", async () => {
+    const empty = makeEmpty("anthropic");
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([empty], invocations)
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe("retry-failed");
+    expect(result.retryAttempted).toBe(false);
+  });
+
+  test("never cascades beyond one retry even if second call returns empty", async () => {
+    const retryEmpty: ReviewOutput = { ...makeEmpty("openai"), text: "" };
+    const third: ReviewOutput = { ...substantive, text: "substantive" };
+    // Queue has three outputs; only the first two should be consumed.
+    await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([makeEmpty("openai"), retryEmpty, third], invocations)
+    );
+
+    expect(invocations).toHaveLength(2);
   });
 });
 
@@ -257,6 +420,7 @@ describe("decidePostSanitizeOutcome", () => {
     reviewerLogin: REVIEWER_LOGIN,
     provider: "openai",
     model: "gpt-5",
+    attempt: "first-attempt-success" as const,
   };
 
   const passthrough: SanitizeResult = {
@@ -293,6 +457,7 @@ describe("decidePostSanitizeOutcome", () => {
     expect(outcome.reason).toContain(REVIEWER_LOGIN);
     expect(outcome.reason).toContain("openai");
     expect(outcome.reason).toContain("gpt-5");
+    expect(outcome.reason).toContain("attempt=first-attempt-success");
     expect(outcome.reason).not.toContain(STRIPPED_LEAK_MARKER);
   });
 
@@ -309,9 +474,11 @@ describe("decidePostSanitizeOutcome", () => {
     expect(outcome.status).toBe("error");
     expect(outcome.reason).toContain("service-error notice");
     expect(outcome.reason).toContain(REVIEWER_LOGIN);
-    // Provider + model are included for log-grep parity with the reviewed path.
+    // Provider + model + attempt are included for log-grep parity with the
+    // reviewed path.
     expect(outcome.reason).toContain("openai");
     expect(outcome.reason).toContain("gpt-5");
+    expect(outcome.reason).toContain("attempt=first-attempt-success");
     // Sanitize reason must be included so operators can see which signals fired.
     expect(outcome.reason).toContain("cot-leak:scratch:openai-tool-routing");
   });
@@ -333,5 +500,13 @@ describe("decidePostSanitizeOutcome", () => {
     expect(outcome.event).toBe("COMMENT");
     expect(outcome.status).toBe("reviewed");
     expect(outcome.reason).toContain(STRIPPED_LEAK_MARKER);
+  });
+
+  test("errored: attempt trace propagates (e.g. retry-success)", () => {
+    const outcome = decidePostSanitizeOutcome(errored, false, {
+      ...ctx,
+      attempt: "retry-success",
+    });
+    expect(outcome.reason).toContain("attempt=retry-success");
   });
 });

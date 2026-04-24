@@ -17,9 +17,17 @@ import {
 } from "./github-client";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
+import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
+
+/**
+ * Which attempt produced the final (or failing) output. Used for observability
+ * — tells the caller whether the result came from the first model call, a
+ * successful retry with reduced reasoning effort, or a failed retry.
+ */
+export type ReviewAttemptTrace = "first-attempt-success" | "retry-success" | "retry-failed";
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -29,6 +37,12 @@ export interface ReviewResult {
   providerUsed?: string;
   providerModel?: string;
   usage?: ReviewUsage;
+  /** Which attempt produced the result (absent on skipped reviews). */
+  attempt?: ReviewAttemptTrace;
+  /** Whether a retry was actually attempted (false for non-OpenAI empty outputs). */
+  retryAttempted?: boolean;
+  /** Outcome of the task-spec fetch from the hosted Minsky MCP (absent on skipped reviews). */
+  taskSpecFetch?: TaskSpecFetchResult;
 }
 
 /**
@@ -76,10 +90,83 @@ export function buildEmptyOutputSkipNotice(output: ReviewOutput): string {
 }
 
 /**
+ * Injectable callReviewer function signature, for test seams.
+ */
+export type CallReviewerFn = typeof callReviewer;
+
+/**
+ * Result of a single-retry review call.
+ */
+export interface CallWithRetryResult {
+  output: ReviewOutput;
+  validation: { ok: true } | { ok: false; reason: string };
+  attempt: ReviewAttemptTrace;
+  /** False when the first call was non-empty OR when provider has no retry knob. */
+  retryAttempted: boolean;
+}
+
+/**
+ * Call the reviewer with single-retry-on-empty semantics (mt#1131).
+ *
+ * When a reasoning model exhausts its output budget on hidden reasoning
+ * tokens the first call returns empty content. A second attempt with
+ * `reasoningEffort: "low"` shifts the budget toward visible output and
+ * usually succeeds. Only applied to OpenAI — Google and Anthropic have no
+ * equivalent knob, so no retry is attempted for those providers.
+ *
+ * Exactly one retry. No backoff, no provider-fallback, no cascading retries.
+ *
+ * Tool context (mt#1126) passes through to both attempts when provided, so
+ * the retry gets the same file-access capabilities as the first call.
+ *
+ * @param callReviewerFn test seam; defaults to the real `callReviewer` from `./providers`
+ */
+export async function callReviewerWithRetry(
+  config: ReviewerConfig,
+  systemPrompt: string,
+  userPrompt: string,
+  tools?: ReviewerToolContext,
+  callReviewerFn: CallReviewerFn = callReviewer
+): Promise<CallWithRetryResult> {
+  const first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
+  const firstValidation = validateReviewOutput(first);
+  if (firstValidation.ok) {
+    return {
+      output: first,
+      validation: firstValidation,
+      attempt: "first-attempt-success",
+      retryAttempted: false,
+    };
+  }
+
+  // Only OpenAI supports the reasoning_effort override. For other providers
+  // the first empty output is the final answer.
+  if (first.provider !== "openai") {
+    return {
+      output: first,
+      validation: firstValidation,
+      attempt: "retry-failed",
+      retryAttempted: false,
+    };
+  }
+
+  const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, {
+    reasoningEffort: "low",
+  });
+  const retryValidation = validateReviewOutput(retry);
+  return {
+    output: retry,
+    validation: retryValidation,
+    attempt: retryValidation.ok ? "retry-success" : "retry-failed",
+    retryAttempted: true,
+  };
+}
+
+/**
  * Map a SanitizeResult to the (event, status, reason) tuple the worker posts
- * and returns. Pure function — extracted from runReview so the stripped /
- * errored / passthrough branches can be tested without mocking octokit and
- * the App-auth flow.
+ * and returns. Pure function — extracted from runReview (mt#1212) so the
+ * stripped / errored / passthrough branches can be tested without mocking
+ * octokit and the App-auth flow.
  *
  * Exported for tests.
  */
@@ -90,6 +177,7 @@ export function decidePostSanitizeOutcome(
     reviewerLogin: string;
     provider: string;
     model: string;
+    attempt: ReviewAttemptTrace;
   }
 ): {
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
@@ -102,7 +190,7 @@ export function decidePostSanitizeOutcome(
       status: "error",
       reason:
         `Posted service-error notice as ${ctx.reviewerLogin} ` +
-        `(provider=${ctx.provider}, model=${ctx.model}): ` +
+        `(provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt}): ` +
         `CoT leakage with no recoverable review body (${sanitized.meta.reason})`,
     };
   }
@@ -112,7 +200,7 @@ export function decidePostSanitizeOutcome(
   return {
     event,
     status: "reviewed",
-    reason: `Posted ${event} review as ${ctx.reviewerLogin} (provider=${ctx.provider}, model=${ctx.model})${leakSuffix}`,
+    reason: `Posted ${event} review as ${ctx.reviewerLogin} (provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt})${leakSuffix}`,
   };
 }
 
@@ -142,11 +230,20 @@ export async function runReview(
   const reviewerIdentity = await getAppIdentity(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
+  // Fetch the task spec via the hosted Minsky MCP if configured. Never blocks —
+  // unreachable MCP, missing task, or PR with no mt# reference all produce
+  // taskSpec: null with a structured fetchResult the server logs.
+  const { taskSpec, fetchResult: taskSpecFetch } = await resolveTaskSpec({
+    branchName: pr.branchName,
+    prTitle: pr.title,
+    config,
+  });
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
-    taskSpec: null, // Sprint A: no spec fetch; Sprint B adds Minsky MCP integration.
+    taskSpec,
     diff: pr.diff,
     authorshipTier: tier,
     branchName: pr.branchName,
@@ -194,7 +291,12 @@ export async function runReview(
   // Only pass toolContext when tools are actually active — otherwise the
   // provider's no-tools fallback path would fire a second warning log on
   // every review.
-  const output = await callReviewer(
+  //
+  // callReviewerWithRetry (mt#1131) wraps callReviewer with single-retry-on-
+  // empty semantics: if the first call returns empty on OpenAI, it retries
+  // once with reasoningEffort="low" before giving up. Tools pass through to
+  // both attempts.
+  const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
     systemPrompt,
     userPrompt,
@@ -207,7 +309,9 @@ export async function runReview(
   // "approved, no issues" when it's actually "model silently failed." Instead,
   // post a NEUTRAL COMMENT so PR authors see that the reviewer ran but produced
   // nothing, then return status=error so server logs capture the failure.
-  const validation = validateReviewOutput(output);
+  //
+  // The retry path (mt#1131) tries once with reasoningEffort="low" before
+  // giving up; if that also fails we land here with attempt="retry-failed".
   if (!validation.ok) {
     const skipNotice = buildEmptyOutputSkipNotice(output);
     // submitReview failure shouldn't mask the original empty-output error —
@@ -224,6 +328,9 @@ export async function runReview(
       providerUsed: output.provider,
       providerModel: output.model,
       usage: output.usage,
+      attempt,
+      retryAttempted,
+      taskSpecFetch,
     };
   }
 
@@ -254,6 +361,7 @@ export async function runReview(
     reviewerLogin: reviewerIdentity.login,
     provider: output.provider,
     model: output.model,
+    attempt,
   });
 
   const review = await submitReview(
@@ -273,6 +381,9 @@ export async function runReview(
     providerUsed: output.provider,
     providerModel: output.model,
     usage: output.usage,
+    attempt,
+    retryAttempted,
+    taskSpecFetch,
   };
 }
 

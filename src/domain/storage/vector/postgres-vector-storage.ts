@@ -3,6 +3,7 @@ import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { log } from "../../../utils/logger";
+import { withPgPoolRetry } from "../../persistence/postgres-retry";
 
 export interface PostgresVectorStorageConfig {
   tableName: string;
@@ -30,11 +31,25 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   async initialize(): Promise<void> {
-    await this.sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
+    await withPgPoolRetry(
+      () => this.sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector"),
+      "postgres-vector-storage.initialize"
+    );
     // Tables are managed by Drizzle migrations. No-op here to avoid drift.
   }
 
   async store(id: string, vector: number[], _metadata?: Record<string, unknown>): Promise<void> {
+    return withPgPoolRetry(
+      () => this.storeInternal(id, vector, _metadata),
+      "postgres-vector-storage.store"
+    );
+  }
+
+  private async storeInternal(
+    id: string,
+    vector: number[],
+    _metadata?: Record<string, unknown>
+  ): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
 
     const cols: string[] = [this.config.idColumn, this.config.embeddingColumn];
@@ -104,6 +119,13 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   async getMetadata(id: string): Promise<Record<string, unknown> | null> {
+    return withPgPoolRetry(
+      () => this.getMetadataInternal(id),
+      "postgres-vector-storage.getMetadata"
+    );
+  }
+
+  private async getMetadataInternal(id: string): Promise<Record<string, unknown> | null> {
     const cols: string[] = [this.config.idColumn];
     if (this.config.contentHashColumn) cols.push(this.config.contentHashColumn);
     if (this.config.lastIndexedAtColumn) cols.push(this.config.lastIndexedAtColumn);
@@ -121,6 +143,16 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   async search(queryVector: number[], options: SearchOptions = {}): Promise<SearchResult[]> {
+    return withPgPoolRetry(
+      () => this.searchInternal(queryVector, options),
+      "postgres-vector-storage.search"
+    );
+  }
+
+  private async searchInternal(
+    queryVector: number[],
+    options: SearchOptions = {}
+  ): Promise<SearchResult[]> {
     const { limit = 10, threshold, filters } = options;
     const vectorLiteral = `[${queryVector.join(",")}]`;
 
@@ -186,9 +218,12 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   async delete(id: string): Promise<void> {
-    await this.sql.unsafe(
-      `DELETE FROM ${this.config.tableName} WHERE ${this.config.idColumn} = $1`,
-      [id]
+    await withPgPoolRetry(
+      () =>
+        this.sql.unsafe(`DELETE FROM ${this.config.tableName} WHERE ${this.config.idColumn} = $1`, [
+          id,
+        ]),
+      "postgres-vector-storage.delete"
     );
   }
 }

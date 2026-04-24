@@ -24,10 +24,6 @@ import {
 // SESSION METADATA SCHEMAS
 // ========================
 
-// Re-export SessionIdSchema as SessionNameSchema for backward compatibility
-// TODO: Remove once all consumers have migrated to SessionIdSchema
-export { SessionIdSchema as SessionNameSchema } from "./common-schemas";
-
 /**
  * Session description schema - used across all interfaces
  */
@@ -63,7 +59,7 @@ export const SessionStatusSchema = z.enum([
  */
 export const SessionStartParametersSchema = z
   .object({
-    name: SessionIdSchema,
+    sessionId: SessionIdSchema,
     description: SessionDescriptionSchema,
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
@@ -87,7 +83,6 @@ export const SessionStartParametersSchema = z
 export const SessionGetParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
@@ -106,7 +101,6 @@ export const SessionListParametersSchema = BaseBackendParametersSchema.extend(
 export const SessionDeleteParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     force: ForceSchema,
     json: z.boolean().optional(),
@@ -119,8 +113,6 @@ export const SessionDeleteParametersSchema = z
 export const SessionUpdateParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
-    session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
     remote: z.string().optional(),
@@ -140,7 +132,6 @@ export const SessionUpdateParametersSchema = z
 export const SessionDirectoryParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     json: z.boolean().optional(),
   })
@@ -152,7 +143,6 @@ export const SessionDirectoryParametersSchema = z
 export const SessionPRParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     title: z.string().min(1),
@@ -174,7 +164,6 @@ export const SessionPRParametersSchema = z
 export const SessionApproveParametersSchema = z
   .object({
     sessionId: SessionIdSchema.optional(),
-    name: SessionIdSchema.optional(),
     session: SessionIdSchema.optional(),
     task: TaskIdSchema.optional(),
     noStash: z.boolean().default(false),

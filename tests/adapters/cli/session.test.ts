@@ -95,7 +95,7 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const result = await getSessionDirImpl(
-        { name: "test-session" },
+        { sessionId: "test-session" },
         { sessionDB: mockSessionProvider }
       );
 
@@ -160,7 +160,7 @@ describe("Session CLI Commands", () => {
 
       // For now, provide session ID explicitly to avoid complex auto-detection mocking
       const result = await getSessionDirImpl(
-        { name: "current-session" },
+        { sessionId: "current-session" },
         { sessionDB: mockSessionProviderCurrent }
       );
 
@@ -194,7 +194,7 @@ describe("Session CLI Commands", () => {
 
       const result = await updateSessionImpl(
         {
-          name: "update-session",
+          sessionId: "update-session",
           branch: "new-branch",
           force: true,
           noStash: false,
@@ -245,7 +245,7 @@ describe("Session CLI Commands", () => {
 
       const result = await updateSessionImpl(
         {
-          name: "git-session",
+          sessionId: "git-session",
           autoResolveDeleteConflicts: true,
           force: true,
           noStash: false,

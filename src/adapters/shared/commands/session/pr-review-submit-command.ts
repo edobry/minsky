@@ -31,7 +31,6 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
           const result = await sessionPrReviewSubmit(
             {
               sessionId: params.sessionId as string | undefined,
-              name: params.name as string | undefined,
               task: params.task as string | undefined,
               repo: params.repo as string | undefined,
               body: params.body as string,

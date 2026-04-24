@@ -334,3 +334,218 @@ describe("callProvenanceGet", () => {
     expect(result?.artifactId).toBe("77");
   });
 });
+
+describe("callTasksSpecGet", () => {
+  const makeEnvelope = (content: string) =>
+    JSON.stringify({ success: true, taskId: "mt#1187", content });
+
+  test("returns disabled immediately when mcpUrl is missing", async () => {
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_NO_MCP);
+    expect(result.kind).toBe("disabled");
+    expect(fetchMock).toBeUndefined();
+  });
+
+  test("returns disabled immediately when mcpToken is missing", async () => {
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", { ...CONFIG_WITH_MCP, mcpToken: undefined });
+    expect(result.kind).toBe("disabled");
+    expect(fetchMock).toBeUndefined();
+  });
+
+  test("returns found with spec content on a successful plain-JSON envelope", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: makeEnvelope("## Summary\n\nreal spec") }],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+
+    expect(result.kind).toBe("found");
+    if (result.kind === "found") {
+      expect(result.content).toBe("## Summary\n\nreal spec");
+    }
+  });
+
+  test("returns found on a successful SSE envelope", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: { content: [{ type: "text", text: makeEnvelope("## SSE spec") }] },
+    };
+    setFetch(() => Promise.resolve(mockSseResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("found");
+    if (result.kind === "found") expect(result.content).toContain("SSE spec");
+  });
+
+  test("accepts a type:'json' content entry (pre-parsed envelope)", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "json",
+            json: { success: true, taskId: "mt#1187", content: "## pre-parsed" },
+          },
+        ],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("found");
+    if (result.kind === "found") expect(result.content).toBe("## pre-parsed");
+  });
+
+  test("concatenates multi-chunk text content before envelope parse", async () => {
+    const envelope = makeEnvelope("## multi-chunk spec");
+    const mid = Math.floor(envelope.length / 2);
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          { type: "text", text: envelope.slice(0, mid) },
+          { type: "text", text: envelope.slice(mid) },
+        ],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("found");
+    if (result.kind === "found") expect(result.content).toBe("## multi-chunk spec");
+  });
+
+  test("falls back to treating plain markdown as the spec when inner text is not JSON", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: { content: [{ type: "text", text: "## Plain markdown body" }] },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("found");
+    if (result.kind === "found") expect(result.content).toContain("Plain markdown body");
+  });
+
+  test("returns not-found when result content is empty", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: { content: [] },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("not-found");
+  });
+
+  test("returns not-found when envelope has success:true but no content field", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ success: true, taskId: "mt#42" }) }],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#42", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("not-found");
+  });
+
+  test("returns error with tool message on success:false envelope", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Developer setup incomplete. Run 'minsky setup' first.",
+            }),
+          },
+        ],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("Developer setup incomplete");
+  });
+
+  test("returns error with fallback message on success:false without error field", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ success: false }) }],
+      },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("success:false");
+  });
+
+  test("returns error on non-200 HTTP responses", async () => {
+    setFetch(() =>
+      Promise.resolve(
+        new Response("server went home", {
+          status: 503,
+          statusText: "Service Unavailable",
+        })
+      )
+    );
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("503");
+  });
+
+  test("returns error on JSON-RPC error envelopes", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32000, message: "Bad Request: Server not initialized" },
+    };
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("Server not initialized");
+  });
+
+  test("returns error when fetch itself throws", async () => {
+    setFetch(() => Promise.reject(new Error("ECONNREFUSED")));
+
+    const { callTasksSpecGet } = await import("./mcp-client");
+    const result = await callTasksSpecGet("mt#1187", CONFIG_WITH_MCP);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("fetch failed");
+  });
+});

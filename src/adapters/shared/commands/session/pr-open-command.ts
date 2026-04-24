@@ -21,7 +21,6 @@ export function createSessionPrOpenCommand(getDeps: LazySessionDeps): CommandDef
         const result = await sessionPrOpen(
           {
             sessionId: params.sessionId as string | undefined,
-            name: params.name as string | undefined,
             task: params.task as string | undefined,
             repo: params.repo as string | undefined,
           },

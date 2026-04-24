@@ -66,6 +66,7 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
       provider: result.providerUsed,
       model: result.providerModel,
       usage: result.usage,
+      taskSpecFetch: result.taskSpecFetch,
     })
   );
 }
@@ -149,6 +150,7 @@ console.log(
     provider: config.provider,
     model: config.providerModel,
     tier2Enabled: config.tier2Enabled,
+    specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
   })
 );
 

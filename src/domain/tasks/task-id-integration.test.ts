@@ -139,7 +139,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       // Test session start with qualified task ID
       const session = await startSessionImpl(
         {
-          name: "test-md999-integration",
+          sessionId: "test-md999-integration",
           task: "md#999",
           repo: "test-repo",
         } as unknown as SessionStartParameters,

@@ -418,6 +418,25 @@ export function createStartCommand(
               error: getErrorMessage(error),
             });
           }
+          // Release DB sockets promptly so another MCP instance (e.g. Railway
+          // redeploy rolling over to a new container) can claim pool slots
+          // without waiting for TCP timeout (mt#1193).
+          try {
+            const persistence = container?.has("persistence")
+              ? container.get("persistence")
+              : undefined;
+            if (
+              persistence &&
+              typeof (persistence as { close?: () => Promise<void> }).close === "function"
+            ) {
+              await (persistence as { close: () => Promise<void> }).close();
+              log.debug("[persistence] PostgreSQL connections closed");
+            }
+          } catch (error) {
+            log.warn("Error closing persistence during shutdown", {
+              error: getErrorMessage(error),
+            });
+          }
           process.exit(0);
         };
 

@@ -29,11 +29,11 @@ export class CLISessionContextResolver {
     params: Record<string, unknown>,
     workingDir?: string
   ): Record<string, unknown> {
-    // If session is explicitly provided via name parameter, use it
-    if (params.name) {
+    // If session is explicitly provided via sessionId parameter, use it
+    if (params.sessionId) {
       return {
         ...params,
-        session: params.name,
+        session: params.sessionId,
       };
     }
 
@@ -86,11 +86,11 @@ export class MCPSessionContextResolver {
     params: Record<string, unknown>,
     workingDir?: string
   ): Record<string, unknown> {
-    // If session is explicitly provided via session or name parameter, use it
-    if (params.session || params.name) {
+    // If session is explicitly provided via session or sessionId parameter, use it
+    if (params.session || params.sessionId) {
       return {
         ...params,
-        session: params.session || params.name,
+        session: params.session || params.sessionId,
       };
     }
 
@@ -109,12 +109,12 @@ export class MCPSessionContextResolver {
 
 Please provide one of:
   session: "task#158"     // Session ID
-  name: "task#158"        // Session ID (alternative)
+  sessionId: "task#158"  // Session ID (alternative)
   task: "158"            // Task ID
 
 Examples:
   session.pr({ session: "task#158", title: "Fix bug" })
-  session.pr({ name: "task#158", title: "Fix bug" })
+  session.pr({ sessionId: "task#158", title: "Fix bug" })
   session.pr({ task: "158", title: "Fix bug" })
 
 💡 MCP tools don't auto-detect session context like CLI commands do.`

@@ -23,7 +23,7 @@ export function createSessionRepairCommand(getDeps: LazySessionDeps): CommandDef
       try {
         const deps = await getDeps();
         const repairParams: SessionRepairParameters = {
-          name: params.name as string | undefined,
+          sessionId: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           dryRun: params.dryRun as boolean | undefined,
