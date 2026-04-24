@@ -165,6 +165,10 @@ export default [
         {
           allowInFiles: [
             "**/tests/setup.ts", // Global test setup only
+            // reviewer service is a standalone service without DI infrastructure;
+            // mock.module() is the only seam available for testing runReview e2e
+            // (mt#1263 — approved exception, see PR body for rationale)
+            "**/services/reviewer/src/review-worker.test.ts",
           ],
         },
       ], // Ban mock.module() — use dependency injection instead

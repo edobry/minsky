@@ -7,12 +7,117 @@ import {
   callReviewerWithRetry,
   decideToolsActive,
   defaultForkAccessProbe,
+  runReview,
   type CallReviewerFn,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
+
+// ---------------------------------------------------------------------------
+// Module-level mocks for runReview end-to-end tests (mt#1263).
+//
+// mock.module() captures references at call time. To allow per-test control,
+// we use an indirection container: the module factory exposes a wrapper that
+// delegates to `stubs.<key>`, and tests reassign `stubs.<key> = mock(newImpl)`.
+// Property reassignment on a const object is valid — no const-assign lint
+// violation, no .mockImplementation() needed (no-jest-patterns compliance).
+//
+// mock.module() is permitted in this file via eslint.config.js allowInFiles
+// because the reviewer service has no DI infrastructure; this is the only
+// available seam for testing runReview end-to-end.
+// ---------------------------------------------------------------------------
+
+// Stub container — properties are reassigned per test inside beforeEach / test.
+const stubs = {
+  submitReview: mock(
+    (
+      _octokit: unknown,
+      _owner: string,
+      _repo: string,
+      _prNumber: number,
+      _event: string,
+      _body: string
+    ) =>
+      Promise.resolve({
+        id: 1,
+        htmlUrl: "https://github.com/owner/repo/pull/1#pullrequestreview-1",
+      })
+  ),
+  callReviewer: mock(
+    async (): Promise<ReviewOutput> => ({
+      text: "## Findings\n\n- [NON-BLOCKING] Minor nit.\n\nEvent: APPROVE",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 500,
+      usage: { promptTokens: 300, completionTokens: 200, totalTokens: 500 },
+    })
+  ),
+  sanitizeReviewBody: mock(
+    (raw: string): SanitizeResult => ({
+      action: "passthrough",
+      body: raw,
+      meta: { originalLength: raw.length, cleanedLength: raw.length },
+    })
+  ),
+};
+
+mock.module("./github-client", () => ({
+  createOctokit: mock(() => Promise.resolve({})),
+  fetchPullRequestContext: mock(() =>
+    Promise.resolve({
+      number: 42,
+      title: "Test PR",
+      body: "<!-- minsky:tier=3 -->",
+      owner: "owner",
+      repo: "repo",
+      headOwner: "owner",
+      headRepo: "repo",
+      isForkedPR: false,
+      branchName: "task/mt-1263",
+      baseBranch: "main",
+      diff: "diff --git a/foo.ts b/foo.ts\n+added line",
+      headSha: "abc123",
+    })
+  ),
+  getAppIdentity: mock(() => Promise.resolve({ login: "minsky-reviewer[bot]" })),
+  // Wrapper delegates to stubs.submitReview so per-test reassignment is visible.
+  submitReview: (...args: Parameters<typeof stubs.submitReview>) => stubs.submitReview(...args),
+  // readFileAtRef and listDirectoryAtRef are NOT mocked here so the
+  // defaultForkAccessProbe tests (which construct their own octokit stubs)
+  // continue to call the real readFileAtRef implementation. The runReview
+  // tests use isForkedPR=false so the probe is never invoked.
+}));
+
+mock.module("./providers", () => ({
+  // Wrapper delegates to stubs.callReviewer so per-test reassignment is visible.
+  callReviewer: (...args: Parameters<typeof stubs.callReviewer>) => stubs.callReviewer(...args),
+}));
+
+mock.module("./sanitize", () => ({
+  // Wrapper delegates to stubs.sanitizeReviewBody so per-test reassignment is visible.
+  sanitizeReviewBody: (...args: Parameters<typeof stubs.sanitizeReviewBody>) =>
+    stubs.sanitizeReviewBody(...args),
+}));
+
+mock.module("./tier-routing", () => ({
+  resolveTier: mock(() => Promise.resolve(3)),
+  decideRouting: mock(() => ({ shouldReview: true, reason: "tier 3 enabled" })),
+  extractTierFromPRBody: mock(() => 3),
+}));
+
+mock.module("./task-spec-fetch", () => ({
+  resolveTaskSpec: mock(() =>
+    Promise.resolve({ taskSpec: null, fetchResult: { status: "no-task-id" } })
+  ),
+  extractTaskId: mock(() => null),
+}));
+
+mock.module("./prompt", () => ({
+  buildReviewPrompt: mock(() => "user prompt text"),
+  buildCriticConstitution: mock(() => "system prompt text"),
+}));
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -666,5 +771,249 @@ describe("defaultForkAccessProbe", () => {
       throw err;
     });
     await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(false);
+  });
+});
+
+// ----- runReview sanitize wiring (mt#1263) -----
+//
+// End-to-end coverage for the CoT-leakage guard wired into runReview by
+// mt#1212. Three cases correspond to the three SanitizeResult.action values.
+// All external I/O is stubbed via mock.module() at the top of this file.
+//
+// Mutation-test protocol (described in PR body):
+//   Temporarily break wiring by passing `output.text` instead of
+//   `sanitized.body` to submitReview in review-worker.ts, then confirm
+//   cases 1 and 2 fail. Revert before committing.
+
+describe("runReview sanitize wiring (mt#1263)", () => {
+  const fakeConfig: ReviewerConfig = {
+    appId: 1,
+    privateKey: "fake-key",
+    installationId: 1,
+    webhookSecret: "fake-secret",
+    provider: "openai",
+    providerApiKey: "sk-fake",
+    providerModel: "gpt-5",
+    tier2Enabled: false,
+    mcpUrl: undefined,
+    mcpToken: undefined,
+    port: 3000,
+    logLevel: "info",
+  };
+
+  const RAW_OUTPUT_TEXT =
+    "## Findings\n\n- [BLOCKING] src/foo.ts:1 — bad.\n\nEvent: REQUEST_CHANGES";
+
+  beforeEach(() => {
+    // Reset call history before each test.
+    stubs.submitReview.mockReset();
+    stubs.callReviewer.mockReset();
+    stubs.sanitizeReviewBody.mockReset();
+
+    // Default reviewer output — substantive, non-empty.
+    // Property reassignment on the const `stubs` object is lint-safe (not const-assign).
+    stubs.callReviewer = mock(
+      async (): Promise<ReviewOutput> => ({
+        text: RAW_OUTPUT_TEXT,
+        provider: "openai",
+        model: "gpt-5",
+        tokensUsed: 500,
+        usage: { promptTokens: 300, completionTokens: 200, totalTokens: 500 },
+      })
+    );
+
+    // Default submitReview — succeeds with a stub review.
+    stubs.submitReview = mock(() =>
+      Promise.resolve({
+        id: 99,
+        htmlUrl: "https://github.com/owner/repo/pull/42#pullrequestreview-99",
+      })
+    );
+
+    // Default sanitize — passthrough (no stripping).
+    stubs.sanitizeReviewBody = mock(
+      (raw: string): SanitizeResult => ({
+        action: "passthrough",
+        body: raw,
+        meta: { originalLength: raw.length, cleanedLength: raw.length },
+      })
+    );
+  });
+
+  // ── Case 1: sanitize returns "stripped" ─────────────────────────────────
+  //
+  // submitReview receives sanitized.body (NOT raw output.text).
+  // The stripped body is intentionally DIFFERENT from the raw output so the
+  // mutation test (passing output.text instead of sanitized.body) fails.
+  // parseReviewEvent is called on the stripped body, so the event is derived
+  // from it. Return value: status="reviewed", reason contains "[cot-leakage: stripped]".
+
+  test("stripped: submitReview receives sanitized.body; reason contains leak marker", async () => {
+    // strippedBody is intentionally distinct from RAW_OUTPUT_TEXT so that
+    // passing output.text instead of sanitized.body causes this test to fail.
+    const strippedBody =
+      "## Findings\n\n- [BLOCKING] src/bar.ts:10 — STRIPPED ONLY CONTENT.\n\nEvent: REQUEST_CHANGES";
+
+    stubs.sanitizeReviewBody = mock(
+      (_raw: string): SanitizeResult => ({
+        action: "stripped",
+        body: strippedBody,
+        meta: {
+          originalLength: 5000,
+          cleanedLength: strippedBody.length,
+          reason: "cot-leak:blank-line-run,scratch:this-time-for-sure",
+        },
+      })
+    );
+
+    const result = await runReview(fakeConfig, "owner", "repo", 42, "pr-author");
+
+    // submitReview must receive the STRIPPED body (annotated), NOT raw output.text.
+    expect(stubs.submitReview).toHaveBeenCalledTimes(1);
+    const [, , , , event, body] = stubs.submitReview.mock.calls[0] as [
+      unknown,
+      string,
+      string,
+      number,
+      string,
+      string,
+    ];
+    // The body passed to submitReview is annotateReviewBody(sanitized.body, ...),
+    // which prepends a header. Confirm the STRIPPED body text is present.
+    expect(body).toContain(strippedBody);
+    // The raw output text must NOT appear verbatim in the body (mutation-test sentinel).
+    expect(body).not.toContain(RAW_OUTPUT_TEXT);
+
+    // parseReviewEvent operates on the stripped body → REQUEST_CHANGES keyword present.
+    expect(event).toBe("REQUEST_CHANGES");
+
+    // Return value shape.
+    expect(result.status).toBe("reviewed");
+    expect(result.reason).toContain("[cot-leakage: stripped]");
+    expect(result.review).toBeDefined();
+  });
+
+  // ── Case 2: sanitize returns "errored" ──────────────────────────────────
+  //
+  // submitReview receives the error-notice body (sanitized.body).
+  // event is forced to "COMMENT" regardless of what parseReviewEvent would return.
+  // Return value: status="error", NO review field populated.
+  // A submitReview failure on this path does NOT propagate (try/catch).
+
+  test("errored: submitReview receives error-notice body; status=error; review field absent", async () => {
+    const errorNoticeBody =
+      "**reviewer-service error: chain-of-thought leakage detected**\n\n" +
+      "The upstream model emitted raw internal reasoning into the review body.";
+
+    stubs.sanitizeReviewBody = mock(
+      (_raw: string): SanitizeResult => ({
+        action: "errored",
+        body: errorNoticeBody,
+        meta: {
+          originalLength: 1200,
+          cleanedLength: errorNoticeBody.length,
+          reason: "cot-leak:scratch:openai-tool-routing,long-narrative-prefix",
+        },
+      })
+    );
+
+    const result = await runReview(fakeConfig, "owner", "repo", 42, "pr-author");
+
+    expect(stubs.submitReview).toHaveBeenCalledTimes(1);
+    const [, , , , event, body] = stubs.submitReview.mock.calls[0] as [
+      unknown,
+      string,
+      string,
+      number,
+      string,
+      string,
+    ];
+    // Event must be COMMENT regardless of what parseReviewEvent would produce.
+    expect(event).toBe("COMMENT");
+    // Body contains the error notice text.
+    expect(body).toContain(errorNoticeBody);
+
+    // Status is error, review field is NOT populated.
+    expect(result.status).toBe("error");
+    expect(result.review).toBeUndefined();
+  });
+
+  test("errored: submitReview failure does not propagate (try/catch mirrors mt#1125 pattern)", async () => {
+    const errorNoticeBody = "**reviewer-service error: chain-of-thought leakage detected**";
+
+    stubs.sanitizeReviewBody = mock(
+      (_raw: string): SanitizeResult => ({
+        action: "errored",
+        body: errorNoticeBody,
+        meta: {
+          originalLength: 800,
+          cleanedLength: errorNoticeBody.length,
+          reason: "cot-leak:blank-line-run",
+        },
+      })
+    );
+
+    // Make submitReview throw on the error path.
+    stubs.submitReview = mock(() => {
+      throw new Error("GitHub API unavailable");
+    });
+
+    // runReview must not re-throw the submitReview error.
+    const result = await runReview(fakeConfig, "owner", "repo", 42, "pr-author");
+    expect(result.status).toBe("error");
+    expect(result.review).toBeUndefined();
+  });
+
+  // ── Case 3: sanitize returns "passthrough" ──────────────────────────────
+  //
+  // submitReview receives the raw output.text (via annotateReviewBody).
+  // No reviewer.cot_leak_detected log is emitted — console.log is mocked
+  // globally via tests/setup.ts; the setup mock counts calls.
+
+  test("passthrough: submitReview receives raw output.text; no cot_leak log emitted", async () => {
+    // stubs.sanitizeReviewBody is already set to passthrough in beforeEach.
+
+    // Spy on console.log to verify reviewer.cot_leak_detected is NOT emitted.
+    // (tests/setup.ts already replaces console.log with a mock() globally;
+    // capture its state before and confirm cot_leak_detected key is absent.)
+    const consoleLogCalls: unknown[][] = [];
+    const originalConsoleLog = console.log;
+    console.log = mock((...args: unknown[]) => {
+      consoleLogCalls.push(args);
+    }) as typeof console.log;
+
+    try {
+      const result = await runReview(fakeConfig, "owner", "repo", 42, "pr-author");
+
+      expect(stubs.submitReview).toHaveBeenCalledTimes(1);
+      const [, , , , , body] = stubs.submitReview.mock.calls[0] as [
+        unknown,
+        string,
+        string,
+        number,
+        string,
+        string,
+      ];
+      // Body must contain the raw output text (no stripped prefix replacement).
+      expect(body).toContain(RAW_OUTPUT_TEXT);
+
+      // No reviewer.cot_leak_detected log must have been emitted.
+      const leakLogs = consoleLogCalls.filter((args) => {
+        const first = args[0];
+        if (typeof first !== "string") return false;
+        try {
+          const parsed = JSON.parse(first) as Record<string, unknown>;
+          return parsed.event === "reviewer.cot_leak_detected";
+        } catch {
+          return false;
+        }
+      });
+      expect(leakLogs).toHaveLength(0);
+
+      expect(result.status).toBe("reviewed");
+      expect(result.review).toBeDefined();
+    } finally {
+      console.log = originalConsoleLog;
+    }
   });
 });
