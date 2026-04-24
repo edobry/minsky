@@ -51,6 +51,8 @@ export const agentDefinitionSchema = z.object({
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional().default("default"),
   maxTurns: z.number().int().positive().optional(),
+  /** Minsky-only routing hint — points to a Claude Code subagent_type for dispatch. NOT emitted to compiled frontmatter. */
+  suggestedSubagentType: z.string().optional(),
   prompt: z.string().min(1),
 });
 

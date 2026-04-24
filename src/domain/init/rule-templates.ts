@@ -1,7 +1,6 @@
 import * as path from "path";
 import { createRuleTemplateService } from "../rules/rule-template-service";
 import type { RuleFormat } from "../rules";
-import type { McpOptions } from "./config-content";
 
 /**
  * Generate rules using the template system
@@ -38,9 +37,6 @@ export async function generateRulesWithTemplateSystem(
     "task-status-protocol",
     "pr-preparation-workflow",
   ];
-  if (mcpEnabled) {
-    selectedRules.push("mcp-usage");
-  }
 
   const result = await service.generateRules({
     config,
@@ -51,43 +47,6 @@ export async function generateRulesWithTemplateSystem(
 
   if (!result.success) {
     throw new Error(`Failed to generate rules: ${result.errors.join(", ")}`);
-  }
-}
-
-/**
- * Generate MCP rule using the template system
- */
-export async function generateMcpRuleWithTemplateSystem(
-  rulesDirPath: string,
-  ruleFormat: RuleFormat,
-  overwrite: boolean,
-  mcpOptions?: McpOptions
-): Promise<void> {
-  const workspacePath = path.dirname(path.dirname(rulesDirPath)); // Get workspace path from rules dir
-  const service = createRuleTemplateService(workspacePath);
-
-  // Register the init templates
-  service.registerInitTemplates();
-
-  // Configure rule generation for MCP
-  const config = {
-    interface: "mcp" as const,
-    mcpEnabled: true,
-    mcpTransport: (mcpOptions?.transport || "stdio") as "stdio" | "http",
-    preferMcp: true, // For MCP-specific rule
-    ruleFormat,
-    outputDir: rulesDirPath,
-  };
-
-  const result = await service.generateRules({
-    config,
-    selectedRules: ["mcp-usage"],
-    overwrite,
-    dryRun: false,
-  });
-
-  if (!result.success) {
-    throw new Error(`Failed to generate MCP rule: ${result.errors.join(", ")}`);
   }
 }
 
@@ -189,7 +148,6 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation _tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
 
@@ -248,19 +206,18 @@ These rules standardize the development environment:
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **session-first-workflow** - Learn the critical session creation requirements
-3. **creating-tasks** - Know how to document new work
-4. **module-organization** & **command-organization** - Understand the codebase structure
+2. **creating-tasks** - Know how to document new work
+3. **module-organization** & **command-organization** - Understand the codebase structure
 
 ### When Implementing Features
 
 During feature implementation, the most relevant rules are:
 
-1. **minsky-workflow** & **session-first-workflow** - Follow the proper process
+1. **minsky-workflow** - Follow the proper process
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
-DEFAULT_RETRY_COUNT. **changelog** - Document the changes
+5. **changelog** - Document the changes
 
 ### When Fixing Bugs
 
@@ -279,7 +236,7 @@ Code reviewers should focus on:
 2. **robust-error-handling** & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
 4. **testable-design** & **tests** - Validate test coverage
-DEFAULT_RETRY_COUNT. **changelog** - Confirm changes are documented
+5. **changelog** - Confirm changes are documented
 
 ### When Creating New Rules
 
@@ -292,10 +249,9 @@ When developing new Minsky rules:
 For initializing new projects with Minsky:
 
 1. **minsky-workflow** - Establish the core workflow
-2. **session-first-workflow** - Enforce proper session usage
-3. **creating-tasks** - Enable structured task creation
-4. **changelog** - Set up change tracking
-DEFAULT_RETRY_COUNT. **module-organization** & **command-organization** - If developing with the same architecture
+2. **creating-tasks** - Enable structured task creation
+3. **changelog** - Set up change tracking
+4. **module-organization** & **command-organization** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -303,7 +259,6 @@ Some rules are closely related and often used together:
 
 - **module-organization** and **domain-oriented-modules** complement each other for code structuring
 - **testable-design**, **designing-tests**, and **tests** form a comprehensive testing approach
-- **minsky-workflow** and **session-first-workflow** together define the complete development process
 - **robust-error-handling** and **dont-ignore-errors** ensure comprehensive error management
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 

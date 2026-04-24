@@ -64,6 +64,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 
 // ---------------------------------------------------------------------------
 // Manifest — service-specific constants. Everything that isn't a secret.
@@ -923,20 +924,24 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     detail: `status=${noAuth.status}`,
   });
 
-  // 3. /mcp authenticated — prove the auth gate lets requests reach the
-  //    container. We deliberately don't do a full MCP initialize handshake:
-  //    Streamable HTTP protocol correctness is a downstream consumer concern,
-  //    not infrastructure verification. What this probe confirms is that
-  //    bearer auth passes and the Minsky process (not Railway's edge) is
-  //    generating the response.
+  // 3. /mcp authenticated with non-initialize body → expect HTTP 400 + JSON-RPC -32000.
   //
-  //    Accept header is application/json only (not text/event-stream) —
-  //    if the server opted to stream, awaiting text() could hang.
+  //    After mt#1199 (per-session MCP Server fix), a POST with a valid bearer
+  //    token but no mcp-session-id and a non-initialize method must be rejected
+  //    at the protocol level with 400 "Bad Request: Mcp-Session-Id header is
+  //    required" — not silently swallowed, not 500 "Already connected to a
+  //    transport". The SDK's StreamableHTTPServerTransport.validateSession
+  //    emits this response with error.code === -32000.
   //
-  //    PASS if: response came from the container (no x-railway-fallback
-  //             header) and status is NOT 401.
-  //    FAIL if: 401 (auth gate broken), Railway fallback (container dead),
-  //             network error, or no response at all.
+  //    PASS if: status 200-range is NOT returned, status IS 400, body is
+  //             valid JSON-RPC 2.0 with error.code === -32000.
+  //    FAIL modes with specific hints:
+  //      - 500 → pre-fix regression ("Already connected to a transport" bug);
+  //              the operator must redeploy with mt#1199's fix.
+  //      - 401 → auth gate broken; bearer token mismatch or middleware change.
+  //      - 4xx other than 400 → protocol shape drift; unexpected response shape.
+  //      - non-JSON body → wrong server responding (edge HTML error page?).
+  //      - Railway fallback header → container dead or cold; try again later.
   const authResp = await probe(`${base}${MANIFEST.mcpPath}`, {
     method: "POST",
     headers: {
@@ -946,15 +951,209 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
   });
-  // Drain the body but don't log it — container error bodies can contain stack
-  // traces and config fragments that shouldn't reach stdout.
-  await authResp.text();
-  const fromContainer = authResp.headers.get("x-railway-fallback") !== "true";
-  const authReachedDispatcher = fromContainer && authResp.status !== 401;
+
+  // Parse body as JSON — do NOT log the raw body (may contain stack traces or config).
+  // We only surface the structural shape (status code, jsonrpc field, error code).
+  const authBodyText = await authResp.text();
+  let authBody: unknown;
+  let authBodyIsJson = false;
+  try {
+    authBody = JSON.parse(authBodyText);
+    authBodyIsJson = true;
+  } catch {
+    authBody = null;
+  }
+
+  const authFromContainer = authResp.headers.get("x-railway-fallback") !== "true";
+  const authStatus = authResp.status;
+  // Structural assertions on the JSON-RPC error response:
+  const authBodyObj =
+    authBodyIsJson && typeof authBody === "object" && authBody !== null
+      ? (authBody as Record<string, unknown>)
+      : null;
+  const authJsonrpc = authBodyObj?.["jsonrpc"];
+  const authErrorCode =
+    authBodyObj !== null &&
+    typeof authBodyObj["error"] === "object" &&
+    authBodyObj["error"] !== null
+      ? (authBodyObj["error"] as Record<string, unknown>)["code"]
+      : undefined;
+
+  let authOk = false;
+  let authDetail = "";
+  if (!authFromContainer) {
+    authDetail = `Railway fallback active — container dead or not yet started (status=${authStatus})`;
+  } else if (authStatus === 401) {
+    authDetail = `Auth gate broken — bearer token rejected (status=401). Check MINSKY_MCP_AUTH_TOKEN matches.`;
+  } else if (authStatus === 500) {
+    authDetail =
+      `HTTP 500 — pre-fix regression likely. The server returned "Already connected to a transport" ` +
+      `before mt#1199 landed. Redeploy with the per-session Server fix.`;
+  } else if (!authBodyIsJson) {
+    authDetail = `Non-JSON body (${authBodyText.length} bytes) — wrong server or edge HTML error page responding.`;
+  } else if (authStatus !== 400) {
+    authDetail = `Unexpected status=${authStatus} (expected 400). Protocol shape drift — body jsonrpc=${authJsonrpc}, error.code=${authErrorCode}.`;
+  } else if (authJsonrpc !== "2.0") {
+    authDetail = `HTTP 400 but body.jsonrpc=${JSON.stringify(authJsonrpc)} (expected "2.0"). Wrong response shape.`;
+  } else if (authErrorCode !== -32000) {
+    authDetail = `HTTP 400 + jsonrpc=2.0 but error.code=${authErrorCode} (expected -32000 "Bad Request: Mcp-Session-Id header is required").`;
+  } else {
+    authOk = true;
+    authDetail = `status=400, jsonrpc=2.0, error.code=-32000`;
+  }
+
   results.push({
-    name: "POST /mcp (auth) reaches container",
-    ok: authReachedDispatcher,
-    detail: `status=${authResp.status}, from-container=${fromContainer}`,
+    name: "POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000",
+    ok: authOk,
+    detail: authDetail,
+  });
+
+  // 4. Full initialize dance — proves transport wiring, session-id header
+  //    round-trip, and tools registration survival after cold start.
+  //
+  //    Step 1: POST initialize → expect 200 + mcp-session-id response header.
+  //    Step 2: POST tools/list with captured mcp-session-id header → expect
+  //            a non-empty tool list containing at least one well-known Minsky
+  //            tool name (session_get or tasks_list).
+  //
+  //    Accept header includes text/event-stream because the server may use SSE
+  //    framing for the response. We compare the raw text body as a string
+  //    (simple includes check) rather than parsing SSE, since both JSON and
+  //    SSE-framed responses will contain the tool names as literal strings.
+  //
+  //    A 30-second timeout is used here (vs. 15s for probes 1-3): the
+  //    initialize handshake may trigger cold-start tool registration, which
+  //    enumerates all Minsky adapters and their schemas — heavier than a
+  //    simple HTTP round-trip.
+  const INIT_TIMEOUT_MS = 30_000;
+  // Timer must stay armed across BOTH the fetch() and the body read — if we
+  // cleared on fetch resolve, a hung SSE body stream would hang indefinitely.
+  // Caller gets back a cancel() to release the timer after body consumption.
+  const probeInit = async (
+    url: string,
+    init?: RequestInit
+  ): Promise<{ resp: Response; cancel: () => void }> => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), INIT_TIMEOUT_MS);
+    try {
+      const resp = await fetch(url, { ...init, signal: ac.signal });
+      return { resp, cancel: () => clearTimeout(timer) };
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
+  };
+
+  let initOk = false;
+  let initDetail = "";
+  let toolsOk = false;
+  let toolsDetail = "";
+
+  try {
+    const { resp: initResp, cancel: initCancel } = await probeInit(`${base}${MANIFEST.mcpPath}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "deploy-verify", version: "1.0.0" },
+        },
+      }),
+    });
+
+    // Consume the body to close any SSE stream before the next request.
+    try {
+      await initResp.text();
+    } finally {
+      initCancel();
+    }
+
+    if (initResp.status !== 200) {
+      initOk = false;
+      initDetail = `Expected 200, got status=${initResp.status}. Container may be unhealthy or auth token wrong.`;
+      toolsOk = false;
+      toolsDetail = "Skipped — initialize did not return 200.";
+    } else {
+      const sessionId = initResp.headers.get("mcp-session-id");
+      if (!sessionId) {
+        initOk = false;
+        initDetail =
+          `Initialize returned 200 but mcp-session-id header is missing. ` +
+          `Server may not be implementing StreamableHTTP session management.`;
+        toolsOk = false;
+        toolsDetail = "Skipped — no mcp-session-id from initialize.";
+      } else {
+        // Session id length only — never log the actual value (it's a capability token).
+        initOk = true;
+        initDetail = `status=200, mcp-session-id present (${sessionId.length} chars)`;
+
+        // Step 2: POST tools/list with the captured session id.
+        const { resp: toolsResp, cancel: toolsCancel } = await probeInit(
+          `${base}${MANIFEST.mcpPath}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              "mcp-session-id": sessionId,
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+          }
+        );
+
+        // Response may be JSON or SSE-framed. Compare raw text for well-known
+        // Minsky tool names — both formats include the name as a literal string.
+        let toolsText: string;
+        try {
+          toolsText = await toolsResp.text();
+        } finally {
+          toolsCancel();
+        }
+        const hasKnownTool = toolsText.includes("session_get") || toolsText.includes("tasks_list");
+
+        if (toolsResp.status !== 200) {
+          toolsOk = false;
+          toolsDetail = `tools/list returned status=${toolsResp.status} (expected 200).`;
+        } else if (!hasKnownTool) {
+          toolsOk = false;
+          toolsDetail =
+            `tools/list returned 200 but body (${toolsText.length} bytes) contains neither ` +
+            `"session_get" nor "tasks_list". Tool registration may have failed on startup.`;
+        } else {
+          toolsOk = true;
+          toolsDetail = `status=200, well-known Minsky tool found in response (${toolsText.length} bytes)`;
+        }
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isTimeout = msg.includes("aborted") || msg.includes("abort");
+    initOk = false;
+    initDetail = isTimeout
+      ? `initialize timed out after ${INIT_TIMEOUT_MS}ms — container may be hanging or network unreachable.`
+      : `Network error during initialize: ${msg}`;
+    toolsOk = false;
+    toolsDetail = "Skipped — initialize threw.";
+  }
+
+  results.push({
+    name: "POST /mcp initialize → 200 + mcp-session-id",
+    ok: initOk,
+    detail: initDetail,
+  });
+  results.push({
+    name: "POST /mcp tools/list (with session id) → well-known tool",
+    ok: toolsOk,
+    detail: toolsDetail,
   });
 
   // Report.

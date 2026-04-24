@@ -1,7 +1,7 @@
 /**
  * Integration Rule Templates
  *
- * Contains PR_PREPARATION_WORKFLOW_TEMPLATE and MCP_USAGE_TEMPLATE.
+ * Contains PR_PREPARATION_WORKFLOW_TEMPLATE.
  */
 
 import { type RuleTemplate } from "../rule-template-service";
@@ -265,116 +265,4 @@ Before creating PR:
   }),
 };
 
-/**
- * Template for MCP usage rules
- */
-export const MCP_USAGE_TEMPLATE: RuleTemplate = {
-  id: "mcp-usage",
-  name: "MCP Usage",
-  description: "Guidelines for using the Minsky Control Protocol",
-  tags: ["mcp", "protocol"],
-  generateContent: (context) => {
-    const { helpers, config } = context;
-
-    return `# MCP Usage
-
-This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent interaction.
-
-## Overview
-
-- **Purpose**: Provides a stable, machine-readable interface for AI agents to interact with the Minsky CLI.
-- **Transport**: Can be configured for \`stdio\`, \`sse\`, or \`httpStream\`.
-- **Commands**: All shared commands are available via MCP.
-
-## Current Configuration
-
-- **Interface**: ${config.interface}
-- **MCP Enabled**: ${config.mcpEnabled ? "Yes" : "No"}
-- **Transport**: ${config.mcpTransport}
-- **Rule Format**: ${config.ruleFormat}
-
-## Available MCP Tools
-
-### Task Management
-
-#### List All Tasks
-${helpers.readableCommand("tasks.list", "List all tasks")}
-
-#### Get Task by ID
-${helpers.readableCommand("tasks.get", "Get task by ID")}
-
-#### Check Task Status
-${helpers.readableCommand("tasks.status.get", "Check task status")}
-
-#### Update Task Status
-${helpers.readableCommand("tasks.status.set", "Update task status")}
-
-#### Create New Task
-${helpers.readableCommand("tasks.create", "Create new task")}
-
-### Session Management
-
-#### List All Sessions
-${helpers.readableCommand("session.list", "List all sessions")}
-
-#### Get Session Details
-${helpers.readableCommand("session.get", "Get session details")}
-
-#### Create New Session
-${helpers.readableCommand("session.start", "Create new session")}
-
-#### Get Session Directory
-${helpers.readableCommand("session.dir", "Get session directory")}
-
-#### Create Pull Request
-${helpers.readableCommand("session.pr.create", "Create pull request")}
-
-### Rules Management
-
-#### List All Rules
-${helpers.readableCommand("rules.list", "List all rules")}
-
-#### Get Rule by ID
-${helpers.readableCommand("rules.get", "Get rule by ID")}
-
-#### Create New Rule
-${helpers.readableCommand("rules.create", "Create new rule")}
-
-#### Update Existing Rule
-${helpers.readableCommand("rules.update", "Update existing rule")}
-
-## Usage Examples
-
-### Task Management Example
-\`\`\`
-${helpers.command("tasks.list")}
-${helpers.codeBlock(`taskId: "#123"\\n${helpers.command("tasks.get")}`, "bash")}
-\`\`\`
-
-### Session Management Example
-\`\`\`
-${helpers.codeBlock(`task: "#123"\\n${helpers.command("session.start")}`, "bash")}
-${helpers.codeBlock(`name: "task#123"\\n${helpers.command("session.dir")}`, "bash")}
-\`\`\`
-
-## Parameter Documentation
-
-${helpers.parameterDoc("tasks.list")}
-
-${helpers.parameterDoc("session.start")}
-
-${helpers.conditionalSection(config.interface === "hybrid", "hybrid", "")}
-
-See README-MCP.md for detailed protocol specifications.`;
-  },
-  generateMeta: (context) => ({
-    name: "MCP Usage",
-    description: "Guidelines for using the Minsky Control Protocol",
-    tags: ["mcp", "protocol", "ai"],
-  }),
-};
-
-export const INTEGRATION_TEMPLATES: RuleTemplate[] = [
-  PR_PREPARATION_WORKFLOW_TEMPLATE,
-  MCP_USAGE_TEMPLATE,
-];
+export const INTEGRATION_TEMPLATES: RuleTemplate[] = [PR_PREPARATION_WORKFLOW_TEMPLATE];
