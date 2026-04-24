@@ -45,7 +45,6 @@ export interface SessionPrGetDependencies {
 export async function sessionPrGet(
   params: {
     sessionId?: string;
-    name?: string;
     task?: string;
     repo?: string;
     json?: boolean;
@@ -80,7 +79,7 @@ export async function sessionPrGet(
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: params.sessionId || params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,

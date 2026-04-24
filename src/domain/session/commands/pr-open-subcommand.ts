@@ -23,7 +23,6 @@ export interface SessionPrOpenDependencies {
 export async function sessionPrOpen(
   params: {
     sessionId?: string;
-    name?: string;
     task?: string;
     repo?: string;
   },
@@ -38,7 +37,7 @@ export async function sessionPrOpen(
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: params.sessionId || params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
