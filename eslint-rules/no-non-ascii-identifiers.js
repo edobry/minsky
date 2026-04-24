@@ -42,10 +42,7 @@ export default {
     type: "problem",
     docs: {
       description: "Disallow non-ASCII characters in identifier names",
-      category: "Possible Errors",
-      recommended: true,
     },
-    fixable: null, // No autofix — renaming identifiers requires human judgment
     schema: [],
     messages: {
       nonAsciiIdentifier:
@@ -78,23 +75,31 @@ export default {
           (parent.type === "Property" && parent.key === node && !parent.computed) ||
           // method definition key (non-computed): class C { grussen() {} }
           (parent.type === "MethodDefinition" && parent.key === node && !parent.computed) ||
+          // class field (PropertyDefinition): class C { café = 1 }
+          (parent.type === "PropertyDefinition" && parent.key === node && !parent.computed) ||
           // destructuring rest: const { ...cafe } = obj
           (parent.type === "RestElement" && parent.argument === node) ||
           // default-value pattern left side: function f(cafe = 1) {}
           (parent.type === "AssignmentPattern" && parent.left === node) ||
+          // array destructuring element: const [café] = arr
+          (parent.type === "ArrayPattern" && parent.elements.includes(node)) ||
           // import bindings: import { cafe } from "m"  /  import cafe from "m"
           (parent.type === "ImportSpecifier" && parent.local === node) ||
           (parent.type === "ImportDefaultSpecifier" && parent.local === node) ||
           (parent.type === "ImportNamespaceSpecifier" && parent.local === node) ||
-          // export specifiers: export { cafe }
-          (parent.type === "ExportSpecifier" && parent.local === node) ||
+          // export specifiers: export { cafe }  /  export { foo as café }
+          (parent.type === "ExportSpecifier" &&
+            (parent.local === node || parent.exported === node)) ||
           // TypeScript: type alias, interface, enum declarations
           (parent.type === "TSTypeAliasDeclaration" && parent.id === node) ||
           (parent.type === "TSInterfaceDeclaration" && parent.id === node) ||
           (parent.type === "TSEnumDeclaration" && parent.id === node) ||
           // TypeScript: enum members
           (parent.type === "TSEnumMember" && parent.id === node) ||
-          // TypeScript: type parameter (generic T in <T>)
+          // TypeScript: type parameter (generic T in <T>).
+          // @typescript-eslint/parser represents TSTypeParameter.name as an
+          // Identifier node, so this Identifier's parent will be TSTypeParameter
+          // and parent.name will be this node.
           (parent.type === "TSTypeParameter" && parent.name === node) ||
           // TypeScript: interface property / method signatures (non-computed)
           (parent.type === "TSPropertySignature" && parent.key === node && !parent.computed) ||

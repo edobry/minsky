@@ -8,6 +8,7 @@
 // eslint-disable-next-line no-restricted-imports -- ESLint rule tests must use .js extension for direct rule loading
 import rule from "./no-non-ascii-identifiers.js";
 import { RuleTester } from "eslint";
+import * as tsParser from "@typescript-eslint/parser";
 
 // Message ID constant — avoids no-magic-string-duplication warnings
 const NON_ASCII_MSG = "nonAsciiIdentifier";
@@ -138,6 +139,97 @@ ruleTester.run("no-non-ascii-identifiers", rule, {
     {
       code: "try {} catch (errëur) {}",
       errors: [{ messageId: NON_ASCII_MSG, data: { name: "errëur" } }],
+    },
+
+    // Non-ASCII array destructuring element
+    {
+      code: "const [café] = arr;",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+
+    // Non-ASCII export-as specifier (exported name)
+    {
+      code: "const foo = 1; export { foo as café };",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+
+    // Non-ASCII class field (PropertyDefinition)
+    {
+      code: "class C { café = 1; }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// TypeScript-specific tests (require @typescript-eslint/parser)
+// ---------------------------------------------------------------------------
+
+const tsTester = new RuleTester({
+  languageOptions: {
+    parser: tsParser,
+    ecmaVersion: 2022,
+    sourceType: "module",
+  },
+});
+
+tsTester.run("no-non-ascii-identifiers (TypeScript)", rule, {
+  valid: [
+    // ASCII type alias
+    "type MyType = string;",
+    // ASCII interface
+    "interface MyInterface {}",
+    // ASCII enum
+    "enum Direction { Up, Down }",
+    // ASCII generic
+    "function identity<T>(x: T): T { return x; }",
+    // ASCII TSPropertySignature
+    "interface I { name: string; }",
+    // ASCII TSMethodSignature
+    "interface I { greet(): void; }",
+  ],
+
+  invalid: [
+    // Non-ASCII type alias name
+    {
+      code: "type café = string;",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+
+    // Non-ASCII interface name
+    {
+      code: "interface Résumé {}",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "Résumé" } }],
+    },
+
+    // Non-ASCII enum name
+    {
+      code: "enum Ënum { A }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "Ënum" } }],
+    },
+
+    // Non-ASCII enum member
+    {
+      code: "enum E { café }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+
+    // Non-ASCII generic type parameter
+    {
+      code: "function identity<Ñ>(x: Ñ): Ñ { return x; }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "Ñ" } }],
+    },
+
+    // Non-ASCII TSPropertySignature key
+    {
+      code: "interface I { café: string; }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "café" } }],
+    },
+
+    // Non-ASCII TSMethodSignature key
+    {
+      code: "interface I { grüßen(): void; }",
+      errors: [{ messageId: NON_ASCII_MSG, data: { name: "grüßen" } }],
     },
   ],
 });
