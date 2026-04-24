@@ -350,4 +350,38 @@ describe("MCP shared-command bridge", () => {
     const result = await handler({});
     expect(result).toEqual(structuredBody);
   });
+
+  test("does not throw when a TASKS command has a non-Zod plain-object schema", () => {
+    // Regression guard for the CI-only failure where schema.optional() threw
+    // "TypeError: schema.optional is not a function" because a command was
+    // registered with a plain { type: "string" } object instead of a z.string()
+    // schema. The functional z.optional(schema) form used in
+    // convertParametersToZodSchema is immune to this.
+    const id = "tasks.__mcp_bridge_plain_schema__";
+
+    // Bypass registerTestCommand type-checking to inject a plain-object schema,
+    // simulating a command registered by legacy code or an external module.
+    sharedCommandRegistry.registerCommand(
+      {
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "bridge test: plain-object schema regression",
+        requiresSetup: false,
+        parameters: {
+          query: { schema: { type: "string" } as any, description: "query", required: false },
+        },
+        execute: async () => ({ success: true }),
+      },
+      { allowOverwrite: true }
+    );
+    registeredIds.add(id);
+
+    const { mapper } = makeMockMapper(id);
+
+    // Must not throw — previously crashed with TypeError: schema.optional is not a function
+    expect(() => {
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+    }).not.toThrow();
+  });
 });
