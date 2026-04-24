@@ -21,6 +21,13 @@ export interface ProvenanceResult {
   [key: string]: unknown;
 }
 
+/** Outcome of calling `tasks.spec.get` on the hosted MCP. */
+export type TasksSpecGetResult =
+  | { kind: "found"; content: string }
+  | { kind: "disabled" } // MCP config missing — caller should classify as disabled
+  | { kind: "not-found" } // MCP reachable but no spec for the given taskId
+  | { kind: "error"; message: string }; // transport / tool error
+
 /** MCP JSON-RPC 2.0 request body. */
 interface McpCallToolRequest {
   jsonrpc: "2.0";
@@ -197,6 +204,155 @@ export async function callProvenanceGet(
     return record as ProvenanceResult;
   } finally {
     // Always clear the timeout — even after body read completes.
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Call the tasks.spec.get MCP tool on the hosted Minsky server.
+ *
+ * Returns a discriminated result: `found` with the spec markdown, `not-found`
+ * when the MCP returned no content, `disabled` when MCP config is missing,
+ * or `error` with the tool-level / transport error message.
+ *
+ * Unlike callProvenanceGet which returns null on all failure modes, this one
+ * distinguishes `not-found` from `error` because the reviewer logs record both
+ * statuses separately (disabled / no-task-id / not-found / found / error).
+ * Tool-level `{ success: false, error }` envelopes surface as `error` so
+ * operational failures (e.g., schema / setup issues on the hosted MCP) aren't
+ * hidden as "task missing."
+ */
+export async function callTasksSpecGet(
+  taskId: string,
+  config: ReviewerConfig
+): Promise<TasksSpecGetResult> {
+  const { mcpUrl, mcpToken } = config;
+
+  if (!mcpUrl || !mcpToken) {
+    return { kind: "disabled" };
+  }
+
+  const body: McpCallToolRequest = {
+    jsonrpc: "2.0",
+    id: nextRequestId++,
+    method: "tools/call",
+    params: {
+      name: "tasks.spec.get",
+      arguments: { taskId },
+    },
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${mcpToken}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      return { kind: "error", message: `fetch failed: ${msg}` };
+    }
+
+    if (!response.ok) {
+      await response.text().catch(() => undefined);
+      return {
+        kind: "error",
+        message: `HTTP ${response.status} ${response.statusText}`,
+      };
+    }
+
+    let raw: string;
+    try {
+      raw = await response.text();
+    } catch (readErr) {
+      const msg = readErr instanceof Error ? readErr.message : String(readErr);
+      return { kind: "error", message: `body read failed: ${msg}` };
+    }
+
+    const jsonText = extractJsonFromBody(raw);
+    if (!jsonText) {
+      return { kind: "error", message: "unparseable response body" };
+    }
+
+    let parsed: McpCallToolResponse;
+    try {
+      parsed = JSON.parse(jsonText) as McpCallToolResponse;
+    } catch {
+      return { kind: "error", message: "JSON parse error" };
+    }
+
+    if (parsed.error) {
+      return {
+        kind: "error",
+        message: `MCP error ${parsed.error.code}: ${parsed.error.message}`,
+      };
+    }
+
+    if (parsed.result?.isError === true) {
+      return { kind: "error", message: "tool-level error in result" };
+    }
+
+    const content = parsed.result?.content;
+    if (!content || content.length === 0) {
+      return { kind: "not-found" };
+    }
+
+    // Concatenate all text-type chunks before parsing. MCP tools can emit
+    // multi-chunk responses for large payloads.
+    const textChunks = content
+      .filter(
+        (b): b is { type: "text"; text: string } =>
+          b?.type === "text" && typeof (b as { text?: unknown }).text === "string"
+      )
+      .map((b) => b.text);
+    if (textChunks.length === 0) {
+      return { kind: "not-found" };
+    }
+    const joined = textChunks.join("");
+
+    // The tasks.spec.get tool wraps its result in a JSON envelope of shape
+    //   { success: true, taskId, content: "<markdown>" }
+    // or { success: false, error: "..." }. Parse and classify.
+    let envelope: { success?: unknown; content?: unknown; error?: unknown };
+    try {
+      envelope = JSON.parse(joined) as typeof envelope;
+    } catch {
+      // Defensive: if the content is plain markdown rather than the JSON
+      // envelope, accept it. The Minsky MCP's documented shape is JSON-wrapped,
+      // but this keeps the client robust against future shape changes.
+      return joined.length > 0 ? { kind: "found", content: joined } : { kind: "not-found" };
+    }
+
+    if (envelope && typeof envelope === "object" && envelope.success === false) {
+      const message =
+        typeof envelope.error === "string" && envelope.error.length > 0
+          ? envelope.error
+          : "tool returned success:false with no error message";
+      return { kind: "error", message };
+    }
+
+    if (
+      envelope &&
+      typeof envelope === "object" &&
+      envelope.success === true &&
+      typeof envelope.content === "string" &&
+      envelope.content.length > 0
+    ) {
+      return { kind: "found", content: envelope.content };
+    }
+
+    return { kind: "not-found" };
+  } finally {
     clearTimeout(timeoutId);
   }
 }

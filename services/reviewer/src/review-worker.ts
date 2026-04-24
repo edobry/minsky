@@ -17,6 +17,7 @@ import {
 } from "./github-client";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
+import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 
@@ -39,6 +40,8 @@ export interface ReviewResult {
   attempt?: ReviewAttemptTrace;
   /** Whether a retry was actually attempted (false for non-OpenAI empty outputs). */
   retryAttempted?: boolean;
+  /** Outcome of the task-spec fetch from the hosted Minsky MCP (absent on skipped reviews). */
+  taskSpecFetch?: TaskSpecFetchResult;
 }
 
 /**
@@ -184,11 +187,20 @@ export async function runReview(
   const reviewerIdentity = await getAppIdentity(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
+  // Fetch the task spec via the hosted Minsky MCP if configured. Never blocks —
+  // unreachable MCP, missing task, or PR with no mt# reference all produce
+  // taskSpec: null with a structured fetchResult the server logs.
+  const { taskSpec, fetchResult: taskSpecFetch } = await resolveTaskSpec({
+    branchName: pr.branchName,
+    prTitle: pr.title,
+    config,
+  });
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
-    taskSpec: null, // Sprint A: no spec fetch; Sprint B adds Minsky MCP integration.
+    taskSpec,
     diff: pr.diff,
     authorshipTier: tier,
     branchName: pr.branchName,
@@ -275,6 +287,7 @@ export async function runReview(
       usage: output.usage,
       attempt,
       retryAttempted,
+      taskSpecFetch,
     };
   }
 
@@ -299,6 +312,7 @@ export async function runReview(
     usage: output.usage,
     attempt,
     retryAttempted,
+    taskSpecFetch,
   };
 }
 
