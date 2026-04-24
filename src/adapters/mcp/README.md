@@ -109,7 +109,7 @@ Shared commands conventionally declare a boolean `json` parameter to toggle JSON
 
 1. **Stripped from the MCP schema.** `convertParametersToZodSchema()` skips the `json` key so MCP clients cannot set it. A client that tries to pass `json: true` will see a schema-validation error for an unknown field.
 2. **Injected with `true`.** After argument conversion, the bridge sets `parameters.json = true` so commands that gate on `params.json` (rather than `ctx.format`) still return structured data.
-3. **Guarded by a boolean-compatibility probe.** The injection fires only when the `json` parameter's schema accepts boolean values. The probe is `safeParse(true) && safeParse(false)`, which accepts wrapped schemas (`z.boolean().optional()`, `.default()`, `.preprocess()`) and is immune to duplicate-zod-instance identity issues in monorepos.
+3. **Guarded by a boolean-compatibility probe.** The injection fires only when the `json` parameter's schema accepts boolean values. The probe is `schema.safeParse(true).success && schema.safeParse(false).success`, which accepts wrapped schemas (`z.boolean().optional()`, `.default()`, `.preprocess()`) and is immune to duplicate-zod-instance identity issues in monorepos.
 
 Net effect: every MCP-exposed shared command returns structured data, with no client-side configuration required.
 
