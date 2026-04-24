@@ -23,6 +23,7 @@ import noDirectServiceConstruction from "./eslint-rules/no-direct-service-constr
 import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
 import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
+import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 
 export default [
   js.configs.recommended,
@@ -126,6 +127,7 @@ export default [
           "no-validation-error-in-execute": noValidationErrorInExecute,
           "no-domain-singleton": noDomainSingleton,
           "require-injectable": requireInjectable,
+          "no-skipped-tests": noSkippedTests,
         },
       },
     },
@@ -480,6 +482,13 @@ export default [
           skipComments: true,
         },
       ],
+    },
+  },
+  // === SKIPPED TEST ENFORCEMENT (test files only) ===
+  {
+    files: ["**/*.test.ts", "**/*.spec.ts"],
+    rules: {
+      "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
     },
   },
 ];
