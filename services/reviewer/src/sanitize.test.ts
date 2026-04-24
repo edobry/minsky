@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { sanitizeReviewBody } from "./sanitize";
 
+// Shared test constants — extracted to satisfy the no-magic-string-duplication
+// lint rule and to keep scratch-signal names in sync with sanitize.ts.
+const CALLING_READ_FILE = "Calling read_file on src/foo.ts.";
+const SIGNAL_TOOL_CALL = "scratch:tool-call-narration";
+
 const CLEAN_REVIEW = `## Findings
 
 - [BLOCKING] src/foo.ts:42 — the condition excludes x=0.
@@ -78,7 +83,8 @@ describe("sanitizeReviewBody", () => {
     const result = sanitizeReviewBody(LEAKED_WITHOUT_HEADING);
     expect(result.action).toBe("errored");
     expect(result.body).toContain("reviewer-service error: chain-of-thought leakage detected");
-    expect(result.body).toContain("mt#1212");
+    // Notice points readers at the architecture doc, not an internal tracker ID.
+    expect(result.body).toContain("docs/architecture/critic-constitution-reliability.md");
     // The leaked scratch content must not appear in the replacement body.
     expect(result.body).not.toContain("This time for sure");
     expect(result.body).not.toContain("Calling read_file");
@@ -124,7 +130,7 @@ describe("sanitizeReviewBody", () => {
     const result = sanitizeReviewBody(body);
     expect(result.action).toBe("stripped");
     expect(result.body.startsWith("## Findings")).toBe(true);
-    expect(result.meta.reason).toContain("scratch:tool-call-narration");
+    expect(result.meta.reason).toContain(SIGNAL_TOOL_CALL);
     expect(result.meta.reason).toContain("scratch:invoking-bracket");
   });
 
@@ -179,5 +185,94 @@ describe("sanitizeReviewBody", () => {
     expect(result.body).not.toContain('{"path"');
     // Structured reason fires.
     expect(result.meta.reason).toContain("cot-leak:");
+  });
+
+  // R3 reviewer findings regression tests (mt#1212 second-pass hardening).
+
+  test("H5 and H6 Markdown headings are recognised as structural", () => {
+    for (const prefix of ["#####", "######"]) {
+      const body = [
+        CALLING_READ_FILE,
+        "Go.",
+        "",
+        `${prefix} Findings`,
+        "",
+        "- [BLOCKING] src/foo.ts:1 — bad.",
+      ].join("\n");
+      const result = sanitizeReviewBody(body);
+      expect(result.action).toBe("stripped");
+      expect(result.body.startsWith(`${prefix} Findings`)).toBe(true);
+    }
+  });
+
+  test("Unicode curly apostrophe (U+2019) in I’ll triggers narrative detection", () => {
+    const longNarrative =
+      "I’ll think about this carefully. ".repeat(15) +
+      "But before I start, let me lay out my plan in detail. ".repeat(3);
+    const body = `${longNarrative}\n\n## Findings\n\n- ok`;
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("stripped");
+    expect(result.meta.reason).toContain("long-narrative-prefix");
+  });
+
+  test("Unicode curly apostrophe in Let’s try again / I’ll just proceed triggers strong patterns", () => {
+    const body1 = ["Let’s try again.", "## Findings", "- ok"].join("\n");
+    const r1 = sanitizeReviewBody(body1);
+    expect(r1.action).toBe("stripped");
+    expect(r1.meta.reason).toContain("scratch:lets-try-again");
+
+    const body2 = ["I’ll just proceed.", "## Findings", "- ok"].join("\n");
+    const r2 = sanitizeReviewBody(body2);
+    expect(r2.action).toBe("stripped");
+    expect(r2.meta.reason).toContain("scratch:ill-just-proceed");
+  });
+
+  test("Calling-tool regex no longer false-positives on prose like 'Calling maintainers,'", () => {
+    // A review body that naturally mentions "Calling" without any other CoT
+    // signal must pass through.
+    const body =
+      "## Findings\n\n" +
+      "- [NON-BLOCKING] src/foo.ts:1 — the maintenance note reads 'Calling maintainers,' but this is a pre-existing comment.\n\n" +
+      "## Spec verification\n\n" +
+      "- Criterion 1: Met.\n\n" +
+      "APPROVE";
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("Calling-tool regex still matches real tool-call narration (snake_case or on-path)", () => {
+    // snake_case tool name alone is enough
+    const r1 = sanitizeReviewBody("Calling list_directory.\n## Findings\n- ok");
+    expect(r1.action).toBe("stripped");
+    expect(r1.meta.reason).toContain(SIGNAL_TOOL_CALL);
+
+    // bare tool name + on-path segment is also enough
+    const r2 = sanitizeReviewBody("Calling getContent on src/foo.ts.\n## Findings\n- ok");
+    expect(r2.action).toBe("stripped");
+    expect(r2.meta.reason).toContain(SIGNAL_TOOL_CALL);
+  });
+
+  test("CRLF line endings in a blank-line run are still detected", () => {
+    const body = ["Some intro.", ...Array(30).fill(""), "## Findings", "- ok"].join("\r\n");
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("stripped");
+    expect(result.meta.reason).toContain("blank-line-run");
+  });
+
+  test("## Summary heading is recognised as structural", () => {
+    const body = [CALLING_READ_FILE, "", "## Summary", "", "Clean change, minor nits."].join("\n");
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("stripped");
+    expect(result.body.startsWith("## Summary")).toBe(true);
+  });
+
+  test("ERROR_NOTICE_BODY does not leak internal tracker IDs", () => {
+    // Force the errored branch by providing a leak-without-heading body.
+    const body = ["I'll just proceed.", CALLING_READ_FILE, "[invoking]", "Go."].join("\n");
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("errored");
+    expect(result.body).not.toMatch(/mt#\d+/);
+    // But it should still point readers at the docs for operator context.
+    expect(result.body).toContain("docs/architecture/critic-constitution-reliability.md");
   });
 });

@@ -33,32 +33,42 @@ export interface SanitizeResult {
 }
 
 // Recognisable top-level headings the Critic Constitution prompt asks the
-// model to emit. `#`/`##`/`###`/`####` or a bold **Heading** both match.
+// model to emit. `#`..`######` or a bold **Heading** both match.
 // Note: we intentionally use `[ \t]*` (not `\s*`) so the regex doesn't
 // greedily consume newlines before the heading — that would truncate the
 // prefix we scan for CoT signals and make blank-line-run detection miss.
 const STRUCTURAL_HEADING_RE =
-  /^[ \t]*(?:#{1,4}[ \t]+|\*\*)(findings|spec verification|summary|documentation impact)\b/im;
+  /^[ \t]*(?:#{1,6}[ \t]+|\*\*)(findings|spec verification|summary|documentation impact)\b/im;
 
 // "Strong" scratch patterns — each one alone is enough to fire the heuristic.
 // These are phrases a well-formed review body never contains at the top.
+//
+// Apostrophe character classes include both ASCII `'` (U+0027) and the
+// typographic curly apostrophe `’` — GPT-5 often emits the curly form
+// in prose, and the PR #758 R3 reviewer flagged the ASCII-only variants as
+// a gap.
 const STRONG_SCRATCH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   // "Calling read_file on src/foo.ts." / "Calling list_directory."
+  //
+  // Two alternatives — either the tool name is snake_case (contains an
+  // underscore), OR the call includes an `on <path>` segment. Keeps real
+  // tool-call narration captured while excluding prose like
+  // "Calling maintainers," or "Calling this." (R3 non-blocking finding).
   {
-    pattern: /\bCalling\s+[a-z_][a-z_0-9]*(?:\s+on\s+\S+)?[.,]/i,
+    pattern: /\bCalling\s+(?:[a-z_][a-z_0-9]*_[a-z_0-9]+|[a-z_][a-z_0-9]*\s+on\s+\S+)[.,]/i,
     name: "scratch:tool-call-narration",
   },
   { pattern: /\bThis time for sure\b/i, name: "scratch:this-time-for-sure" },
   { pattern: /\btool call incoming\b/i, name: "scratch:tool-call-incoming" },
   { pattern: /\[invoking\]/i, name: "scratch:invoking-bracket" },
   { pattern: /\bOpening the file\b/i, name: "scratch:opening-the-file" },
-  { pattern: /\bLet['']?s try again\b/i, name: "scratch:lets-try-again" },
+  { pattern: /\bLet['’]?s try again\b/i, name: "scratch:lets-try-again" },
   // "Go." on its own line — common scratch punctuation, rare in reviews.
   { pattern: /^\s*Go\.\s*$/m, name: "scratch:go-dot" },
   // "Sorry, executing now" / "I'll just proceed" — tool-loop fallback phrases
   // from PR #753 (the calibration data file has the detail).
   { pattern: /\bSorry,\s*executing now\b/i, name: "scratch:sorry-executing-now" },
-  { pattern: /\bI['']?ll just proceed\b/i, name: "scratch:ill-just-proceed" },
+  { pattern: /\bI['’]?ll just proceed\b/i, name: "scratch:ill-just-proceed" },
   // OpenAI tool-protocol routing tokens that leaked into visible output on the
   // live bot review of PR #758. `to=functions.<tool>` is the OpenAI Assistants
   // tool-dispatch syntax; it is never intentional in a review body.
@@ -76,24 +86,31 @@ const STRONG_SCRATCH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
 //
 // Split into three alternatives because "I'll" binds apostrophe directly to
 // "I" (no space), while "I will" and "I am going to" take whitespace — a
-// single `\s+` branch would have missed "I'll" entirely.
-const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['']ll\b|\bI\s+am\s+going\s+to\b/i;
+// single `\s+` branch would have missed "I'll" entirely. Both ASCII `'` and
+// curly `’` apostrophes match.
+const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['’]ll\b|\bI\s+am\s+going\s+to\b/i;
 
 // 20+ consecutive newlines (19 blanks after the first) — no legitimate review
 // body contains this. Catches the "hundreds of blank lines" pattern from #743.
-const BLANK_LINE_RUN_RE = /\n(?:[ \t]*\n){19,}/;
+// CRLF-safe: accepts either LF or CRLF line endings (GitHub API can return
+// either depending on path).
+const BLANK_LINE_RUN_RE = /\r?\n(?:[ \t]*\r?\n){19,}/;
 
 // Above this prefix length, a narrative-scratch phrase is treated as a signal.
 // Below, we assume it's legitimate "I will focus on..."-style intro prose.
 const NARRATIVE_TOLERANCE_CHARS = 300;
 
+// User-facing notice that replaces the body when a CoT leak has no
+// recoverable structural section. Internal tracker IDs (mt#1212) are
+// deliberately omitted — the empty-output sibling notice follows the same
+// policy. Point curious operators at the architecture doc instead.
 const ERROR_NOTICE_BODY =
   "**reviewer-service error: chain-of-thought leakage detected**\n\n" +
   "The upstream model emitted raw internal reasoning into the review body. " +
   "The reviewer service sanitised the output but could not locate a valid " +
   "`Findings` section to preserve, so the leaked content was discarded. " +
-  "This is tracked as a reliability event (mt#1212). The PR will receive a " +
-  "fresh review on the next commit.";
+  "The PR will receive a fresh review on the next commit. See " +
+  "`docs/architecture/critic-constitution-reliability.md` for details.";
 
 export function sanitizeReviewBody(raw: string): SanitizeResult {
   const originalLength = raw.length;

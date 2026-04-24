@@ -309,6 +309,9 @@ describe("decidePostSanitizeOutcome", () => {
     expect(outcome.status).toBe("error");
     expect(outcome.reason).toContain("service-error notice");
     expect(outcome.reason).toContain(REVIEWER_LOGIN);
+    // Provider + model are included for log-grep parity with the reviewed path.
+    expect(outcome.reason).toContain("openai");
+    expect(outcome.reason).toContain("gpt-5");
     // Sanitize reason must be included so operators can see which signals fired.
     expect(outcome.reason).toContain("cot-leak:scratch:openai-tool-routing");
   });

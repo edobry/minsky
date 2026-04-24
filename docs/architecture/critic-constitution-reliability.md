@@ -73,11 +73,11 @@ recognisable heading) for three classes of signal:
 
 **Decision: strip when a structural heading follows, error-out when it does
 not.** If the model eventually produced a recognisable heading (`Findings`,
-`Spec verification`, `Summary`, `Documentation impact` — as `#`/`##`/`###`/
-`####` or `**Bold**` — case-insensitive), the guard strips the leaked prefix
-and keeps the review body intact. If no such heading exists, the leak is
-treated as a worker-side failure: the review body is replaced with a
-structured `reviewer-service error: chain-of-thought leakage detected`
+`Spec verification`, `Summary`, `Documentation impact` — as any of `#`
+through `######` or `**Bold**` — case-insensitive), the guard strips the
+leaked prefix and keeps the review body intact. If no such heading exists,
+the leak is treated as a worker-side failure: the review body is replaced
+with a structured `reviewer-service error: chain-of-thought leakage detected`
 notice, the event is forced to COMMENT, and the result returns
 `status="error"`.
 
@@ -88,6 +88,14 @@ signal is recoverable. A single "always error-out" design would lose real
 review content on the more common failure mode (leak-then-review); a
 single "always strip" design would post whatever came after the leak
 even if it were also garbage.
+
+**Implementation notes.** Apostrophe character classes include both the
+ASCII `'` and the typographic curly `’` — GPT-5 frequently emits curly
+apostrophes in prose, so scratch phrases like `I'll`, `I'll`, `Let's`,
+`Let's` all match. The blank-line-run regex accepts both LF and CRLF line
+endings. The `Calling <tool>` narration pattern requires either a
+snake_case tool name or an `on <path>` segment, avoiding false positives
+on ordinary prose like "Calling maintainers,".
 
 **Observability.** When the guard fires, `review-worker.ts` logs a
 structured event `reviewer.cot_leak_detected` with:

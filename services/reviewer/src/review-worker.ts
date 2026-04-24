@@ -101,8 +101,9 @@ export function decidePostSanitizeOutcome(
       event: "COMMENT",
       status: "error",
       reason:
-        `Posted service-error notice as ${ctx.reviewerLogin}: CoT leakage with no recoverable review body ` +
-        `(${sanitized.meta.reason})`,
+        `Posted service-error notice as ${ctx.reviewerLogin} ` +
+        `(provider=${ctx.provider}, model=${ctx.model}): ` +
+        `CoT leakage with no recoverable review body (${sanitized.meta.reason})`,
     };
   }
 
