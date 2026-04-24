@@ -9,7 +9,7 @@
  *      each session can call tools/list without interfering with the other.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import express, { type Request, type Response } from "express";
+import express, { type Request, type Response as ExpressResponse } from "express";
 import type { Server as HttpServer } from "node:http";
 import { MinskyMCPServer } from "./server";
 
@@ -38,7 +38,7 @@ async function startTestServer(): Promise<TestHarness> {
 
   const app = express();
   app.use(express.json());
-  app.all("/mcp", async (req: Request, res: Response) => {
+  app.all("/mcp", async (req: Request, res: ExpressResponse) => {
     await mcp.handleHttpRequest(req, res);
   });
 
@@ -64,7 +64,7 @@ async function startTestServer(): Promise<TestHarness> {
 
 const MCP_ACCEPT = "application/json, text/event-stream";
 
-function postJSON(url: string, body: unknown, sessionId?: string): Promise<Response> {
+function postJSON(url: string, body: unknown, sessionId?: string): Promise<globalThis.Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: MCP_ACCEPT,
@@ -74,7 +74,7 @@ function postJSON(url: string, body: unknown, sessionId?: string): Promise<Respo
     method: "POST",
     headers,
     body: JSON.stringify(body),
-  }) as unknown as Promise<Response>;
+  });
 }
 
 function initializeBody(id: number) {
