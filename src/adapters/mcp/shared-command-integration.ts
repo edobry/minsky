@@ -175,7 +175,12 @@ export function registerSharedCommandsWithMcp(
             // than ctx.format) return structured data to MCP callers. The
             // `json` parameter is stripped from the MCP-facing schema, so
             // clients never set it — we set it here for the bridge.
-            if ("json" in command.parameters) {
+            //
+            // Only override when the parameter is explicitly a boolean schema,
+            // so a command that happens to name a non-formatting parameter
+            // `json` (e.g., JSON payload content) is not silently mutated.
+            const jsonParamDef = command.parameters?.json;
+            if (jsonParamDef && jsonParamDef.schema instanceof z.ZodBoolean) {
               parameters.json = true;
             }
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
