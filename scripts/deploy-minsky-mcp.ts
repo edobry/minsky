@@ -2,35 +2,48 @@
 /**
  * Deploy Minsky MCP to Railway (mt#1130).
  *
+ * Single-service deploy script. Not a generalized library — the Railway
+ * workspace and `edobry/minsky` repo are hard-coded at the top. Follow-up
+ * mt#1139 extracts the shared bits to scripts/lib/railway.ts once two
+ * concrete consumers (this + minsky-reviewer retrofit) ground the interface.
+ *
  * Three phases, idempotent:
  *   --phase=plan    Read-only. Diffs this manifest against live Railway state.
  *                   Safe to run anytime.
- *   --phase=apply   Creates/updates in the correct order (project → env vars →
- *                   source.rootDirectory → domain → deploymentTrigger). Every
- *                   step is check-then-create or upsert; re-running should no-op.
- *   --phase=verify  Probes the deployed service: /health, /mcp unauthenticated,
- *                   /mcp authenticated tools/list, /mcp authenticated
- *                   persistence_check. Writes resolved IDs to the deployment
- *                   memory file.
+ *   --phase=apply   Creates/updates in this order: project → service (via
+ *                   `railway up --detach`) → service link → source.rootDirectory
+ *                   → env vars (via GraphQL) → domain → deploymentTrigger.
+ *                   Every step is check-then-create or upsert; re-running
+ *                   should no-op.
+ *   --phase=verify  Probes the deployed service and optionally updates the
+ *                   deployment memory file if it exists with expected
+ *                   placeholders (skipped gracefully otherwise).
  *
- * Secrets come from ~/.config/minsky/minsky-mcp.env (create ahead of time with
- * MINSKY_POSTGRES_URL, OPENAI_API_KEY, etc.). MINSKY_MCP_AUTH_TOKEN auto-
- * generates to that file on first run. GitHub App PEM read from
- * ~/.config/minsky/minsky-app.pem. Nothing in this script writes secrets to
- * stdout, stderr, or any log.
+ * Secrets come from ~/.config/minsky/ (config.yaml, minsky-mcp.env for the
+ * auth token, minsky-app.pem for the GitHub App key). MINSKY_MCP_AUTH_TOKEN
+ * auto-generates to the env file on first run.
+ *
+ * Security posture:
+ *  - Secret VALUES are never logged. maskShape reports length and category
+ *    (PEM, integer, literal) — no prefix characters.
+ *  - Secret VALUES are never passed on the command line (argv is visible via
+ *    `ps` and can end up in CI logs). Env vars are set via Railway's GraphQL
+ *    variableCollectionUpsert in the POST body.
+ *  - The PEM, auth token, and connection strings are opaque strings to this
+ *    script — treated as bytes, never decoded or inspected.
  *
  * Gotchas encoded (see memory/feedback_railway_config.md):
  *  - .user.accessToken (not .token) for Railway GraphQL Bearer
  *  - source.rootDirectory patched BEFORE deploymentTriggerCreate
- *  - JSON-patch form for service config (never dot-path)
- *  - `railway variables --set` (4.40.x), not `railway variable set`
+ *  - rootDirectory is top-level on ServiceInstance, NOT nested under source
+ *  - `railway service link <id>` required after project link
  */
 
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 // ---------------------------------------------------------------------------
@@ -171,6 +184,8 @@ function parseEnvFile(path: string): Record<string, string> {
 }
 
 function writeEnvFile(path: string, vars: Record<string, string>): void {
+  // Ensure the parent directory exists before writing — first-run UX.
+  mkdirSync(dirname(path), { recursive: true });
   const content = `${Object.entries(vars)
     .map(([k, v]) => `${k}=${v}`)
     .join("\n")}\n`;
@@ -301,12 +316,17 @@ function readLinkedStatus(cwd: string): RawStatus | null {
     const raw = JSON.parse(r.stdout) as RailwayStatusRaw;
     if (!raw.id) return null;
     const prodEnv = raw.environments?.edges?.find((e) => e.node?.name === "production")?.node;
-    const firstService = raw.services?.edges?.[0]?.node;
+    // Pick service by name, not "first" — defensive against future multi-service
+    // expansion. Fall back to first service only if exact name isn't found yet
+    // (Railway sometimes names it differently at creation time, then renames).
+    const svcEdges = raw.services?.edges ?? [];
+    const byName = svcEdges.find((e) => e.node?.name === MANIFEST.project)?.node;
+    const chosen = byName ?? svcEdges[0]?.node;
     return {
       projectId: raw.id,
       name: raw.name,
       environmentId: prodEnv?.id,
-      serviceId: firstService?.id,
+      serviceId: chosen?.id,
     };
   } catch {
     return null;
@@ -438,6 +458,44 @@ async function createDeploymentTrigger(
   return data.deploymentTriggerCreate.id;
 }
 
+/**
+ * Upsert all variables for a service+environment in a single GraphQL call.
+ *
+ * Why not `railway variables --set KEY=VALUE`: argv is visible via `ps`,
+ * survives in shell history, and often ends up in CI logs. Putting secret
+ * material on the command line leaks it even if the application never prints
+ * it. GraphQL sends the values in the POST body only.
+ *
+ * Uses `variableCollectionUpsert` (bulk) with `skipDeploys: true` so we don't
+ * trigger N redeploys during apply — the subsequent trigger creation or
+ * `railway up` fires exactly one build.
+ */
+async function upsertVariables(
+  projectId: string,
+  environmentId: string,
+  serviceId: string,
+  variables: Record<string, string>
+): Promise<void> {
+  type R = { variableCollectionUpsert: null };
+  await graphql<R>(
+    `
+      mutation ($input: VariableCollectionUpsertInput!) {
+        variableCollectionUpsert(input: $input)
+      }
+    `,
+    {
+      input: {
+        projectId,
+        environmentId,
+        serviceId,
+        variables,
+        replace: false,
+        skipDeploys: true,
+      },
+    }
+  );
+}
+
 async function patchServiceRootDirectory(
   serviceId: string,
   environmentId: string,
@@ -526,10 +584,15 @@ async function phasePlan(opts: { cwd: string }): Promise<void> {
   );
 }
 
+/**
+ * Describe a resolved env value without leaking content. Length-only for long
+ * values (no prefix characters — even 4 chars of an OPENAI key is too much
+ * signal to emit to logs). Integers and known literals are safe to display in
+ * full because they are not secrets.
+ */
 function maskShape(v: string | undefined): string {
   if (v == null) return "(null)";
   if (v.includes("BEGIN") && v.includes("PRIVATE KEY")) return `(PEM, ${v.length} chars)`;
-  if (v.length > 20) return `(${v.length} chars, starts ${v.slice(0, 4)}…)`;
   if (/^\d+$/.test(v)) return `(integer: ${v})`;
   if (v === "production" || v === "development") return `("${v}")`;
   return `(${v.length} chars)`;
@@ -604,16 +667,11 @@ async function phaseApply(opts: { cwd: string }): Promise<void> {
     console.log(`  source.rootDirectory already correct: ${MANIFEST.rootDirectory}`);
   }
 
-  // 5. Upsert env vars. Railway CLI `variables --set` is idempotent.
-  console.log(`  Setting ${Object.keys(values).length} environment variables…`);
-  for (const [name, value] of Object.entries(values)) {
-    const r = sh("railway", ["variables", "--set", `${name}=${value}`], { cwd: opts.cwd });
-    if (!r.ok) {
-      // Don't include the value in the error — it might be a secret.
-      throw new Error(
-        `railway variables --set ${name}=<redacted> failed (status ${r.status}): ${r.stderr}`
-      );
-    }
+  // 5. Upsert env vars via GraphQL (values sent in POST body, not argv — see
+  //    upsertVariables docstring for why).
+  console.log(`  Upserting ${Object.keys(values).length} environment variables via GraphQL…`);
+  await upsertVariables(linked.projectId, linked.environmentId, linked.serviceId, values);
+  for (const name of Object.keys(values)) {
     console.log(`    set ${name}`);
   }
 
@@ -720,13 +778,15 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
   });
-  const authBody = await authResp.text();
+  // Drain the body but don't log it — container error bodies can contain stack
+  // traces and config fragments that shouldn't reach stdout.
+  await authResp.text();
   const fromContainer = authResp.headers.get("x-railway-fallback") !== "true";
   const authReachedDispatcher = fromContainer && authResp.status !== 401;
   results.push({
     name: "POST /mcp (auth) reaches container",
     ok: authReachedDispatcher,
-    detail: `status=${authResp.status}, from-container=${fromContainer}, body=${authBody.slice(0, 60)}…`,
+    detail: `status=${authResp.status}, from-container=${fromContainer}`,
   });
 
   // Report.
@@ -738,32 +798,52 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   }
 
   if (allOk) {
-    console.log("\nAll probes passed. Updating deployment memory…");
+    console.log("\nAll probes passed.");
     const triggers = await listRepoTriggers(linked.serviceId);
     const triggerId = triggers[0]?.id ?? "(none)";
-    writeDeploymentMemory({
+    const memResult = writeDeploymentMemory({
       projectId: linked.projectId,
       serviceId: linked.serviceId,
       environmentId: linked.environmentId,
       domain,
       triggerId,
     });
+    console.log(`  Deployment memory: ${memResult.reason}`);
   } else {
-    console.log("\nOne or more probes failed. Memory NOT updated.");
+    console.log("\nOne or more probes failed.");
     process.exit(1);
   }
 }
 
+/**
+ * Optionally patch the operator's personal deployment-memory file with the
+ * resolved IDs. Skipped gracefully if the file doesn't exist at
+ * `MANIFEST.memoryFile` — the path is intentionally user-specific (it's a
+ * Claude Code agent-memory file, not a repo artifact), so other machines
+ * won't have it. Verify still reports success; the memory update is a
+ * convenience for the single operator whose memory path matches.
+ *
+ * Also skipped if the file doesn't contain the expected placeholder tokens,
+ * so re-running verify after a successful deploy is a no-op rather than
+ * corrupting already-populated fields.
+ */
 function writeDeploymentMemory(fields: {
   projectId: string;
   serviceId: string;
   environmentId: string;
   domain: string;
   triggerId: string;
-}): void {
-  // Patch the placeholder lines in the memory file. Don't rewrite the file
-  // wholesale — that would clobber any manual edits since the skeleton landed.
+}): { updated: boolean; reason: string } {
+  if (!existsSync(MANIFEST.memoryFile)) {
+    return {
+      updated: false,
+      reason: `memory file not present at ${MANIFEST.memoryFile} (skipped)`,
+    };
+  }
   let content = readFileSync(MANIFEST.memoryFile, "utf8");
+  if (!content.includes("<fill-in>")) {
+    return { updated: false, reason: "no <fill-in> placeholders present (already populated?)" };
+  }
   const replacements: [RegExp, string][] = [
     [/- Project ID: `<fill-in>`/, `- Project ID: \`${fields.projectId}\``],
     [
@@ -792,6 +872,7 @@ function writeDeploymentMemory(fields: {
   // Replace <fill-in> occurrences in the laptop MCP config JSON snippet.
   content = content.replace(/<fill-in>\.up\.railway\.app/g, fields.domain);
   writeFileSync(MANIFEST.memoryFile, content);
+  return { updated: true, reason: `wrote to ${MANIFEST.memoryFile}` };
 }
 
 // ---------------------------------------------------------------------------
