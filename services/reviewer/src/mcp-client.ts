@@ -307,30 +307,39 @@ export async function callTasksSpecGet(
       return { kind: "not-found" };
     }
 
-    // Concatenate all text-type chunks before parsing. MCP tools can emit
-    // multi-chunk responses for large payloads.
-    const textChunks = content
-      .filter(
-        (b): b is { type: "text"; text: string } =>
-          b?.type === "text" && typeof (b as { text?: unknown }).text === "string"
-      )
-      .map((b) => b.text);
-    if (textChunks.length === 0) {
-      return { kind: "not-found" };
-    }
-    const joined = textChunks.join("");
-
-    // The tasks.spec.get tool wraps its result in a JSON envelope of shape
-    //   { success: true, taskId, content: "<markdown>" }
-    // or { success: false, error: "..." }. Parse and classify.
-    let envelope: { success?: unknown; content?: unknown; error?: unknown };
-    try {
-      envelope = JSON.parse(joined) as typeof envelope;
-    } catch {
-      // Defensive: if the content is plain markdown rather than the JSON
-      // envelope, accept it. The Minsky MCP's documented shape is JSON-wrapped,
-      // but this keeps the client robust against future shape changes.
-      return joined.length > 0 ? { kind: "found", content: joined } : { kind: "not-found" };
+    // Collect all envelope-bearing chunks. The Minsky MCP may emit
+    //   { type: "text", text: "<JSON>" }
+    // or (future-proof) { type: "json", json: <object> }.
+    // Concatenate text chunks before parsing — multi-chunk responses for
+    // large payloads land here — and accept the first json-typed entry as
+    // a pre-parsed envelope.
+    const jsonEntry = content.find(
+      (b): b is { type: "json"; json: unknown } =>
+        b?.type === "json" && "json" in (b as { json?: unknown })
+    );
+    let envelope: { success?: unknown; content?: unknown; error?: unknown } | null = null;
+    if (jsonEntry) {
+      envelope = jsonEntry.json as typeof envelope;
+    } else {
+      const textChunks = content
+        .filter(
+          (b): b is { type: "text"; text: string } =>
+            b?.type === "text" && typeof (b as { text?: unknown }).text === "string"
+        )
+        .map((b) => b.text);
+      if (textChunks.length === 0) {
+        return { kind: "not-found" };
+      }
+      const joined = textChunks.join("");
+      try {
+        envelope = JSON.parse(joined) as typeof envelope;
+      } catch {
+        // Defensive: if the content is plain markdown rather than the JSON
+        // envelope, accept it. The Minsky MCP's documented shape is
+        // JSON-wrapped, but this keeps the client robust against future
+        // shape changes.
+        return joined.length > 0 ? { kind: "found", content: joined } : { kind: "not-found" };
+      }
     }
 
     if (envelope && typeof envelope === "object" && envelope.success === false) {

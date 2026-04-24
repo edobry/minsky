@@ -21,9 +21,11 @@ export interface ReviewerConfig {
 
   tier2Enabled: boolean;
 
-  // Optional Minsky MCP endpoint for provenance-based tier resolution.
-  // When either field is absent, the reviewer falls back to PR-body marker
-  // extraction only. A startup warning is logged in that case.
+  // Optional Minsky MCP endpoint, used for both provenance-based tier
+  // resolution (mt#1085) and task-spec fetch (mt#1187). When either field
+  // is absent, both features fall back to their degraded paths — tier falls
+  // back to the PR-body marker, task spec stays null. A startup warning is
+  // logged in that case.
   mcpUrl: string | undefined;
   mcpToken: string | undefined;
 
@@ -81,7 +83,8 @@ export function loadConfig(): ReviewerConfig {
   if (!mcpUrl || !mcpToken) {
     console.warn(
       "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
-        "Provenance-based tier resolution is disabled; falling back to PR-body marker only."
+        "Provenance-based tier resolution (mt#1085) falls back to the PR-body marker, " +
+        "and task-spec fetch (mt#1187) is disabled for every review."
     );
   }
 
