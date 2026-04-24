@@ -30,7 +30,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
-import { callProvenanceGet } from "./mcp-client";
+import { callAuthorshipGet } from "./mcp-client";
 
 export type AuthorshipTier = 1 | 2 | 3 | null;
 
@@ -46,11 +46,11 @@ export function extractTierFromPRBody(body: string): AuthorshipTier {
 }
 
 /**
- * Look up the authorship tier for a PR via the Minsky MCP provenance endpoint.
+ * Look up the authorship tier for a PR via the Minsky MCP authorship endpoint.
  *
  * Returns:
  * - A numeric tier (1 | 2 | 3) when the record exists and has a computed tier.
- * - null when the record exists but authorshipTier is null (not yet computed).
+ * - null when the record exists but tier is null (not yet computed).
  * - undefined when the record does not exist or the MCP call failed — signals
  *   that the caller should move to the next fallback.
  *
@@ -63,14 +63,14 @@ export async function lookupTierFromMCP(
   config: ReviewerConfig
 ): Promise<AuthorshipTier | null | undefined> {
   try {
-    const record = await callProvenanceGet(String(prNumber), "pr", config);
+    const record = await callAuthorshipGet(String(prNumber), "pr", config);
 
     if (record === null) {
       // No record found — fall through to next fallback.
       return undefined;
     }
 
-    const raw = record.authorshipTier;
+    const raw = record.tier;
     if (raw === null || raw === undefined) {
       // Record exists but tier is not yet computed — fall through to body marker.
       return null;
@@ -83,7 +83,7 @@ export async function lookupTierFromMCP(
 
     // Unknown numeric tier — treat as "no tier" and fall through.
     console.warn(
-      `[tier-routing] provenance record for PR ${prNumber} has unexpected authorshipTier=${raw}; skipping MCP result`
+      `[tier-routing] authorship record for PR ${prNumber} has unexpected tier=${raw}; skipping MCP result`
     );
     return undefined;
   } catch (err) {
@@ -118,7 +118,7 @@ export async function resolveTier(
 ): Promise<AuthorshipTier> {
   const mcpConfigured = !!(config.mcpUrl && config.mcpToken);
 
-  // Step 1: MCP provenance lookup (no-op if unconfigured; callProvenanceGet early-returns null).
+  // Step 1: MCP authorship lookup (no-op if unconfigured; callAuthorshipGet early-returns null).
   const mcpTier = await mcpLookupFn(prNumber, config);
 
   if (mcpTier === 1 || mcpTier === 2 || mcpTier === 3) {

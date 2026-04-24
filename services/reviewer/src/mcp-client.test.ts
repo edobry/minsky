@@ -86,10 +86,10 @@ function setFetch(impl: (...args: Parameters<typeof fetch>) => ReturnType<typeof
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("callProvenanceGet", () => {
+describe("callAuthorshipGet", () => {
   test("returns null immediately when mcpUrl is missing", async () => {
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_NO_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_NO_MCP);
     expect(result).toBeNull();
     // fetch should never be called when config is missing — verify by checking
     // that the global fetch was never replaced.
@@ -97,55 +97,54 @@ describe("callProvenanceGet", () => {
   });
 
   test("returns null immediately when mcpToken is missing", async () => {
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", { ...CONFIG_WITH_MCP, mcpToken: undefined });
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", { ...CONFIG_WITH_MCP, mcpToken: undefined });
     expect(result).toBeNull();
     expect(fetchMock).toBeUndefined();
   });
 
-  test("returns the provenance record on a successful plain-JSON response", async () => {
-    const provenanceRecord = {
-      artifactId: "42",
-      artifactType: "pr",
-      authorshipTier: 3,
-      taskId: "mt#1085",
+  test("returns the authorship result on a successful plain-JSON response", async () => {
+    const authorshipRecord = {
+      tier: 3,
+      rationale: "fully agent-authored",
+      policyVersion: "1.0.0",
     };
 
     const mcpResponse = {
       jsonrpc: "2.0",
       id: 1,
       result: {
-        content: [{ type: "text", text: JSON.stringify(provenanceRecord) }],
+        content: [{ type: "text", text: JSON.stringify(authorshipRecord) }],
       },
     };
 
     setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).not.toBeNull();
-    expect(result?.authorshipTier).toBe(3);
-    expect(result?.artifactId).toBe("42");
+    expect(result?.tier).toBe(3);
+    expect(result?.rationale).toBe("fully agent-authored");
   });
 
-  test("returns the provenance record on a successful SSE response", async () => {
-    const provenanceRecord = { artifactId: "7", artifactType: "pr", authorshipTier: 1 };
+  test("returns the authorship result on a successful SSE response", async () => {
+    const authorshipRecord = { tier: 1, policyVersion: "1.0.0" };
     const mcpResponse = {
       jsonrpc: "2.0",
       id: 1,
-      result: { content: [{ type: "text", text: JSON.stringify(provenanceRecord) }] },
+      result: { content: [{ type: "text", text: JSON.stringify(authorshipRecord) }] },
     };
 
     setFetch(() => Promise.resolve(mockSseResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("7", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("7", "pr", CONFIG_WITH_MCP);
 
-    expect(result?.authorshipTier).toBe(1);
+    expect(result?.tier).toBe(1);
   });
 
-  test("returns null when MCP result content text is null (no provenance record)", async () => {
+  test("returns null when MCP result content text is null (no authorship record)", async () => {
     const mcpResponse = {
       jsonrpc: "2.0",
       id: 1,
@@ -154,8 +153,8 @@ describe("callProvenanceGet", () => {
 
     setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("999", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("999", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -163,8 +162,8 @@ describe("callProvenanceGet", () => {
   test("returns null on HTTP 500 error (drains body, no throw)", async () => {
     setFetch(() => Promise.resolve(new Response("Internal Server Error", { status: 500 })));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -172,8 +171,8 @@ describe("callProvenanceGet", () => {
   test("returns null on HTTP 401 Unauthorized (drains body)", async () => {
     setFetch(() => Promise.resolve(new Response("Unauthorized", { status: 401 })));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -181,8 +180,8 @@ describe("callProvenanceGet", () => {
   test("returns null when fetch throws (network error)", async () => {
     setFetch(() => Promise.reject(new Error("ECONNREFUSED")));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -196,8 +195,8 @@ describe("callProvenanceGet", () => {
 
     setFetch(() => Promise.resolve(mockJsonResponse(mcpErrorResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -206,8 +205,8 @@ describe("callProvenanceGet", () => {
     const mcpResponse = { jsonrpc: "2.0", id: 1, result: { content: [] } };
     setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -225,8 +224,8 @@ describe("callProvenanceGet", () => {
       return Promise.resolve(mockJsonResponse(mcpResponse));
     });
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     const headers = capturedInit?.headers as Record<string, string>;
     expect(headers?.["Authorization"]).toBe(`Bearer ${CONFIG_WITH_MCP.mcpToken}`);
@@ -245,19 +244,18 @@ describe("callProvenanceGet", () => {
       return Promise.resolve(mockJsonResponse(mcpResponse));
     });
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     // CONFIG_WITH_MCP.mcpUrl is defined; the cast to string is safe here.
     expect(capturedUrl).toBe(CONFIG_WITH_MCP.mcpUrl as string);
   });
 
-  test("returns the provenance record when content type is 'json'", async () => {
-    const provenanceRecord = {
-      artifactId: "55",
-      artifactType: "commit",
-      authorshipTier: 2,
-      taskId: "mt#1085",
+  test("returns the authorship result when content type is 'json'", async () => {
+    const authorshipRecord = {
+      tier: 2,
+      rationale: "co-authored",
+      policyVersion: "1.0.0",
     };
 
     const mcpResponse = {
@@ -265,18 +263,18 @@ describe("callProvenanceGet", () => {
       id: 1,
       result: {
         // MCP SDK can emit { type: "json", json: <value> } instead of text
-        content: [{ type: "json", json: provenanceRecord }],
+        content: [{ type: "json", json: authorshipRecord }],
       },
     };
 
     setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("55", "commit", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("55", "commit", CONFIG_WITH_MCP);
 
     expect(result).not.toBeNull();
-    expect(result?.authorshipTier).toBe(2);
-    expect(result?.artifactId).toBe("55");
+    expect(result?.tier).toBe(2);
+    expect(result?.rationale).toBe("co-authored");
   });
 
   test("returns null when result.isError is true", async () => {
@@ -291,8 +289,8 @@ describe("callProvenanceGet", () => {
 
     setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("42", "pr", CONFIG_WITH_MCP);
 
     expect(result).toBeNull();
   });
@@ -308,7 +306,7 @@ describe("callProvenanceGet", () => {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ artifactId: "77", artifactType: "pr", authorshipTier: 2 }),
+            text: JSON.stringify({ tier: 2, policyVersion: "1.0.0" }),
           },
         ],
       },
@@ -325,13 +323,12 @@ describe("callProvenanceGet", () => {
       )
     );
 
-    const { callProvenanceGet } = await import("./mcp-client");
-    const result = await callProvenanceGet("77", "pr", CONFIG_WITH_MCP);
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("77", "pr", CONFIG_WITH_MCP);
 
     // Should pick the tool-result event (last), not the progress event (first).
     expect(result).not.toBeNull();
-    expect(result?.authorshipTier).toBe(2);
-    expect(result?.artifactId).toBe("77");
+    expect(result?.tier).toBe(2);
   });
 });
 

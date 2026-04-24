@@ -1,11 +1,20 @@
 /**
  * Provenance Commands
  *
- * Commands for managing authorship provenance records, including retroactive
- * tier recomputation using the current judging policy.
+ * Commands for reading the full provenance record for an artifact.
+ * Retroactive tier recomputation has been moved to the `authorship` namespace
+ * (`authorship.recompute`). See `authorship.ts`.
  *
- * @see mt#970 — Retroactive tier recomputation command
+ * DI assumption: `context.container?.has("persistence")` at execute time is
+ * effectively a registration-time capture because
+ * `src/adapters/mcp/shared-command-integration.ts:186-191` always populates
+ * `context.container` from `config.container` when the command is invoked through
+ * the MCP bridge. If the MCP bridge is ever changed to use per-request containers,
+ * all commands in both `provenance.ts` and `authorship.ts` that check
+ * `context.container?.has("persistence")` will break in the same way.
+ *
  * @see mt#1085 — provenance.get shared command (MCP exposure)
+ * @see mt#1254 — authorship namespace introduction; recompute moved there
  */
 
 import { z } from "zod";
@@ -91,92 +100,6 @@ export function registerProvenanceCommands(
         return record;
       } catch (error) {
         log.error("provenance.get failed", { error: getErrorMessage(error) });
-        throw error;
-      }
-    },
-  });
-
-  // ── provenance.recompute ──────────────────────────────────────────────────
-  targetRegistry.registerCommand({
-    id: "provenance.recompute",
-    category: CommandCategory.PROVENANCE,
-    name: "recompute",
-    description:
-      "Retroactively recompute authorship tiers for all historical provenance records " +
-      "using the current judging policy.",
-    parameters: {
-      dryRun: {
-        schema: z.boolean(),
-        description: "Show what would change without applying updates (default: false)",
-        required: false,
-        defaultValue: false,
-      },
-    },
-    async execute(params, context) {
-      const { dryRun = false } = params;
-
-      try {
-        // Resolve the persistence provider from DI container or fall back to a
-        // fresh PersistenceService (same pattern used by cli.ts).
-        const persistenceProvider = (() => {
-          if (context.container?.has("persistence")) {
-            return context.container.get(
-              "persistence"
-            ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
-          }
-          return null;
-        })();
-
-        if (!persistenceProvider) {
-          throw new Error(
-            "DI container missing 'persistence'. " +
-              "Ensure the container was initialized before running this command."
-          );
-        }
-
-        const db = await persistenceProvider.getDatabaseConnection();
-        if (!db) {
-          throw new Error(
-            "getDatabaseConnection() returned null. " +
-              "Provenance recomputation requires a PostgreSQL or SQLite backend with Drizzle ORM."
-          );
-        }
-
-        // Import domain services
-        const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
-        const { TranscriptService } = await import("../../../domain/provenance/transcript-service");
-        const { AuthorshipJudge } = await import("../../../domain/provenance/authorship-judge");
-        const { createCompletionService } = await import("../../../domain/ai/service-factory");
-        const { requireAIProviders } = await import("../../../domain/ai/provider-operations");
-        const { getResolvedConfig } = await import("./ai/shared-helpers");
-        const resolvedConfig = getResolvedConfig();
-
-        // Validate that at least one AI provider is configured.
-        requireAIProviders(resolvedConfig);
-
-        const completionService = createCompletionService(resolvedConfig);
-
-        const provenanceService = new ProvenanceService(
-          db as import("drizzle-orm/postgres-js").PostgresJsDatabase
-        );
-        const transcriptService = new TranscriptService(
-          db as import("drizzle-orm/postgres-js").PostgresJsDatabase
-        );
-        const judge = new AuthorshipJudge(completionService);
-
-        if (dryRun) {
-          log.cli("Running in dry-run mode — no changes will be applied.");
-        }
-
-        const summary = await provenanceService.recomputeAll({
-          dryRun,
-          judge,
-          transcriptService,
-        });
-
-        return summary;
-      } catch (error) {
-        log.error("provenance.recompute failed", { error: getErrorMessage(error) });
         throw error;
       }
     },

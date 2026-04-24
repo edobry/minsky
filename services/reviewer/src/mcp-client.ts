@@ -1,8 +1,9 @@
 /**
  * Thin Streamable-HTTP MCP client for the Minsky MCP server.
  *
- * Calls provenance_get (provenance.get) against the hosted Minsky MCP endpoint
- * to look up authorship tier for a given artifact.
+ * Calls authorship.get against the hosted Minsky MCP endpoint to look up
+ * the authorship tier for a given artifact. The `authorship.get` tool returns
+ * a narrow projection of the provenance record — only the tier verdict fields.
  *
  * Design constraints:
  * - Plain fetch only — no @modelcontextprotocol/sdk dependency.
@@ -13,11 +14,12 @@
 
 import type { ReviewerConfig } from "./config";
 
-/** Shape of a provenance record returned by the MCP tool. */
-export interface ProvenanceResult {
-  authorshipTier: number | null;
-  artifactId: string;
-  artifactType: string;
+/** Narrow shape returned by the authorship.get MCP tool. */
+export interface AuthorshipResult {
+  tier: number | null;
+  rationale?: string;
+  policyVersion?: string;
+  judgingModel?: string;
   [key: string]: unknown;
 }
 
@@ -62,20 +64,20 @@ const CALL_TIMEOUT_MS = 10_000;
 let nextRequestId = 1;
 
 /**
- * Call the provenance.get MCP tool on the hosted Minsky server.
+ * Call the authorship.get MCP tool on the hosted Minsky server.
  *
- * Returns the provenance record on success, or null if:
+ * Returns the narrow authorship result on success, or null if:
  * - The record does not exist (tool returns null).
  * - The MCP server is unreachable or returns an error.
  * - The response body cannot be parsed.
  *
  * Errors are logged but never re-thrown — callers should fall back gracefully.
  */
-export async function callProvenanceGet(
+export async function callAuthorshipGet(
   artifactId: string,
   artifactType: string,
   config: ReviewerConfig
-): Promise<ProvenanceResult | null> {
+): Promise<AuthorshipResult | null> {
   const { mcpUrl, mcpToken } = config;
 
   if (!mcpUrl || !mcpToken) {
@@ -89,7 +91,7 @@ export async function callProvenanceGet(
     id: nextRequestId++,
     method: "tools/call",
     params: {
-      name: "provenance.get",
+      name: "authorship.get",
       arguments: { artifactId, artifactType },
     },
   };
@@ -116,7 +118,7 @@ export async function callProvenanceGet(
       });
     } catch (fetchErr) {
       const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.error(`[mcp-client] fetch failed for provenance.get(${artifactId}): ${msg}`);
+      console.error(`[mcp-client] fetch failed for authorship.get(${artifactId}): ${msg}`);
       return null;
     }
 
@@ -124,7 +126,7 @@ export async function callProvenanceGet(
       // Drain body to avoid connection leaks before returning.
       await response.text().catch(() => undefined);
       console.error(
-        `[mcp-client] provenance.get(${artifactId}) HTTP ${response.status} ${response.statusText}`
+        `[mcp-client] authorship.get(${artifactId}) HTTP ${response.status} ${response.statusText}`
       );
       return null;
     }
@@ -143,7 +145,7 @@ export async function callProvenanceGet(
     // Extract the first JSON object from the body.
     const jsonText = extractJsonFromBody(raw);
     if (!jsonText) {
-      console.error(`[mcp-client] provenance.get(${artifactId}): unparseable response body`);
+      console.error(`[mcp-client] authorship.get(${artifactId}): unparseable response body`);
       return null;
     }
 
@@ -151,20 +153,20 @@ export async function callProvenanceGet(
     try {
       parsed = JSON.parse(jsonText) as McpCallToolResponse;
     } catch {
-      console.error(`[mcp-client] provenance.get(${artifactId}): JSON parse error`);
+      console.error(`[mcp-client] authorship.get(${artifactId}): JSON parse error`);
       return null;
     }
 
     if (parsed.error) {
       console.error(
-        `[mcp-client] provenance.get(${artifactId}) MCP error ${parsed.error.code}: ${parsed.error.message}`
+        `[mcp-client] authorship.get(${artifactId}) MCP error ${parsed.error.code}: ${parsed.error.message}`
       );
       return null;
     }
 
     // Tool-level error: result.isError === true means the tool itself failed.
     if (parsed.result?.isError === true) {
-      console.error(`[mcp-client] provenance.get(${artifactId}) tool-level error in result`);
+      console.error(`[mcp-client] authorship.get(${artifactId}) tool-level error in result`);
       return null;
     }
 
@@ -189,7 +191,7 @@ export async function callProvenanceGet(
       try {
         record = JSON.parse((first as { text: string }).text);
       } catch {
-        console.error(`[mcp-client] provenance.get(${artifactId}): could not parse content text`);
+        console.error(`[mcp-client] authorship.get(${artifactId}): could not parse content text`);
         return null;
       }
     } else {
@@ -197,11 +199,11 @@ export async function callProvenanceGet(
     }
 
     if (record === null || typeof record !== "object") {
-      // Tool returned null (no provenance record exists).
+      // Tool returned null (no authorship record exists).
       return null;
     }
 
-    return record as ProvenanceResult;
+    return record as AuthorshipResult;
   } finally {
     // Always clear the timeout — even after body read completes.
     clearTimeout(timeoutId);
@@ -215,7 +217,7 @@ export async function callProvenanceGet(
  * when the MCP returned no content, `disabled` when MCP config is missing,
  * or `error` with the tool-level / transport error message.
  *
- * Unlike callProvenanceGet which returns null on all failure modes, this one
+ * Unlike callAuthorshipGet which returns null on all failure modes, this one
  * distinguishes `not-found` from `error` because the reviewer logs record both
  * statuses separately (disabled / no-task-id / not-found / found / error).
  * Tool-level `{ success: false, error }` envelopes surface as `error` so
