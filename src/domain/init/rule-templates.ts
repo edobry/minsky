@@ -259,7 +259,7 @@ During feature implementation, the most relevant rules are:
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
-DEFAULT_RETRY_COUNT. **changelog** - Document the changes
+5. **changelog** - Document the changes
 
 ### When Fixing Bugs
 
@@ -278,7 +278,7 @@ Code reviewers should focus on:
 2. **robust-error-handling** & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
 4. **testable-design** & **tests** - Validate test coverage
-DEFAULT_RETRY_COUNT. **changelog** - Confirm changes are documented
+5. **changelog** - Confirm changes are documented
 
 ### When Creating New Rules
 
@@ -294,7 +294,7 @@ For initializing new projects with Minsky:
 2. **session-first-workflow** - Enforce proper session usage
 3. **creating-tasks** - Enable structured task creation
 4. **changelog** - Set up change tracking
-DEFAULT_RETRY_COUNT. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
+5. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
 
 ## Rule Relationships
 

@@ -21,7 +21,7 @@ import type { RepositoryResolutionOptions, ResolvedRepository } from "./legacy-t
  * 2. If session is specified, get repository from the session
  * 3. If task ID is specified, find the associated session's repository
  * 4. If auto-detection is enabled, try to find repository from current directory
- * DEFAULT_RETRY_COUNT. Otherwise throw an error
+ * 5. Otherwise throw an error
  *
  * @param options Resolution options
  * @returns Resolved repository information
@@ -72,7 +72,7 @@ export async function resolveRepository(
       throw new ValidationError("No Git repository found in current directory");
     }
   }
-  // DEFAULT_RETRY_COUNT. No resolution method available
+  // 5. No resolution method available
   else {
     throw new ValidationError(
       "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"

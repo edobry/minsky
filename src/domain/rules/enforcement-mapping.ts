@@ -362,6 +362,21 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
+  // ── Git safety (destructive operation guard) ──────────────────────────────
+  {
+    ruleId: "git-safety",
+    mechanisms: [
+      {
+        type: "eslint",
+        name: "custom/no-unsafe-git-exec",
+        description:
+          "Errors on direct shell execution of git commands without the structured git-safety skill protocol; prevents untimed destructive git operations",
+        configPath: "eslint-rules/no-unsafe-git-exec.js",
+        portability: "portable",
+      },
+    ],
+  },
+
   // ── Claude Code hooks ──────────────────────────────────────────────────────
 
   // PreToolUse: prompt watermark gate

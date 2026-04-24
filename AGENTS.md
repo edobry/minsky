@@ -453,6 +453,16 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 - You MUST review and update all imports/exports when consolidating interfaces.
 - You MUST reference this rule when aligning interfaces or refactoring domain modules.
 
+# Architecture
+
+Minsky follows clean architecture:
+- `src/domain/` — core business logic, pure TypeScript, no framework deps
+- `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
+- Commands defined once in shared registry, exposed via CLI + MCP
+- Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
+
+See `.claude/skills/code-organization/SKILL.md` for deeper guidance.
+
 ## Testing
 
 # Designing Tests

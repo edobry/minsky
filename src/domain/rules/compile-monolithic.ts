@@ -41,7 +41,7 @@ const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
     "constants-management",
     "ensure-ascii-code-symbols",
   ],
-  Architecture: ["file-size", "domain-oriented-modules"],
+  Architecture: ["file-size", "domain-oriented-modules", "architecture"],
   Testing: ["designing-tests"],
   "Minsky Workflow": ["minsky-workflow", "session-first-workflow", "minsky-workflow-orchestrator"],
   "Git & PR Workflow": ["pr-description-guidelines", "pr-preparation-workflow"],

@@ -77,6 +77,7 @@ describe("getEnforcedRules", () => {
     expect(ids).toContain(TEMPLATE_LITERALS_RULE_ID);
     expect(ids).toContain("bun-test-patterns");
     expect(ids).toContain("no-skipped-tests");
+    expect(ids).toContain("git-safety");
   });
 
   it("contains Claude Code hook rule IDs", () => {
