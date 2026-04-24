@@ -924,18 +924,20 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     detail: `status=${noAuth.status}`,
   });
 
-  // 3. /mcp authenticated with non-initialize body → expect HTTP 400 + JSON-RPC -32600.
+  // 3. /mcp authenticated with non-initialize body → expect HTTP 400 + JSON-RPC -32000.
   //
-  //    After mt#1192 (per-session MCP Server fix), a POST with a valid bearer
+  //    After mt#1199 (per-session MCP Server fix), a POST with a valid bearer
   //    token but no mcp-session-id and a non-initialize method must be rejected
-  //    at the protocol level with 400 Invalid Request — not silently swallowed,
-  //    not 500 "Already connected to a transport".
+  //    at the protocol level with 400 "Bad Request: Mcp-Session-Id header is
+  //    required" — not silently swallowed, not 500 "Already connected to a
+  //    transport". The SDK's StreamableHTTPServerTransport.validateSession
+  //    emits this response with error.code === -32000.
   //
   //    PASS if: status 200-range is NOT returned, status IS 400, body is
-  //             valid JSON-RPC 2.0 with error.code === -32600.
+  //             valid JSON-RPC 2.0 with error.code === -32000.
   //    FAIL modes with specific hints:
   //      - 500 → pre-fix regression ("Already connected to a transport" bug);
-  //              the operator must redeploy mt#1192.
+  //              the operator must redeploy with mt#1199's fix.
   //      - 401 → auth gate broken; bearer token mismatch or middleware change.
   //      - 4xx other than 400 → protocol shape drift; unexpected response shape.
   //      - non-JSON body → wrong server responding (edge HTML error page?).
@@ -986,22 +988,22 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   } else if (authStatus === 500) {
     authDetail =
       `HTTP 500 — pre-fix regression likely. The server returned "Already connected to a transport" ` +
-      `before mt#1192 landed. Redeploy with the per-session Server fix.`;
+      `before mt#1199 landed. Redeploy with the per-session Server fix.`;
   } else if (!authBodyIsJson) {
     authDetail = `Non-JSON body (${authBodyText.length} bytes) — wrong server or edge HTML error page responding.`;
   } else if (authStatus !== 400) {
     authDetail = `Unexpected status=${authStatus} (expected 400). Protocol shape drift — body jsonrpc=${authJsonrpc}, error.code=${authErrorCode}.`;
   } else if (authJsonrpc !== "2.0") {
     authDetail = `HTTP 400 but body.jsonrpc=${JSON.stringify(authJsonrpc)} (expected "2.0"). Wrong response shape.`;
-  } else if (authErrorCode !== -32600) {
-    authDetail = `HTTP 400 + jsonrpc=2.0 but error.code=${authErrorCode} (expected -32600 Invalid Request).`;
+  } else if (authErrorCode !== -32000) {
+    authDetail = `HTTP 400 + jsonrpc=2.0 but error.code=${authErrorCode} (expected -32000 "Bad Request: Mcp-Session-Id header is required").`;
   } else {
     authOk = true;
-    authDetail = `status=400, jsonrpc=2.0, error.code=-32600`;
+    authDetail = `status=400, jsonrpc=2.0, error.code=-32000`;
   }
 
   results.push({
-    name: "POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600",
+    name: "POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000",
     ok: authOk,
     detail: authDetail,
   });
