@@ -22,7 +22,6 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
         const result = await sessionPrGet(
           {
             sessionId: params.sessionId as string | undefined,
-            name: params.name as string | undefined,
             task: params.task as string | undefined,
             repo: params.repo as string | undefined,
             json: params.json as boolean | undefined,

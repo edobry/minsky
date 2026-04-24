@@ -176,7 +176,7 @@ export interface SessionProviderInterface {
  * Session review parameters interface
  */
 export interface SessionReviewParams {
-  session?: string;
+  sessionId?: string;
   task?: string;
   repo?: string;
   output?: string;

@@ -15,7 +15,7 @@ import {
  * Parameters for the session conflicts command
  */
 export const sessionConflictsCommandParams = {
-  name: {
+  sessionId: {
     schema: z.string(),
     description: "Session ID",
     required: false,
@@ -53,7 +53,7 @@ export function createSessionConflictsCommand(getDeps: LazySessionDeps): Command
     parameters: sessionConflictsCommandParams,
     execute: withErrorLogging("session.conflicts", async (params: Record<string, unknown>) => {
       const sessionParams = {
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
       };
 

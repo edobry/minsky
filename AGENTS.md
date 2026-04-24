@@ -445,67 +445,15 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 - You MUST review and update all imports/exports when consolidating interfaces.
 - You MUST reference this rule when aligning interfaces or refactoring domain modules.
 
-# Command Organization
+# Architecture
 
-## Interface-Agnostic Architecture
+Minsky follows clean architecture:
+- `src/domain/` — core business logic, pure TypeScript, no framework deps
+- `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
+- Commands defined once in shared registry, exposed via CLI + MCP
+- Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
 
-Minsky implements an interface-agnostic command architecture that separates:
-- Core domain logic in `src/domain/` (what to do)
-- Interface-specific adapters in `src/adapters/` (how to interact)
-- Command entry points in `src/commands/` (CLI entry points)
-
-## Directory Structure
-
-### Domain Logic
-- Core business logic lives in `src/domain/` directory
-- Organized by domain concept (e.g., `tasks.ts`, `git.ts`, `session.ts`)
-- Contains pure TypeScript functions with proper typing and validation
-- Focus on "what" rather than "how" of each operation
-
-### Interface Adapters
-- Located in `src/adapters/` directory
-- Organized by interface type:
-  - `src/adapters/cli/`: CLI-specific adapters
-  - `src/adapters/mcp/`: MCP-specific adapters
-- Responsible for:
-  - Converting interface-specific input to domain function parameters
-  - Calling appropriate domain functions
-  - Formatting output for the specific interface
-  - Handling interface-specific error presentation
-
-### Command Entry Points
-- Located in `src/commands/` directory
-- Organized by interface type:
-  - `src/commands/mcp/`: MCP command entry points
-  - CLI commands use Commander.js directly from main index
-- Each command entry point should:
-  - Define the interface-specific input schema
-  - Use the appropriate adapter to perform the operation
-  - Be focused on a single command or closely related command group
-
-## Best Practices
-
-1. **Separate Concerns**:
-   - Domain logic should be interface-agnostic
-   - Adapters handle interface-specific concerns
-   - Command entry points define the external API
-
-2. **Consistent Organization**:
-   - Match domain files with corresponding adapters
-   - Example: `src/domain/tasks.ts` → `src/adapters/cli/tasks.ts` and `src/adapters/mcp/tasks.ts`
-
-3. **Parameter Validation**:
-   - Use Zod schemas for consistent parameter validation across interfaces
-   - Define schemas once and reuse where possible
-
-4. **Error Handling**:
-   - Domain functions should throw typed errors
-   - Adapters should catch and format errors for their interface
-
-5. **Testing**:
-   - Test domain functions independently
-   - Test adapters with their respective interfaces
-   - Test complete flows end-to-end
+See `.claude/skills/code-organization/SKILL.md` for deeper guidance.
 
 ## Testing
 
@@ -620,26 +568,6 @@ See also: `testing-boundaries` for specific guidance on CLI and framework testin
 ---
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
-
-## Git & PR Workflow
-
-# Git Usage Policy
-
-General best practices for Git usage in the Minsky project. For safety protocols around destructive operations, see the `git-safety` skill.
-
-## General Best Practices
-
-- **Commit Frequently**: Make small, atomic commits with clear, descriptive messages.
-- **Pull Before Push**: Run `git pull --rebase` before pushing to shared branches.
-- **Branching Strategy**: Follow the project's branching strategy (feature branches via Minsky sessions).
-- **Clear Commit Messages**: Explain _why_ a change was made, not just _what_. Follow conventional commit formats.
-- **Multi-line Commit Messages**: Write to a temporary file and use `git commit -F <file>`. Avoid embedding raw newlines in `-m` flags.
-- **Avoid Large Commits**: Do not commit large binary files or generated files unless necessary.
-
-## See Also
-
-- `git-safety` skill: Safety protocols for destructive git operations
-- `orchestrate` skill: How Git operations fit into the broader Minsky workflow
 
 ## Boundaries
 

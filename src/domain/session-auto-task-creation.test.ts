@@ -127,7 +127,7 @@ describe("Session Auto-Task Creation", () => {
 
   test("should use session ID when provided with description", async () => {
     const params = {
-      name: "custom-session",
+      sessionId: "custom-session",
       repo: TEST_REPO_URL,
       description: "Fix the authentication bug", // Provided for auto-creation
       // No task provided - should auto-create from description

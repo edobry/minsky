@@ -75,7 +75,7 @@ describe("sessionPrEdit refuses on merged session", () => {
     const { sessionPrEdit } = await import("./commands/pr-edit-subcommand");
     await expect(
       sessionPrEdit(
-        { name: "test-session", title: "new title" },
+        { sessionId: "test-session", title: "new title" },
         { sessionDB },
         { interface: "mcp" }
       )

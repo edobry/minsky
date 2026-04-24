@@ -28,7 +28,6 @@ export interface SessionPrReviewContextDependencies {
 
 export interface SessionPrReviewContextParams {
   sessionId?: string;
-  name?: string;
   task?: string;
   repo?: string;
 }
@@ -80,7 +79,7 @@ export async function sessionPrReviewContext(
   try {
     // Resolve session
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionId ?? params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,

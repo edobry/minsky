@@ -92,7 +92,7 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
         const service = new SessionService(deps);
 
         const result = await service.approve({
-          session: params.name as string | undefined,
+          session: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -243,7 +243,8 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       const reviewResult = await sessionReviewImpl(
         {
-          session: (params.session as string | undefined) || (params.name as string | undefined),
+          sessionId:
+            (params.sessionId as string | undefined) || (params.session as string | undefined),
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -339,7 +340,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
         const service = new SessionService(deps);
 
         const result = await service.approve({
-          session: params.name as string | undefined,
+          session: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -391,7 +392,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
         const result = await mergeSessionPr(
           {
-            session: params.name as string | undefined,
+            session: params.sessionId as string | undefined,
             task: params.task as string | undefined,
             repo: params.repo as string | undefined,
             json: params.json as boolean | undefined,
