@@ -48,6 +48,11 @@ export interface EnforcementMapping {
   mechanisms: EnforcementMechanism[];
 }
 
+// Note: some rules have been deleted from .minsky/rules/ (e.g. file-size,
+// template-literals, variable-naming-protocol, commit-all-changes-rule). Their
+// programmatic enforcement (ESLint rules, git hooks) continues to function
+// without explicit mapping here — this list only covers rules that still exist
+// as agent-facing .mdc files in .cursor/rules/.
 export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
   // ── Naming conventions (process-thinking names) ───────────────────────────
   {

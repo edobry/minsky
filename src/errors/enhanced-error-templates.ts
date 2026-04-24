@@ -157,8 +157,9 @@ export function createVariableNamingErrorMessage(
   const suggestions: CommandSuggestion[] = [
     fixSuggestion,
     {
-      description: "Check ESLint no-underscore-prefix-mismatch rule",
-      command: "bun run lint --rule custom/no-underscore-prefix-mismatch",
+      description:
+        "Run ESLint (see eslint-rules/no-underscore-prefix-mismatch.js for rule details)",
+      command: "bun run lint",
       emoji: ErrorEmojis.HELP,
     },
     {
