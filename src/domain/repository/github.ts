@@ -49,7 +49,9 @@ import {
   type DismissReviewOptions,
   type DismissReviewResult,
 } from "./github-pr-review";
+import { listReviews as listReviewsImpl } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
+import type { ReviewListEntry } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 
 const HTTP_NOT_FOUND = 404;
@@ -722,6 +724,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       ): Promise<DismissReviewResult> => {
         const gh = this.requireGitHubContext();
         return dismissReviewImpl(gh, prIdentifier, reviewId, options);
+      },
+
+      listReviews: async (prIdentifier: string | number): Promise<ReviewListEntry[]> => {
+        const gh = this.requireGitHubContext();
+        return listReviewsImpl(gh, prIdentifier);
       },
     };
   }

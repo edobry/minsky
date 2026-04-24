@@ -7,7 +7,8 @@ import {
 } from "./enforcement-mapping";
 import { first } from "../../utils/array-safety";
 
-const TEMPLATE_LITERALS_RULE_ID = "template-literals";
+const NAMING_CONVENTIONS_RULE_ID = "meta-cognitive-boundary-protocol";
+const BUN_TEST_PATTERNS_RULE_ID = "bun-test-patterns";
 
 // Claude Code hook rule IDs — extracted to avoid magic-string-duplication warnings
 const CLAUDE_HOOK_RULE_IDS = [
@@ -34,9 +35,9 @@ const MCP_TOOL_LOGIC_TYPE = "mcp-tool-logic" as const;
 
 describe("getEnforcement", () => {
   it("returns the mapping for a known rule ID", () => {
-    const result = getEnforcement("file-size");
+    const result = getEnforcement(BUN_TEST_PATTERNS_RULE_ID);
     expect(result).toBeDefined();
-    expect(result?.ruleId).toBe("file-size");
+    expect(result?.ruleId).toBe(BUN_TEST_PATTERNS_RULE_ID);
     expect(result?.mechanisms.length).toBeGreaterThan(0);
   });
 
@@ -46,7 +47,7 @@ describe("getEnforcement", () => {
   });
 
   it("returned mapping contains well-formed mechanisms", () => {
-    const result = getEnforcement(TEMPLATE_LITERALS_RULE_ID);
+    const result = getEnforcement(NAMING_CONVENTIONS_RULE_ID);
     expect(result).toBeDefined();
     const mechanism = first(result?.mechanisms ?? []);
     expect(mechanism.type).toBe("eslint");
@@ -73,9 +74,8 @@ describe("getEnforcedRules", () => {
 
   it("contains known enforced rules", () => {
     const ids = getEnforcedRules();
-    expect(ids).toContain("file-size");
-    expect(ids).toContain(TEMPLATE_LITERALS_RULE_ID);
-    expect(ids).toContain("bun-test-patterns");
+    expect(ids).toContain(BUN_TEST_PATTERNS_RULE_ID);
+    expect(ids).toContain(NAMING_CONVENTIONS_RULE_ID);
     expect(ids).toContain("git-usage-policy");
     expect(ids).toContain("no-skipped-tests");
   });
@@ -102,15 +102,19 @@ describe("getEnforcedRules", () => {
 
 describe("getUnenforced", () => {
   it("returns rules that are not in ENFORCEMENT_MAPPINGS", () => {
-    const allRules = ["file-size", TEMPLATE_LITERALS_RULE_ID, "some-unenforced-rule"];
+    const allRules = [
+      BUN_TEST_PATTERNS_RULE_ID,
+      NAMING_CONVENTIONS_RULE_ID,
+      "some-unenforced-rule",
+    ];
     const unenforced = getUnenforced(allRules);
     expect(unenforced).toContain("some-unenforced-rule");
-    expect(unenforced).not.toContain("file-size");
-    expect(unenforced).not.toContain(TEMPLATE_LITERALS_RULE_ID);
+    expect(unenforced).not.toContain(BUN_TEST_PATTERNS_RULE_ID);
+    expect(unenforced).not.toContain(NAMING_CONVENTIONS_RULE_ID);
   });
 
   it("returns an empty array when every supplied rule is enforced", () => {
-    const allRules = ["file-size", TEMPLATE_LITERALS_RULE_ID];
+    const allRules = [BUN_TEST_PATTERNS_RULE_ID, NAMING_CONVENTIONS_RULE_ID];
     const unenforced = getUnenforced(allRules);
     expect(unenforced).toEqual([]);
   });
@@ -127,10 +131,10 @@ describe("getUnenforced", () => {
   });
 
   it("handles duplicate rule IDs in allRuleIds gracefully", () => {
-    const allRules = ["file-size", "file-size", "unknown-rule"];
+    const allRules = [BUN_TEST_PATTERNS_RULE_ID, BUN_TEST_PATTERNS_RULE_ID, "unknown-rule"];
     const unenforced = getUnenforced(allRules);
     expect(unenforced).toContain("unknown-rule");
-    expect(unenforced).not.toContain("file-size");
+    expect(unenforced).not.toContain(BUN_TEST_PATTERNS_RULE_ID);
   });
 
   it("still works when mixing new and old rule IDs", () => {

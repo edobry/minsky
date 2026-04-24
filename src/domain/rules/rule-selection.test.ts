@@ -8,8 +8,6 @@ const ALL_RULES = [
   "minsky-workflow",
   "task-status-protocol",
   PR_PREPARATION_WORKFLOW_ID,
-  "creating-tasks",
-  "template-literals",
   "no-dynamic-imports",
   "designing-tests",
   "bun-test-patterns",
