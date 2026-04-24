@@ -104,7 +104,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
           path: {
             type: "string",
             description:
-              "Path to the directory, relative to the repository root (e.g. src/foo or . for root)",
+              'Path to the directory, relative to the repository root (e.g. src/foo). Use an empty string "" for the repository root.',
           },
         },
         required: ["path"],

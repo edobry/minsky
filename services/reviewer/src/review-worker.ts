@@ -15,7 +15,7 @@ import {
   submitReview,
   type SubmittedReview,
 } from "./github-client";
-import { buildReviewPrompt, CRITIC_CONSTITUTION } from "./prompt";
+import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { decideRouting, extractTierFromPRBody, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
@@ -119,7 +119,15 @@ export async function runReview(
       listDirectoryAtRef(octokit, pr.owner, pr.repo, path, pr.headSha),
   };
 
-  const output = await callReviewer(config, CRITIC_CONSTITUTION, userPrompt, toolContext);
+  // Gate the prompt's "Tool access" section on whether the configured provider
+  // actually wires tools up. mt#1126 MVP only supports OpenAI; Gemini and
+  // Anthropic fall back to the no-tools path. Promising tools in the system
+  // prompt when the provider can't call them would lie to the model and
+  // degrade review behavior (mt#1126 minsky-reviewer finding #3).
+  const providerSupportsTools = config.provider === "openai";
+  const systemPrompt = buildCriticConstitution(providerSupportsTools);
+
+  const output = await callReviewer(config, systemPrompt, userPrompt, toolContext);
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.

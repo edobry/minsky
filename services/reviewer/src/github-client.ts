@@ -100,10 +100,38 @@ export async function submitReview(
 }
 
 /**
+ * Normalize a user-supplied path for the GitHub Contents API.
+ *
+ * The GitHub API expects an empty string for the repository root. Callers
+ * (and the tool prompt) sometimes pass ".", "./", or "/" instead. Also strip
+ * a leading "./" prefix so "./src/foo" and "src/foo" behave identically.
+ *
+ * Exported for tests.
+ */
+export function normalizeContentPath(path: string): string {
+  if (path === "." || path === "./" || path === "/" || path === "") return "";
+  if (path.startsWith("./")) return path.slice(2);
+  // Strip trailing slash (getContent treats dir paths the same with/without)
+  if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
+  return path;
+}
+
+/** Sentinel returned by readFileAtRef when a file exceeds the API's truncation threshold. */
+export const TRUNCATED_FILE_NOTICE =
+  "[TRUNCATED] This file exceeds the GitHub Contents API size limit and only a partial snippet could be fetched. Do not make claims about the full file contents — request a narrower range or mark any claim as NEEDS VERIFICATION.";
+
+/**
  * Read the content of a file at a specific git ref.
  *
  * Returns the file content as a string, or null if the file does not exist
  * (404). Throws on unexpected errors (permissions, malformed response, etc.).
+ *
+ * For files that exceed the Contents API's ~1MB threshold, GitHub sets
+ * `truncated: true` and returns only a snippet. Rather than silently return
+ * partial content (which would let the reviewer model "verify" against
+ * incomplete data and make confidently wrong claims — exactly the class of
+ * error mt#1126 tries to prevent), prepend TRUNCATED_FILE_NOTICE so the
+ * model sees the caveat inline with the content.
  */
 export async function readFileAtRef(
   octokit: Octokit,
@@ -112,8 +140,14 @@ export async function readFileAtRef(
   path: string,
   ref: string
 ): Promise<string | null> {
+  const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+    const response = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: normalizedPath,
+      ref,
+    });
     const data = response.data;
     // getContent returns an array for directories; a single object for files.
     if (Array.isArray(data)) {
@@ -126,7 +160,13 @@ export async function readFileAtRef(
     if (!("content" in data) || typeof data.content !== "string") {
       throw new Error(`Unexpected response shape for "${path}": no content field`);
     }
-    return Buffer.from(data.content, "base64").toString("utf-8");
+    const decoded = Buffer.from(data.content, "base64").toString("utf-8");
+    // The Contents API sets truncated: true when the file exceeds its size
+    // threshold (~1MB). Prepend a notice so the model doesn't treat the
+    // partial content as complete. A fuller fix would fall back to
+    // download_url / raw mediaType; deferring that as a follow-up.
+    const isTruncated = "truncated" in data && (data as { truncated?: boolean }).truncated === true;
+    return isTruncated ? `${TRUNCATED_FILE_NOTICE}\n\n${decoded}` : decoded;
   } catch (err: unknown) {
     if (
       err instanceof Error &&
@@ -144,6 +184,7 @@ export async function readFileAtRef(
  * specific git ref.
  *
  * Returns null if the path does not exist (404). Throws on unexpected errors.
+ * Accepts ".", "./", "/" or "" for the repository root (normalized internally).
  */
 export async function listDirectoryAtRef(
   octokit: Octokit,
@@ -152,8 +193,14 @@ export async function listDirectoryAtRef(
   path: string,
   ref: string
 ): Promise<Array<{ name: string; type: "file" | "dir" }> | null> {
+  const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+    const response = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: normalizedPath,
+      ref,
+    });
     const data = response.data;
     if (!Array.isArray(data)) {
       throw new Error(`Path "${path}" is not a directory`);
