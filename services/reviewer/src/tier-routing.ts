@@ -89,14 +89,21 @@ export async function lookupTierFromMCP(
  *   1. MCP provenance record
  *   2. PR-body HTML comment marker
  *   3. null (Tier 2 default applied by decideRouting)
+ *
+ * @param mcpLookupFn Optional override for the MCP lookup function (injectable for tests).
+ *   Defaults to `lookupTierFromMCP`.
  */
 export async function resolveTier(
   prNumber: number,
   prBody: string,
-  config: ReviewerConfig
+  config: ReviewerConfig,
+  mcpLookupFn: (
+    prNumber: number,
+    config: ReviewerConfig
+  ) => Promise<AuthorshipTier | null | undefined> = lookupTierFromMCP
 ): Promise<AuthorshipTier> {
   // Step 1: MCP provenance lookup.
-  const mcpTier = await lookupTierFromMCP(prNumber, config);
+  const mcpTier = await mcpLookupFn(prNumber, config);
 
   if (mcpTier !== undefined && mcpTier !== null) {
     // Got a concrete tier from MCP — use it.

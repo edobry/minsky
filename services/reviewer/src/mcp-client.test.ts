@@ -74,7 +74,9 @@ afterEach(() => {
 
 function setFetch(impl: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>): void {
   fetchMock = mock(impl);
-  globalThis.fetch = fetchMock as typeof fetch;
+  // Two-step cast: Mock<...> does not extend typeof fetch (which has .preconnect etc.),
+  // so we go through unknown first.
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +245,7 @@ describe("callProvenanceGet", () => {
     const { callProvenanceGet } = await import("./mcp-client");
     await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
 
-    expect(capturedUrl).toBe(CONFIG_WITH_MCP.mcpUrl);
+    // CONFIG_WITH_MCP.mcpUrl is defined; the cast to string is safe here.
+    expect(capturedUrl).toBe(CONFIG_WITH_MCP.mcpUrl as string);
   });
 });
