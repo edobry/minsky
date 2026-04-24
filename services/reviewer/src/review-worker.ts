@@ -15,7 +15,7 @@ import {
 } from "./github-client";
 import { buildReviewPrompt, CRITIC_CONSTITUTION } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
-import { decideRouting, extractTierFromPRBody, type AuthorshipTier } from "./tier-routing";
+import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -81,7 +81,7 @@ export async function runReview(
   const octokit = await createOctokit(config);
 
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber);
-  const tier = extractTierFromPRBody(pr.body);
+  const tier = await resolveTier(prNumber, pr.body, config);
 
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {

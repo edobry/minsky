@@ -11,6 +11,8 @@ const tier2On: ReviewerConfig = {
   providerApiKey: "",
   providerModel: "gpt-5",
   tier2Enabled: true,
+  mcpUrl: undefined,
+  mcpToken: undefined,
   port: 3000,
   logLevel: "info",
 };

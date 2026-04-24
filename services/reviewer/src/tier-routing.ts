@@ -7,11 +7,21 @@
  * activation."
  *
  * Sprint A: tier is read from the PR body (implementer writes it when
- * opening the PR). Sprint B or later: switch to reading Minsky's provenance
- * record directly via Minsky MCP.
+ * opening the PR).
+ * Sprint B (mt#1085): tier is resolved via the Minsky MCP provenance endpoint
+ * with a body-marker fallback.
+ *
+ * Fallback chain:
+ *   1. MCP provenance record (authorshipTier field) — authoritative.
+ *   2. PR-body HTML comment marker (<!-- minsky:tier=N -->).
+ *   3. Tier 2 (CO_AUTHORED) default.
+ *
+ * A record present but with authorshipTier === null falls THROUGH to
+ * the body-marker path (tier not yet computed), not to the Tier-2 default.
  */
 
 import type { ReviewerConfig } from "./config";
+import { callProvenanceGet } from "./mcp-client";
 
 export type AuthorshipTier = 1 | 2 | 3 | null;
 
@@ -23,6 +33,86 @@ export function extractTierFromPRBody(body: string): AuthorshipTier {
       return tier;
     }
   }
+  return null;
+}
+
+/**
+ * Look up the authorship tier for a PR via the Minsky MCP provenance endpoint.
+ *
+ * Returns:
+ * - A numeric tier (1 | 2 | 3) when the record exists and has a computed tier.
+ * - null when the record exists but authorshipTier is null (not yet computed).
+ * - undefined when the record does not exist or the MCP call failed — signals
+ *   that the caller should move to the next fallback.
+ *
+ * NOTE: AuthorshipTier is an enum in the Minsky domain (1 | 2 | 3). We map
+ * by numeric value here and do NOT import domain types to keep the reviewer
+ * service decoupled from the Minsky codebase.
+ */
+export async function lookupTierFromMCP(
+  prNumber: number,
+  config: ReviewerConfig
+): Promise<AuthorshipTier | null | undefined> {
+  try {
+    const record = await callProvenanceGet(String(prNumber), "pr", config);
+
+    if (record === null) {
+      // No record found — fall through to next fallback.
+      return undefined;
+    }
+
+    const raw = record.authorshipTier;
+    if (raw === null || raw === undefined) {
+      // Record exists but tier is not yet computed — fall through to body marker.
+      return null;
+    }
+
+    // Map numeric value to the local union type.
+    if (raw === 1 || raw === 2 || raw === 3) {
+      return raw;
+    }
+
+    // Unknown numeric tier — treat as "no tier" and fall through.
+    console.warn(
+      `[tier-routing] provenance record for PR ${prNumber} has unexpected authorshipTier=${raw}; skipping MCP result`
+    );
+    return undefined;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[tier-routing] MCP lookup failed for PR ${prNumber}: ${msg}`);
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the authorship tier for a PR using the full fallback chain:
+ *   1. MCP provenance record
+ *   2. PR-body HTML comment marker
+ *   3. null (Tier 2 default applied by decideRouting)
+ */
+export async function resolveTier(
+  prNumber: number,
+  prBody: string,
+  config: ReviewerConfig
+): Promise<AuthorshipTier> {
+  // Step 1: MCP provenance lookup.
+  const mcpTier = await lookupTierFromMCP(prNumber, config);
+
+  if (mcpTier !== undefined && mcpTier !== null) {
+    // Got a concrete tier from MCP — use it.
+    return mcpTier;
+  }
+
+  // mcpTier === null means record present but tier not computed;
+  // mcpTier === undefined means no record or error — both fall to body marker.
+
+  // Step 2: PR-body marker.
+  const bodyTier = extractTierFromPRBody(prBody);
+  if (bodyTier !== null) {
+    return bodyTier;
+  }
+
+  // Step 3: Default — null signals Tier 2 behavior to decideRouting.
   return null;
 }
 
