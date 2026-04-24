@@ -142,7 +142,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "read_file",
       description:
-        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), or {"ok":false,"error":string} on missing file or failure. See the system prompt for full envelope semantics.',
+        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), {"ok":false,"error":"not_found"} when the file does not exist, or {"ok":false,"error":string} on other failures. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
@@ -160,7 +160,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "list_directory",
       description:
-        'List immediate children of a directory at the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"entries":[{"name":string,"type":"file"|"dir"|"symlink"|"submodule"},…]} on success, {"ok":false,"error":string} on missing directory or failure. See the system prompt for full envelope semantics.',
+        'List immediate children of a directory at the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"entries":[{"name":string,"type":"file"|"dir"|"symlink"|"submodule"},…]} on success, {"ok":false,"error":"not_found"} when the directory does not exist, or {"ok":false,"error":string} on other failures. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {

@@ -337,4 +337,48 @@ describe("listDirectoryAtRef — root-path normalization", () => {
     await listDirectoryAtRef(octokit, OWNER, REPO, ".", REF);
     expect(capturedPath).toBe("");
   });
+
+  test('normalizes "./" to "" before calling getContent', async () => {
+    let capturedPath: string | undefined;
+    const octokit = makeOctokit((params) => {
+      capturedPath = params.path;
+      return { data: [] };
+    });
+
+    await listDirectoryAtRef(octokit, OWNER, REPO, "./", REF);
+    expect(capturedPath).toBe("");
+  });
+
+  test('normalizes "/" to "" before calling getContent', async () => {
+    let capturedPath: string | undefined;
+    const octokit = makeOctokit((params) => {
+      capturedPath = params.path;
+      return { data: [] };
+    });
+
+    await listDirectoryAtRef(octokit, OWNER, REPO, "/", REF);
+    expect(capturedPath).toBe("");
+  });
+
+  test('strips leading "/" on non-root dir paths', async () => {
+    let capturedPath: string | undefined;
+    const octokit = makeOctokit((params) => {
+      capturedPath = params.path;
+      return { data: [] };
+    });
+
+    await listDirectoryAtRef(octokit, OWNER, REPO, "/src/foo", REF);
+    expect(capturedPath).toBe("src/foo");
+  });
+
+  test("strips trailing slashes on dir paths", async () => {
+    let capturedPath: string | undefined;
+    const octokit = makeOctokit((params) => {
+      capturedPath = params.path;
+      return { data: [] };
+    });
+
+    await listDirectoryAtRef(octokit, OWNER, REPO, "src/foo/", REF);
+    expect(capturedPath).toBe("src/foo");
+  });
 });

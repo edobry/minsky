@@ -63,10 +63,12 @@ Reviewer runs on Tier 3 PRs (agent-authored) mandatory, Tier 2 (co-authored) opt
 
 The reviewer exposes two read-only tools to the model during review so it can verify cross-file claims before reporting them as findings:
 
-| Tool                   | Description                                                                                   |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `read_file(path)`      | Read a file at the PR's HEAD ref. Returns file content or `null` (404).                       |
-| `list_directory(path)` | List immediate children of a directory at HEAD ref. Returns `[{name, type}]` or `null` (404). |
+| Tool                   | Purpose                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `read_file(path)`      | Read a file at the PR's HEAD ref.                            |
+| `list_directory(path)` | List immediate children of a directory at the PR's HEAD ref. |
+
+Both tools return a JSON envelope — see **Tool result envelope** below for the full schema (success/failure branches, `truncated`, `binary`, `not_found` sentinel).
 
 Both tools use the `contents: read` permission the App already holds.
 

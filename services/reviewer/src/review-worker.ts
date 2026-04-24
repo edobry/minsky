@@ -344,7 +344,7 @@ export async function runReview(
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
   if (!toolsActive && reason) {
-    console.warn(`[mt#1126] Running review without tools: ${reason}`);
+    console.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
   }
 
   // Only pass toolContext when tools are actually active — otherwise the

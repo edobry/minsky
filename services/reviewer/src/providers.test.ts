@@ -396,6 +396,44 @@ describe("callOpenAIWithClient tool-use loop", () => {
     });
   });
 
+  test("with tools: unknown tool name → unknown_tool error envelope", async () => {
+    const { client, capturedMessages } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_bogus",
+                  type: "function",
+                  function: { name: "bogus_tool", arguments: JSON.stringify({ path: "x" }) },
+                },
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [{ message: { content: "carried on" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    await callOpenAIWithClient(client, MODEL, "system", "user", tools);
+
+    expect(JSON.parse(extractToolMessageContent(capturedMessages[1]))).toEqual({
+      ok: false,
+      error: "unknown_tool: bogus_tool",
+    });
+  });
+
   test("single-turn without tools: uses no tool definitions", async () => {
     let capturedParams: Record<string, unknown> = {};
     const client = {
