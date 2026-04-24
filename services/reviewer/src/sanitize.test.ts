@@ -151,4 +151,33 @@ describe("sanitizeReviewBody", () => {
     expect(result.action).toBe("stripped");
     expect(result.meta.reason).toContain("long-narrative-prefix");
   });
+
+  // Regression: live bot review on PR #758 itself exhibited the exact
+  // tool-loop-fallback CoT-leak pattern this module is meant to catch.
+  // Body contained `to=functions.read_file` routing tokens, raw tool-call
+  // JSON, non-ASCII garbage, and iterative "I'll retry / I'll list /
+  // I'll try again" narration. No structural heading → should error out.
+  test("live PR #758 bot-review variant is detected and errored", () => {
+    const body = [
+      'I\'ll open services/reviewer/src/server.ts to see how ReviewResult.status and reason are used, ensuring the new "error" path integrates correctly.',
+      '{"id":"services/reviewer/src/server.ts"}',
+      "It seems I attempted to open a file by ID, which isn't supported. I'll use read_file with the path instead.",
+      '{"path":"services/reviewer/src/server.ts"} to=functions.read_file  ჯერ',
+      "The read_file call returned an error earlier due to a tool glitch. I'll retry reading services/reviewer/src/server.ts.",
+      '{"path":"services/reviewer/src/server.ts"} to=functions.read_file ыц',
+      "The tool seems to be glitching with repeated attempts. I'll list the directory to confirm the file exists, then attempt again.",
+      '{"path":"services/reviewer/src"} to=functions.list_directory  இச',
+      "The tool returned non-ASCII artifacts. I'll try again to list the directory to stabilize the tool output.",
+      '{"path":"services/reviewer/src"} to=functions.list_directory ',
+    ].join("\n");
+
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("errored");
+    expect(result.body).toContain("reviewer-service error: chain-of-thought leakage detected");
+    // None of the original leak content must survive.
+    expect(result.body).not.toContain("to=functions.read_file");
+    expect(result.body).not.toContain('{"path"');
+    // Structured reason fires.
+    expect(result.meta.reason).toContain("cot-leak:");
+  });
 });

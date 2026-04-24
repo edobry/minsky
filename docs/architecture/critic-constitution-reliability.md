@@ -63,7 +63,9 @@ recognisable heading) for three classes of signal:
 2. **Strong scratch phrases** — `Calling <tool_name> on <path>.`, `Go.`
    on its own line, `This time for sure`, `[invoking]`, `Opening the file`,
    `Let's try again`, `tool call incoming`, `Sorry, executing now`,
-   `I'll just proceed`. Each single match is sufficient to fire the guard.
+   `I'll just proceed`, `to=functions.<tool>` (OpenAI tool-protocol routing
+   leakage), and `tool glitch` / `tool is glitching` (tool-loop self-narration).
+   Each single match is sufficient to fire the guard.
 3. **Long narrative prefix** — `I will` / `I'll` / `I am going to` appearing
    within a prefix longer than 300 characters. A short "I will focus on the
    DI seam first…" sentence is legitimate intro prose and must not

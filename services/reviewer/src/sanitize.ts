@@ -52,18 +52,32 @@ const STRONG_SCRATCH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   { pattern: /\btool call incoming\b/i, name: "scratch:tool-call-incoming" },
   { pattern: /\[invoking\]/i, name: "scratch:invoking-bracket" },
   { pattern: /\bOpening the file\b/i, name: "scratch:opening-the-file" },
-  { pattern: /\bLet'?s try again\b/i, name: "scratch:lets-try-again" },
+  { pattern: /\bLet['']?s try again\b/i, name: "scratch:lets-try-again" },
   // "Go." on its own line — common scratch punctuation, rare in reviews.
   { pattern: /^\s*Go\.\s*$/m, name: "scratch:go-dot" },
   // "Sorry, executing now" / "I'll just proceed" — tool-loop fallback phrases
   // from PR #753 (the calibration data file has the detail).
   { pattern: /\bSorry,\s*executing now\b/i, name: "scratch:sorry-executing-now" },
   { pattern: /\bI['']?ll just proceed\b/i, name: "scratch:ill-just-proceed" },
+  // OpenAI tool-protocol routing tokens that leaked into visible output on the
+  // live bot review of PR #758. `to=functions.<tool>` is the OpenAI Assistants
+  // tool-dispatch syntax; it is never intentional in a review body.
+  { pattern: /\bto=functions\.[a-z_][a-z_0-9]*/i, name: "scratch:openai-tool-routing" },
+  // Tool-loop self-narration — the reviewer describing its own tool failures
+  // rather than the PR under review. Also from PR #758.
+  {
+    pattern: /\btool (?:glitch|is glitching|seems to be glitching)\b/i,
+    name: "scratch:tool-glitch",
+  },
 ];
 
 // "Narrative" pattern — these phrases appear in legitimate prose occasionally,
 // so we only count them as a signal when paired with a long prefix.
-const NARRATIVE_SCRATCH_PATTERN = /\bI\s+(?:will|['']ll|am\s+going\s+to)\b/i;
+//
+// Split into three alternatives because "I'll" binds apostrophe directly to
+// "I" (no space), while "I will" and "I am going to" take whitespace — a
+// single `\s+` branch would have missed "I'll" entirely.
+const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['']ll\b|\bI\s+am\s+going\s+to\b/i;
 
 // 20+ consecutive newlines (19 blanks after the first) — no legitimate review
 // body contains this. Catches the "hundreds of blank lines" pattern from #743.
