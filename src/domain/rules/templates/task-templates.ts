@@ -375,7 +375,6 @@ Always verify automated updates occurred correctly.
 Status management integrates with:
 
 - **task-implementation-workflow**: Status updates at each phase
-- **minsky-session-management**: Status changes during session operations
 - **pr-preparation-workflow**: Status transition during PR creation
 - **minsky-workflow-orchestrator**: Overall workflow context
 

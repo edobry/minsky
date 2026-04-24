@@ -243,7 +243,6 @@ This workflow integrates with:
 
 - **task-implementation-workflow**: PR creation is final phase of implementation
 - **task-status-protocol**: Status updates during PR lifecycle
-- **minsky-session-management**: PRs created from sessions
 - **pr-description-guidelines**: Detailed formatting requirements
 
 ## Verification Checklist

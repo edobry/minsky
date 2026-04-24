@@ -157,8 +157,8 @@ export function createVariableNamingErrorMessage(
   const suggestions: CommandSuggestion[] = [
     fixSuggestion,
     {
-      description: "Check variable naming protocol rule",
-      command: "cursor rules variable-naming-protocol.mdc",
+      description: "Check ESLint no-underscore-prefix-mismatch rule",
+      command: "bun run lint --rule custom/no-underscore-prefix-mismatch",
       emoji: ErrorEmojis.HELP,
     },
     {

@@ -128,8 +128,6 @@ See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensi
 
 ## Code Style
 
-When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
-
 # Comment Guidelines
 
 ## Core Principle
@@ -375,8 +373,6 @@ function helloWorld() {
 }
 
 ## Architecture
-
-Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
 
 # Domain-Oriented Module Organization
 
@@ -922,6 +918,8 @@ Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" 
 - **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
 - **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
 - **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
+
+Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
 
 # Task Lifecycle
 

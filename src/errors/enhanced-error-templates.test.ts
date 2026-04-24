@@ -101,7 +101,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       expect(result).toContain("declared with underscore prefix but used without underscore");
       expect(result).toContain("Remove underscore from declaration (line 10)");
       expect(result).toContain("const taskId = ...");
-      expect(result).toContain("variable-naming-protocol.mdc");
+      expect(result).toContain("no-underscore-prefix-mismatch");
     });
 
     test("should identify reverse underscore mismatch (declaration without underscore, usage has underscore)", () => {

@@ -9,8 +9,6 @@ const ALL_RULES = [
   SESSION_FIRST_WORKFLOW_ID,
   "task-status-protocol",
   "pr-preparation-workflow",
-  "creating-tasks",
-  "template-literals",
   "no-dynamic-imports",
   "designing-tests",
   "bun-test-patterns",

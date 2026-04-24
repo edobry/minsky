@@ -49,64 +49,6 @@ export interface EnforcementMapping {
 }
 
 export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
-  // ── File size ──────────────────────────────────────────────────────────────
-  {
-    ruleId: "file-size",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "max-lines (warn @ 400)",
-        description: "Warns when a file exceeds 400 non-blank, non-comment lines",
-        configPath: "eslint.config.js",
-        portability: "portable",
-      },
-      {
-        type: "eslint",
-        name: "max-lines (error @ 1500)",
-        description: "Errors when a file exceeds 1500 non-blank, non-comment lines",
-        configPath: "eslint.config.js",
-        portability: "portable",
-      },
-    ],
-  },
-
-  // ── Template literals ─────────────────────────────────────────────────────
-  {
-    ruleId: "template-literals",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "prefer-template",
-        description: "Errors on string concatenation with + operator; requires template literals",
-        configPath: "eslint.config.js",
-        portability: "portable",
-      },
-    ],
-  },
-
-  // ── Variable naming (underscore-prefix mismatch) ──────────────────────────
-  {
-    ruleId: "variable-naming-protocol",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "custom/no-underscore-prefix-mismatch",
-        description:
-          "Errors when a variable is declared with an underscore prefix but used without it (or vice versa)",
-        configPath: "eslint-rules/no-underscore-prefix-mismatch.js",
-        portability: "portable",
-      },
-      {
-        type: "git-hook",
-        name: "pre-commit: check-variable-naming",
-        description:
-          "Pre-commit hook runs scripts/check-variable-naming.ts to detect catch-block, function-param, and destructuring naming issues",
-        configPath: "src/hooks/pre-commit.ts",
-        portability: "portable",
-      },
-    ],
-  },
-
   // ── Naming conventions (process-thinking names) ───────────────────────────
   {
     ruleId: "naming-conventions",
@@ -291,21 +233,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
         name: "CI: format:check",
         description: "GitHub Actions CI runs `bun run format:check` on every push/PR to main",
         configPath: ".github/workflows/ci.yml",
-        portability: "portable",
-      },
-    ],
-  },
-
-  // ── Commit message format ─────────────────────────────────────────────────
-  {
-    ruleId: "commit-all-changes-rule",
-    mechanisms: [
-      {
-        type: "git-hook",
-        name: "commit-msg hook",
-        description:
-          "Validates commit messages against conventional-commits format, rejects placeholder messages (wip, fix, update, etc.), and prevents title duplication in the body",
-        configPath: "src/hooks/commit-msg.ts",
         portability: "portable",
       },
     ],
