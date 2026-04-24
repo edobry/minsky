@@ -100,6 +100,83 @@ export async function submitReview(
 }
 
 /**
+ * Read the content of a file at a specific git ref.
+ *
+ * Returns the file content as a string, or null if the file does not exist
+ * (404). Throws on unexpected errors (permissions, malformed response, etc.).
+ */
+export async function readFileAtRef(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+): Promise<string | null> {
+  try {
+    const response = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+    const data = response.data;
+    // getContent returns an array for directories; a single object for files.
+    if (Array.isArray(data)) {
+      throw new Error(`Path "${path}" is a directory, not a file`);
+    }
+    if (data.type !== "file") {
+      throw new Error(`Path "${path}" is not a file (type=${data.type})`);
+    }
+    // Content is base64-encoded by the GitHub API.
+    if (!("content" in data) || typeof data.content !== "string") {
+      throw new Error(`Unexpected response shape for "${path}": no content field`);
+    }
+    return Buffer.from(data.content, "base64").toString("utf-8");
+  } catch (err: unknown) {
+    if (
+      err instanceof Error &&
+      "status" in (err as Record<string, unknown>) &&
+      (err as Record<string, unknown>).status === 404
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * List the immediate children (files and directories) of a directory at a
+ * specific git ref.
+ *
+ * Returns null if the path does not exist (404). Throws on unexpected errors.
+ */
+export async function listDirectoryAtRef(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+): Promise<Array<{ name: string; type: "file" | "dir" }> | null> {
+  try {
+    const response = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+    const data = response.data;
+    if (!Array.isArray(data)) {
+      throw new Error(`Path "${path}" is not a directory`);
+    }
+    return data
+      .filter((entry) => entry.type === "file" || entry.type === "dir")
+      .map((entry) => ({
+        name: entry.name,
+        type: entry.type as "file" | "dir",
+      }));
+  } catch (err: unknown) {
+    if (
+      err instanceof Error &&
+      "status" in (err as Record<string, unknown>) &&
+      (err as Record<string, unknown>).status === 404
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * Return the reviewer App's bot identity (login name) via the /app endpoint.
  *
  * This must use App-level JWT auth, not installation token auth. `/user`
