@@ -122,21 +122,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // ── Git operation safety ──────────────────────────────────────────────────
-  {
-    ruleId: "git-usage-policy",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "custom/no-unsafe-git-exec",
-        description:
-          "Errors on execAsync/exec calls containing git network operations (push/pull/fetch/clone) without timeout protection; warns on other git operations",
-        configPath: "eslint-rules/no-unsafe-git-exec.js",
-        portability: "portable",
-      },
-    ],
-  },
-
   // ── Test patterns: no Jest ────────────────────────────────────────────────
   {
     ruleId: "bun-test-patterns",

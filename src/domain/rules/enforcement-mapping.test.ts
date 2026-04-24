@@ -76,7 +76,6 @@ describe("getEnforcedRules", () => {
     expect(ids).toContain("file-size");
     expect(ids).toContain(TEMPLATE_LITERALS_RULE_ID);
     expect(ids).toContain("bun-test-patterns");
-    expect(ids).toContain("git-usage-policy");
     expect(ids).toContain("no-skipped-tests");
   });
 

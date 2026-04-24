@@ -46,12 +46,7 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "test-driven-bugfix",
   ],
   "code-style": ["comments", "naming-conventions", "constants-management", "cli-output-design"],
-  safety: [
-    "operational-safety-dry-run-first",
-    "dont-ignore-errors",
-    "git-usage-policy",
-    "robust-error-handling",
-  ],
+  safety: ["operational-safety-dry-run-first", "dont-ignore-errors", "robust-error-handling"],
 };
 
 export const rulesConfigSchema = z

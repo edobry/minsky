@@ -41,10 +41,10 @@ const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
     "constants-management",
     "ensure-ascii-code-symbols",
   ],
-  Architecture: ["file-size", "domain-oriented-modules", "command-organization"],
+  Architecture: ["file-size", "domain-oriented-modules"],
   Testing: ["designing-tests"],
   "Minsky Workflow": ["minsky-workflow", "session-first-workflow", "minsky-workflow-orchestrator"],
-  "Git & PR Workflow": ["git-usage-policy", "pr-description-guidelines", "pr-preparation-workflow"],
+  "Git & PR Workflow": ["pr-description-guidelines", "pr-preparation-workflow"],
   Boundaries: ["operational-safety-dry-run-first", "terminal-command-best-practices"],
 };
 
