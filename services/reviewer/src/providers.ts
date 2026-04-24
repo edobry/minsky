@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
-import type { ReviewerToolContext } from "./tools";
+import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -89,6 +89,52 @@ export async function callReviewer(
 /** Maximum number of tool-use rounds before forcing the model to finalize. */
 const MAX_TOOL_ROUNDS = 10;
 
+/**
+ * Envelope shapes returned to the model for each tool call (mt#1216).
+ *
+ * Previously, tool results were returned as either a raw string (for text),
+ * a JSON-stringified array (for directory listings), or the literal string
+ * `"null"` for not-found — requiring the model to disambiguate a missing
+ * file from a file whose content is the four characters `null`. The envelope
+ * disambiguates structurally: `ok: true/false`, with domain fields on the
+ * success branch and `error` on the failure branch.
+ */
+export type ReadFileEnvelope =
+  | { ok: true; content: string; truncated: boolean; binary?: false }
+  | { ok: true; content: string; truncated: false; binary: true; size: number }
+  | { ok: false; error: string };
+
+export type ListDirectoryEnvelope =
+  | { ok: true; entries: DirEntry[] }
+  | { ok: false; error: string };
+
+/**
+ * Map a ReadFileResult from `readFileAtRef` to the JSON envelope the model
+ * sees. Exported for tests.
+ */
+export function buildReadFileEnvelope(result: ReadFileResult | null): ReadFileEnvelope {
+  if (result === null) return { ok: false, error: "not_found" };
+  if (result.kind === "binary") {
+    return {
+      ok: true,
+      content: `[BINARY FILE: ${result.size} bytes, not decoded]`,
+      truncated: false,
+      binary: true,
+      size: result.size,
+    };
+  }
+  return { ok: true, content: result.content, truncated: result.truncated };
+}
+
+/**
+ * Map a `listDirectoryAtRef` result to the JSON envelope the model sees.
+ * Exported for tests.
+ */
+export function buildListDirectoryEnvelope(entries: DirEntry[] | null): ListDirectoryEnvelope {
+  if (entries === null) return { ok: false, error: "not_found" };
+  return { ok: true, entries };
+}
+
 /** OpenAI function definitions for the reviewer tools. */
 const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -96,7 +142,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "read_file",
       description:
-        "Read the content of a file from the PR's HEAD ref. Path is relative to the repository root. Returns null if the file does not exist.",
+        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), or {"ok":false,"error":string} on missing file or failure. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
@@ -114,7 +160,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "list_directory",
       description:
-        "List immediate children (files and directories) of a directory at the PR's HEAD ref. Path is relative to the repository root. Returns null if the directory does not exist.",
+        'List immediate children of a directory at the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"entries":[{"name":string,"type":"file"|"dir"|"symlink"|"submodule"},…]} on success, {"ok":false,"error":string} on missing directory or failure. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
@@ -248,15 +294,18 @@ export async function callOpenAIWithClient(
 
         if (fnName === "read_file") {
           const content = await tools.readFile(path);
-          resultContent = content !== null ? content : "null";
+          resultContent = JSON.stringify(buildReadFileEnvelope(content));
         } else if (fnName === "list_directory") {
           const entries = await tools.listDirectory(path);
-          resultContent = entries !== null ? JSON.stringify(entries) : "null";
+          resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
         } else {
-          resultContent = `Unknown tool: ${fnName}`;
+          resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
         }
       } catch (err: unknown) {
-        resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+        resultContent = JSON.stringify({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       messages.push({

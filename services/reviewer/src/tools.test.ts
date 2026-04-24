@@ -6,12 +6,7 @@
 
 import { describe, expect, test, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
-import {
-  listDirectoryAtRef,
-  normalizeContentPath,
-  readFileAtRef,
-  TRUNCATED_FILE_NOTICE,
-} from "./github-client";
+import { listDirectoryAtRef, normalizeContentPath, readFileAtRef } from "./github-client";
 
 /** Build a minimal mock Octokit with a stubbed getContent. */
 function makeOctokit(
@@ -33,14 +28,14 @@ const REF = "abc1234";
 // ----- readFileAtRef -----
 
 describe("readFileAtRef", () => {
-  test("returns decoded file content on success", async () => {
+  test("returns text kind with decoded content on success", async () => {
     const content = Buffer.from("hello world\n").toString("base64");
     const octokit = makeOctokit(() => ({
       data: { type: "file", content, encoding: "base64" },
     }));
 
     const result = await readFileAtRef(octokit, OWNER, REPO, "src/hello.ts", REF);
-    expect(result).toBe("hello world\n");
+    expect(result).toEqual({ kind: "text", content: "hello world\n", truncated: false });
   });
 
   test("returns null on 404", async () => {
@@ -83,6 +78,48 @@ describe("readFileAtRef", () => {
       "is not a file"
     );
   });
+
+  // ----- binary detection (mt#1216) -----
+  //
+  // Files with a NUL byte in the first ~8KB are binary (file(1) heuristic).
+  // Decoding them as UTF-8 produces gibberish that wastes context budget; the
+  // helper returns a placeholder kind so the envelope can surface size to the
+  // model without the raw content.
+
+  test("returns binary kind when content contains a null byte in the sampled region", async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xde, 0xad, 0xbe, 0xef]);
+    const content = bytes.toString("base64");
+    const octokit = makeOctokit(() => ({
+      data: { type: "file", content, encoding: "base64" },
+    }));
+
+    const result = await readFileAtRef(octokit, OWNER, REPO, "assets/logo.png", REF);
+    expect(result).toEqual({ kind: "binary", size: bytes.length });
+  });
+
+  test("empty file (zero bytes) is still treated as text", async () => {
+    const content = Buffer.from("").toString("base64");
+    const octokit = makeOctokit(() => ({
+      data: { type: "file", content, encoding: "base64" },
+    }));
+
+    const result = await readFileAtRef(octokit, OWNER, REPO, "empty", REF);
+    expect(result).toEqual({ kind: "text", content: "", truncated: false });
+  });
+
+  test("text file containing the literal word 'null' returns text kind (not envelope 'not_found')", async () => {
+    // Regression: the pre-mt#1216 tool envelope serialized missing-file as the
+    // literal string "null", which collided with a file whose content was
+    // exactly those four characters. Binary detection + structured result
+    // cleanly distinguish the two now.
+    const content = Buffer.from("null").toString("base64");
+    const octokit = makeOctokit(() => ({
+      data: { type: "file", content, encoding: "base64" },
+    }));
+
+    const result = await readFileAtRef(octokit, OWNER, REPO, "fixtures/null.txt", REF);
+    expect(result).toEqual({ kind: "text", content: "null", truncated: false });
+  });
 });
 
 // ----- listDirectoryAtRef -----
@@ -105,16 +142,21 @@ describe("listDirectoryAtRef", () => {
     ]);
   });
 
-  test("filters out non-file/non-dir entries (e.g. symlinks)", async () => {
+  test("passes symlink and submodule entries through with their real type (mt#1216)", async () => {
     const octokit = makeOctokit(() => ({
       data: [
         { name: "foo.ts", type: "file" },
         { name: "link", type: "symlink" },
+        { name: "vendor", type: "submodule" },
       ],
     }));
 
     const result = await listDirectoryAtRef(octokit, OWNER, REPO, "src", REF);
-    expect(result).toEqual([{ name: "foo.ts", type: "file" }]);
+    expect(result).toEqual([
+      { name: "foo.ts", type: "file" },
+      { name: "link", type: "symlink" },
+      { name: "vendor", type: "submodule" },
+    ]);
   });
 
   test("returns null on 404", async () => {
@@ -149,13 +191,18 @@ describe("listDirectoryAtRef", () => {
     );
   });
 
-  test("returns empty array when directory has no recognized entries", async () => {
+  test("filters entries whose type is neither file/dir/symlink/submodule", async () => {
+    // GitHub has historically returned only the four recognized types, but
+    // the helper filters defensively so a novel type never lands unlabelled.
     const octokit = makeOctokit(() => ({
-      data: [{ name: "dangling", type: "submodule" }],
+      data: [
+        { name: "ok.ts", type: "file" },
+        { name: "weird", type: "something-new" },
+      ],
     }));
 
     const result = await listDirectoryAtRef(octokit, OWNER, REPO, "src", REF);
-    expect(result).toEqual([]);
+    expect(result).toEqual([{ name: "ok.ts", type: "file" }]);
   });
 });
 
@@ -237,11 +284,11 @@ describe("readFileAtRef — root-path normalization", () => {
   });
 });
 
-describe("readFileAtRef — truncation handling", () => {
-  test("prepends TRUNCATED_FILE_NOTICE when GitHub sets truncated=true", async () => {
-    // The Contents API sets `truncated: true` on files above ~1MB and returns
-    // only a snippet. Before the fix, we silently returned the partial content,
-    // which would let the reviewer model "verify" against incomplete data.
+describe("readFileAtRef — truncation handling (mt#1216)", () => {
+  test("surfaces truncation as a boolean flag on the text result", async () => {
+    // The Contents API sets `truncated: true` on files above ~1MB. Pre-mt#1216
+    // prepended a notice string to the content; now the fact rides as a
+    // dedicated boolean so a truncated JSON file remains valid JSON.
     const snippet = "this is only the first few KB of a huge file\n";
     const content = Buffer.from(snippet).toString("base64");
     const octokit = makeOctokit(() => ({
@@ -249,12 +296,25 @@ describe("readFileAtRef — truncation handling", () => {
     }));
 
     const result = await readFileAtRef(octokit, OWNER, REPO, "dist/big.js", REF);
-    if (result === null) throw new Error("expected result to be a string");
-    expect(result.startsWith(TRUNCATED_FILE_NOTICE)).toBe(true);
-    expect(result).toContain(snippet);
+    expect(result).toEqual({ kind: "text", content: snippet, truncated: true });
   });
 
-  test("does NOT prepend notice when truncated is absent or false", async () => {
+  test("truncated content is NOT wrapped in any prefix notice", async () => {
+    // Regression guard: the content field must be byte-identical to the
+    // decoded API response, with no "[TRUNCATED]" header prepended.
+    const snippet = '{ "partial": true }';
+    const content = Buffer.from(snippet).toString("base64");
+    const octokit = makeOctokit(() => ({
+      data: { type: "file", content, encoding: "base64", truncated: true },
+    }));
+
+    const result = await readFileAtRef(octokit, OWNER, REPO, "config.json", REF);
+    if (result === null || result.kind !== "text") throw new Error("expected text result");
+    expect(result.content).toBe(snippet);
+    expect(result.content).not.toContain("[TRUNCATED]");
+  });
+
+  test("truncated=false / absent yields truncated: false on the result", async () => {
     const text = "small file\n";
     const content = Buffer.from(text).toString("base64");
     const octokit = makeOctokit(() => ({
@@ -262,8 +322,7 @@ describe("readFileAtRef — truncation handling", () => {
     }));
 
     const result = await readFileAtRef(octokit, OWNER, REPO, "src/small.ts", REF);
-    expect(result).toBe(text);
-    expect(result).not.toContain(TRUNCATED_FILE_NOTICE);
+    expect(result).toEqual({ kind: "text", content: text, truncated: false });
   });
 });
 
