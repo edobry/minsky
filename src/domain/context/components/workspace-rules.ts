@@ -203,21 +203,21 @@ Keep potentially destructive operations safe by default.
 
 // AVOID: applying by default
 \`\`\`
-minsky persistence migrate
+minsky sessiondb migrate
 # applies immediately
 \`\`\`
 
 // PREFER: safe default with explicit execution
 \`\`\`
 # preview
-minsky persistence migrate --dry-run
+minsky sessiondb migrate --dry-run
 
 # apply (must be explicit)
-minsky persistence migrate --execute
+minsky sessiondb migrate --execute
 \`\`\`
 
 ## Cross-References
-- See \`persistence.migrate\` behavior and other commands using \`--execute\` semantics.
+- See \`sessiondb.migrate\` behavior and other commands using \`--execute\` semantics.
 </always_applied_workspace_rules>
 
 </rules>`;
