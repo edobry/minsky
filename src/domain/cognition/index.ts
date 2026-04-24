@@ -13,6 +13,11 @@ export type {
   ModelHint,
 } from "./types";
 
-export { CognitionError, CognitionExecutionError } from "./types";
+export {
+  CognitionError,
+  CognitionEvidenceSerializationError,
+  CognitionExecutionError,
+  CognitionValidationError,
+} from "./types";
 
 export { DirectCognitionProvider } from "./providers/direct";

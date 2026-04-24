@@ -117,3 +117,27 @@ export class CognitionExecutionError extends CognitionError {
     this.name = "CognitionExecutionError";
   }
 }
+
+/**
+ * Raised when the AI service returns a value that doesn't conform to the
+ * task's Zod schema. The underlying `ZodError` is preserved as `cause` so
+ * callers can still introspect the validation failure if needed.
+ */
+export class CognitionValidationError extends CognitionError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CognitionValidationError";
+  }
+}
+
+/**
+ * Raised when a task's `evidence` cannot be serialized for inclusion in the
+ * LLM request (e.g., circular references, BigInt values). The underlying
+ * serialization error is preserved as `cause`.
+ */
+export class CognitionEvidenceSerializationError extends CognitionError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CognitionEvidenceSerializationError";
+  }
+}

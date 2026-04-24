@@ -10,7 +10,12 @@ import { z } from "zod";
 
 import { AICompletionError, type AIObjectGenerationRequest } from "../../ai/types";
 import type { CognitionTask } from "../types";
-import { CognitionExecutionError } from "../types";
+import {
+  CognitionError,
+  CognitionEvidenceSerializationError,
+  CognitionExecutionError,
+  CognitionValidationError,
+} from "../types";
 import { DirectCognitionProvider } from "./direct";
 
 /** Stub for the subset of AICompletionService that DirectCognitionProvider needs. */
@@ -94,6 +99,8 @@ describe("DirectCognitionProvider.perform", () => {
     }
 
     expect(caught).toBeInstanceOf(CognitionExecutionError);
+    // Subclass-of-CognitionError check — callers handling the base class catch this.
+    expect(caught).toBeInstanceOf(CognitionError);
     expect((caught as CognitionExecutionError).cause).toBe(apiError);
     expect((caught as Error).message).toContain("t-err");
     expect((caught as Error).message).toContain("provider down");
@@ -176,7 +183,7 @@ describe("DirectCognitionProvider.perform", () => {
     expect(captured.model).toBe("claude-opus");
   });
 
-  it("runs zod validation — rejects values that don't conform to the schema", async () => {
+  it("wraps schema-parse failure as CognitionValidationError", async () => {
     const schema = z.object({ x: z.number() });
     const provider = new DirectCognitionProvider(stubService(async () => ({ x: "not a number" })));
 
@@ -187,11 +194,78 @@ describe("DirectCognitionProvider.perform", () => {
       caught = err;
     }
 
-    expect(caught).toBeInstanceOf(z.ZodError);
+    expect(caught).toBeInstanceOf(CognitionValidationError);
+    expect(caught).toBeInstanceOf(CognitionError);
+    expect((caught as CognitionValidationError).cause).toBeInstanceOf(z.ZodError);
+    expect((caught as Error).message).toContain("t-bad");
+  });
+
+  it("wraps circular-reference evidence as CognitionEvidenceSerializationError", async () => {
+    const schema = z.object({ ok: z.boolean() });
+    let serviceCalled = false;
+    const provider = new DirectCognitionProvider(
+      stubService(async () => {
+        serviceCalled = true;
+        return { ok: true };
+      })
+    );
+
+    const evidence: Record<string, unknown> = { foo: 1 };
+    evidence.self = evidence;
+
+    let caught: unknown;
+    try {
+      await provider.perform(makeTask(schema, "t-cycle", evidence));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CognitionEvidenceSerializationError);
+    expect(caught).toBeInstanceOf(CognitionError);
+    expect((caught as CognitionEvidenceSerializationError).cause).toBeInstanceOf(TypeError);
+    expect((caught as Error).message).toContain("t-cycle");
+    // Serialization must fail before any call to the AI service.
+    expect(serviceCalled).toBe(false);
+  });
+
+  it("wraps BigInt evidence as CognitionEvidenceSerializationError", async () => {
+    const schema = z.object({ ok: z.boolean() });
+    const provider = new DirectCognitionProvider(stubService(async () => ({ ok: true })));
+
+    const evidence: Record<string, unknown> = { count: BigInt(42) };
+
+    let caught: unknown;
+    try {
+      await provider.perform(makeTask(schema, "t-bigint", evidence));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CognitionEvidenceSerializationError);
+    expect(caught).toBeInstanceOf(CognitionError);
+    expect((caught as Error).message).toContain("t-bigint");
   });
 });
 
 describe("DirectCognitionProvider.performBatch", () => {
+  it("returns an empty completed result for an empty batch", async () => {
+    let serviceCalled = false;
+    const provider = new DirectCognitionProvider(
+      stubService(async () => {
+        serviceCalled = true;
+        return {};
+      })
+    );
+
+    const result = await provider.performBatch([] as const);
+
+    expect(result.kind).toBe("completed");
+    if (result.kind === "completed") {
+      expect(result.value).toEqual([]);
+    }
+    expect(serviceCalled).toBe(false);
+  });
+
   it("resolves a homogeneous batch with aligned outputs", async () => {
     const schema = z.object({ n: z.number() });
     let calls = 0;
@@ -255,11 +329,13 @@ describe("DirectCognitionProvider.performBatch", () => {
     const schema = z.object({ n: z.number() });
     let inFlightPeak = 0;
     let inFlight = 0;
+    // 25ms gives enough window for all three tasks to overlap even on slow CI.
+    const serviceDelayMs = 25;
     const provider = new DirectCognitionProvider(
       stubService(async () => {
         inFlight += 1;
         if (inFlight > inFlightPeak) inFlightPeak = inFlight;
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, serviceDelayMs));
         inFlight -= 1;
         return { n: 1 };
       })
