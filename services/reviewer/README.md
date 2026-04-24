@@ -70,11 +70,20 @@ The reviewer exposes two read-only tools to the model during review so it can ve
 
 Both tools use the `contents: read` permission the App already holds.
 
-**Provider support (MVP):** OpenAI only. The reviewer runs a multi-turn completion loop — when the model returns tool calls, they are executed and results appended as messages, then the model is called again. Gemini and Anthropic fall back to the existing single-turn path with a warning log.
+**Provider support (MVP):** OpenAI only. The reviewer runs a multi-turn completion loop — when the model returns tool calls, they are executed and results appended as messages, then the model is called again. Gemini and Anthropic fall back to the single-turn no-tools path and the service logs a warning (`[mt#1126] Running review without tools: …`) so operators can see why tool verification is absent.
+
+**Tool gating (two axes):**
+
+- **Provider capability.** Tools are only wired into the call when `REVIEWER_PROVIDER=openai`. Other providers receive the no-tools system prompt, which explicitly tells the model to mark cross-file claims as `NEEDS VERIFICATION` instead of `BLOCKING`.
+- **Fork accessibility.** The App is installed on the base repo; it may not have read access to forks. When the PR originates from a different repo (`pr.head.repo !== pr.base.repo`), tools are disabled and the no-tools prompt is used — this avoids silent 404s from tool calls that can't resolve the head SHA. A fuller fix (probing fork access and enabling tools per-PR where possible) is tracked as a follow-up.
 
 **Iteration cap:** The loop runs at most 10 rounds. If the cap is hit, the model is given one final turn to produce a text response; if no text is produced, the review body contains a `[TOOL CAP REACHED]` notice.
 
-**Behavioral contract:** The `CRITIC_CONSTITUTION` instructs the model that any cross-file claim not backed by a tool call must be marked `[NON-BLOCKING] NEEDS VERIFICATION`. Verified claims may be escalated to `[BLOCKING]`.
+**Behavioral contract:** The `buildCriticConstitution(toolsAvailable)` helper emits one of two system-prompt sections. When tools are available, the prompt instructs the model to call `read_file` / `list_directory` before making cross-file claims and to mark unverified claims `[NON-BLOCKING] NEEDS VERIFICATION`. When tools are NOT available (non-OpenAI provider or forked PR), the prompt explicitly tells the model no tools are wired up and that all cross-file claims MUST be marked non-blocking with `NEEDS VERIFICATION` — never blocking.
+
+**Path normalization (`normalizeContentPath`):** User-supplied paths are normalized before calling the Contents API: `.`, `./`, `/`, and empty all map to `""` (repo root); leading `./` is stripped; leading slashes (e.g. `/src/foo.ts` → `src/foo.ts`) are stripped; trailing slashes are stripped. This absorbs common LLM path conventions that would otherwise produce spurious 404s.
+
+**Truncation handling:** Files above the Contents API size threshold (~1MB) return `truncated: true` with a partial snippet. The helper prepends `TRUNCATED_FILE_NOTICE` to the returned content so the model sees the caveat inline and can avoid confident-but-wrong claims against incomplete data.
 
 ## Self-hosting
 

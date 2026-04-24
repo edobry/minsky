@@ -137,8 +137,10 @@ export function normalizeContentPath(path: string): string {
   // "/src/foo.ts" — the Contents API expects relative, and a leading slash
   // produces a 404).
   while (path.startsWith("/")) path = path.slice(1);
-  // Strip trailing slash (getContent treats dir paths the same with/without)
-  if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
+  // Strip ALL trailing slashes (getContent treats dir paths the same
+  // with/without; multiple trailing slashes like "src/foo//" must also
+  // normalize).
+  while (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
   return path;
 }
 

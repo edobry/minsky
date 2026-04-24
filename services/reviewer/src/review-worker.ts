@@ -137,9 +137,21 @@ export async function runReview(
   const toolsActive = providerSupportsTools && !pr.isForkedPR;
   const systemPrompt = buildCriticConstitution(toolsActive);
 
+  // Log why tools are off when they're off, so operators can see it in the
+  // service logs rather than silently losing tool support. Previously, the
+  // warning lived inside callGoogle/callAnthropic and only fired when tools
+  // were passed — but the gating here never passes tools for those providers,
+  // so the warning never triggered. Surfaced as a mt#1126 reviewer finding.
+  if (!toolsActive) {
+    const reason = !providerSupportsTools
+      ? `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`
+      : `tools disabled for forked PR ${pr.number} (App may lack fork access)`;
+    console.warn(`[mt#1126] Running review without tools: ${reason}`);
+  }
+
   // Only pass toolContext when tools are actually active — otherwise the
-  // provider's no-tools fallback path fires a warning log on every review,
-  // creating noise that drowns out real warnings.
+  // provider's no-tools fallback path would fire a second warning log on
+  // every review.
   const output = await callReviewer(
     config,
     systemPrompt,
