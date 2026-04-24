@@ -113,21 +113,39 @@ export async function runReview(
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
   // to verify cross-file claims before reporting them as findings.
+  //
+  // For forked PRs, `headSha` only exists in the head repository (fork), not
+  // the base repo. Passing (owner=base, repo=base, ref=headSha) to getContent
+  // 404s. Use the head coords so tool calls resolve correctly on forks too.
   const toolContext: ReviewerToolContext = {
-    readFile: (path: string) => readFileAtRef(octokit, pr.owner, pr.repo, path, pr.headSha),
+    readFile: (path: string) => readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
     listDirectory: (path: string) =>
-      listDirectoryAtRef(octokit, pr.owner, pr.repo, path, pr.headSha),
+      listDirectoryAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
   };
 
-  // Gate the prompt's "Tool access" section on whether the configured provider
-  // actually wires tools up. mt#1126 MVP only supports OpenAI; Gemini and
-  // Anthropic fall back to the no-tools path. Promising tools in the system
-  // prompt when the provider can't call them would lie to the model and
-  // degrade review behavior (mt#1126 minsky-reviewer finding #3).
+  // Gate tool wiring on TWO axes:
+  //   1) Provider capability — mt#1126 MVP only supports OpenAI; Gemini and
+  //      Anthropic fall back to the no-tools path.
+  //   2) Fork accessibility — the reviewer App is installed on the base repo;
+  //      it may not have read access to forks. Rather than promise tools that
+  //      silently 404, disable tools for forked PRs and switch to the
+  //      NO_TOOLS_SECTION prompt so the model knows to mark cross-file
+  //      claims as NEEDS VERIFICATION.
+  //
+  // Both failure modes were surfaced by minsky-reviewer findings on mt#1126.
   const providerSupportsTools = config.provider === "openai";
-  const systemPrompt = buildCriticConstitution(providerSupportsTools);
+  const toolsActive = providerSupportsTools && !pr.isForkedPR;
+  const systemPrompt = buildCriticConstitution(toolsActive);
 
-  const output = await callReviewer(config, systemPrompt, userPrompt, toolContext);
+  // Only pass toolContext when tools are actually active — otherwise the
+  // provider's no-tools fallback path fires a warning log on every review,
+  // creating noise that drowns out real warnings.
+  const output = await callReviewer(
+    config,
+    systemPrompt,
+    userPrompt,
+    toolsActive ? toolContext : undefined
+  );
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.

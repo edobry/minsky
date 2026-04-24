@@ -193,6 +193,19 @@ describe("normalizeContentPath", () => {
     expect(normalizeContentPath("src/foo.ts")).toBe("src/foo.ts");
     expect(normalizeContentPath("README.md")).toBe("README.md");
   });
+
+  test('strips leading "/" for non-root paths (models often supply absolute-like paths)', () => {
+    // The Contents API expects relative paths. Models frequently supply
+    // "/src/foo.ts" and similar — that would 404 without normalization.
+    expect(normalizeContentPath("/src/foo.ts")).toBe("src/foo.ts");
+    expect(normalizeContentPath("/README.md")).toBe("README.md");
+    expect(normalizeContentPath("/src/dir/")).toBe("src/dir");
+  });
+
+  test("strips multiple leading slashes", () => {
+    expect(normalizeContentPath("//src/foo.ts")).toBe("src/foo.ts");
+    expect(normalizeContentPath("///foo.ts")).toBe("foo.ts");
+  });
 });
 
 // ----- readFileAtRef: root-path normalization + truncation handling -----

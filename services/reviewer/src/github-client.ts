@@ -29,8 +29,20 @@ export interface PullRequestContext {
   number: number;
   title: string;
   body: string;
+  /** Base repository owner (where the PR targets). Same as `headOwner` for in-repo PRs. */
   owner: string;
+  /** Base repository name. Same as `headRepo` for in-repo PRs. */
   repo: string;
+  /**
+   * Head repository owner. For PRs from forks, this differs from `owner`.
+   * `headSha` only exists in the head repo for forked PRs; tool calls that
+   * want to read at HEAD must use these coordinates to avoid 404s.
+   */
+  headOwner: string;
+  /** Head repository name. See `headOwner` for fork handling. */
+  headRepo: string;
+  /** True when the PR originates from a different repo (a fork). */
+  isForkedPR: boolean;
   branchName: string;
   baseBranch: string;
   diff: string;
@@ -59,12 +71,21 @@ export async function fetchPullRequestContext(
   // safely coerces the runtime value without the as-unknown double cast.
   const diff = String(diffResponse.data);
 
+  // Head repository coords may differ from base coords for forked PRs.
+  // pr.head.repo is null in rare cases (deleted fork); fall back to base.
+  const headOwner = pr.head.repo?.owner.login ?? owner;
+  const headRepo = pr.head.repo?.name ?? repo;
+  const isForkedPR = headOwner !== owner || headRepo !== repo;
+
   return {
     number: pr.number,
     title: pr.title,
     body: pr.body ?? "",
     owner,
     repo,
+    headOwner,
+    headRepo,
+    isForkedPR,
     branchName: pr.head.ref,
     baseBranch: pr.base.ref,
     diff,
@@ -110,7 +131,12 @@ export async function submitReview(
  */
 export function normalizeContentPath(path: string): string {
   if (path === "." || path === "./" || path === "/" || path === "") return "";
-  if (path.startsWith("./")) return path.slice(2);
+  // Strip a leading "./" prefix so "./src/foo" and "src/foo" behave identically.
+  if (path.startsWith("./")) path = path.slice(2);
+  // Strip ALL leading slashes (LLMs commonly supply absolute-like paths like
+  // "/src/foo.ts" — the Contents API expects relative, and a leading slash
+  // produces a 404).
+  while (path.startsWith("/")) path = path.slice(1);
   // Strip trailing slash (getContent treats dir paths the same with/without)
   if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
   return path;
@@ -118,7 +144,7 @@ export function normalizeContentPath(path: string): string {
 
 /** Sentinel returned by readFileAtRef when a file exceeds the API's truncation threshold. */
 export const TRUNCATED_FILE_NOTICE =
-  "[TRUNCATED] This file exceeds the GitHub Contents API size limit and only a partial snippet could be fetched. Do not make claims about the full file contents — request a narrower range or mark any claim as NEEDS VERIFICATION.";
+  "[TRUNCATED] This file exceeds the GitHub Contents API size limit and only a partial snippet could be fetched. Do not make claims about the full file contents — mark any claim as NEEDS VERIFICATION.";
 
 /**
  * Read the content of a file at a specific git ref.

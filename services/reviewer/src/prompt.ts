@@ -66,8 +66,8 @@ const TOOL_ACCESS_SECTION = `## Tool access
 
 You have access to two tools for verifying cross-file claims:
 
-- **\`read_file(path)\`** — read the content of a file at the PR's HEAD ref (path relative to repo root; "" for repo root)
-- **\`list_directory(path)\`** — list immediate children (files and directories) of a directory at HEAD ref
+- **\`read_file(path)\`** — read the content of a specific file at the PR's HEAD ref (path relative to repo root, e.g. \`src/foo/bar.ts\`). Do NOT pass \`""\` — that targets the repo root, which is a directory and will error; use \`list_directory\` instead.
+- **\`list_directory(path)\`** — list immediate children (files and directories) of a directory at HEAD ref. Pass \`""\` for the repository root.
 
 **Before making any claim about a file or directory that is not directly in the diff, USE THE TOOLS to verify it.** If you assert that a file exists, call \`read_file\` first. If you assert that a directory has (or lacks) certain files, call \`list_directory\` first.
 
