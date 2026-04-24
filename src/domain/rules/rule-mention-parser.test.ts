@@ -11,10 +11,10 @@ describe("Rule Mention Parser", () => {
     });
 
     it("should extract multiple @ruleName mentions", () => {
-      const query = "Use @error-handling and @robust-error-handling for this fix";
+      const query = "Use @error-handling and @dont-ignore-errors for this fix";
       const mentions = extractRuleMentions(query);
 
-      expect(mentions).toEqual(["error-handling", "robust-error-handling"]);
+      expect(mentions).toEqual(["error-handling", "dont-ignore-errors"]);
     });
 
     it("should handle @ruleName at start, middle, and end", () => {

@@ -50,7 +50,7 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "operational-safety-dry-run-first",
     "dont-ignore-errors",
     "git-usage-policy",
-    "robust-error-handling",
+    "error-handling",
   ],
 };
 

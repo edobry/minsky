@@ -223,7 +223,7 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
 
   // ── Type safety: excessive as-unknown ────────────────────────────────────
   {
-    ruleId: "robust-error-handling",
+    ruleId: "error-handling",
     mechanisms: [
       {
         type: "eslint",
