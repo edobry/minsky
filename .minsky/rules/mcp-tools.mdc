@@ -36,3 +36,5 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 ```
 
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
+
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the four explicit carve-outs: `git status`, `git stash`, `git reset`, `git -C`). If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
