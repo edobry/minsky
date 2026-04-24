@@ -78,6 +78,12 @@ export class PreCommitHook {
         return variableResult;
       }
 
+      // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
+      const nodeShimResult = await this.runNodeShimCheck();
+      if (!nodeShimResult.success) {
+        return nodeShimResult;
+      }
+
       // ── Medium-weight static analysis (~5s each) ──
 
       // Step 4: TypeScript type checking (~5s)
@@ -341,6 +347,136 @@ export class PreCommitHook {
       log.cli("❌ Variable naming issues found! Please fix them before committing.");
       log.cli("💡 You can run 'bun run scripts/fix-variable-naming.ts' to auto-fix many issues.");
       return { success: false, message: "Variable naming issues found", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Grep staged source files for Node.js shims that should be Bun idioms.
+   *
+   * Flags:
+   *   - `#!/usr/bin/env node` shebangs (any staged file)
+   *   - `npm run ` usage in source files (excludes README/docs/package.json)
+   *   - `npx ` usage in source files (same exclusions)
+   *
+   * Files excluded from the npm/npx checks:
+   *   README*, *.md, docs/**, package.json, *.lock, *.yaml, *.yml, *.toml
+   *
+   * These are caught early (before heavy static analysis) because they are
+   * instant to detect and never acceptable in new Bun-first code.
+   */
+  private async runNodeShimCheck(): Promise<HookResult> {
+    log.cli("🚫 Checking for Node.js shims in staged files...");
+
+    try {
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+
+      const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (stagedFiles.length === 0) {
+        log.cli("✅ No staged files — skipping Node shim check.");
+        return { success: true, message: "No staged files to check", exitCode: 0 };
+      }
+
+      // Files exempt from npm/npx checks (documentation and config)
+      const isDocOrConfig = (f: string): boolean => {
+        const lower = f.toLowerCase();
+        return (
+          lower.endsWith(".md") ||
+          lower.startsWith("readme") ||
+          lower.startsWith("docs/") ||
+          lower === "package.json" ||
+          lower.endsWith(".lock") ||
+          lower.endsWith(".yaml") ||
+          lower.endsWith(".yml") ||
+          lower.endsWith(".toml") ||
+          // The bun-over-node enforcement check itself contains "npm run"/"npx" in
+          // help-message string literals; exempt the file that runs this check.
+          lower === "src/hooks/pre-commit.ts"
+        );
+      };
+
+      const violations: string[] = [];
+
+      for (const file of stagedFiles) {
+        // Read the staged content (index version, not working tree)
+        let content: string;
+        try {
+          const catResult = await execGitWithTimeout("show", `show :${file}`, {
+            workdir: this.projectRoot,
+            timeout: 5000,
+          });
+          content = catResult.stdout.toString();
+        } catch {
+          // File may be binary or unavailable — skip
+          continue;
+        }
+
+        // Check 1: node shebang (applies to every staged file)
+        if (
+          content.startsWith("#!/usr/bin/env node\n") ||
+          content.startsWith("#!/usr/bin/env node\r")
+        ) {
+          violations.push(
+            `${file}: has '#!/usr/bin/env node' shebang — use '#!/usr/bin/env bun' instead`
+          );
+        }
+
+        // Checks 2 & 3: npm run / npx in source text (exempt docs/config)
+        if (!isDocOrConfig(file)) {
+          const lines = content.split("\n");
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i] ?? "";
+            const lineNum = i + 1;
+
+            // Skip comment lines that explain what NOT to do (e.g. rule documentation)
+            const stripped = line.trimStart();
+            if (stripped.startsWith("//") || stripped.startsWith("*") || stripped.startsWith("#")) {
+              continue;
+            }
+
+            if (/npm run /.test(line)) {
+              violations.push(`${file}:${lineNum}: contains 'npm run' — use 'bun run' instead`);
+            }
+            if (/\bnpx /.test(line)) {
+              violations.push(`${file}:${lineNum}: contains 'npx' — use 'bunx' instead`);
+            }
+          }
+        }
+      }
+
+      if (violations.length > 0) {
+        log.cli("❌ Node.js shims detected in staged files! Commit blocked.");
+        log.cli("");
+        for (const v of violations) {
+          log.cli(`   🚫 ${v}`);
+        }
+        log.cli("");
+        log.cli("💡 Replace Node.js idioms with Bun equivalents:");
+        log.cli("   • Shebang:  #!/usr/bin/env node  →  #!/usr/bin/env bun");
+        log.cli("   • Runner:   npm run <script>     →  bun run <script>");
+        log.cli("   • Executor: npx <pkg>            →  bunx <pkg>");
+        log.cli("📖 See bun_over_node.mdc for details.");
+        return {
+          success: false,
+          message: `Node.js shims found in ${violations.length} location(s)`,
+          exitCode: 1,
+        };
+      }
+
+      log.cli("✅ No Node.js shims in staged files.");
+      return { success: true, message: "Node shim check passed", exitCode: 0 };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ Node shim check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Node shim check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 

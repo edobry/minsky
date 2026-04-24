@@ -327,6 +327,17 @@ export default [
       "no-restricted-imports": [
         "error",
         {
+          // Ban node:child_process — use Bun.$ or Bun.spawn instead.
+          // Bare "child_process" imports are tracked for future migration (mt#1152).
+          // The node: protocol form is the stricter target because new code should
+          // never reach for child_process at all; Bun's native APIs are preferred.
+          paths: [
+            {
+              name: "node:child_process",
+              message:
+                "Use Bun.$ (shell) or Bun.spawn/Bun.spawnSync instead of node:child_process. See bun_over_node.mdc.",
+            },
+          ],
           patterns: [
             {
               group: [
