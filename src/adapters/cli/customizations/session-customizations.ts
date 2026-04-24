@@ -32,7 +32,7 @@ export function getSessionCustomizations(): {
         },
         "session.start": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID (optional, alternative to --task)",
             },
@@ -102,7 +102,7 @@ export function getSessionCustomizations(): {
         },
         "session.get": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID (optional, alternative to --task)",
             },
@@ -114,7 +114,7 @@ export function getSessionCustomizations(): {
         },
         "session.dir": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID",
             },
@@ -126,7 +126,7 @@ export function getSessionCustomizations(): {
         },
         "session.delete": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID",
             },
@@ -138,7 +138,7 @@ export function getSessionCustomizations(): {
         },
         "session.update": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID",
             },
@@ -150,7 +150,7 @@ export function getSessionCustomizations(): {
         },
         "session.approve": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID",
             },
@@ -226,7 +226,7 @@ export function getSessionCustomizations(): {
             bodyPath: {
               description: "Path to file containing PR body text",
             },
-            name: {
+            sessionId: {
               description: "Session ID (auto-detected from workspace if not provided)",
             },
             task: {
@@ -288,9 +288,6 @@ export function getSessionCustomizations(): {
           parameters: {
             sessionId: {
               description: "Session ID to look up PR for (positional)",
-            },
-            name: {
-              description: "Session ID",
             },
             task: {
               alias: "t",

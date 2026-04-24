@@ -45,7 +45,7 @@ describe("Session Command Domain Logic", () => {
     test("resolves session by explicit name", async () => {
       const result = await sessionGet(
         {
-          name: "test-session",
+          sessionId: "test-session",
           json: false,
         },
         {
@@ -78,7 +78,7 @@ describe("Session Command Domain Logic", () => {
       await expect(
         sessionGet(
           {
-            name: "non-existent",
+            sessionId: "non-existent",
             json: false,
           },
           {
@@ -107,7 +107,7 @@ describe("Session Command Domain Logic", () => {
     test("deletes session by explicit name", async () => {
       const result = await sessionDelete(
         {
-          name: "test-session",
+          sessionId: "test-session",
           force: true,
           json: false,
         },
@@ -150,7 +150,7 @@ describe("Session Command Domain Logic", () => {
 
       const result = await sessionDelete(
         {
-          name: "non-existent",
+          sessionId: "non-existent",
           force: true,
           json: false,
         },
@@ -192,7 +192,7 @@ describe("Session Command Domain Logic", () => {
       // Test error messages are consistent across commands
       expect(() => {
         throw new ResourceNotFoundError(
-          "No session detected. Please provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
+          "No session detected. Please provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
         );
       }).toThrow(expectedErrorPattern);
     });
@@ -207,7 +207,7 @@ describe("Session Command Domain Logic", () => {
 
       // Test the same behavior through the domain function
       const result = await sessionGet(
-        { name: "test-session", json: false },
+        { sessionId: "test-session", json: false },
         { sessionDB: mockSessionProvider }
       );
       expect(result?.taskId).toBe("md#123");
@@ -216,9 +216,9 @@ describe("Session Command Domain Logic", () => {
     test("session resolution is deterministic with same inputs", async () => {
       // Run the same operation multiple times to ensure deterministic behavior
       const results = await Promise.all([
-        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
-        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
-        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
       ]);
 
       // All results should be identical

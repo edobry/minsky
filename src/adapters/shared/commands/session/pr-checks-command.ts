@@ -51,7 +51,6 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
         const result = await sessionPrChecks(
           {
             sessionId: params.sessionId as string | undefined,
-            name: params.name as string | undefined,
             task: params.task as string | undefined,
             repo: params.repo as string | undefined,
             wait: params.wait as boolean | undefined,

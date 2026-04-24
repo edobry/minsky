@@ -24,7 +24,6 @@ export interface SessionPrChecksDependencies {
 
 export interface SessionPrChecksParams {
   sessionId?: string;
-  name?: string;
   task?: string;
   repo?: string;
   /** When true, poll until all checks complete (or timeout). */
@@ -49,7 +48,7 @@ export async function sessionPrChecks(
   try {
     // Resolve session
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionId ?? params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,

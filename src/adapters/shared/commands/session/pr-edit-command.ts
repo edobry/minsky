@@ -20,7 +20,7 @@ import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommand
 import { composeConventionalTitle } from "./pr-conventional-title";
 
 export interface SessionPrEditParams {
-  name?: string;
+  sessionId?: string;
   task?: string;
   repo?: string;
   json?: boolean;
@@ -42,7 +42,7 @@ function handlePrError(error: unknown, params: SessionPrEditParams): Error {
     );
   } else if (errorMessage.includes("No pull request found")) {
     return new MinskyError(
-      `🔍 No PR found for this session.\n\nThe session '${params.name || params.task}' doesn't have an existing pull request to edit.\n\n💡 Try:\n• Create a PR first: minsky session pr create --title "..." --body "..."\n• Check available PRs: minsky session pr list\n• Verify you're in the correct session\n\nTechnical details: ${errorMessage}`
+      `🔍 No PR found for this session.\n\nThe session '${params.sessionId || params.task}' doesn't have an existing pull request to edit.\n\n💡 Try:\n• Create a PR first: minsky session pr create --title "..." --body "..."\n• Check available PRs: minsky session pr list\n• Verify you're in the correct session\n\nTechnical details: ${errorMessage}`
     );
   } else if (
     errorMessage.includes("Permission denied") ||
@@ -53,7 +53,7 @@ function handlePrError(error: unknown, params: SessionPrEditParams): Error {
     );
   } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
     return new MinskyError(
-      `🔍 Session not found.\n\nThe session '${params.name || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
+      `🔍 Session not found.\n\nThe session '${params.sessionId || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
     );
   } else {
     return new MinskyError(
@@ -81,7 +81,7 @@ export async function executeSessionPrEdit(
     const interfaceType = context.interface as "cli" | "mcp";
 
     if (interfaceType === "mcp") {
-      let sessionId = params.name;
+      let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
           "../../../../domain/session/session-context-resolver"
@@ -118,7 +118,7 @@ export async function executeSessionPrEdit(
           const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
           const resolved = await resolveSessionContextWithFeedback({
-            session: params.name,
+            sessionId: params.sessionId,
             task: params.task,
             repo: params.repo,
             sessionProvider: deps.sessionProvider,
@@ -151,7 +151,7 @@ export async function executeSessionPrEdit(
         title: finalTitle,
         body: params.body,
         bodyPath: params.bodyPath,
-        name: params.name,
+        sessionId: params.sessionId,
         task: params.task,
         repo: params.repo,
         debug: params.debug,

@@ -24,7 +24,7 @@ export async function sessionPrCreate(
     title?: string;
     body?: string;
     bodyPath?: string;
-    name?: string;
+    sessionId?: string;
     task?: string;
     repo?: string;
     noStatusUpdate?: boolean;
@@ -52,7 +52,7 @@ export async function sessionPrCreate(
   if (params.draft) {
     // Validate backend type for draft mode
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
@@ -78,7 +78,7 @@ export async function sessionPrCreate(
   // Delegate to existing session pr implementation (handles both draft and regular PRs)
   const result = await sessionPr(
     {
-      session: params.name,
+      session: params.sessionId,
       task: params.task,
       repo: params.repo,
       title: params.title || "",

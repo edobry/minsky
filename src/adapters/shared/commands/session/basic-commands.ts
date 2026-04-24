@@ -66,14 +66,14 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
       const service = new SessionService(deps);
 
       const session = await service.get({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
       });
 
       if (!session) {
-        const identifier = params.name || params.task || "unknown";
+        const identifier = params.sessionId || params.task || "unknown";
         throw new Error(`Session '${identifier}' not found`);
       }
 
@@ -116,12 +116,11 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
       const service = new SessionService(deps);
 
       const session = await service.start({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         description: params.description as string | undefined,
         branch: params.branch as string | undefined,
         repo: params.repo as string | undefined,
-        session: params.session as string | undefined,
         json: (params.json as boolean | undefined) ?? false,
         quiet: (params.quiet as boolean | undefined) ?? false,
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
@@ -152,7 +151,7 @@ export function createSessionDirCommand(getDeps: LazySessionDeps): CommandDefini
       const service = new SessionService(deps);
 
       const directory = await service.getDir({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
@@ -227,7 +226,7 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
       const service = new SessionService(deps);
 
       const workdir = await service.getDir({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
       });

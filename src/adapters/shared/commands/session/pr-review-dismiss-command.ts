@@ -30,7 +30,6 @@ export function createSessionPrReviewDismissCommand(getDeps: LazySessionDeps): C
           const result = await sessionPrReviewDismiss(
             {
               sessionId: params.sessionId as string | undefined,
-              name: params.name as string | undefined,
               task: params.task as string | undefined,
               repo: params.repo as string | undefined,
               reviewId: params.reviewId as number,

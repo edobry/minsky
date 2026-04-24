@@ -69,7 +69,15 @@ async function validatePreconditions(
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<ValidatedSessionContext> {
-  const { name, repo, task, description, branch, noStatusUpdate, quiet } = params;
+  const {
+    sessionId: inputSessionId,
+    repo,
+    task,
+    description,
+    branch,
+    noStatusUpdate,
+    quiet,
+  } = params;
 
   const currentDir = process.env.PWD || process.cwd();
   const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
@@ -115,7 +123,7 @@ Navigate to your main workspace and try again:
   }
 
   // Determine the session ID using task ID if provided
-  let sessionId = name;
+  let sessionId = inputSessionId;
   let taskId: string | undefined = task;
 
   // Auto-create task if description is provided but no task ID
@@ -480,7 +488,7 @@ export async function startSessionImpl(
 ): Promise<Session> {
   try {
     log.debug("Starting session with params", {
-      name: params.name,
+      sessionId: params.sessionId,
       task: params.task,
       inputBranch: params.branch,
       noStatusUpdate: params.noStatusUpdate,

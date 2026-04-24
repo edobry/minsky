@@ -39,7 +39,7 @@ describe("resolveSessionContext", () => {
   describe("explicit session resolution", () => {
     test("resolves existing session by name", async () => {
       const result = await resolveSessionContext({
-        session: "test-session",
+        sessionId: "test-session",
         sessionProvider: mockSessionProvider,
         allowAutoDetection: false,
       });
@@ -53,7 +53,7 @@ describe("resolveSessionContext", () => {
     test("throws error for non-existent session", async () => {
       await expect(
         resolveSessionContext({
-          session: "non-existent",
+          sessionId: "non-existent",
           sessionProvider: mockSessionProvider,
           allowAutoDetection: false,
         })
@@ -100,7 +100,7 @@ describe("resolveSessionContext", () => {
   describe("precedence", () => {
     test("explicit session takes precedence over task", async () => {
       const result = await resolveSessionContext({
-        session: "test-session",
+        sessionId: "test-session",
         task: "md#456",
         sessionProvider: mockSessionProvider,
         allowAutoDetection: false,
@@ -127,7 +127,7 @@ describe("resolveSessionId", () => {
     });
 
     const sessionId = await resolveSessionId({
-      session: "test-session",
+      sessionId: "test-session",
       sessionProvider: mockSessionProvider,
       allowAutoDetection: false,
     });
@@ -151,7 +151,7 @@ describe("validateSessionContext", () => {
     });
 
     const isValid = await validateSessionContext({
-      session: "test-session",
+      sessionId: "test-session",
       sessionProvider: mockSessionProvider,
       allowAutoDetection: false,
     });
@@ -163,7 +163,7 @@ describe("validateSessionContext", () => {
     const mockSessionProvider = new FakeSessionProvider();
 
     const isValid = await validateSessionContext({
-      session: "non-existent",
+      sessionId: "non-existent",
       sessionProvider: mockSessionProvider,
       allowAutoDetection: false,
     });

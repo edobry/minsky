@@ -109,7 +109,7 @@ export class SessionService {
    */
   async start(params: SessionStartParams): Promise<Session> {
     const sessionStartParams = {
-      name: params.name,
+      sessionId: params.sessionId,
       task: params.task,
       description: params.description || "",
       branch: params.branch,

@@ -23,7 +23,7 @@ describe("session pr edit - conventional commit title validation", () => {
         deps,
         {
           title: "Update the title without proper prefix",
-          name: "dummy-session",
+          sessionId: "dummy-session",
         },
         context
       )
@@ -35,7 +35,7 @@ describe("session pr edit - conventional commit title validation", () => {
       deps,
       {
         title: "feat(core): improve handling",
-        name: "dummy-session",
+        sessionId: "dummy-session",
         body: "placeholder",
       },
       context
@@ -52,7 +52,7 @@ describe("session pr edit - conventional commit title validation", () => {
       {
         type: "feat",
         title: "add x",
-        name: "dummy-session",
+        sessionId: "dummy-session",
         body: "placeholder",
       },
       context
