@@ -28,6 +28,7 @@ import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { buildAndStartScheduler } from "./scheduler-wiring";
+import { setHostedMode } from "../../domain/configuration/guard";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -281,6 +282,9 @@ export function createStartCommand(
             log.cliError(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
             exit(1);
           }
+          // Hosted MCP: the developer-setup guard is a dev-laptop UX nudge and
+          // does not apply to a server process. See mt#1208.
+          setHostedMode(true);
         }
 
         const projectContext = resolveProjectContext(options.repo);

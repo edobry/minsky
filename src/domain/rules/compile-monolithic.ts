@@ -36,10 +36,10 @@ export interface CompileResult {
 const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
   "Build & Test": ["bun_over_node", "tests"],
   "Code Style": ["comments", "constants-management", "ensure-ascii-code-symbols"],
-  Architecture: ["domain-oriented-modules", "command-organization"],
+  Architecture: ["domain-oriented-modules", "architecture"],
   Testing: ["designing-tests"],
   "Minsky Workflow": ["minsky-workflow", "minsky-workflow-orchestrator"],
-  "Git & PR Workflow": ["git-usage-policy", "pr-description-guidelines", "pr-preparation-workflow"],
+  "Git & PR Workflow": ["pr-description-guidelines", "pr-preparation-workflow"],
   Boundaries: ["operational-safety-dry-run-first", "terminal-command-best-practices"],
 };
 

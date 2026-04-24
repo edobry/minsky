@@ -35,7 +35,7 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "constants-management",
     "cli-output-design",
   ],
-  safety: ["operational-safety-dry-run-first", "dont-ignore-errors", "git-usage-policy"],
+  safety: ["operational-safety-dry-run-first", "dont-ignore-errors", "git-safety"],
 };
 
 export const rulesConfigSchema = z
