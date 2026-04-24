@@ -104,6 +104,22 @@ interface PromptDefinition {
 }
 
 /**
+ * Return the standard MCP server capabilities object used by both the shared server
+ * (stdio mode) and per-session servers (HTTP mode).  Centralised here so that any
+ * capability additions are automatically applied to all server instances.
+ */
+function createServerCapabilities() {
+  return {
+    capabilities: {
+      tools: {},
+      resources: {},
+      prompts: {},
+      logging: {},
+    },
+  } as const;
+}
+
+/**
  * MinskyMCPServer is the main class for the Minsky MCP server
  * It handles the MCP protocol communication and tool registration using the official SDK
  */
@@ -167,14 +183,7 @@ export class MinskyMCPServer {
         name: this.options.name,
         version: this.options.version,
       },
-      {
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
-          logging: {},
-        },
-      }
+      createServerCapabilities()
     );
 
     this.diag.captureInit(this.server);
@@ -183,12 +192,14 @@ export class MinskyMCPServer {
     if (this.options.transportType === "stdio") {
       this.transport = new StdioServerTransport();
       log.debug("Created stdio transport");
+      // Set up request handlers on the shared server (stdio mode only).
+      // HTTP mode creates per-session servers in handleHttpPost; the shared
+      // server is never connected in that mode so registering handlers on it
+      // would be misleading and waste memory.
+      this.setupRequestHandlers(this.server);
     } else {
       log.debug("HTTP transport mode - transports will be created on-demand per session");
     }
-
-    // Set up request handlers on the shared server (stdio mode only; HTTP uses per-session servers)
-    this.setupRequestHandlers(this.server);
 
     log.systemDebug(
       `[MCP] Server instance created with transport type: ${this.options.transportType}`
@@ -267,7 +278,7 @@ export class MinskyMCPServer {
       // Create a fresh Server instance for this session
       const sessionServer = new Server(
         { name: this.options.name, version: this.options.version },
-        { capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} } }
+        createServerCapabilities()
       );
       this.setupRequestHandlers(sessionServer);
 
