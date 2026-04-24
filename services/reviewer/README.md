@@ -59,6 +59,23 @@ Reviewer runs on Tier 3 PRs (agent-authored) mandatory, Tier 2 (co-authored) opt
 
 **Sprint B/C:** switch to reading Minsky's provenance record directly via Minsky MCP — eliminates the marker-forgetting failure mode.
 
+## Tool access (mt#1126)
+
+The reviewer exposes two read-only tools to the model during review so it can verify cross-file claims before reporting them as findings:
+
+| Tool                   | Description                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `read_file(path)`      | Read a file at the PR's HEAD ref. Returns file content or `null` (404).                       |
+| `list_directory(path)` | List immediate children of a directory at HEAD ref. Returns `[{name, type}]` or `null` (404). |
+
+Both tools use the `contents: read` permission the App already holds.
+
+**Provider support (MVP):** OpenAI only. The reviewer runs a multi-turn completion loop — when the model returns tool calls, they are executed and results appended as messages, then the model is called again. Gemini and Anthropic fall back to the existing single-turn path with a warning log.
+
+**Iteration cap:** The loop runs at most 10 rounds. If the cap is hit, the model is given one final turn to produce a text response; if no text is produced, the review body contains a `[TOOL CAP REACHED]` notice.
+
+**Behavioral contract:** The `CRITIC_CONSTITUTION` instructs the model that any cross-file claim not backed by a tool call must be marked `[NON-BLOCKING] NEEDS VERIFICATION`. Verified claims may be escalated to `[BLOCKING]`.
+
 ## Self-hosting
 
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.

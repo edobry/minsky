@@ -10,12 +10,15 @@ import {
   createOctokit,
   fetchPullRequestContext,
   getAppIdentity,
+  listDirectoryAtRef,
+  readFileAtRef,
   submitReview,
   type SubmittedReview,
 } from "./github-client";
 import { buildReviewPrompt, CRITIC_CONSTITUTION } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { decideRouting, extractTierFromPRBody, type AuthorshipTier } from "./tier-routing";
+import type { ReviewerToolContext } from "./tools";
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -108,7 +111,15 @@ export async function runReview(
     baseBranch: pr.baseBranch,
   });
 
-  const output = await callReviewer(config, CRITIC_CONSTITUTION, userPrompt);
+  // Construct the tool context for this PR's HEAD ref. The model can use these
+  // to verify cross-file claims before reporting them as findings.
+  const toolContext: ReviewerToolContext = {
+    readFile: (path: string) => readFileAtRef(octokit, pr.owner, pr.repo, path, pr.headSha),
+    listDirectory: (path: string) =>
+      listDirectoryAtRef(octokit, pr.owner, pr.repo, path, pr.headSha),
+  };
+
+  const output = await callReviewer(config, CRITIC_CONSTITUTION, userPrompt, toolContext);
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.
