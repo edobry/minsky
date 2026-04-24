@@ -15,7 +15,7 @@ import type { ChangesetDetails } from "../changeset/adapter-interface";
  * Interface for session review parameters
  */
 export interface SessionReviewParams {
-  session?: string;
+  sessionId?: string;
   task?: string;
   repo?: string;
   output?: string;
@@ -66,7 +66,7 @@ export async function sessionReviewImpl(
   params: SessionReviewParams,
   deps: SessionReviewDependencies
 ): Promise<SessionReviewResult> {
-  let sessionIdToUse = params.session;
+  let sessionIdToUse = params.sessionId;
   let taskId: string | undefined;
 
   // Try to get session from task ID if provided

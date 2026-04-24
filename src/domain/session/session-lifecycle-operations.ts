@@ -28,12 +28,12 @@ export async function getSessionImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<Session | null> {
-  const { name, task, repo } = params;
+  const { name: sessionId, task, repo } = params;
 
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: name,
+      sessionId,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -105,11 +105,11 @@ export async function deleteSessionImpl(
     fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
   }
 ): Promise<DeleteSessionResult> {
-  const { name, task, repo } = params;
+  const { name: sessionId, task, repo } = params;
   const fsOps = deps.fs ?? { existsSync, rmSync };
 
   // Delete is destructive — require explicit identification, never auto-detect
-  if (!name && !task && !repo) {
+  if (!sessionId && !task && !repo) {
     return {
       deleted: false,
       error: "Session delete requires a session name (--name) or task ID (--task)",
@@ -120,7 +120,7 @@ export async function deleteSessionImpl(
 
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: name,
+      sessionId,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -130,12 +130,12 @@ export async function deleteSessionImpl(
   } catch (error) {
     // Non-existent session is not an error for delete — return structured false
     if (error instanceof ResourceNotFoundError) {
-      const msg = `Session not found: ${name || task || repo}`;
+      const msg = `Session not found: ${sessionId || task || repo}`;
       log.debug(msg);
       return { deleted: false, error: msg };
     }
     if (error instanceof ValidationError) {
-      const msg = `No session context resolved for deletion: ${name || task || repo}`;
+      const msg = `No session context resolved for deletion: ${sessionId || task || repo}`;
       log.debug(msg);
       return { deleted: false, error: msg };
     }
@@ -224,7 +224,7 @@ export async function getSessionDirImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<string> {
-  let sessionId: string;
+  let resolvedId: string;
 
   if (params.task && !params.name) {
     // Find session by task ID
@@ -235,9 +235,9 @@ export async function getSessionDirImpl(
       throw new ResourceNotFoundError(`No session found for task ID "${validatedTaskId}"`);
     }
 
-    sessionId = session.session;
+    resolvedId = session.session;
   } else if (params.name) {
-    sessionId = params.name;
+    resolvedId = params.name;
   } else {
     throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
 
@@ -258,13 +258,13 @@ You must provide either a session ID or task ID to get the session directory.
   • Check current session: minsky session inspect`);
   }
 
-  const session = await deps.sessionDB.getSession(sessionId);
+  const session = await deps.sessionDB.getSession(resolvedId);
 
   if (!session) {
-    throw new ResourceNotFoundError(`Session "${sessionId}" not found`);
+    throw new ResourceNotFoundError(`Session "${resolvedId}" not found`);
   }
 
-  return deps.sessionDB.getSessionWorkdir(sessionId);
+  return deps.sessionDB.getSessionWorkdir(resolvedId);
 }
 
 /**

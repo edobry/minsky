@@ -123,7 +123,7 @@ export async function sessionPrImpl(
   }
 
   // STEP 3: Determine session ID from explicit parameter or directory (CLI only)
-  let sessionId = params.session;
+  let sessionId = params.sessionId ?? params.session;
 
   // For CLI interface, try to extract session ID from directory if not explicitly provided
   if (!sessionId && interfaceType === "cli") {

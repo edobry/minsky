@@ -242,7 +242,10 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       const reviewResult = await sessionReviewImpl(
         {
-          session: (params.session as string | undefined) || (params.name as string | undefined),
+          sessionId:
+            (params.sessionId as string | undefined) ||
+            (params.session as string | undefined) ||
+            (params.name as string | undefined),
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
