@@ -2,13 +2,12 @@ import { describe, it, expect } from "bun:test";
 import { resolveActiveRules } from "./rule-selection";
 import { RULE_PRESETS } from "../configuration/schemas/rules";
 
-const SESSION_FIRST_WORKFLOW_ID = "session-first-workflow";
+const PR_PREPARATION_WORKFLOW_ID = "pr-preparation-workflow";
 
 const ALL_RULES = [
   "minsky-workflow",
-  SESSION_FIRST_WORKFLOW_ID,
   "task-status-protocol",
-  "pr-preparation-workflow",
+  PR_PREPARATION_WORKFLOW_ID,
   "no-dynamic-imports",
   "designing-tests",
   "bun-test-patterns",
@@ -66,7 +65,7 @@ describe("resolveActiveRules", () => {
     });
     expect(active.has("minsky-workflow")).toBe(false);
     // Rest of the preset is still included
-    expect(active.has(SESSION_FIRST_WORKFLOW_ID)).toBe(true);
+    expect(active.has("task-status-protocol")).toBe(true);
   });
 
   it("silently ignores unknown presets", () => {
@@ -94,10 +93,10 @@ describe("resolveActiveRules", () => {
     const active = resolveActiveRules(ALL_RULES, {
       presets: ["minsky-core"],
       enabled: [],
-      disabled: [SESSION_FIRST_WORKFLOW_ID, "task-status-protocol"],
+      disabled: ["task-status-protocol", PR_PREPARATION_WORKFLOW_ID],
     });
-    expect(active.has(SESSION_FIRST_WORKFLOW_ID)).toBe(false);
     expect(active.has("task-status-protocol")).toBe(false);
+    expect(active.has(PR_PREPARATION_WORKFLOW_ID)).toBe(false);
     // Others from preset still active
     expect(active.has("minsky-workflow")).toBe(true);
   });

@@ -157,7 +157,6 @@ Before moving to the next phase, ensure:
 This workflow integrates with:
 
 - **task-status-protocol**: For detailed status management procedures
-- **session-first-workflow**: For session creation and navigation requirements
 - **pr-preparation-workflow**: For PR creation and submission details
 - **minsky-workflow-orchestrator**: For overall workflow context
 - **tests**: For testing requirements and procedures

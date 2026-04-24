@@ -33,10 +33,6 @@ This rule applies to all code, documentation, and configuration files in the pro
 
 # Test Execution and Verification
 
-## Integration with Testing Rule System
-- This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
-- This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
-
 ## Test Execution Requirements
 
 ### Pace and Integrity
@@ -124,7 +120,7 @@ const mockFn = createMock();
 mockModule("../path/to/module", () => ({}));
 ```
 
-See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
+See [bun-test-patterns](mdc:.minsky/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
 
 ## Code Style
 
@@ -438,7 +434,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testable-design, orchestrate skill, session-first-workflow
+- See also: testable-design, orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -625,29 +621,6 @@ See also: `testing-boundaries` for specific guidance on CLI and framework testin
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
 
-## Minsky Workflow
-
-# Session-First Workflow
-
-All code, test, and configuration changes for a task MUST be made exclusively within the session workspace.
-
-## Requirements
-
-- All file operations in session workspaces MUST use absolute paths.
-- Session directory pattern: `/Users/edobry/.local/state/minsky/sessions/<session-id>/`
-- Never edit files in the main workspace while implementing a task.
-- If the main project has a bug, create a separate task — do not fix it in-place.
-- Never copy files between session and main workspace manually. Use the branch/PR process.
-
-## Main Workspace Edits Prohibition
-
-NEVER make direct code changes to files within the main Minsky project workspace (e.g., `/Users/edobry/Projects/minsky`). All fixes must go through a task's dedicated session workspace and the standard PR process.
-
-## See also
-
-- `implement-task` skill for the full implementation lifecycle
-- `orchestrate` skill for the master workflow
-
 ## Git & PR Workflow
 
 # Git Usage Policy
@@ -667,7 +640,6 @@ General best practices for Git usage in the Minsky project. For safety protocols
 
 - `git-safety` skill: Safety protocols for destructive git operations
 - `orchestrate` skill: How Git operations fit into the broader Minsky workflow
-- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
 
 ## Boundaries
 
@@ -685,21 +657,21 @@ Keep potentially destructive operations safe by default.
 
 // AVOID: applying by default
 ```
-minsky sessiondb migrate
+minsky persistence migrate
 # applies immediately
 ```
 
 // PREFER: safe default with explicit execution
 ```
 # preview
-minsky sessiondb migrate --dry-run
+minsky persistence migrate --dry-run
 
 # apply (must be explicit)
-minsky sessiondb migrate --execute
+minsky persistence migrate --execute
 ```
 
 ## Cross-References
-- See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
+- See `persistence.migrate` behavior and other commands using `--execute` semantics.
 
 # Terminal Command Best Practices
 
@@ -863,6 +835,8 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 ```
 
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
+
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
 
 # Key Workflows (via skills)
 

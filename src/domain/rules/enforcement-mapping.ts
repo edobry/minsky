@@ -56,7 +56,7 @@ export interface EnforcementMapping {
 export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
   // ── Naming conventions (process-thinking names) ───────────────────────────
   {
-    ruleId: "naming-conventions",
+    ruleId: "meta-cognitive-boundary-protocol",
     mechanisms: [
       {
         type: "eslint",

@@ -7,7 +7,7 @@ import {
 } from "./enforcement-mapping";
 import { first } from "../../utils/array-safety";
 
-const NAMING_CONVENTIONS_RULE_ID = "naming-conventions";
+const NAMING_CONVENTIONS_RULE_ID = "meta-cognitive-boundary-protocol";
 const BUN_TEST_PATTERNS_RULE_ID = "bun-test-patterns";
 
 // Claude Code hook rule IDs — extracted to avoid magic-string-duplication warnings

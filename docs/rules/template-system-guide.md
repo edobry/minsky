@@ -26,11 +26,11 @@ The system includes 7 core templates:
 
 1. **minsky-workflow-orchestrator** - Main workflow entry point
 2. **task-implementation-workflow** - Step-by-step task implementation
-3. **task-status-protocol** - Task status checking and updates
-4. **pr-preparation-workflow** - PR creation and submission
-5. **minsky-workflow** - Basic workflow concepts
-6. **index** - Rule system overview
-7. **mcp-usage** - MCP-specific usage patterns
+3. **minsky-session-management** - Session creation and management
+4. **task-status-protocol** - Task status checking and updates
+5. **pr-preparation-workflow** - PR creation and submission
+6. **minsky-workflow** - Basic workflow concepts
+7. **index** - Rule system overview
 
 ## Interface Modes
 

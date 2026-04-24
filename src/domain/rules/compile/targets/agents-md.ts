@@ -19,7 +19,7 @@ const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
   "Code Style": ["comments", "constants-management", "ensure-ascii-code-symbols"],
   Architecture: ["domain-oriented-modules", "command-organization"],
   Testing: ["designing-tests"],
-  "Minsky Workflow": ["minsky-workflow", "session-first-workflow", "minsky-workflow-orchestrator"],
+  "Minsky Workflow": ["minsky-workflow", "minsky-workflow-orchestrator"],
   "Git & PR Workflow": ["git-usage-policy", "pr-description-guidelines", "pr-preparation-workflow"],
   Boundaries: ["operational-safety-dry-run-first", "terminal-command-best-practices"],
 };
