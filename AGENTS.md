@@ -33,10 +33,6 @@ This rule applies to all code, documentation, and configuration files in the pro
 
 # Test Execution and Verification
 
-## Integration with Testing Rule System
-- This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
-- This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
-
 ## Test Execution Requirements
 
 ### Pace and Integrity
@@ -124,7 +120,7 @@ const mockFn = createMock();
 mockModule("../path/to/module", () => ({}));
 ```
 
-See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
+See [bun-test-patterns](mdc:.minsky/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
 
 ## Code Style
 
