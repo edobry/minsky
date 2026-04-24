@@ -2,10 +2,29 @@
 /**
  * Deploy Minsky MCP to Railway (mt#1130).
  *
- * Single-service deploy script. Not a generalized library — the Railway
- * workspace and `edobry/minsky` repo are hard-coded at the top. Follow-up
- * mt#1139 extracts the shared bits to scripts/lib/railway.ts once two
- * concrete consumers (this + minsky-reviewer retrofit) ground the interface.
+ * ========================================================================
+ * SCOPE: SINGLE-OPERATOR / SINGLE-PROJECT / SINGLE-SERVICE SCRIPT.
+ *
+ * This is NOT a portable deploy tool. It deploys `minsky-mcp` to
+ * `edobry/minsky`'s Railway workspace for a single operator (me). Workspace
+ * ID, repo, memory-file path, and required local config (config.yaml,
+ * minsky-app.pem) are all hard-coded or assumed present.
+ *
+ * It is the as-built snapshot of what drove the successful mt#1130 deploy.
+ * The reviewer (correctly) flags it against a general-purpose portability
+ * standard; those findings are deferred to mt#XXXX (rewrite to GraphQL-
+ * native, parameterized, per-phase config resolution). Landed here as v1.
+ *
+ * Known deferred limitations (see mt#XXXX):
+ *  - plan/verify read local config/PEM even though only verify really needs
+ *    the auth token → operator must have full Minsky config locally
+ *  - `railway up --detach` fires a build before env vars are set (first-run
+ *    crashed build is a known one-time waste)
+ *  - parseEnvFile drops comments/ordering when rewriting the env file
+ *  - whoami/domain/init CLI output shapes may drift across Railway versions
+ *  - integer semi-public IDs (APP_ID, INSTALLATION_ID) shown in full during
+ *    plan — intentional for operator visibility, not a secret leak
+ * ========================================================================
  *
  * Three phases, idempotent:
  *   --phase=plan    Read-only. Diffs this manifest against live Railway state.
@@ -332,25 +351,52 @@ type RailwayStatusRaw = {
 function readLinkedStatus(cwd: string): RawStatus | null {
   const r = sh("railway", ["status", "--json"], { cwd });
   if (!r.ok) return null;
+  let raw: RailwayStatusRaw;
   try {
-    const raw = JSON.parse(r.stdout) as RailwayStatusRaw;
-    if (!raw.id) return null;
-    const prodEnv = raw.environments?.edges?.find((e) => e.node?.name === "production")?.node;
-    // Pick service by name, not "first" — defensive against future multi-service
-    // expansion. Fall back to first service only if exact name isn't found yet
-    // (Railway sometimes names it differently at creation time, then renames).
-    const svcEdges = raw.services?.edges ?? [];
-    const byName = svcEdges.find((e) => e.node?.name === MANIFEST.project)?.node;
-    const chosen = byName ?? svcEdges[0]?.node;
-    return {
-      projectId: raw.id,
-      name: raw.name,
-      environmentId: prodEnv?.id,
-      serviceId: chosen?.id,
-    };
+    raw = JSON.parse(r.stdout) as RailwayStatusRaw;
   } catch {
     return null;
   }
+  if (!raw.id) return null;
+  const prodEnv = raw.environments?.edges?.find((e) => e.node?.name === "production")?.node;
+
+  // Service selection: fail hard rather than silently picking the wrong one.
+  const svcEdges = raw.services?.edges ?? [];
+  const byName = svcEdges.find((e) => e.node?.name === MANIFEST.project)?.node;
+  let serviceId: string | undefined;
+  if (byName) {
+    serviceId = byName.id;
+  } else if (svcEdges.length === 0) {
+    // No service yet — apply phase will create one via `railway up`.
+    serviceId = undefined;
+  } else if (svcEdges.length === 1) {
+    // Single service that doesn't match the expected name — accept as a race
+    // during initial creation (Railway occasionally names before rename
+    // completes). Log the mismatch so it's visible.
+    const only = svcEdges[0]?.node;
+    console.warn(
+      `  [warn] single service in project named "${only?.name ?? "?"}", ` +
+        `expected "${MANIFEST.project}" — proceeding anyway (likely initial-create race)`
+    );
+    serviceId = only?.id;
+  } else {
+    // Multiple services, none matching the expected name — unsafe to proceed.
+    // Refuse rather than operate on an unknown service (could mutate an
+    // unrelated Postgres addon, sidecar, etc.).
+    const names = svcEdges.map((e) => e.node?.name ?? "(unnamed)").join(", ");
+    throw new Error(
+      `Refusing to operate: project has ${svcEdges.length} services [${names}] ` +
+        `but none match MANIFEST.project "${MANIFEST.project}". ` +
+        `This script is single-service — fix the manifest or the project.`
+    );
+  }
+
+  return {
+    projectId: raw.id,
+    name: raw.name,
+    environmentId: prodEnv?.id,
+    serviceId,
+  };
 }
 
 /** Narrow a RawStatus to LinkedStatus or throw with a clear context. */
