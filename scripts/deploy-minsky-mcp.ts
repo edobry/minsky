@@ -486,9 +486,14 @@ async function createDeploymentTrigger(
  * material on the command line leaks it even if the application never prints
  * it. GraphQL sends the values in the POST body only.
  *
- * Uses `variableCollectionUpsert` (bulk) with `skipDeploys: true` so we don't
- * trigger N redeploys during apply — the subsequent trigger creation or
- * `railway up` fires exactly one build.
+ * `skipDeploys: false` — we WANT the upsert to fire a redeploy when values
+ * change. On first run it bundles with the trigger-create build; on
+ * subsequent runs when the trigger exists and values changed, this is the
+ * mechanism that propagates the change to the running container. An earlier
+ * iteration used skipDeploys:true and relied on trigger-create for the first
+ * build; on subsequent runs that meant var updates silently didn't propagate.
+ * Railway dedupes rapid-fire redeploy requests, so cascading multiple
+ * upserts back-to-back still produces approximately one build in practice.
  */
 async function upsertVariables(
   projectId: string,
@@ -510,7 +515,7 @@ async function upsertVariables(
         serviceId,
         variables,
         replace: false,
-        skipDeploys: true,
+        skipDeploys: false,
       },
     }
   );
@@ -697,8 +702,13 @@ async function phaseApply(opts: { cwd: string }): Promise<void> {
     console.log(`    set ${name}`);
   }
 
-  // 6. Domain (generate if missing).
-  const domain = await ensureDomain();
+  // 6. Domain — prefer GraphQL read (works for custom domains too); only fall
+  //    back to CLI generation if no domain is assigned yet.
+  let domain = await readServiceDomain(linked.environmentId, linked.serviceId);
+  if (!domain) {
+    console.log(`  No domain yet → running \`railway domain\` to generate one…`);
+    domain = await ensureDomain();
+  }
   console.log(`  Public URL: https://${domain}`);
 
   // 7. Deployment trigger.
@@ -720,11 +730,19 @@ async function phaseApply(opts: { cwd: string }): Promise<void> {
     console.log(`    triggerId=${triggerId}`);
   }
 
-  // 8. Redeploy notes.
-  //   `railway up` from step 3 already triggers a deploy on first run; trigger
-  //   creation in step 7 also fires a build when new; `railway variables --set`
-  //   in step 5 auto-triggers redeploys in modern CLI. No redundant redeploy
-  //   call needed here.
+  // 8. Redeploy semantics:
+  //   - First run: `railway up` (step 3) fires an initial build that will
+  //     crash (no env vars yet — known one-time wasted build). Then variable
+  //     upsert (step 5, skipDeploys:false) fires a second build with correct
+  //     config that succeeds.
+  //   - Subsequent runs with changed values: no `railway up`, but the
+  //     variable upsert with skipDeploys:false triggers a redeploy that
+  //     propagates the change to the running container.
+  //   - Subsequent runs with unchanged values: Railway returns no-op on
+  //     identical variables; no redeploy fires.
+  //   Deferring the first build until after env vars are set would require
+  //   GraphQL serviceCreate + explicit deploy mutation instead of `railway
+  //   up`; kept for mt#1139 extraction (acceptable tradeoff for first deploy).
 
   console.log("\nApply complete.");
 }
@@ -829,8 +847,18 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
 
   const results: { name: string; ok: boolean; detail: string }[] = [];
 
+  // 15-second timeout on each probe — Railway edge will respond quickly
+  // for healthy services; anything beyond 15s means something is wrong
+  // (container hung, edge 502 loop, SSE stream kept open, DNS delay).
+  const PROBE_TIMEOUT_MS = 15_000;
+  const probe = (url: string, init?: RequestInit): Promise<Response> => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), PROBE_TIMEOUT_MS);
+    return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
+  };
+
   // 1. /health (public, expect 200).
-  const health = await fetch(`${base}${MANIFEST.healthPath}`);
+  const health = await probe(`${base}${MANIFEST.healthPath}`);
   results.push({
     name: "GET /health → 200",
     ok: health.ok,
@@ -838,7 +866,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   });
 
   // 2. /mcp unauthenticated (expect 401).
-  const noAuth = await fetch(`${base}${MANIFEST.mcpPath}`, {
+  const noAuth = await probe(`${base}${MANIFEST.mcpPath}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
@@ -863,7 +891,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   //             header) and status is NOT 401.
   //    FAIL if: 401 (auth gate broken), Railway fallback (container dead),
   //             network error, or no response at all.
-  const authResp = await fetch(`${base}${MANIFEST.mcpPath}`, {
+  const authResp = await probe(`${base}${MANIFEST.mcpPath}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
