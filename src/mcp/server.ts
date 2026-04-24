@@ -138,9 +138,13 @@ export class MinskyMCPServer {
   // lastActiveAt is older than SESSION_IDLE_TIMEOUT_MS. Timeout is deliberately
   // generous so long-running tool calls / SSE streams aren't killed mid-flight
   // — lastActiveAt is also refreshed on every transport.onmessage so any
-  // client→server protocol traffic (including SSE resume) counts as activity.
+  // client→server protocol traffic counts as activity. Pure server→client SSE
+  // streams with no client traffic for the full timeout window will still be
+  // reaped; tune MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS (milliseconds) for workloads
+  // with very long-running streams.
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+  private readonly SESSION_IDLE_TIMEOUT_MS: number =
+    Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
   private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
 
   // Graceful shutdown tracking
@@ -335,28 +339,38 @@ export class MinskyMCPServer {
         }
       };
 
-      // Hook onmessage to refresh lastActiveAt on any protocol traffic.
-      // StreamableHTTPServerTransport forwards both the initial initialize POST
-      // and subsequent messages through this callback; updating here means
-      // long-running tool calls with ongoing client→server pings keep the
-      // session alive across the idle-timeout window.
+      // Hook onmessage to (a) refresh lastActiveAt on any client→server
+      // protocol traffic and (b) register the session in httpSessions the
+      // moment transport.sessionId is assigned. Registering here (rather
+      // than after handleRequest returns) closes the POST→GET race window:
+      // a client racing an SSE GET immediately after receiving the initialize
+      // response finds the session already in the map.
       const prevOnmessage = transport.onmessage;
       transport.onmessage = (message, extra) => {
         entry.lastActiveAt = Date.now();
+        const id = transport.sessionId;
+        if (id && !this.httpSessions.has(id)) {
+          this.httpSessions.set(id, entry);
+          log.debug("Registered new HTTP session via onmessage", { sessionId: id });
+        }
         prevOnmessage?.(message, extra);
       };
 
       session = entry;
-      log.debug("Created new HTTP session", { sessionId: transport.sessionId });
     }
 
     // Handle the request
     await session.transport.handleRequest(req, res, req.body);
 
-    // Store session if it has a session ID (only after first request)
+    // Defensive registration: under normal SDK behavior, onmessage already
+    // populated httpSessions before handleRequest returned. If the transport
+    // assigned a sessionId without firing onmessage for any reason, this
+    // catches that path.
     if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
       this.httpSessions.set(session.transport.sessionId, session);
-      log.debug("Stored HTTP session", { sessionId: session.transport.sessionId });
+      log.debug("Registered new HTTP session (post-handle fallback)", {
+        sessionId: session.transport.sessionId,
+      });
     }
   }
 
