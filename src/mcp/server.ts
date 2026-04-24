@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
@@ -108,7 +109,8 @@ interface PromptDefinition {
  */
 export class MinskyMCPServer {
   private server: Server;
-  private transport: StdioServerTransport | StreamableHTTPServerTransport;
+  // Only assigned in stdio mode. HTTP mode creates per-session transports in handleHttpPost.
+  private transport?: StdioServerTransport;
   private options: MinskyMCPServerOptions & {
     name: string;
     version: string;
@@ -122,8 +124,9 @@ export class MinskyMCPServer {
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
 
-  // For HTTP transport: map sessionId to transport for multiple clients
-  private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
+  // For HTTP transport: map sessionId to {server, transport} pairs for multiple clients
+  private httpSessions: Map<string, { server: Server; transport: StreamableHTTPServerTransport }> =
+    new Map();
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
@@ -181,14 +184,11 @@ export class MinskyMCPServer {
       this.transport = new StdioServerTransport();
       log.debug("Created stdio transport");
     } else {
-      // For HTTP transport, we'll create transports on-demand in handleHttpRequest
-      // This is a placeholder transport that won't be used
-      this.transport = new StdioServerTransport();
-      log.debug("HTTP transport mode - transports will be created on-demand");
+      log.debug("HTTP transport mode - transports will be created on-demand per session");
     }
 
-    // Set up request handlers
-    this.setupRequestHandlers();
+    // Set up request handlers on the shared server (stdio mode only; HTTP uses per-session servers)
+    this.setupRequestHandlers(this.server);
 
     log.systemDebug(
       `[MCP] Server instance created with transport type: ${this.options.transportType}`
@@ -234,57 +234,73 @@ export class MinskyMCPServer {
    * Handle HTTP POST requests - main MCP message handling
    */
   private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
-    let transport: StreamableHTTPServerTransport;
-
-    // Reuse existing transport if we have a session ID
-    if (sessionId && this.httpTransports.has(sessionId)) {
+    // Reuse existing session if we have a valid session ID
+    if (sessionId && this.httpSessions.has(sessionId)) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      transport = this.httpTransports.get(sessionId)!;
-    } else {
-      // Create new transport for new session
-      transport = new StreamableHTTPServerTransport({
+      const { transport } = this.httpSessions.get(sessionId)!;
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    // New session: only allow if this is an initialize request
+    if (!sessionId && isInitializeRequest(req.body)) {
+      // Create a fresh Server instance for this session
+      const sessionServer = new Server(
+        { name: this.options.name, version: this.options.version },
+        { capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} } }
+      );
+      this.setupRequestHandlers(sessionServer);
+
+      const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          this.httpSessions.set(id, { server: sessionServer, transport });
+          log.debug("HTTP session initialized", { sessionId: id });
+        },
+        onsessionclosed: (id) => {
+          this.httpSessions.delete(id);
+          log.debug("HTTP session closed", { sessionId: id });
+        },
       });
 
-      // Connect server to transport
-      await this.server.connect(transport);
-
-      log.debug("Created new HTTP transport", { sessionId: transport.sessionId });
+      await sessionServer.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
     }
 
-    // Handle the request
-    await transport.handleRequest(req, res, req.body);
-
-    // Store transport if it has a session ID (only after first request)
-    if (transport.sessionId && !this.httpTransports.has(transport.sessionId)) {
-      this.httpTransports.set(transport.sessionId, transport);
-      log.debug("Stored HTTP transport", { sessionId: transport.sessionId });
-    }
+    // All other cases: reject with JSON-RPC error
+    res.status(400).json({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Invalid Request: missing or unknown session id" },
+      id: null,
+    });
   }
 
   /**
    * Handle HTTP GET requests - SSE streaming
    */
   private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
-    if (!sessionId || !this.httpTransports.has(sessionId)) {
+    if (!sessionId || !this.httpSessions.has(sessionId)) {
       // Return 405 Method Not Allowed if no SSE stream available
       res.status(405).set("Allow", "POST").send("Method Not Allowed");
       return;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const transport = this.httpTransports.get(sessionId)!;
+    const { transport } = this.httpSessions.get(sessionId)!;
     await transport.handleRequest(req, res);
 
     log.debug("Established SSE stream", { sessionId });
   }
 
   /**
-   * Set up request handlers for tools, resources, and prompts
+   * Set up request handlers for tools, resources, and prompts on the given server instance.
+   * Accepts the server as a parameter so it can be applied to per-session Server instances.
+   * Closures capture `this` fields (tools, resources, prompts, stalenessDetector, diag, etc.).
    */
-  private setupRequestHandlers(): void {
+  private setupRequestHandlers(server: Server): void {
     // List tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
       return {
         tools: Array.from(this.tools.values()).map((tool) => ({
@@ -296,7 +312,7 @@ export class MinskyMCPServer {
     });
 
     // Call tool
-    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/call", request, extra);
       if (this.draining) {
         throw new Error("Server is shutting down");
@@ -364,7 +380,7 @@ export class MinskyMCPServer {
     });
 
     // List resources
-    this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
       this.diag.captureRequest("resources/list", request, extra);
       return {
         resources: Array.from(this.resources.values()).map((resource) => ({
@@ -376,7 +392,7 @@ export class MinskyMCPServer {
     });
 
     // Read resource
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
       this.diag.captureRequest("resources/read", request, extra);
       const resource = this.resources.get(request.params.uri);
       if (!resource) {
@@ -404,7 +420,7 @@ export class MinskyMCPServer {
     });
 
     // List prompts
-    this.server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("prompts/list", request, extra);
       return {
         prompts: Array.from(this.prompts.values()).map((prompt) => ({
@@ -415,7 +431,7 @@ export class MinskyMCPServer {
     });
 
     // Get prompt
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
+    server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
       this.diag.captureRequest("prompts/get", request, extra);
       const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
@@ -561,6 +577,9 @@ export class MinskyMCPServer {
     try {
       log.systemDebug("[MCP] Starting server initialization");
       if (this.options.transportType === "stdio") {
+        if (!this.transport) {
+          throw new Error("stdio transport not initialized");
+        }
         log.systemDebug("[MCP] Connecting to stdio transport");
         await this.server.connect(this.transport);
         log.cli("Minsky MCP Server started with stdio transport");
@@ -596,19 +615,20 @@ export class MinskyMCPServer {
   async close(): Promise<void> {
     try {
       if (this.options.transportType === "http") {
-        // Close all HTTP transports
-        for (const [sessionId, transport] of this.httpTransports.entries()) {
+        // Close all HTTP session {server, transport} pairs
+        for (const [sessionId, { server, transport }] of this.httpSessions.entries()) {
           try {
             await transport.close();
-            log.debug("Closed HTTP transport", { sessionId });
+            await server.close();
+            log.debug("Closed HTTP session", { sessionId });
           } catch (error) {
-            log.warn("Error closing HTTP transport", {
+            log.warn("Error closing HTTP session", {
               sessionId,
               error: getErrorMessage(error),
             });
           }
         }
-        this.httpTransports.clear();
+        this.httpSessions.clear();
       }
 
       await this.server.close();
