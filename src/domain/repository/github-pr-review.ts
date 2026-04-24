@@ -18,6 +18,7 @@ import {
   resolvePRNumber,
   findPRNumberForBranch,
 } from "./github-pr-operations";
+import type { ReviewListEntry } from "./index";
 
 export interface ReviewComment {
   /** Relative path of the file to comment on */
@@ -207,6 +208,79 @@ export async function dismissReview(
     if (error instanceof MinskyError) throw error;
     handleOctokitError(error, {
       operation: "dismiss pull request review",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+    throw error;
+  }
+}
+
+/**
+ * List all reviews on a GitHub pull request.
+ *
+ * Uses `octokit.rest.pulls.listReviews()` which returns a list of reviews
+ * on the PR. The reviews are mapped to the forge-neutral `ReviewListEntry`
+ * shape.
+ *
+ * Auth goes through `gh.getToken()` which honours the TokenProvider's
+ * service account when one is configured — so the dismissal is recorded
+ * under the bot identity (or the user identity when appropriate).
+ */
+export async function listReviews(
+  gh: GitHubContext,
+  prIdentifier: string | number
+): Promise<ReviewListEntry[]> {
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
+
+  try {
+    const token = await gh.getToken();
+    const octokit = createOctokit(token);
+
+    const response = await octokit.rest.pulls.listReviews({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+
+    const reviews = response.data;
+
+    log.info("GitHub PR reviews listed successfully", {
+      prNumber,
+      reviewCount: reviews.length,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+
+    return reviews.map((r): ReviewListEntry => {
+      // Normalize GitHub's free-form state string to the ReviewListEntry union.
+      // Unknown states fall through to COMMENTED (the most neutral option)
+      // rather than throwing — listing must never fail on a single odd row.
+      const normalizedState: ReviewListEntry["state"] =
+        r.state === "APPROVED" ||
+        r.state === "CHANGES_REQUESTED" ||
+        r.state === "COMMENTED" ||
+        r.state === "DISMISSED" ||
+        r.state === "PENDING"
+          ? r.state
+          : "COMMENTED";
+      return {
+        reviewId: r.id,
+        state: normalizedState,
+        submittedAt: r.submitted_at ?? undefined,
+        reviewerLogin: r.user?.login ?? null,
+        body: r.body ?? "",
+        htmlUrl: r.html_url,
+      };
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "list pull request reviews",
       owner: gh.owner,
       repo: gh.repo,
       prNumber,

@@ -628,6 +628,49 @@ export const sessionPrChecksCommandParams = {
 };
 
 /**
+ * Session PR Wait-For-Review command parameters (mt#1203)
+ * Blocks until a review appears on the session's PR, with optional
+ * reviewer-login and since-timestamp filters.
+ */
+export const sessionPrWaitForReviewCommandParams = {
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  timeoutSeconds: {
+    schema: z.number().int().min(1).max(1800),
+    description: "Maximum seconds to wait for a matching review (default: 600, max: 1800 / 30 min)",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number().int().min(5).max(60),
+    description: "Polling interval in seconds (default: 15, min: 5, max: 60)",
+    required: false,
+    defaultValue: 15,
+  },
+  reviewer: {
+    schema: z.string(),
+    description:
+      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
+      "Case-insensitive. Defaults to any reviewer.",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description:
+      "ISO-8601 timestamp; reviews submitted before this time are ignored. " +
+      "Defaults to the call's start time.",
+    required: false,
+  },
+};
+
+/**
  * Session PR Review Submit command parameters
  * Submits a GitHub PR review through Minsky using the bot identity
  */
