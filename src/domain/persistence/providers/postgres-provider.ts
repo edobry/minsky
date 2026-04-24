@@ -27,13 +27,25 @@ import { withPgPoolRetry } from "../postgres-retry";
 // pooler's global ceiling. Override via persistence.postgres.maxConnections
 // in config or MINSKY_POSTGRES_MAX_CONNECTIONS env var (mt#1193).
 const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
+// Upper bound matching the config schema's .max(100). Applied to env-var
+// overrides too so a misconfigured value can't re-saturate the pooler.
+const MAX_POSTGRES_MAX_CONNECTIONS = 100;
 
 function resolveMaxConnections(configured: number | undefined): number {
-  if (typeof configured === "number" && configured > 0) return configured;
+  const pick = (n: number): number => {
+    if (n > MAX_POSTGRES_MAX_CONNECTIONS) {
+      log.warn(
+        `maxConnections (${n}) exceeds upper bound (${MAX_POSTGRES_MAX_CONNECTIONS}); clamping to prevent pooler saturation`
+      );
+      return MAX_POSTGRES_MAX_CONNECTIONS;
+    }
+    return n;
+  };
+  if (typeof configured === "number" && configured > 0) return pick(configured);
   const envRaw = process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
   if (envRaw) {
     const parsed = Number(envRaw);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    if (Number.isFinite(parsed) && parsed > 0) return pick(parsed);
   }
   return DEFAULT_POSTGRES_MAX_CONNECTIONS;
 }

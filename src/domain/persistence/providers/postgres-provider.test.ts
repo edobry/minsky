@@ -138,4 +138,28 @@ describe("PostgresPersistenceProvider", () => {
 
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
+
+  test("close() exists and calls sql.end() to release pool sockets (mt#1193)", async () => {
+    // Use a dedicated mock whose end() we can observe
+    const endMock = mock(() => Promise.resolve());
+    const localSqlFn = mock(() => Promise.resolve([]));
+    const localSql = Object.assign(localSqlFn, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: endMock,
+    });
+
+    await provider.initialize({ sqlClient: localSql as any });
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+
+    await provider.close();
+
+    // Must actually release sockets (not a no-op) — this is what the MCP
+    // SIGTERM handler (start-command.ts) relies on to free pool slots
+    // promptly during Railway redeploys.
+    expect(endMock).toHaveBeenCalledTimes(1);
+    expect((provider as unknown as { sql: unknown }).sql).toBeNull();
+    expect((provider as unknown as { db: unknown }).db).toBeNull();
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
+  });
 });

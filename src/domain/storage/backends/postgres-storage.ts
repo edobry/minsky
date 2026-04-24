@@ -385,9 +385,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     try {
       return await withPgPoolRetry(async () => {
-        await this.ensureConnection();
-        // Use the non-retrying internal variant to avoid nested retry
-        // multiplying backoff delays and attempt counts.
+        // getEntityInternal calls ensureConnection; avoids nested retry
+        // doubling by bypassing the retrying public getEntity.
         const existing = await this.getEntityInternal(id);
         if (!existing) {
           return null;
