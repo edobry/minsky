@@ -10,12 +10,15 @@ import {
   createOctokit,
   fetchPullRequestContext,
   getAppIdentity,
+  listDirectoryAtRef,
+  readFileAtRef,
   submitReview,
   type SubmittedReview,
 } from "./github-client";
-import { buildReviewPrompt, CRITIC_CONSTITUTION } from "./prompt";
+import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
-import { decideRouting, extractTierFromPRBody, type AuthorshipTier } from "./tier-routing";
+import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
+import type { ReviewerToolContext } from "./tools";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -109,15 +112,19 @@ export interface CallWithRetryResult {
  *
  * Exactly one retry. No backoff, no provider-fallback, no cascading retries.
  *
+ * Tool context (mt#1126) passes through to both attempts when provided, so
+ * the retry gets the same file-access capabilities as the first call.
+ *
  * @param callReviewerFn test seam; defaults to the real `callReviewer` from `./providers`
  */
 export async function callReviewerWithRetry(
   config: ReviewerConfig,
   systemPrompt: string,
   userPrompt: string,
+  tools?: ReviewerToolContext,
   callReviewerFn: CallReviewerFn = callReviewer
 ): Promise<CallWithRetryResult> {
-  const first = await callReviewerFn(config, systemPrompt, userPrompt);
+  const first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
   const firstValidation = validateReviewOutput(first);
   if (firstValidation.ok) {
     return {
@@ -139,7 +146,7 @@ export async function callReviewerWithRetry(
     };
   }
 
-  const retry = await callReviewerFn(config, systemPrompt, userPrompt, {
+  const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, {
     reasoningEffort: "low",
   });
   const retryValidation = validateReviewOutput(retry);
@@ -161,7 +168,7 @@ export async function runReview(
   const octokit = await createOctokit(config);
 
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber);
-  const tier = extractTierFromPRBody(pr.body);
+  const tier = await resolveTier(prNumber, pr.body, config);
 
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {
@@ -188,10 +195,57 @@ export async function runReview(
     baseBranch: pr.baseBranch,
   });
 
+  // Construct the tool context for this PR's HEAD ref. The model can use these
+  // to verify cross-file claims before reporting them as findings.
+  //
+  // For forked PRs, `headSha` only exists in the head repository (fork), not
+  // the base repo. Passing (owner=base, repo=base, ref=headSha) to getContent
+  // 404s. Use the head coords so tool calls resolve correctly on forks too.
+  const toolContext: ReviewerToolContext = {
+    readFile: (path: string) => readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
+    listDirectory: (path: string) =>
+      listDirectoryAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
+  };
+
+  // Gate tool wiring on TWO axes:
+  //   1) Provider capability — mt#1126 MVP only supports OpenAI; Gemini and
+  //      Anthropic fall back to the no-tools path.
+  //   2) Fork accessibility — the reviewer App is installed on the base repo;
+  //      it may not have read access to forks. Rather than promise tools that
+  //      silently 404, disable tools for forked PRs and switch to the
+  //      NO_TOOLS_SECTION prompt so the model knows to mark cross-file
+  //      claims as NEEDS VERIFICATION.
+  //
+  // Both failure modes were surfaced by minsky-reviewer findings on mt#1126.
+  const providerSupportsTools = config.provider === "openai";
+  const toolsActive = providerSupportsTools && !pr.isForkedPR;
+  const systemPrompt = buildCriticConstitution(toolsActive);
+
+  // Log why tools are off when they're off, so operators can see it in the
+  // service logs rather than silently losing tool support. Previously, the
+  // warning lived inside callGoogle/callAnthropic and only fired when tools
+  // were passed — but the gating here never passes tools for those providers,
+  // so the warning never triggered. Surfaced as a mt#1126 reviewer finding.
+  if (!toolsActive) {
+    const reason = !providerSupportsTools
+      ? `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`
+      : `tools disabled for forked PR ${pr.number} (App may lack fork access)`;
+    console.warn(`[mt#1126] Running review without tools: ${reason}`);
+  }
+
+  // Only pass toolContext when tools are actually active — otherwise the
+  // provider's no-tools fallback path would fire a second warning log on
+  // every review.
+  //
+  // callReviewerWithRetry (mt#1131) wraps callReviewer with single-retry-on-
+  // empty semantics: if the first call returns empty on OpenAI, it retries
+  // once with reasoningEffort="low" before giving up. Tools pass through to
+  // both attempts.
   const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
-    CRITIC_CONSTITUTION,
-    userPrompt
+    systemPrompt,
+    userPrompt,
+    toolsActive ? toolContext : undefined
   );
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens

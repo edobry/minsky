@@ -4,6 +4,7 @@ import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
+import noNonAsciiIdentifiers from "./eslint-rules/no-non-ascii-identifiers.js";
 import noUnderscorePrefixMismatch from "./eslint-rules/no-underscore-prefix-mismatch.js";
 import noExcessiveAsUnknown from "./eslint-rules/no-excessive-as-unknown.js";
 import noUnsafeGitExec from "./eslint-rules/no-unsafe-git-exec.js";
@@ -106,6 +107,7 @@ export default [
       prettier: prettierPlugin,
       custom: {
         rules: {
+          "no-non-ascii-identifiers": noNonAsciiIdentifiers,
           "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
           "no-excessive-as-unknown": noExcessiveAsUnknown,
           "no-unsafe-git-exec": noUnsafeGitExec,
@@ -140,6 +142,7 @@ export default [
       "prefer-template": "error", // Prevents string concatenation bugs
 
       // === VARIABLE NAMING RULES ===
+      "custom/no-non-ascii-identifiers": "error", // Prevents non-ASCII characters in identifier names (enforces ensure-ascii-code-symbols rule)
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
       // === TEST PATTERN ENFORCEMENT ===

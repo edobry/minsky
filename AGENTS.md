@@ -33,10 +33,6 @@ This rule applies to all code, documentation, and configuration files in the pro
 
 # Test Execution and Verification
 
-## Integration with Testing Rule System
-- This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
-- This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
-
 ## Test Execution Requirements
 
 ### Pace and Integrity
@@ -124,11 +120,9 @@ const mockFn = createMock();
 mockModule("../path/to/module", () => ({}));
 ```
 
-See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
+See [bun-test-patterns](mdc:.minsky/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
 
 ## Code Style
-
-When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
 
 # Comment Guidelines
 
@@ -376,8 +370,6 @@ function helloWorld() {
 
 ## Architecture
 
-Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
-
 # Domain-Oriented Module Organization
 
 When organizing code in a modular application, follow these principles for better maintainability:
@@ -442,7 +434,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testable-design, orchestrate skill, session-first-workflow
+- See also: testable-design, orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -629,29 +621,6 @@ See also: `testing-boundaries` for specific guidance on CLI and framework testin
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
 
-## Minsky Workflow
-
-# Session-First Workflow
-
-All code, test, and configuration changes for a task MUST be made exclusively within the session workspace.
-
-## Requirements
-
-- All file operations in session workspaces MUST use absolute paths.
-- Session directory pattern: `/Users/edobry/.local/state/minsky/sessions/<session-id>/`
-- Never edit files in the main workspace while implementing a task.
-- If the main project has a bug, create a separate task — do not fix it in-place.
-- Never copy files between session and main workspace manually. Use the branch/PR process.
-
-## Main Workspace Edits Prohibition
-
-NEVER make direct code changes to files within the main Minsky project workspace (e.g., `/Users/edobry/Projects/minsky`). All fixes must go through a task's dedicated session workspace and the standard PR process.
-
-## See also
-
-- `implement-task` skill for the full implementation lifecycle
-- `orchestrate` skill for the master workflow
-
 ## Git & PR Workflow
 
 # Git Usage Policy
@@ -671,7 +640,6 @@ General best practices for Git usage in the Minsky project. For safety protocols
 
 - `git-safety` skill: Safety protocols for destructive git operations
 - `orchestrate` skill: How Git operations fit into the broader Minsky workflow
-- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
 
 ## Boundaries
 
@@ -689,21 +657,21 @@ Keep potentially destructive operations safe by default.
 
 // AVOID: applying by default
 ```
-minsky sessiondb migrate
+minsky persistence migrate
 # applies immediately
 ```
 
 // PREFER: safe default with explicit execution
 ```
 # preview
-minsky sessiondb migrate --dry-run
+minsky persistence migrate --dry-run
 
 # apply (must be explicit)
-minsky sessiondb migrate --execute
+minsky persistence migrate --execute
 ```
 
 ## Cross-References
-- See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
+- See `persistence.migrate` behavior and other commands using `--execute` semantics.
 
 # Terminal Command Best Practices
 
@@ -761,54 +729,6 @@ echo 'Step 3 complete'
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
 
 ## General
-
-# Variable Naming Protocol
-
-## Core Principle
-
-**NEVER add underscores to variables that are already correctly named and in use.**
-
-## CRITICAL: Variable Naming Can Cause Infinite Loops
-
-Variable declaration/usage mismatches in async operations can cause infinite loops in tests, not just compilation errors.
-
-- `const _workspacePath = ...` but code uses `workspacePath` → infinite execution deadlock
-- Performance impact: 4+ billion millisecond test runtimes (task #224)
-
-## MANDATORY DECISION TREE
-
-**When encountering "X is not defined" error:**
-
-```
-Step 1: Is variable defined as `_X` but used as `X`?
-├─ YES → Remove underscore from DEFINITION (const _X → const X)
-└─ NO → Continue to Step 2
-
-Step 2: Is variable defined as `X` but parameter uses `_X`?
-├─ YES → Remove underscore from PARAMETER (_X: type → X: type)
-└─ NO → Check for missing imports/actual undefined variables
-```
-
-## Prohibited Actions
-
-- Changing `options`, `command`, `context`, `args`, `params`, `id`, `metadata` to underscore-prefixed versions when they are already defined and working
-- Adding underscores to ANY variable that exists and is being used correctly
-
-## Correct Actions
-
-- Only add underscores to mark parameters that are **intentionally unused**: `function handler(_unusedEvent, data)`
-- Before renaming ANY variable, verify it's actually causing an error
-- Fix the actual issue, not the variable names
-
-## Common Error Pattern
-
-```typescript
-const _spec = parseTaskSpec();  // DEFINITION has underscore
-expect(spec.id).toBe("123");    // USAGE has no underscore → ERROR
-
-// WRONG fix: expect(_spec.id).toBe("123")
-// CORRECT fix: const spec = parseTaskSpec()
-```
 
 # Hook Files
 
@@ -916,6 +836,8 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
 
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
+
 # Key Workflows (via skills)
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
@@ -942,42 +864,6 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
-
-# Commit All Changes Rule
-
-## Core Principle
-
-Always commit and push all code changes without waiting for an explicit request from the user. This rule ensures that every change made is properly persisted to the repository.
-
-## Requirements
-
-1. After implementing any feature, fix, or update:
-   - Stage all changed files
-   - Commit with a descriptive message following conventional commits format
-   - Push the changes to the remote repository
-
-2. Never consider a task complete until changes have been:
-   - Committed to the local repository
-   - Pushed to the remote repository
-
-3. This applies to ALL changes:
-   - Code fixes
-   - Feature implementations
-   - Documentation updates
-   - Configuration changes
-   - Rule updates
-   - Task management operations
-
-## Minsky Session Workspaces
-
-For code operations inside a Minsky session, use `mcp__minsky__session_commit` via MCP — do not run `git commit` directly. The auto-commit directive applies only to non-session workspaces or to the main workspace when not inside a session context.
-
-## Verification Checklist
-
-Before considering any implementation complete, verify:
-- [ ] All changes are staged
-- [ ] Changes are committed with a descriptive message
-- [ ] Changes are pushed to the remote repository
 
 # Code Style
 

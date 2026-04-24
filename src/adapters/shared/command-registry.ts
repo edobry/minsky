@@ -374,7 +374,8 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
 export const _sharedCommandRegistry = createSharedCommandRegistry();
 
 /**
- * Default command registry instance (non-underscore version)
- * Used by files that follow variable-naming-protocol
+ * Default command registry instance (non-underscore version).
+ * The underscore-prefixed _sharedCommandRegistry is the internal instance;
+ * this export provides the public name for callers.
  */
 export const sharedCommandRegistry = _sharedCommandRegistry;

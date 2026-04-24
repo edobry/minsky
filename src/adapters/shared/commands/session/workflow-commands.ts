@@ -27,6 +27,7 @@ export { createSessionPrListCommand } from "./pr-list-command";
 export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";
 export { createSessionPrChecksCommand } from "./pr-checks-command";
+export { createSessionPrWaitForReviewCommand } from "./pr-wait-for-review-command";
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";

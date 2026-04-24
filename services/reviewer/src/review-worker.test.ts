@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test, mock } from "bun:test";
 import {
   parseReviewEvent,
   validateReviewOutput,
@@ -8,6 +8,7 @@ import {
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
+import type { ReviewerToolContext } from "./tools";
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -209,7 +210,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
   type Invocation = { options?: CallReviewerOptions };
   function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
     let i = 0;
-    return async (_config, _sys, _user, options) => {
+    return async (_config, _sys, _user, _tools, options) => {
       invocations.push({ options });
       const next = outputs[i];
       if (next === undefined) {
@@ -258,6 +259,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([substantive], invocations)
     );
 
@@ -274,6 +276,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([makeEmpty("openai"), substantive], invocations)
     );
 
@@ -294,6 +297,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([makeEmpty("openai"), retryEmpty], invocations)
     );
 
@@ -311,6 +315,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([empty], invocations)
     );
 
@@ -327,6 +332,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([empty], invocations)
     );
 
@@ -343,9 +349,54 @@ describe("callReviewerWithRetry (mt#1131)", () => {
       fakeConfig,
       "sys",
       "user",
+      undefined,
       fakeReviewer([makeEmpty("openai"), retryEmpty, third], invocations)
     );
 
     expect(invocations).toHaveLength(2);
+  });
+});
+
+// ----- ReviewerToolContext integration -----
+//
+// Verify that a ReviewerToolContext with the correct shape can be constructed
+// and that the readFile / listDirectory callbacks close over the right data.
+// (The actual wiring into callReviewer is covered in providers.test.ts.)
+
+describe("ReviewerToolContext shape", () => {
+  test("readFile callback returns string or null", async () => {
+    const readFile = mock(async (path: string): Promise<string | null> => {
+      if (path === "src/exists.ts") return "file content";
+      return null;
+    });
+
+    const tools: ReviewerToolContext = {
+      readFile,
+      listDirectory: mock(async () => null),
+    };
+
+    expect(await tools.readFile("src/exists.ts")).toBe("file content");
+    expect(await tools.readFile("src/missing.ts")).toBeNull();
+  });
+
+  test("listDirectory callback returns entries or null", async () => {
+    const entries = [
+      { name: "index.ts", type: "file" as const },
+      { name: "lib", type: "dir" as const },
+    ];
+    const listDirectory = mock(
+      async (path: string): Promise<Array<{ name: string; type: "file" | "dir" }> | null> => {
+        if (path === "src") return entries;
+        return null;
+      }
+    );
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory,
+    };
+
+    expect(await tools.listDirectory("src")).toEqual(entries);
+    expect(await tools.listDirectory("missing-dir")).toBeNull();
   });
 });
