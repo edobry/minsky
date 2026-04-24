@@ -62,10 +62,13 @@ function mockSseResponse(jsonObject: unknown, status = 200): Response {
 // ---------------------------------------------------------------------------
 
 let originalFetch: typeof fetch;
-let fetchMock: ReturnType<typeof mock>;
+let fetchMock: ReturnType<typeof mock> | undefined;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
+  // Reset between tests so "no fetch called" assertions are reliable
+  // regardless of test execution order.
+  fetchMock = undefined;
 });
 
 afterEach(() => {
@@ -247,5 +250,50 @@ describe("callProvenanceGet", () => {
 
     // CONFIG_WITH_MCP.mcpUrl is defined; the cast to string is safe here.
     expect(capturedUrl).toBe(CONFIG_WITH_MCP.mcpUrl as string);
+  });
+
+  test("returns the provenance record when content type is 'json'", async () => {
+    const provenanceRecord = {
+      artifactId: "55",
+      artifactType: "commit",
+      authorshipTier: 2,
+      taskId: "mt#1085",
+    };
+
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        // MCP SDK can emit { type: "json", json: <value> } instead of text
+        content: [{ type: "json", json: provenanceRecord }],
+      },
+    };
+
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callProvenanceGet } = await import("./mcp-client");
+    const result = await callProvenanceGet("55", "commit", CONFIG_WITH_MCP);
+
+    expect(result).not.toBeNull();
+    expect(result?.authorshipTier).toBe(2);
+    expect(result?.artifactId).toBe("55");
+  });
+
+  test("returns null when result.isError is true", async () => {
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        isError: true,
+        content: [{ type: "text", text: "tool execution failed" }],
+      },
+    };
+
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callProvenanceGet } = await import("./mcp-client");
+    const result = await callProvenanceGet("42", "pr", CONFIG_WITH_MCP);
+
+    expect(result).toBeNull();
   });
 });

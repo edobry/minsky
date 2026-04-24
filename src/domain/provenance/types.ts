@@ -31,8 +31,11 @@ export type TaskOrigin = "human" | "agent" | "automated";
 /** Who authored the task spec. */
 export type SpecAuthorship = "human" | "agent" | "mixed";
 
+/** Exhaustive list of artifact types — derive the TS union and Zod enum from this single source. */
+export const ARTIFACT_TYPES = ["commit", "pr", "review", "issue_comment"] as const;
+
 /** Type of artifact tracked by provenance. */
-export type ArtifactType = "commit" | "pr" | "review" | "issue_comment";
+export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 
 /** A participant in the artifact's creation. */
 export interface Participant {

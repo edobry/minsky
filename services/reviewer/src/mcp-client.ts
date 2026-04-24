@@ -32,18 +32,27 @@ interface McpCallToolRequest {
   };
 }
 
+/** A single content entry in an MCP tool response. */
+type McpContentEntry =
+  | { type: "text"; text?: string }
+  | { type: "json"; json?: unknown }
+  | { type: string };
+
 /** MCP JSON-RPC 2.0 response shape (success). */
 interface McpCallToolResponse {
   jsonrpc: "2.0";
   id: number;
   result?: {
-    content?: Array<{ type: string; text?: string }>;
+    content?: Array<McpContentEntry>;
     isError?: boolean;
   };
   error?: { code: number; message: string };
 }
 
 const CALL_TIMEOUT_MS = 10_000;
+
+/** Monotonically increasing request id — avoids hardcoded `id: 1`. */
+let nextRequestId = 1;
 
 /**
  * Call the provenance.get MCP tool on the hosted Minsky server.
@@ -70,7 +79,7 @@ export async function callProvenanceGet(
 
   const body: McpCallToolRequest = {
     jsonrpc: "2.0",
-    id: 1,
+    id: nextRequestId++,
     method: "tools/call",
     params: {
       name: "provenance.get",
@@ -78,97 +87,118 @@ export async function callProvenanceGet(
     },
   };
 
+  // Keep the AbortController alive through the entire response body read,
+  // not just the fetch() call. This prevents SSE connections from hanging
+  // indefinitely on response.text().
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
 
-  let response: Response;
   try {
-    response = await fetch(mcpUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        // Token deliberately not logged — see module docstring.
-        Authorization: `Bearer ${mcpToken}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (fetchErr) {
-    clearTimeout(timeoutId);
-    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    console.error(`[mcp-client] fetch failed for provenance.get(${artifactId}): ${msg}`);
-    return null;
+    let response: Response;
+    try {
+      response = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          // Token deliberately not logged — see module docstring.
+          Authorization: `Bearer ${mcpToken}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error(`[mcp-client] fetch failed for provenance.get(${artifactId}): ${msg}`);
+      return null;
+    }
+
+    if (!response.ok) {
+      // Drain body to avoid connection leaks before returning.
+      await response.text().catch(() => undefined);
+      console.error(
+        `[mcp-client] provenance.get(${artifactId}) HTTP ${response.status} ${response.statusText}`
+      );
+      return null;
+    }
+
+    let raw: string;
+    try {
+      // response.text() is also protected by the same AbortController signal.
+      raw = await response.text();
+    } catch (readErr) {
+      const msg = readErr instanceof Error ? readErr.message : String(readErr);
+      console.error(`[mcp-client] failed to read response body: ${msg}`);
+      return null;
+    }
+
+    // Streamable HTTP can return SSE (text/event-stream) or plain JSON.
+    // Extract the first JSON object from the body.
+    const jsonText = extractJsonFromBody(raw);
+    if (!jsonText) {
+      console.error(`[mcp-client] provenance.get(${artifactId}): unparseable response body`);
+      return null;
+    }
+
+    let parsed: McpCallToolResponse;
+    try {
+      parsed = JSON.parse(jsonText) as McpCallToolResponse;
+    } catch {
+      console.error(`[mcp-client] provenance.get(${artifactId}): JSON parse error`);
+      return null;
+    }
+
+    if (parsed.error) {
+      console.error(
+        `[mcp-client] provenance.get(${artifactId}) MCP error ${parsed.error.code}: ${parsed.error.message}`
+      );
+      return null;
+    }
+
+    // Tool-level error: result.isError === true means the tool itself failed.
+    if (parsed.result?.isError === true) {
+      console.error(`[mcp-client] provenance.get(${artifactId}) tool-level error in result`);
+      return null;
+    }
+
+    // The MCP tool returns the record in result.content[0].
+    // The MCP SDK allows two content shapes:
+    //   { type: "text", text: "<JSON string>" }  — current server emits this
+    //   { type: "json", json: <value> }           — future-proof defensive support
+    const content = parsed.result?.content;
+    if (!content || content.length === 0) {
+      return null;
+    }
+
+    const first = content[0];
+    if (!first) {
+      return null;
+    }
+
+    let record: unknown;
+    if (first.type === "json" && "json" in first) {
+      record = (first as { type: "json"; json: unknown }).json;
+    } else if (first.type === "text" && "text" in first && (first as { text?: string }).text) {
+      try {
+        record = JSON.parse((first as { text: string }).text);
+      } catch {
+        console.error(`[mcp-client] provenance.get(${artifactId}): could not parse content text`);
+        return null;
+      }
+    } else {
+      return null;
+    }
+
+    if (record === null || typeof record !== "object") {
+      // Tool returned null (no provenance record exists).
+      return null;
+    }
+
+    return record as ProvenanceResult;
   } finally {
+    // Always clear the timeout — even after body read completes.
     clearTimeout(timeoutId);
   }
-
-  if (!response.ok) {
-    // Drain body to avoid connection leaks before returning.
-    await response.text().catch(() => undefined);
-    console.error(
-      `[mcp-client] provenance.get(${artifactId}) HTTP ${response.status} ${response.statusText}`
-    );
-    return null;
-  }
-
-  let raw: string;
-  try {
-    raw = await response.text();
-  } catch (readErr) {
-    const msg = readErr instanceof Error ? readErr.message : String(readErr);
-    console.error(`[mcp-client] failed to read response body: ${msg}`);
-    return null;
-  }
-
-  // Streamable HTTP can return SSE (text/event-stream) or plain JSON.
-  // Extract the first JSON object from the body.
-  const jsonText = extractJsonFromBody(raw);
-  if (!jsonText) {
-    console.error(`[mcp-client] provenance.get(${artifactId}): unparseable response body`);
-    return null;
-  }
-
-  let parsed: McpCallToolResponse;
-  try {
-    parsed = JSON.parse(jsonText) as McpCallToolResponse;
-  } catch {
-    console.error(`[mcp-client] provenance.get(${artifactId}): JSON parse error`);
-    return null;
-  }
-
-  if (parsed.error) {
-    console.error(
-      `[mcp-client] provenance.get(${artifactId}) MCP error ${parsed.error.code}: ${parsed.error.message}`
-    );
-    return null;
-  }
-
-  // The MCP tool returns the record serialised in result.content[0].text
-  const content = parsed.result?.content;
-  if (!content || content.length === 0) {
-    return null;
-  }
-
-  const first = content[0];
-  if (!first || first.type !== "text" || !first.text) {
-    return null;
-  }
-
-  let record: unknown;
-  try {
-    record = JSON.parse(first.text);
-  } catch {
-    console.error(`[mcp-client] provenance.get(${artifactId}): could not parse content text`);
-    return null;
-  }
-
-  if (record === null || typeof record !== "object") {
-    // Tool returned null (no provenance record exists).
-    return null;
-  }
-
-  return record as ProvenanceResult;
 }
 
 /**

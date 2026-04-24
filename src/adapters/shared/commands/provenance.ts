@@ -14,10 +14,9 @@ import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import type { AppContainerInterface } from "../../../composition/types";
+import { ARTIFACT_TYPES } from "../../../domain/provenance/types";
 import type { ArtifactType } from "../../../domain/provenance/types";
 
-/** Valid artifact types — mirrors ArtifactType in domain/provenance/types.ts */
-const ARTIFACT_TYPES = ["commit", "pr", "review", "issue_comment"] as const;
 const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
 
 /**
