@@ -135,7 +135,8 @@ describe("DirectCognitionProvider.perform", () => {
       })
     );
 
-    await provider.perform(makeTask(schema, "t-ev", { foo: 1, bar: [1, 2] }));
+    const task = makeTask(schema, "t-ev", { foo: 1, bar: [1, 2] });
+    await provider.perform(task);
 
     const { system, user } = captureMessages(captured);
     expect(system).toEqual({ role: "system", content: "system" });
@@ -144,6 +145,9 @@ describe("DirectCognitionProvider.perform", () => {
     expect(user.content).toContain("<evidence>");
     expect(user.content).toContain('"foo": 1');
     expect(user.content).toContain('"bar"');
+    // Schema passes through to the underlying request unchanged.
+    if (!captured) throw new Error("request was not captured");
+    expect(captured.schema).toBe(task.schema);
   });
 
   it("omits the evidence block when evidence is empty", async () => {
@@ -160,6 +164,25 @@ describe("DirectCognitionProvider.perform", () => {
 
     const { user } = captureMessages(captured);
     expect(user.content).toBe("user");
+  });
+
+  it("omits the evidence block when every value is dropped by JSON.stringify", async () => {
+    const schema = z.object({ ok: z.boolean() });
+    let captured: AIObjectGenerationRequest | undefined;
+    const provider = new DirectCognitionProvider(
+      stubService(async (req) => {
+        captured = req;
+        return { ok: true };
+      })
+    );
+
+    // `undefined` values are dropped by JSON.stringify → serialization produces
+    // "{}" → the block must be omitted, not emitted with a literal "{}" inside.
+    await provider.perform(makeTask(schema, "t-semantic-empty", { a: undefined }));
+
+    const { user } = captureMessages(captured);
+    expect(user.content).toBe("user");
+    expect(user.content).not.toContain("<evidence>");
   });
 
   it("forwards a ModelHint to the underlying request", async () => {

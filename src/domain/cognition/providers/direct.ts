@@ -10,19 +10,20 @@
  *
  * ## Error boundary
  *
- * All failures surface as `CognitionError` subclasses so callers catching the
- * base class handle every abstraction-boundary error:
+ * Expected failure paths are wrapped as `CognitionError` subclasses:
  *
  * - `CognitionEvidenceSerializationError` — `JSON.stringify(task.evidence)` threw
  *   (circular references, BigInt, etc.).
  * - `CognitionExecutionError` — the wrapped `AICompletionService` threw an
  *   `AICompletionError`.
- * - `CognitionValidationError` — the service returned a value that didn't
- *   conform to the task's Zod schema.
+ * - `CognitionValidationError` — the service returned a value that failed
+ *   `schema.parse` with a `ZodError`.
  *
- * Unexpected non-`AICompletionError` errors from the service (e.g., bugs in
- * the wrapped implementation) pass through unchanged so they aren't silently
- * masked.
+ * Unexpected errors — i.e., non-`AICompletionError` throws from the service
+ * and non-`ZodError` throws from `schema.parse` — pass through unchanged so
+ * genuine bugs (programming errors, unexpected runtime failures) aren't
+ * silently masked by the abstraction. Callers who want a catch-all boundary
+ * must handle both `CognitionError` and `unknown`.
  */
 
 import { ZodError } from "zod";
@@ -96,23 +97,23 @@ export class DirectCognitionProvider implements CognitionProvider {
   }
 
   private buildRequest<T>(task: CognitionTask<T>): AIObjectGenerationRequest {
-    const hasEvidence = Object.keys(task.evidence).length > 0;
-
-    let userContent: string;
-    if (hasEvidence) {
-      let serialized: string;
-      try {
-        serialized = JSON.stringify(task.evidence, null, 2);
-      } catch (err) {
-        throw new CognitionEvidenceSerializationError(
-          `CognitionTask "${task.id}" (${task.kind}) evidence could not be serialized: ${(err as Error).message}`,
-          { cause: err }
-        );
-      }
-      userContent = `${task.userPrompt}\n\n<evidence>\n${serialized}\n</evidence>`;
-    } else {
-      userContent = task.userPrompt;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(task.evidence, null, 2);
+    } catch (err) {
+      throw new CognitionEvidenceSerializationError(
+        `CognitionTask "${task.id}" (${task.kind}) evidence could not be serialized: ${(err as Error).message}`,
+        { cause: err }
+      );
     }
+
+    // Omit the block when the serialized JSON is semantically empty — this
+    // catches both `{}` and inputs where every value was non-serializable
+    // (undefined, functions, symbols) and got dropped by JSON.stringify.
+    const userContent =
+      serialized === "{}"
+        ? task.userPrompt
+        : `${task.userPrompt}\n\n<evidence>\n${serialized}\n</evidence>`;
 
     return {
       messages: [

@@ -96,9 +96,16 @@ export interface CognitionProvider {
 }
 
 /**
- * Base error for cognitive execution failures. Providers throw subclasses of
- * this (not the underlying infrastructure error) so callers can reason about
- * the abstraction boundary without importing infra types.
+ * Base error for cognitive execution failures at the abstraction boundary.
+ *
+ * Providers wrap the errors they recognize (e.g., AI-service errors,
+ * schema-validation errors, evidence-serialization errors) into subclasses of
+ * `CognitionError` so callers following the abstraction can handle them
+ * uniformly. Unexpected errors from the underlying infrastructure (genuine
+ * programming bugs, runtime failures the provider didn't anticipate) are
+ * intentionally NOT wrapped — they pass through unchanged so they aren't
+ * silently masked by this abstraction. Callers who want a catch-all boundary
+ * must also handle `unknown`.
  */
 export class CognitionError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
