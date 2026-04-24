@@ -42,7 +42,11 @@ export const githubRepoConfigSchema = z
  */
 export const githubServiceAccountSchema = z
   .object({
-    type: z.literal("github-app"),
+    // Discriminant for future multi-backend support (GitLab App, etc.). Today there's
+    // only one valid value, so default it — this lets env-var-only configs work without
+    // requiring an explicit MINSKY_APP_TYPE=github-app setting. `docs/github-app-bot-setup.md`
+    // already claims this is auto-inferred; this default makes the claim actually true.
+    type: z.literal("github-app").default("github-app"),
     appId: z.number(),
     /** Path to the PEM private key file (traditional local-deploy path). */
     privateKeyFile: z.string().optional(),
