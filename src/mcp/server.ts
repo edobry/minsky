@@ -135,9 +135,12 @@ export class MinskyMCPServer {
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
-  // lastActiveAt is older than SESSION_IDLE_TIMEOUT_MS.
+  // lastActiveAt is older than SESSION_IDLE_TIMEOUT_MS. Timeout is deliberately
+  // generous so long-running tool calls / SSE streams aren't killed mid-flight
+  // — lastActiveAt is also refreshed on every transport.onmessage so any
+  // client→server protocol traffic (including SSE resume) counts as activity.
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  private readonly SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
   private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
 
   // Graceful shutdown tracking
@@ -287,11 +290,28 @@ export class MinskyMCPServer {
         sessionIdGenerator: () => randomUUID(),
       });
 
-      // Register cleanup: when the transport closes (client disconnect, session
-      // timeout, etc.), close the paired Server and drop it from the map so we
-      // don't leak Server instances over the service's lifetime. Chain to any
-      // existing handler the SDK may have set internally so we don't overwrite it.
+      // Connect server to its dedicated transport first, so any onclose /
+      // onmessage handlers the SDK installs during connect() are captured
+      // below when we chain our own.
+      await server.connect(transport);
+      const entry: {
+        server: Server;
+        transport: StreamableHTTPServerTransport;
+        lastActiveAt: number;
+      } = { server, transport, lastActiveAt: Date.now() };
+
+      // Register onclose cleanup: drop the entry from httpSessions. Server
+      // closure is owned by whoever initiated the close (reaper / MinskyMCPServer.close
+      // / external signal) — this handler deliberately does NOT call server.close()
+      // to avoid double-close paths when the reaper or close() initiates the transport
+      // close and then expects to own server lifecycle. If a natural transport close
+      // occurs (client disconnect) with no initiator, the Server is also torn down
+      // here.
       const prevOnclose = transport.onclose;
+      let externalInitiator = false;
+      (entry as typeof entry & { markExternalClose: () => void }).markExternalClose = () => {
+        externalInitiator = true;
+      };
       transport.onclose = () => {
         try {
           prevOnclose?.();
@@ -301,19 +321,32 @@ export class MinskyMCPServer {
             this.httpSessions.delete(closedId);
             log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
           }
-          server.close().catch((error) => {
-            log.warn("Error closing per-session MCP Server", {
-              sessionId: closedId,
-              error: getErrorMessage(error),
+          // Only close the Server if no external initiator claimed ownership —
+          // the initiator (reaper / MinskyMCPServer.close) is responsible for
+          // closing the Server directly.
+          if (!externalInitiator) {
+            server.close().catch((error) => {
+              log.warn("Error closing per-session MCP Server", {
+                sessionId: closedId,
+                error: getErrorMessage(error),
+              });
             });
-          });
+          }
         }
       };
 
-      // Connect server to its dedicated transport
-      await server.connect(transport);
-      session = { server, transport, lastActiveAt: Date.now() };
+      // Hook onmessage to refresh lastActiveAt on any protocol traffic.
+      // StreamableHTTPServerTransport forwards both the initial initialize POST
+      // and subsequent messages through this callback; updating here means
+      // long-running tool calls with ongoing client→server pings keep the
+      // session alive across the idle-timeout window.
+      const prevOnmessage = transport.onmessage;
+      transport.onmessage = (message, extra) => {
+        entry.lastActiveAt = Date.now();
+        prevOnmessage?.(message, extra);
+      };
 
+      session = entry;
       log.debug("Created new HTTP session", { sessionId: transport.sessionId });
     }
 
@@ -361,6 +394,8 @@ export class MinskyMCPServer {
     for (const id of idle) {
       const session = this.httpSessions.get(id);
       if (!session) continue;
+      // Mark external initiator so onclose doesn't also call server.close().
+      (session as typeof session & { markExternalClose?: () => void }).markExternalClose?.();
       this.httpSessions.delete(id);
       const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
       log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
@@ -710,10 +745,13 @@ export class MinskyMCPServer {
       }
 
       if (this.options.transportType === "http") {
-        // Close all HTTP sessions (transport + per-session Server)
-        for (const [sessionId, { server, transport }] of this.httpSessions.entries()) {
+        // Close all HTTP sessions (transport + per-session Server). Mark
+        // external-initiator so each session's onclose handler doesn't also
+        // call server.close().
+        for (const [sessionId, entry] of this.httpSessions.entries()) {
+          (entry as typeof entry & { markExternalClose?: () => void }).markExternalClose?.();
           try {
-            await transport.close();
+            await entry.transport.close();
             log.debug("Closed HTTP transport", { sessionId });
           } catch (error) {
             log.warn("Error closing HTTP transport", {
@@ -722,7 +760,7 @@ export class MinskyMCPServer {
             });
           }
           try {
-            await server.close();
+            await entry.server.close();
             log.debug("Closed per-session MCP Server", { sessionId });
           } catch (error) {
             log.warn("Error closing per-session MCP Server", {

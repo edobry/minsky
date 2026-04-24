@@ -6,6 +6,8 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Server as SdkServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import express from "express";
+import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
@@ -66,8 +68,9 @@ describe("MCP Server", () => {
     });
 
     // createConfiguredServer is private but accessible via cast — the test
-    // directly exercises the fix for the singleton-transport bug by
-    // verifying two calls produce two independent Server instances.
+    // documents the factory contract: every call produces an independent
+    // Server instance. The true regression guard is the Express-mounted
+    // integration test below, which exercises handleHttpPost end-to-end.
     const factory = (
       server as unknown as { createConfiguredServer: () => unknown }
     ).createConfiguredServer.bind(server);
@@ -77,39 +80,88 @@ describe("MCP Server", () => {
     expect(a).toBeDefined();
     expect(b).toBeDefined();
     expect(a).not.toBe(b);
+
+    await server.close();
   });
 
-  test("HTTP transport: two Server instances each connect to their own transport", async () => {
-    // Regression test for the singleton-transport bug: under the old code, the
-    // SDK's Server could only be connected to one Transport. New-session POSTs
-    // after the first failed with "Already connected to a transport." The fix
-    // creates a fresh Server per session. This test asserts the Server/Transport
-    // pairing contract directly.
-    const { randomUUID } = await import("crypto");
+  test("HTTP transport: two concurrent initialize requests both succeed with distinct session ids", async () => {
+    // Integration regression guard for the singleton-transport bug. Spins up
+    // MinskyMCPServer in HTTP mode behind a real Express app so the test
+    // exercises handleHttpPost end-to-end — the actual code path where the
+    // original bug lived ("Already connected to a transport" on second
+    // new-session POST). Two concurrent initialize fetches must both return
+    // 200 with distinct mcp-session-id headers.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
 
-    const makeServer = () =>
-      new SdkServer(
-        { name: "Test", version: "0.0.1" },
-        { capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} } }
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const addr = httpServer.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${addr.port}/mcp`;
+
+    try {
+      const initBody = (clientName: string) =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: clientName, version: "0.1" },
+          },
+        });
+
+      const doInit = (clientName: string) =>
+        fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+          },
+          body: initBody(clientName),
+        });
+
+      const [r1, r2] = await Promise.all([doInit("client-a"), doInit("client-b")]);
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+
+      const sid1 = r1.headers.get("mcp-session-id");
+      const sid2 = r2.headers.get("mcp-session-id");
+      expect(sid1).toBeTruthy();
+      expect(sid2).toBeTruthy();
+      expect(sid1).not.toBe(sid2);
+
+      // Drain the SSE bodies so fetch doesn't hold the connection open
+      // longer than needed (avoids teardown races).
+      await r1.text();
+      await r2.text();
+
+      const sessions = (
+        server as unknown as {
+          httpSessions: Map<string, unknown>;
+        }
+      ).httpSessions;
+      expect(sessions.size).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
       );
-
-    const s1 = makeServer();
-    const t1 = new SdkStreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-    await s1.connect(t1);
-
-    const s2 = makeServer();
-    const t2 = new SdkStreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-    await s2.connect(t2);
-
-    // Both connections succeeded — no "Already connected" throw. Clean up.
-    await t1.close();
-    await s1.close();
-    await t2.close();
-    await s2.close();
+      await server.close();
+    }
   });
 
   test("HTTP transport: close() cleans up all active sessions", async () => {
@@ -121,7 +173,6 @@ describe("MCP Server", () => {
       projectContext: { repositoryPath: "/mock/test-repo" },
     });
 
-    // Simulate two active sessions by populating httpSessions directly.
     const { randomUUID } = await import("crypto");
 
     const sessions = (
@@ -189,35 +240,6 @@ describe("MCP Server", () => {
 
     expect(serverAsAny.httpSessions.has("fresh")).toBe(true);
     expect(serverAsAny.httpSessions.has("idle")).toBe(false);
-
-    await server.close();
-  });
-
-  test("HTTP transport: per-session onclose cleanup doesn't leak when httpSessions wasn't populated", async () => {
-    // Race guard: if a transport closes before handleHttpPost finishes
-    // populating httpSessions (e.g., client disconnect during the first
-    // handleRequest), the onclose handler fires with no matching entry to
-    // delete. It should no-op the delete and still close the Server without
-    // throwing.
-    const { MinskyMCPServer } = await import("./server");
-    const server = new MinskyMCPServer({
-      name: "Test Server",
-      version: "1.0.0",
-      transportType: "http",
-      projectContext: { repositoryPath: "/mock/test-repo" },
-    });
-
-    const sessions = (
-      server as unknown as {
-        httpSessions: Map<string, unknown>;
-      }
-    ).httpSessions;
-
-    // Simulate the race: transport created but never stored in httpSessions.
-    // onclose should not throw when the sessionId isn't in the map.
-    // We can't trigger the real onclose without a real request flow, so we
-    // just verify the map stays empty and no exception bubbles.
-    expect(sessions.size).toBe(0);
 
     await server.close();
   });
