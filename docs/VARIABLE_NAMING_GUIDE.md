@@ -202,9 +202,8 @@ bun test
 
 This naming convention is now enforced by:
 
-- ESLint rules in `.eslintrc.json`
+- ESLint custom rule `no-underscore-prefix-mismatch` in `eslint-rules/no-underscore-prefix-mismatch.js`
 - Pre-commit hooks in `.husky/pre-commit`
 - Automated scripts in `scripts/`
-- Variable naming protocol in `.cursor/rules/variable-naming-protocol.mdc`
 
 Following these guidelines prevents runtime "variable is not defined" errors and ensures consistent, maintainable code.

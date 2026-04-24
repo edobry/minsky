@@ -10,12 +10,7 @@ export const rulesTargetSchema = z.object({
 
 // Preset definitions — curated rule collections
 export const RULE_PRESETS: Record<string, string[]> = {
-  "minsky-core": [
-    "minsky-workflow",
-    "task-status-protocol",
-    "pr-preparation-workflow",
-    "creating-tasks",
-  ],
+  "minsky-core": ["minsky-workflow", "task-status-protocol", "pr-preparation-workflow"],
   "minsky-full": [
     "minsky-workflow",
     "minsky-workflow-orchestrator",
@@ -23,23 +18,16 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "task-implementation-workflow",
     "task-status-protocol",
     "task-status-workflow-protocol",
-    "creating-tasks",
     "pr-preparation-workflow",
     "pr-description-guidelines",
     "testing-session-repo-changes",
   ],
-  "typescript-strict": [
-    "template-literals",
-    "no-dynamic-imports",
-    "ensure-ascii-code-symbols",
-    "constants-management",
-  ],
+  "typescript-strict": ["no-dynamic-imports", "ensure-ascii-code-symbols", "constants-management"],
   "testing-standards": [
     "designing-tests",
     "bun-test-patterns",
     "test-organization",
     "no-skipped-tests",
-    "test-driven-bugfix",
   ],
   "code-style": [
     "comments",
@@ -47,12 +35,7 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "constants-management",
     "cli-output-design",
   ],
-  safety: [
-    "operational-safety-dry-run-first",
-    "dont-ignore-errors",
-    "git-usage-policy",
-    "robust-error-handling",
-  ],
+  safety: ["operational-safety-dry-run-first", "dont-ignore-errors", "git-usage-policy"],
 };
 
 export const rulesConfigSchema = z
