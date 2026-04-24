@@ -5,19 +5,100 @@
  * tier recomputation using the current judging policy.
  *
  * @see mt#970 — Retroactive tier recomputation command
+ * @see mt#1085 — provenance.get shared command (MCP exposure)
  */
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import type { AppContainerInterface } from "../../../composition/types";
+import type { ArtifactType } from "../../../domain/provenance/types";
+
+/** Valid artifact types — mirrors ArtifactType in domain/provenance/types.ts */
+const ARTIFACT_TYPES = ["commit", "pr", "review", "issue_comment"] as const;
+const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
 
 /**
  * Register all provenance-related shared commands.
+ *
+ * @param _container Optional DI container (unused at registration time; resolved at execute time)
+ * @param registry   Optional registry to register into (defaults to global sharedCommandRegistry).
+ *                   Pass a fresh registry in tests to avoid global state mutation.
  */
-export function registerProvenanceCommands(_container?: AppContainerInterface): void {
-  sharedCommandRegistry.registerCommand({
+export function registerProvenanceCommands(
+  _container?: AppContainerInterface,
+  registry?: SharedCommandRegistry
+): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+
+  // ── provenance.get ────────────────────────────────────────────────────────
+  targetRegistry.registerCommand({
+    id: "provenance.get",
+    category: CommandCategory.PROVENANCE,
+    name: "get",
+    description: "Look up the provenance record for a specific artifact by ID and type.",
+    parameters: {
+      artifactId: {
+        schema: z.string(),
+        description: "The artifact identifier (e.g. PR number as string, commit SHA)",
+        required: true,
+      },
+      artifactType: {
+        schema: artifactTypeSchema,
+        description: `Type of artifact. One of: ${ARTIFACT_TYPES.join(", ")}`,
+        required: true,
+      },
+    },
+    async execute(params, context) {
+      const { artifactId, artifactType } = params;
+
+      try {
+        const persistenceProvider = (() => {
+          if (context.container?.has("persistence")) {
+            return context.container.get(
+              "persistence"
+            ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          }
+          return null;
+        })();
+
+        if (!persistenceProvider) {
+          throw new Error(
+            "DI container missing 'persistence'. " +
+              "Ensure the container was initialized before running this command."
+          );
+        }
+
+        const db = await persistenceProvider.getDatabaseConnection();
+        if (!db) {
+          throw new Error(
+            "getDatabaseConnection() returned null. " +
+              "provenance.get requires a PostgreSQL or SQLite backend with Drizzle ORM."
+          );
+        }
+
+        const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
+        const provenanceService = new ProvenanceService(
+          db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+        );
+
+        const record = await provenanceService.getProvenanceForArtifact(
+          artifactId,
+          artifactType as ArtifactType
+        );
+
+        return record;
+      } catch (error) {
+        log.error("provenance.get failed", { error: getErrorMessage(error) });
+        throw error;
+      }
+    },
+  });
+
+  // ── provenance.recompute ──────────────────────────────────────────────────
+  targetRegistry.registerCommand({
     id: "provenance.recompute",
     category: CommandCategory.PROVENANCE,
     name: "recompute",
