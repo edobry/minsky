@@ -5,10 +5,7 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
-import {
-  generateRulesWithTemplateSystem,
-  generateMcpRuleWithTemplateSystem,
-} from "./init/rule-templates";
+import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -31,7 +28,6 @@ export {
   getMinskyRuleContent,
   getRulesIndexContent,
   generateRulesWithTemplateSystem,
-  generateMcpRuleWithTemplateSystem,
 } from "./init/rule-templates";
 
 export const initializeProjectParamsSchema = z.object({
@@ -157,23 +153,6 @@ export async function initializeProject(
       : undefined;
   const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
-
-  // Generate MCP rule file (project-level rule checked into repo) when MCP is enabled
-  if (mcp?.enabled !== false) {
-    const mcpRulesDirPath =
-      ruleFormat === "cursor"
-        ? path.join(repoPath, ".cursor", "rules")
-        : path.join(repoPath, ".ai", "rules");
-
-    await createDirectoryIfNotExists(mcpRulesDirPath, fileSystem);
-
-    // Generate MCP rule using template system (tolerate missing command registry in tests)
-    try {
-      await generateMcpRuleWithTemplateSystem(mcpRulesDirPath, ruleFormat, overwrite, mcp);
-    } catch (_e) {
-      // Skip in unit tests without registry
-    }
-  }
 
   // === Phase 2: Developer-local setup ===
   // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).

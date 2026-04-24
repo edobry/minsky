@@ -157,7 +157,6 @@ Before moving to the next phase, ensure:
 This workflow integrates with:
 
 - **task-status-protocol**: For detailed status management procedures
-- **session-first-workflow**: For session creation and navigation requirements
 - **pr-preparation-workflow**: For PR creation and submission details
 - **minsky-workflow-orchestrator**: For overall workflow context
 - **tests**: For testing requirements and procedures
@@ -375,7 +374,6 @@ Always verify automated updates occurred correctly.
 Status management integrates with:
 
 - **task-implementation-workflow**: Status updates at each phase
-- **minsky-session-management**: Status changes during session operations
 - **pr-preparation-workflow**: Status transition during PR creation
 - **minsky-workflow-orchestrator**: Overall workflow context
 

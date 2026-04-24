@@ -11,10 +11,10 @@ describe("Rule Mention Parser", () => {
     });
 
     it("should extract multiple @ruleName mentions", () => {
-      const query = "Use @error-handling and @robust-error-handling for this fix";
+      const query = "Use @dont-ignore-errors and @git-usage-policy for this fix";
       const mentions = extractRuleMentions(query);
 
-      expect(mentions).toEqual(["error-handling", "robust-error-handling"]);
+      expect(mentions).toEqual(["dont-ignore-errors", "git-usage-policy"]);
     });
 
     it("should handle @ruleName at start, middle, and end", () => {
@@ -25,10 +25,10 @@ describe("Rule Mention Parser", () => {
     });
 
     it("should handle rule names with underscores and hyphens", () => {
-      const query = "Apply @test_driven_development and @session-first-workflow";
+      const query = "Apply @test_driven_development and @git-usage-policy";
       const mentions = extractRuleMentions(query);
 
-      expect(mentions).toEqual(["test_driven_development", "session-first-workflow"]);
+      expect(mentions).toEqual(["test_driven_development", "git-usage-policy"]);
     });
 
     it("should deduplicate mentioned rule names", () => {

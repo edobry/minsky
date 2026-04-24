@@ -176,7 +176,7 @@ export function normalizeRepositoryUri(
       normalizedUri = resolvedPath;
     }
   }
-  // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
+  // 5. Handle GitHub shorthand notation (org/repo)
   else if (normalizedUri.match(/^[^/]+\/[^/]+$/)) {
     format = UriFormat?.SHORTHAND;
     // Shorthand is already in org/repo format

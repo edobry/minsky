@@ -33,10 +33,6 @@ This rule applies to all code, documentation, and configuration files in the pro
 
 # Test Execution and Verification
 
-## Integration with Testing Rule System
-- This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
-- This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
-
 ## Test Execution Requirements
 
 ### Pace and Integrity
@@ -124,11 +120,9 @@ const mockFn = createMock();
 mockModule("../path/to/module", () => ({}));
 ```
 
-See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
+See [bun-test-patterns](mdc:.minsky/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.
 
 ## Code Style
-
-When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
 
 # Comment Guidelines
 
@@ -376,8 +370,6 @@ function helloWorld() {
 
 ## Architecture
 
-Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
-
 # Domain-Oriented Module Organization
 
 When organizing code in a modular application, follow these principles for better maintainability:
@@ -442,7 +434,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testable-design, orchestrate skill, session-first-workflow
+- See also: testable-design, orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -453,67 +445,15 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 - You MUST review and update all imports/exports when consolidating interfaces.
 - You MUST reference this rule when aligning interfaces or refactoring domain modules.
 
-# Command Organization
+# Architecture
 
-## Interface-Agnostic Architecture
+Minsky follows clean architecture:
+- `src/domain/` — core business logic, pure TypeScript, no framework deps
+- `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
+- Commands defined once in shared registry, exposed via CLI + MCP
+- Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
 
-Minsky implements an interface-agnostic command architecture that separates:
-- Core domain logic in `src/domain/` (what to do)
-- Interface-specific adapters in `src/adapters/` (how to interact)
-- Command entry points in `src/commands/` (CLI entry points)
-
-## Directory Structure
-
-### Domain Logic
-- Core business logic lives in `src/domain/` directory
-- Organized by domain concept (e.g., `tasks.ts`, `git.ts`, `session.ts`)
-- Contains pure TypeScript functions with proper typing and validation
-- Focus on "what" rather than "how" of each operation
-
-### Interface Adapters
-- Located in `src/adapters/` directory
-- Organized by interface type:
-  - `src/adapters/cli/`: CLI-specific adapters
-  - `src/adapters/mcp/`: MCP-specific adapters
-- Responsible for:
-  - Converting interface-specific input to domain function parameters
-  - Calling appropriate domain functions
-  - Formatting output for the specific interface
-  - Handling interface-specific error presentation
-
-### Command Entry Points
-- Located in `src/commands/` directory
-- Organized by interface type:
-  - `src/commands/mcp/`: MCP command entry points
-  - CLI commands use Commander.js directly from main index
-- Each command entry point should:
-  - Define the interface-specific input schema
-  - Use the appropriate adapter to perform the operation
-  - Be focused on a single command or closely related command group
-
-## Best Practices
-
-1. **Separate Concerns**:
-   - Domain logic should be interface-agnostic
-   - Adapters handle interface-specific concerns
-   - Command entry points define the external API
-
-2. **Consistent Organization**:
-   - Match domain files with corresponding adapters
-   - Example: `src/domain/tasks.ts` → `src/adapters/cli/tasks.ts` and `src/adapters/mcp/tasks.ts`
-
-3. **Parameter Validation**:
-   - Use Zod schemas for consistent parameter validation across interfaces
-   - Define schemas once and reuse where possible
-
-4. **Error Handling**:
-   - Domain functions should throw typed errors
-   - Adapters should catch and format errors for their interface
-
-5. **Testing**:
-   - Test domain functions independently
-   - Test adapters with their respective interfaces
-   - Test complete flows end-to-end
+See `.claude/skills/code-organization/SKILL.md` for deeper guidance.
 
 ## Testing
 
@@ -629,50 +569,6 @@ See also: `testing-boundaries` for specific guidance on CLI and framework testin
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
 
-## Minsky Workflow
-
-# Session-First Workflow
-
-All code, test, and configuration changes for a task MUST be made exclusively within the session workspace.
-
-## Requirements
-
-- All file operations in session workspaces MUST use absolute paths.
-- Session directory pattern: `/Users/edobry/.local/state/minsky/sessions/<session-id>/`
-- Never edit files in the main workspace while implementing a task.
-- If the main project has a bug, create a separate task — do not fix it in-place.
-- Never copy files between session and main workspace manually. Use the branch/PR process.
-
-## Main Workspace Edits Prohibition
-
-NEVER make direct code changes to files within the main Minsky project workspace (e.g., `/Users/edobry/Projects/minsky`). All fixes must go through a task's dedicated session workspace and the standard PR process.
-
-## See also
-
-- `implement-task` skill for the full implementation lifecycle
-- `orchestrate` skill for the master workflow
-
-## Git & PR Workflow
-
-# Git Usage Policy
-
-General best practices for Git usage in the Minsky project. For safety protocols around destructive operations, see the `git-safety` skill.
-
-## General Best Practices
-
-- **Commit Frequently**: Make small, atomic commits with clear, descriptive messages.
-- **Pull Before Push**: Run `git pull --rebase` before pushing to shared branches.
-- **Branching Strategy**: Follow the project's branching strategy (feature branches via Minsky sessions).
-- **Clear Commit Messages**: Explain _why_ a change was made, not just _what_. Follow conventional commit formats.
-- **Multi-line Commit Messages**: Write to a temporary file and use `git commit -F <file>`. Avoid embedding raw newlines in `-m` flags.
-- **Avoid Large Commits**: Do not commit large binary files or generated files unless necessary.
-
-## See Also
-
-- `git-safety` skill: Safety protocols for destructive git operations
-- `orchestrate` skill: How Git operations fit into the broader Minsky workflow
-- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
-
 ## Boundaries
 
 # Operational Safety: Dry-Run First
@@ -761,54 +657,6 @@ echo 'Step 3 complete'
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
 
 ## General
-
-# Variable Naming Protocol
-
-## Core Principle
-
-**NEVER add underscores to variables that are already correctly named and in use.**
-
-## CRITICAL: Variable Naming Can Cause Infinite Loops
-
-Variable declaration/usage mismatches in async operations can cause infinite loops in tests, not just compilation errors.
-
-- `const _workspacePath = ...` but code uses `workspacePath` → infinite execution deadlock
-- Performance impact: 4+ billion millisecond test runtimes (task #224)
-
-## MANDATORY DECISION TREE
-
-**When encountering "X is not defined" error:**
-
-```
-Step 1: Is variable defined as `_X` but used as `X`?
-├─ YES → Remove underscore from DEFINITION (const _X → const X)
-└─ NO → Continue to Step 2
-
-Step 2: Is variable defined as `X` but parameter uses `_X`?
-├─ YES → Remove underscore from PARAMETER (_X: type → X: type)
-└─ NO → Check for missing imports/actual undefined variables
-```
-
-## Prohibited Actions
-
-- Changing `options`, `command`, `context`, `args`, `params`, `id`, `metadata` to underscore-prefixed versions when they are already defined and working
-- Adding underscores to ANY variable that exists and is being used correctly
-
-## Correct Actions
-
-- Only add underscores to mark parameters that are **intentionally unused**: `function handler(_unusedEvent, data)`
-- Before renaming ANY variable, verify it's actually causing an error
-- Fix the actual issue, not the variable names
-
-## Common Error Pattern
-
-```typescript
-const _spec = parseTaskSpec();  // DEFINITION has underscore
-expect(spec.id).toBe("123");    // USAGE has no underscore → ERROR
-
-// WRONG fix: expect(_spec.id).toBe("123")
-// CORRECT fix: const spec = parseTaskSpec()
-```
 
 # Hook Files
 
@@ -944,42 +792,6 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
-
-# Commit All Changes Rule
-
-## Core Principle
-
-Always commit and push all code changes without waiting for an explicit request from the user. This rule ensures that every change made is properly persisted to the repository.
-
-## Requirements
-
-1. After implementing any feature, fix, or update:
-   - Stage all changed files
-   - Commit with a descriptive message following conventional commits format
-   - Push the changes to the remote repository
-
-2. Never consider a task complete until changes have been:
-   - Committed to the local repository
-   - Pushed to the remote repository
-
-3. This applies to ALL changes:
-   - Code fixes
-   - Feature implementations
-   - Documentation updates
-   - Configuration changes
-   - Rule updates
-   - Task management operations
-
-## Minsky Session Workspaces
-
-For code operations inside a Minsky session, use `mcp__minsky__session_commit` via MCP — do not run `git commit` directly. The auto-commit directive applies only to non-session workspaces or to the main workspace when not inside a session context.
-
-## Verification Checklist
-
-Before considering any implementation complete, verify:
-- [ ] All changes are staged
-- [ ] Changes are committed with a descriptive message
-- [ ] Changes are pushed to the remote repository
 
 # Code Style
 

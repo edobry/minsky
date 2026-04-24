@@ -1,7 +1,9 @@
 ---
+description: Use when naming code artifacts, writing comments, or reviewing variable/function names to prevent internal reasoning language from leaking into external program interfaces.
 tags:
   - code-style
   - preferences
+alwaysApply: false
 ---
 # Meta-Cognitive Boundary Protocol
 
@@ -23,13 +25,46 @@ tags:
 - Domain-specific terminology: business logic concepts
 - User-facing language: clear, direct, purposeful
 
-## Prohibited Boundary Violations
+## Prohibited Naming Terms
 
-❌ **NEVER use internal assessment terms in external code names:**
-- `createRobustTempDir` → `createTempDirWithFallbacks`
-- `enhancedErrorHandler` → `errorHandlerWithRetry`
-- `smartConfigLoader` → `configLoaderWithDefaults`
-- `comprehensiveValidator` → `validatorWithMultipleChecks`
+**NEVER use process-descriptive adjectives as function/variable names:**
+
+❌ **Prohibited Terms:**
+- `robust` (createRobustTempDir)
+- `enhanced` (enhancedValidator)
+- `smart` (smartSessionUpdate)
+- `advanced` (advancedProcessor)
+- `improved` (improvedHandler)
+- `better` (betterAlgorithm)
+- `optimized` (optimizedQuery)
+- `comprehensive` (comprehensiveCheck)
+
+✅ **Use Domain-Specific Names Instead:**
+- `createTempDirWithFallbacks` (describes what it does)
+- `validateWithRetry` (describes behavior)
+- `updateSessionWithConflictDetection` (describes capability)
+- `processWithErrorHandling` (describes feature)
+
+## Naming Guidelines
+
+1. **Describe WHAT the function does**, not HOW WELL it does it
+2. **Use domain terminology** that users/developers understand
+3. **Avoid subjective quality descriptors** that don't add semantic meaning
+4. **Focus on behavior, inputs, outputs** rather than implementation quality
+
+### Examples
+
+```typescript
+// ❌ Process-thinking names
+function robustFileProcessor() { }
+function enhancedDataValidator() { }
+function smartCacheManager() { }
+
+// ✅ Domain-appropriate names
+function processFileWithRetry() { }
+function validateDataWithSchema() { }
+function manageCacheWithEviction() { }
+```
 
 ## Comment Boundary Violations
 
@@ -109,6 +144,8 @@ This rule addresses a **meta-cognitive boundary violation** where internal probl
 
 **VIOLATION CONSEQUENCE**: Any use of internal assessment terms in code names indicates a fundamental boundary violation requiring immediate correction and rule application.
 
+During code review, flag any function/variable names using prohibited process-thinking terms and require renaming with domain-appropriate alternatives.
+
 ## Systematic Prevention
 
 - **Pre-naming check**: Is this term from my internal reasoning vocabulary?
@@ -116,7 +153,3 @@ This rule addresses a **meta-cognitive boundary violation** where internal probl
 - **User perspective**: Would this name make sense to someone who doesn't know my internal process?
 
 **This rule prevents "breaking the 4th wall" between internal reasoning and external program design.**
-description:
-globs:
-alwaysApply: false
----
