@@ -19,4 +19,3 @@ General best practices for Git usage in the Minsky project. For safety protocols
 
 - `git-safety` skill: Safety protocols for destructive git operations
 - `orchestrate` skill: How Git operations fit into the broader Minsky workflow
-- `minsky-cli-usage`: Guidelines for using Minsky's Git-related CLI commands
