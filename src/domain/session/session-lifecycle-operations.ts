@@ -28,7 +28,7 @@ export async function getSessionImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<Session | null> {
-  const { name: sessionId, task, repo } = params;
+  const { sessionId, task, repo } = params;
 
   try {
     // Use unified session context resolver with auto-detection support
@@ -105,7 +105,7 @@ export async function deleteSessionImpl(
     fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
   }
 ): Promise<DeleteSessionResult> {
-  const { name: sessionId, task, repo } = params;
+  const { sessionId, task, repo } = params;
   const fsOps = deps.fs ?? { existsSync, rmSync };
 
   // Delete is destructive — require explicit identification, never auto-detect
@@ -226,7 +226,7 @@ export async function getSessionDirImpl(
 ): Promise<string> {
   let resolvedId: string;
 
-  if (params.task && !params.name) {
+  if (params.task && !params.sessionId) {
     // Find session by task ID
     const validatedTaskId = TaskIdSchema.parse(params.task);
     const session = await deps.sessionDB.getSessionByTaskId(validatedTaskId);
@@ -236,8 +236,8 @@ export async function getSessionDirImpl(
     }
 
     resolvedId = session.session;
-  } else if (params.name) {
-    resolvedId = params.name;
+  } else if (params.sessionId) {
+    resolvedId = params.sessionId;
   } else {
     throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
 

@@ -20,7 +20,7 @@ import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 import { projectPrState } from "../session-update-operations";
 
 export interface SessionRepairParameters {
-  name?: string;
+  sessionId?: string;
   task?: string;
   repo?: string;
   dryRun?: boolean;
@@ -75,7 +75,7 @@ export async function sessionRepair(
 
   // Resolve session context
   const resolvedContext = await resolveSessionContextWithFeedback({
-    sessionId: params.name,
+    sessionId: params.sessionId,
     task: params.task,
     repo: params.repo,
     sessionProvider: sessionDB,

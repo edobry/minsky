@@ -54,13 +54,13 @@ export interface SessionConflictScanResult {
 }
 
 export interface SessionConflictParams {
-  name?: string;
+  sessionId?: string;
   task?: string;
 }
 
 /**
  * Scan a session workspace for conflict markers
- * Supports both --name and --task parameters like other session commands
+ * Supports both --sessionId and --task parameters like other session commands
  */
 export async function scanSessionConflicts(
   params: SessionConflictParams,
@@ -71,14 +71,14 @@ export async function scanSessionConflicts(
     let sessionPath: string;
     let actualSessionId: string;
 
-    if (params.name) {
+    if (params.sessionId) {
       // Get specific session by name
       const sessionDir = await getSessionDirImpl(
-        { name: params.name },
+        { sessionId: params.sessionId },
         { sessionDB: sessionProvider }
       );
       sessionPath = sessionDir;
-      actualSessionId = params.name;
+      actualSessionId = params.sessionId;
     } else if (params.task) {
       // Get session by task ID
       const sessionDir = await getSessionDirImpl(
@@ -141,7 +141,7 @@ export async function scanSessionConflicts(
     return result;
   } catch (error) {
     // Only log meaningful context when it adds value beyond the error message itself
-    const hasSessionParams = params.name || params.task;
+    const hasSessionParams = params.sessionId || params.task;
     const hasCustomOptions =
       options.files ||
       (options.format && options.format !== "json") ||
@@ -152,7 +152,7 @@ export async function scanSessionConflicts(
 
       if (hasSessionParams) {
         logContext.sessionParams = {
-          ...(params.name && { name: params.name }),
+          ...(params.sessionId && { sessionId: params.sessionId }),
           ...(params.task && { task: params.task }),
         };
       }

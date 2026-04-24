@@ -63,7 +63,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const gitService = new FakeGitService();
 
     const result = await deleteSessionImpl(
-      { name: SESSION_ID, force: false },
+      { sessionId: SESSION_ID, force: false },
       { sessionDB, gitService }
     );
 
@@ -89,7 +89,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const sessionDB = makeSessionDB([sessionRecord]);
 
     // No gitService passed — deletion should still succeed
-    const result = await deleteSessionImpl({ name: SESSION_ID, force: false }, { sessionDB });
+    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: false }, { sessionDB });
 
     expect(result.deleted).toBe(true);
     expect(await sessionDB.getSession(SESSION_ID)).toBeNull();
@@ -105,7 +105,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     );
 
     const result = await deleteSessionImpl(
-      { name: SESSION_ID, force: false },
+      { sessionId: SESSION_ID, force: false },
       { sessionDB, gitService }
     );
 
@@ -118,7 +118,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const gitService = new FakeGitService();
 
     const result = await deleteSessionImpl(
-      { name: "nonexistent-session", force: false },
+      { sessionId: "nonexistent-session", force: false },
       { sessionDB, gitService }
     );
 

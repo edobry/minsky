@@ -30,7 +30,7 @@ describe("session edit-file command definition", () => {
       expect(schema).toBeDefined();
       expect(schema.path).toBeDefined();
       expect(schema.instruction).toBeDefined();
-      expect(schema.session).toBeDefined();
+      expect(schema.sessionId).toBeDefined();
       expect(schema.dryRun).toBeDefined();
     });
   });
@@ -47,7 +47,7 @@ describe("session edit-file command definition", () => {
     });
 
     test("should have optional session parameter", () => {
-      expect(schema.session.required).toBe(false);
+      expect(schema.sessionId.required).toBe(false);
     });
 
     test("should have optional dryRun parameter with default false", () => {

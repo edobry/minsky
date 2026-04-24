@@ -129,7 +129,7 @@ describe("repairMissingPR — backfill behavior via sessionRepair", () => {
     fakeDB.updateSession = updateSessionSpy as typeof fakeDB.updateSession;
 
     const result = await sessionRepair(
-      { name: "test-session-id", dryRun: true, prState: true },
+      { sessionId: "test-session-id", dryRun: true, prState: true },
       { sessionDB: fakeDB, gitService: fakeGit }
     );
 

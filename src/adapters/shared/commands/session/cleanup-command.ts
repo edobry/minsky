@@ -125,7 +125,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         const sessionId = candidate.session.session;
         try {
           const result = await deleteSessionImpl(
-            { name: sessionId, force: false },
+            { sessionId, force: false },
             { sessionDB: sessionProvider, gitService: deps.gitService }
           );
           if (result.deleted) {

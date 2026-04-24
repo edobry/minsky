@@ -23,7 +23,7 @@ export async function sessionPrEdit(
     title?: string;
     body?: string;
     bodyPath?: string;
-    name?: string;
+    sessionId?: string;
     task?: string;
     repo?: string;
     debug?: boolean;
@@ -45,7 +45,7 @@ export async function sessionPrEdit(
 
   // Resolve session context
   const resolvedContext = await resolveSessionContextWithFeedback({
-    sessionId: params.name,
+    sessionId: params.sessionId,
     task: params.task,
     repo: params.repo,
     sessionProvider,

@@ -192,15 +192,6 @@ export const SessionParameters = {
   /**
    * Session ID parameter
    */
-  name: {
-    schema: z.string(),
-    description: "Session ID",
-    required: false,
-  } as CommandParameterDefinition,
-
-  /**
-   * Session ID (with minimum length requirement)
-   */
   sessionId: {
     schema: z.string().min(1),
     description: "Session identifier (ID or task ID)",
