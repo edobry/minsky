@@ -58,7 +58,7 @@
  *  - `railway service link <id>` required after project link
  */
 
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "child_process";
 import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
