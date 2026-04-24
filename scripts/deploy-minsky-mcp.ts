@@ -11,7 +11,7 @@
  *   --phase=plan    Read-only. Diffs this manifest against live Railway state.
  *                   Safe to run anytime.
  *   --phase=apply   Creates/updates in this order: project → service (via
- *                   `railway up --detach`) → service link → source.rootDirectory
+ *                   `railway up --detach`) → service link → rootDirectory
  *                   → env vars (via GraphQL) → domain → deploymentTrigger.
  *                   Every step is check-then-create or upsert; re-running
  *                   should no-op.
@@ -34,7 +34,7 @@
  *
  * Gotchas encoded (see memory/feedback_railway_config.md):
  *  - .user.accessToken (not .token) for Railway GraphQL Bearer
- *  - source.rootDirectory patched BEFORE deploymentTriggerCreate
+ *  - rootDirectory patched BEFORE deploymentTriggerCreate
  *  - rootDirectory is top-level on ServiceInstance, NOT nested under source
  *  - `railway service link <id>` required after project link
  */
@@ -60,8 +60,13 @@ const MANIFEST = {
   secretsEnvFile: "~/.config/minsky/minsky-mcp.env",
   configYaml: "~/.config/minsky/config.yaml",
   appPem: "~/.config/minsky/minsky-app.pem",
+  // Optional path to the operator's Claude Code agent-memory file for the
+  // deployment. Auto-populated with IDs on verify success. Default points at
+  // the author's path; override with MINSKY_DEPLOY_MEMORY_FILE for other
+  // operators. If the file doesn't exist, verify skips the update gracefully.
   memoryFile:
-    "/Users/edobry/.claude/projects/-Users-edobry-Projects-minsky/memory/project_minsky_mcp_deployment.md",
+    process.env.MINSKY_DEPLOY_MEMORY_FILE ??
+    "~/.claude/projects/-Users-edobry-Projects-minsky/memory/project_minsky_mcp_deployment.md",
   healthPath: "/health",
   mcpPath: "/mcp",
 } as const;
@@ -155,8 +160,23 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
     },
     body: JSON.stringify({ query, variables }),
   });
-  const body = (await res.json()) as { data?: T; errors?: unknown };
-  if (body.errors) throw new Error(`GraphQL error: ${JSON.stringify(body.errors)}`);
+  const body = (await res.json()) as {
+    data?: T;
+    errors?: { message?: string; path?: (string | number)[] }[];
+  };
+  if (body.errors) {
+    // Sanitize: surface only message + path, never the full payload. If the
+    // Railway API ever echoes submitted variables in an error (for a mutation
+    // like variableCollectionUpsert), those variables may be secrets. Don't
+    // JSON.stringify the entire errors object for this reason.
+    const summary = body.errors
+      .map((e) => {
+        const path = e.path ? ` at ${e.path.join(".")}` : "";
+        return `${e.message ?? "unknown GraphQL error"}${path}`;
+      })
+      .join("; ");
+    throw new Error(`GraphQL error: ${summary}`);
+  }
   if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
   return body.data;
 }
@@ -549,8 +569,10 @@ async function phasePlan(opts: { cwd: string }): Promise<void> {
   const status = readLinkedStatus(opts.cwd);
   if (!status?.projectId) {
     console.log(`  Railway project: NOT linked in this directory`);
+    // Match the exact command apply will use — workspaceId, not workspaceName
+    // (both accepted by railway init -w, but pinning the id is reproducible).
     console.log(
-      `    → apply will run: railway init -n ${MANIFEST.project} -w "${MANIFEST.workspaceName}"`
+      `    → apply will run: railway init -n ${MANIFEST.project} -w ${MANIFEST.workspaceId} --json  (workspace "${MANIFEST.workspaceName}")`
     );
     return;
   }
@@ -656,15 +678,15 @@ async function phaseApply(opts: { cwd: string }): Promise<void> {
   }
   console.log(`    service linked to cwd`);
 
-  // 4. Ensure source.rootDirectory BEFORE any trigger work.
+  // 4. Ensure rootDirectory BEFORE any trigger work.
   const source = await readServiceSource(linked.environmentId, linked.serviceId);
   if (source?.rootDirectory !== MANIFEST.rootDirectory) {
     console.log(
-      `  Patching source.rootDirectory: ${source?.rootDirectory ?? "(unset)"} → ${MANIFEST.rootDirectory}`
+      `  Patching rootDirectory: ${source?.rootDirectory ?? "(unset)"} → ${MANIFEST.rootDirectory}`
     );
     await patchServiceRootDirectory(linked.serviceId, linked.environmentId, MANIFEST.rootDirectory);
   } else {
-    console.log(`  source.rootDirectory already correct: ${MANIFEST.rootDirectory}`);
+    console.log(`  rootDirectory already correct: ${MANIFEST.rootDirectory}`);
   }
 
   // 5. Upsert env vars via GraphQL (values sent in POST body, not argv — see
@@ -709,13 +731,69 @@ async function phaseApply(opts: { cwd: string }): Promise<void> {
 
 async function ensureDomain(): Promise<string> {
   // `railway domain` generates one if none exists and prints it. If one exists,
-  // it prints the existing domain. Output format varies by CLI version; we
-  // extract *.up.railway.app.
+  // it prints the existing domain. Used only from apply (which may need to
+  // generate). Verify should use readServiceDomain() instead — it's read-only
+  // and doesn't depend on the CLI's link state.
   const r = railwayTry(["domain"]);
   if (!r.ok) throw new Error(`railway domain failed: ${r.stderr}`);
   const match = r.stdout.match(/[a-z0-9-]+\.up\.railway\.app/);
   if (!match) throw new Error(`could not extract domain from: ${r.stdout}`);
   return match[0];
+}
+
+/**
+ * Read-only GraphQL lookup of the service's primary domain. Prefers
+ * customDomains over serviceDomains (if an operator has configured a custom
+ * domain, that's the canonical public URL). No CLI context dependency.
+ * Returns null if the service has no domains.
+ */
+async function readServiceDomain(environmentId: string, serviceId: string): Promise<string | null> {
+  type R = {
+    environment: {
+      serviceInstances: {
+        edges: {
+          node: {
+            serviceId: string;
+            domains: {
+              serviceDomains: { domain: string }[];
+              customDomains: { domain: string }[];
+            };
+          };
+        }[];
+      };
+    };
+  };
+  const data = await graphql<R>(
+    `
+      query ($envId: String!) {
+        environment(id: $envId) {
+          serviceInstances {
+            edges {
+              node {
+                serviceId
+                domains {
+                  serviceDomains {
+                    domain
+                  }
+                  customDomains {
+                    domain
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `,
+    { envId: environmentId }
+  );
+  const instance = data.environment.serviceInstances.edges.find(
+    (e) => e.node.serviceId === serviceId
+  );
+  if (!instance) return null;
+  const custom = instance.node.domains.customDomains[0]?.domain;
+  const service = instance.node.domains.serviceDomains[0]?.domain;
+  return custom ?? service ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -725,16 +803,29 @@ async function ensureDomain(): Promise<string> {
 async function phaseVerify(opts: { cwd: string }): Promise<void> {
   console.log("=== Phase: verify ===\n");
 
+  // Read-only resolution: do NOT auto-generate MINSKY_MCP_AUTH_TOKEN here.
+  // If it's missing locally, verify must fail fast rather than write a new
+  // token that won't match what's on Railway.
+  const { values, wouldGenerate } = resolveEnvValues({ dryRun: true });
+  const token = values.MINSKY_MCP_AUTH_TOKEN;
+  if (!token || wouldGenerate.includes("MINSKY_MCP_AUTH_TOKEN")) {
+    throw new Error(
+      `MINSKY_MCP_AUTH_TOKEN missing locally (${MANIFEST.secretsEnvFile}). ` +
+        `Run --phase=apply first (or manually copy the token from Railway env).`
+    );
+  }
+
   const linked = requireLinked(readLinkedStatus(opts.cwd), "verify requires a linked service");
-  const domain = await ensureDomain();
+
+  // Domain lookup via GraphQL — read-only, no CLI link-state dependency.
+  const domain = await readServiceDomain(linked.environmentId, linked.serviceId);
+  if (!domain) {
+    throw new Error(
+      `Service ${linked.serviceId} has no domain assigned. Run --phase=apply to generate one.`
+    );
+  }
   const base = `https://${domain}`;
   console.log(`  Probing ${base}`);
-
-  const { values } = resolveEnvValues({ dryRun: false });
-  const token = values.MINSKY_MCP_AUTH_TOKEN;
-  if (!token || token.startsWith("(would-be-")) {
-    throw new Error("MINSKY_MCP_AUTH_TOKEN not resolved — run --phase=apply first");
-  }
 
   const results: { name: string; ok: boolean; detail: string }[] = [];
 
@@ -765,6 +856,9 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   //    bearer auth passes and the Minsky process (not Railway's edge) is
   //    generating the response.
   //
+  //    Accept header is application/json only (not text/event-stream) —
+  //    if the server opted to stream, awaiting text() could hang.
+  //
   //    PASS if: response came from the container (no x-railway-fallback
   //             header) and status is NOT 401.
   //    FAIL if: 401 (auth gate broken), Railway fallback (container dead),
@@ -774,7 +868,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
+      Accept: "application/json",
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
   });
@@ -834,13 +928,14 @@ function writeDeploymentMemory(fields: {
   domain: string;
   triggerId: string;
 }): { updated: boolean; reason: string } {
-  if (!existsSync(MANIFEST.memoryFile)) {
+  const memoryPath = expandTilde(MANIFEST.memoryFile);
+  if (!existsSync(memoryPath)) {
     return {
       updated: false,
       reason: `memory file not present at ${MANIFEST.memoryFile} (skipped)`,
     };
   }
-  let content = readFileSync(MANIFEST.memoryFile, "utf8");
+  let content = readFileSync(memoryPath, "utf8");
   if (!content.includes("<fill-in>")) {
     return { updated: false, reason: "no <fill-in> placeholders present (already populated?)" };
   }
@@ -871,7 +966,7 @@ function writeDeploymentMemory(fields: {
   for (const [re, to] of replacements) content = content.replace(re, to);
   // Replace <fill-in> occurrences in the laptop MCP config JSON snippet.
   content = content.replace(/<fill-in>\.up\.railway\.app/g, fields.domain);
-  writeFileSync(MANIFEST.memoryFile, content);
+  writeFileSync(memoryPath, content);
   return { updated: true, reason: `wrote to ${MANIFEST.memoryFile}` };
 }
 
