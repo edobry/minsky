@@ -33,7 +33,6 @@ export async function generateRulesWithTemplateSystem(
     "index",
     "minsky-workflow-orchestrator",
     "task-implementation-workflow",
-    "minsky-session-management",
     "task-status-protocol",
     "pr-preparation-workflow",
   ];
@@ -148,7 +147,6 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
 
 ## Code Organization Rules
@@ -159,7 +157,6 @@ These rules ensure consistent organization and structure in the codebase:
 |------|-------------|--------------|
 | **module-organization** | Enforces separation between business logic and CLI concerns | When designing new modules or features |
 | **domain-oriented-modules** | Promotes organizing code by domain concepts | When designing module structure or refactoring |
-| **file-size** | Guidelines for avoiding overly large files | When creating new files or growing existing ones |
 | **constants-management** | Best practices for organizing constants | When adding new constants or refactoring existing ones |
 
 ## Quality Assurance Rules
@@ -168,13 +165,12 @@ These rules enforce quality and robustness in code:
 
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
-| **robust-error-handling** | Standards for comprehensive error handling | When working with operations that might fail |
+| **error-handling** (skill) | Standards for comprehensive error handling | When working with operations that might fail |
 | **dont-ignore-errors** | Enforces addressing all errors before considering tasks complete | During implementation and review of any code |
 | **tests** | Requirements for test coverage and when to run tests | When modifying code that requires testing |
 | **testable-design** | Guidelines for creating easily testable code | When designing new features or components |
 | **designing-tests** | Principles for effective test design | When writing or modifying tests |
 | **test-expectations** | Best practices for managing test expectations | When updating code that changes expected behavior |
-| **test-driven-bugfix** | Process for fixing bugs using test-driven development | When addressing bugs or regressions |
 | **cli-testing** | Approaches for testing command-line interfaces | When testing CLI commands or features |
 | **testing-session-repo-changes** | Procedures for testing changes in session repositories | When modifying code that affects session repositories |
 
@@ -195,7 +191,6 @@ These rules standardize the development environment:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **bun_over_node** | Mandates using Bun instead of Node.js | For all JavaScript/TypeScript execution and package management |
-| **template-literals** | Preference for template literals over string concatenation | When constructing strings with variable content |
 | **user-preferences** | Records user preferences from interactions | When implementing features that should respect user preferences |
 
 ## Usage Scenarios & Applicable Rules
@@ -205,8 +200,7 @@ These rules standardize the development environment:
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **creating-tasks** - Know how to document new work
-3. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
+2. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
 
 ### When Implementing Features
 
@@ -214,7 +208,7 @@ During feature implementation, the most relevant rules are:
 
 1. **minsky-workflow** - Follow the proper process
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
-3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
+3. **error-handling** (skill) & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
 5. **changelog** - Document the changes
 
@@ -222,17 +216,16 @@ During feature implementation, the most relevant rules are:
 
 For bug fixes, prioritize:
 
-1. **test-driven-bugfix** - Use proper bug-fixing methodology
-2. **dont-ignore-errors** - Ensure all errors are handled
-3. **test-expectations** - Update tests appropriately
-4. **changelog** - Document the fix
+1. **dont-ignore-errors** - Ensure all errors are handled
+2. **test-expectations** - Update tests appropriately
+3. **changelog** - Document the fix
 
 ### When Reviewing Code
 
 Code reviewers should focus on:
 
 1. **pr-description-guidelines** - Ensure proper documentation
-2. **robust-error-handling** & **dont-ignore-errors** - Verify error handling
+2. **error-handling** (skill) & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
 4. **testable-design** & **tests** - Validate test coverage
 5. **changelog** - Confirm changes are documented
@@ -248,9 +241,8 @@ When developing new Minsky rules:
 For initializing new projects with Minsky:
 
 1. **minsky-workflow** - Establish the core workflow
-2. **creating-tasks** - Enable structured task creation
-3. **changelog** - Set up change tracking
-4. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
+2. **changelog** - Set up change tracking
+3. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -258,7 +250,7 @@ Some rules are closely related and often used together:
 
 - **module-organization** and **domain-oriented-modules** complement each other for code structuring
 - **testable-design**, **designing-tests**, and **tests** form a comprehensive testing approach
-- **robust-error-handling** and **dont-ignore-errors** ensure comprehensive error management
+- **error-handling** (skill) and **dont-ignore-errors** ensure comprehensive error management
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
