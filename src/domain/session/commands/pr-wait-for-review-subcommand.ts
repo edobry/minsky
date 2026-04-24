@@ -169,6 +169,19 @@ export async function sessionPrWaitForReview(
     let pollCount = 0;
 
     while (true) {
+      // After the first poll, the sleep may have brought us exactly to (or
+      // past) the deadline. Re-check before polling again so we never start
+      // an API call that would overshoot the configured timeout. The
+      // `pollCount > 0` guard guarantees at least one poll even on zero
+      // or sub-interval budgets — the contract is "one check minimum."
+      if (pollCount > 0 && now() >= deadline) {
+        return {
+          matched: false,
+          elapsedMs: now() - start,
+          pollCount,
+        };
+      }
+
       pollCount += 1;
       const reviews = await backend.review.listReviews(prNumber);
       const match = findMatchingReview(reviews, since, params.reviewer);

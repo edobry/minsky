@@ -7,7 +7,12 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import {
+  MinskyError,
+  ResourceNotFoundError,
+  ValidationError,
+  getErrorMessage,
+} from "../../../../errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
 import { sessionPrWaitForReview } from "../../../../domain/session/commands/pr-subcommands";
@@ -72,6 +77,17 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
               `(${pollCount} poll(s)). Timeout reached without a match.`,
           };
         } catch (error) {
+          // Preserve domain error types so downstream handlers can branch
+          // on ResourceNotFoundError (missing PR) vs ValidationError
+          // (invalid --since) vs generic MinskyError. Only wrap truly
+          // unknown errors to avoid swallowing unexpected failures silently.
+          if (
+            error instanceof ResourceNotFoundError ||
+            error instanceof ValidationError ||
+            error instanceof MinskyError
+          ) {
+            throw error;
+          }
           throw new MinskyError(`Failed to wait for session PR review: ${getErrorMessage(error)}`);
         }
       }

@@ -300,4 +300,76 @@ describe("sessionPrWaitForReview", () => {
       )
     ).rejects.toThrow(ValidationError);
   });
+
+  test("throws MinskyError when backend does not implement listReviews", async () => {
+    const deps = makeDeps([[]]);
+    // Override createBackend to return a backend without listReviews support
+    // (simulating a non-GitHub backend that hasn't implemented the optional
+    // method).
+    deps.createBackend = async () =>
+      ({
+        review: {
+          // listReviews intentionally absent
+        },
+      }) as unknown as RepositoryBackend;
+
+    await expect(
+      sessionPrWaitForReview({ sessionId, timeoutSeconds: 5, intervalSeconds: 5 }, deps)
+    ).rejects.toThrow(/does not support listing reviews/);
+  });
+
+  test("does not poll past the deadline (exact-deadline semantics)", async () => {
+    // With timeout=10s and interval=5s, the expected poll schedule is:
+    //   t=0: poll 1
+    //   sleep 5s → t=5
+    //   t=5: poll 2
+    //   sleep 5s → t=10 (at deadline)
+    //   pre-poll deadline check fires: no poll 3.
+    // Before the R1-blocking fix, the loop would have done a 3rd poll at
+    // t=10 before returning timeout. This test is the regression guard.
+    const deps = makeDeps([[]]);
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 10, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.pollCount).toBe(2);
+    }
+  });
+
+  test("handles a large (paginated-equivalent) review list without losing the match", async () => {
+    // The real pagination lives in github-pr-review.ts (octokit.paginate);
+    // at the subcommand layer we just need to confirm findMatchingReview
+    // scans the whole list and a match deep in the array is still found.
+    // Simulate a backend that returns 150 historical reviews + 1 matching
+    // review at the end — the equivalent of a page-3 result that a
+    // non-paginated implementation would miss.
+    const historical: ReviewListEntry[] = Array.from({ length: 150 }, (_, i) => ({
+      reviewId: i + 1,
+      state: "COMMENTED",
+      submittedAt: "2020-01-01T00:00:00Z",
+      reviewerLogin: "random-user",
+      body: "historical noise",
+    }));
+    const deps = makeDeps([[...historical, match]]);
+    const result = await sessionPrWaitForReview(
+      {
+        sessionId,
+        timeoutSeconds: 30,
+        intervalSeconds: 5,
+        // Exclude all historical 2020 reviews via an explicit since; the
+        // match's 2099 timestamp clears it comfortably.
+        since: "2099-01-01T00:00:00Z",
+      },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(42);
+      expect(result.pollCount).toBe(1);
+    }
+  });
 });

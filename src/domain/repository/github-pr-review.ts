@@ -217,15 +217,17 @@ export async function dismissReview(
 }
 
 /**
- * List all reviews on a GitHub pull request.
+ * List all reviews on a GitHub pull request, across all pages.
  *
- * Uses `octokit.rest.pulls.listReviews()` which returns a list of reviews
- * on the PR. The reviews are mapped to the forge-neutral `ReviewListEntry`
- * shape.
+ * Uses `octokit.paginate` against `octokit.rest.pulls.listReviews` so the
+ * call returns every review on the PR, not just the first 30 (GitHub's
+ * default page size). Iteration-heavy callers (e.g., the wait-for-review
+ * poller) rely on this because GitHub returns reviews in chronological
+ * order (oldest first): without pagination, a PR with many historical
+ * reviews would never surface a newly-posted one.
  *
- * Auth goes through `gh.getToken()` which honours the TokenProvider's
- * service account when one is configured — so the dismissal is recorded
- * under the bot identity (or the user identity when appropriate).
+ * Auth goes through `gh.getToken()` (TokenProvider-aware). This is a
+ * read-only listing — no identity mutation, no comments posted.
  */
 export async function listReviews(
   gh: GitHubContext,
@@ -241,15 +243,14 @@ export async function listReviews(
     const token = await gh.getToken();
     const octokit = createOctokit(token);
 
-    const response = await octokit.rest.pulls.listReviews({
+    const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
       owner: gh.owner,
       repo: gh.repo,
       pull_number: prNumber,
+      per_page: 100,
     });
 
-    const reviews = response.data;
-
-    log.info("GitHub PR reviews listed successfully", {
+    log.debug("GitHub PR reviews listed", {
       prNumber,
       reviewCount: reviews.length,
       owner: gh.owner,
