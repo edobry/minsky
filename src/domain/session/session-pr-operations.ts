@@ -241,9 +241,8 @@ Please provide a title for your pull request:
     // so updateSessionImpl doesn't try to create its own sessionProvider.
     await updateSessionImpl(
       {
-        name: sessionId,
+        sessionId,
         repo: params.repo,
-        json: false,
         force: false,
         noStash: false,
         noPush: false,
@@ -251,7 +250,7 @@ Please provide a title for your pull request:
         skipConflictCheck: params.skipConflictCheck,
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipIfAlreadyMerged: true, // Automatically skip if changes already merged
-      } as import("../schemas").SessionUpdateParameters,
+      },
       {
         sessionDB: deps.sessionDB,
         gitService: deps.gitService,
