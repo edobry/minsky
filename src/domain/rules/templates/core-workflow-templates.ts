@@ -526,7 +526,7 @@ These workflow rules should be applied:
 | minsky-cli-usage | Command usage | All workflow rules |
 | minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
 | task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
-| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
+| task-status-protocol | Status management | task-status-workflow-protocol, task-implementation-workflow |
 | pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
 | session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
 
