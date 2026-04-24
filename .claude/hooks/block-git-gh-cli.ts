@@ -3,10 +3,41 @@
 //
 // Rationale: Minsky provides MCP tools for all common git/gh operations.
 // Using raw CLI bypasses session resolution, auto-push, and audit trails.
-// This hook intercepts Bash tool calls and denies known-equivalent operations.
+// This hook intercepts both `Bash` AND `mcp__minsky__session_exec` tool calls
+// (both accept a `command` parameter) and denies known-equivalent operations.
+//
+// Three rules (`git status`, `git stash`, `git reset`) have denial messages
+// that explicitly redirect to `session_exec` as the allowed path. Those rules
+// are tagged `allowedInSessionExec: true` and skipped when the invocation is
+// already via session_exec — otherwise the hook would contradict its own
+// guidance.
+//
+// `git -C` is NOT carved out: the -C rule previously had allowedInSessionExec,
+// but minsky-reviewer (mt#1196 review 4167154239) correctly identified that
+// the carve-out was a bypass. Because the -C rule matches args[0] === "-C"
+// and subsequent rules all check args[0] for a subcommand, a skipped -C rule
+// let `git -C /anywhere commit|push|merge` slip through untouched. Also,
+// allowing -C on session_exec would let callers scope operations outside the
+// session root, violating session isolation. Denied unconditionally.
+//
+// @see mt#1196 — extending this hook to cover session_exec after PR #717
+// retrospective surfaced the loophole.
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+
+// ---------------------------------------------------------------------------
+// Tool context
+// ---------------------------------------------------------------------------
+
+export type HookTool = "bash" | "session_exec";
+
+export const SESSION_EXEC_TOOL_NAME = "mcp__minsky__session_exec";
+
+/** Derive a HookTool tag from the raw `tool_name` field. */
+export function toolContextFromName(toolName: string): HookTool {
+  return toolName === SESSION_EXEC_TOOL_NAME ? "session_exec" : "bash";
+}
 
 // ---------------------------------------------------------------------------
 // Denial table types
@@ -15,6 +46,13 @@ import type { ToolHookInput } from "./types";
 export interface DenialRule {
   match: (args: string[]) => boolean;
   reason: string;
+  /**
+   * When true, this rule is SKIPPED when the invocation comes via
+   * `mcp__minsky__session_exec`. Used for rules whose reason explicitly
+   * redirects to session_exec — applying them on session_exec itself would
+   * be self-contradictory.
+   */
+  allowedInSessionExec?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -22,11 +60,20 @@ export interface DenialRule {
 // ---------------------------------------------------------------------------
 
 export const gitDenials: DenialRule[] = [
-  // git -C <path> anything — always deny, point to session_exec
+  // git -C <path> <anything> — always denied on both Bash and session_exec.
+  // - On Bash: redirect to session_exec (which sets cwd automatically).
+  // - On session_exec: -C is redundant (cwd is the session root) AND dangerous.
+  //   Dangerous because: before the mt#1196 review fix, -C was carved out on
+  //   session_exec via allowedInSessionExec. That match()-skip fired first
+  //   (args[0] === "-C"); subsequent rules all check args[0] for a subcommand,
+  //   so `git -C /anywhere commit` (push/merge/rebase/…) would slip through
+  //   untouched — a bigger loophole than the one the carve-out was meant to
+  //   preserve. Also: -C lets callers scope operations outside the session
+  //   root, violating session isolation. Denying unconditionally closes both.
   {
     match: (args) => args[0] === "-C",
     reason:
-      "Use `mcp__minsky__session_exec(task, command)` instead of `git -C <path>`. It resolves the session directory automatically.",
+      "`git -C` is not allowed. On Bash, use `mcp__minsky__session_exec(task, command)`. Inside session_exec, omit `-C` — the session cwd is already set. Session isolation: `-C` could point git at paths outside the session root.",
   },
   {
     match: (args) => args[0] === "add",
@@ -45,6 +92,8 @@ export const gitDenials: DenialRule[] = [
     match: (args) => args[0] === "status",
     reason:
       "Use `mcp__minsky__session_exec(task, 'git status')` inside a session, or avoid the call if context is available from diff/log tools.",
+    // On session_exec itself, `git status` is the recommended path — don't block.
+    allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "log",
@@ -91,11 +140,15 @@ export const gitDenials: DenialRule[] = [
     match: (args) => args[0] === "reset",
     reason:
       "Use `mcp__minsky__session_exec(task, 'git reset ...')` if you genuinely need a reset in a session. This is a destructive operation — consider the revert alternative first.",
+    // On session_exec itself, `git reset` is the recommended escape hatch — don't block.
+    allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "stash",
     reason:
       "No first-class MCP equivalent. If you need to stash in a session, use `mcp__minsky__session_exec(task, 'git stash')` — the call runs server-side and is not blocked by this hook.",
+    // On session_exec itself, `git stash` is the recommended escape hatch — don't block.
+    allowedInSessionExec: true,
   },
 ];
 
@@ -213,12 +266,17 @@ export function parseCommands(command: string): ParsedCommand[] {
 }
 
 /**
- * Check a parsed command against the denial tables.
+ * Check a parsed command against the denial tables, taking the invoking tool
+ * context into account. Rules tagged `allowedInSessionExec` are skipped when
+ * `context === "session_exec"` — their reasons redirect to session_exec, so
+ * applying them on session_exec itself would be self-contradictory.
+ *
  * Returns the denial reason string if denied, or null if allowed.
  */
-export function checkDenial(parsed: ParsedCommand): string | null {
+export function checkDenial(parsed: ParsedCommand, context: HookTool = "bash"): string | null {
   const denials = parsed.binary === "git" ? gitDenials : ghDenials;
   for (const rule of denials) {
+    if (context === "session_exec" && rule.allowedInSessionExec) continue;
     if (rule.match(parsed.args)) {
       return rule.reason;
     }
@@ -230,23 +288,26 @@ export function checkDenial(parsed: ParsedCommand): string | null {
 // Hook entry point
 // ---------------------------------------------------------------------------
 
-const input = await readInput<ToolHookInput>();
-const command = (input.tool_input.command as string) ?? "";
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+  const command = (input.tool_input.command as string) ?? "";
+  const context = toolContextFromName(input.tool_name);
 
-const parsedCommands = parseCommands(command);
+  const parsedCommands = parseCommands(command);
 
-for (const parsed of parsedCommands) {
-  const reason = checkDenial(parsed);
-  if (reason) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: reason,
-      },
-    });
-    process.exit(0);
+  for (const parsed of parsedCommands) {
+    const reason = checkDenial(parsed, context);
+    if (reason) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
+        },
+      });
+      process.exit(0);
+    }
   }
-}
 
-process.exit(0);
+  process.exit(0);
+}

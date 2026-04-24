@@ -83,31 +83,121 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 ## Verify deployment
 
-### Unauthenticated health probe
+Run the automated verify phase:
 
 ```bash
-curl https://<railway-domain>/health
-# → {"status":"ok","server":"Minsky MCP Server","transport":"http","timestamp":"..."}
+bun scripts/deploy-minsky-mcp.ts --phase=verify
 ```
 
-### Authenticated MCP probe
+All four probes must pass for a healthy deployment. Expected output:
 
-List all registered tools:
+```
+  Probing https://<service>.up.railway.app
+  ✓ GET /health → 200  (status=200)
+  ✓ POST /mcp (no auth) → 401  (status=401)
+  ✓ POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000  (status=400, jsonrpc=2.0, error.code=-32000)
+  ✓ POST /mcp initialize → 200 + mcp-session-id  (status=200, mcp-session-id present (36 chars))
+  ✓ POST /mcp tools/list (with session id) → well-known tool  (status=200, well-known Minsky tool found in response (NNNN bytes))
+
+All probes passed.
+```
+
+### Probe 1 — GET /health → 200
+
+**What it proves:** The container is running and the health endpoint is reachable.
+
+**Expected:** `status=200`
+
+**Failure hints:**
+
+- Non-200: container failed to start. Check `railway logs` for startup errors (missing env vars, failed Postgres connection).
+
+### Probe 2 — POST /mcp (no auth) → 401
+
+**What it proves:** The auth middleware is active and correctly rejects unauthenticated requests before they reach MCP logic.
+
+**Expected:** `status=401`
+
+**Failure hints:**
+
+- Non-401: auth middleware is misconfigured or `--require-auth` flag was removed from `CMD`. Verify the Dockerfile CMD still passes `--require-auth`.
+
+### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000
+
+**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. The SDK's `StreamableHTTPServerTransport.validateSession` emits `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}`.
+
+**Expected:** `status=400`, body `{"jsonrpc":"2.0","error":{"code":-32000,...}}`
+
+**Failure hints:**
+
+- `HTTP 500`: pre-fix regression — the "Already connected to a transport" bug from before mt#1199. Redeploy with the per-session Server fix.
+- `HTTP 401`: auth gate broken; bearer token mismatch. Check `MINSKY_MCP_AUTH_TOKEN` matches on both client and Railway.
+- `HTTP 4xx` (other than 400): protocol shape drift — unexpected response format.
+- Non-JSON body: wrong server responding (Railway edge HTML error page). Check domain and Railway routing.
+- Railway fallback active: container dead or cold-starting. Try again in 30 seconds.
+
+### Probe 4 — Full initialize dance
+
+Two sub-checks, both must pass:
+
+**4a — POST /mcp initialize → 200 + mcp-session-id**
+
+**What it proves:** The MCP initialize handshake succeeds end-to-end: auth passes, the per-session Server is created, and the `mcp-session-id` response header is set correctly.
+
+**Expected:** `status=200`, `mcp-session-id` header present in response.
+
+**Failure hints:**
+
+- Status not 200: container unhealthy or auth token wrong.
+- Missing `mcp-session-id` header: server not implementing StreamableHTTP session management correctly. Check `src/commands/mcp/start-command.ts`.
+- Timeout after 30s: container hanging during tool registration cold start. Check `railway logs`.
+
+**4b — POST /mcp tools/list (with session id) → well-known tool**
+
+**What it proves:** The session established by initialize is usable for follow-up requests, and the full tool registry (including well-known Minsky tools like `session_get` or `tasks_list`) is registered and returned.
+
+**Expected:** `status=200`, response body contains `"session_get"` or `"tasks_list"`.
+
+**Failure hints:**
+
+- Status not 200: session expired or routing sent this request to a different container instance than initialize. Ensure Railway sticky sessions or that the server is single-instance.
+- Well-known tool not in body: tool registration failed on startup. Check `railway logs` for adapter initialization errors.
+
+### Manual verification with curl
 
 ```bash
+# Health (public, expect 200)
+curl https://<railway-domain>/health
+# → {"status":"ok","server":"Minsky MCP Server","transport":"http","timestamp":"..."}
+
+# Unauthenticated (expect 401)
+curl -sS -o /dev/null -w "%{http_code}\n" https://<railway-domain>/mcp \
+  -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# → 401
+
+# Non-initialize authenticated (expect 400 + JSON-RPC -32000, after mt#1199)
+curl -sS https://<railway-domain>/mcp \
+  -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# → {"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}
+
+# Initialize handshake (expect 200 + mcp-session-id header)
+curl -sS -D - https://<railway-domain>/mcp \
+  -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"manual-verify","version":"1.0.0"}}}'
+# → HTTP 200 with mcp-session-id: <session-id>
+
+# tools/list with session id (expect 200 + tool names)
 curl -sS https://<railway-domain>/mcp \
   -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-```
-
-### Unauthorized request
-
-```bash
-curl -sS -o /dev/null -w "%{http_code}\n" https://<railway-domain>/mcp \
-  -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# → 401
+  -H "mcp-session-id: <session-id-from-above>" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+# → response body contains "session_get" and "tasks_list"
 ```
 
 ## Consumer integration

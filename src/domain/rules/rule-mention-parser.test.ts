@@ -25,10 +25,10 @@ describe("Rule Mention Parser", () => {
     });
 
     it("should handle rule names with underscores and hyphens", () => {
-      const query = "Apply @test_driven_development and @session-first-workflow";
+      const query = "Apply @test_driven_development and @git-usage-policy";
       const mentions = extractRuleMentions(query);
 
-      expect(mentions).toEqual(["test_driven_development", "session-first-workflow"]);
+      expect(mentions).toEqual(["test_driven_development", "git-usage-policy"]);
     });
 
     it("should deduplicate mentioned rule names", () => {

@@ -226,7 +226,6 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
 
@@ -318,15 +317,13 @@ ${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **session-first-workflow** - Learn the critical session creation requirements
-3. **creating-tasks** - Know how to document new work
-4. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
+2. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
 
 ### When Implementing Features
 
 During feature implementation, the most relevant rules are:
 
-1. **minsky-workflow** & **session-first-workflow** - Follow the proper process
+1. **minsky-workflow** - Follow the proper process
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
@@ -362,10 +359,8 @@ When developing new Minsky rules:
 For initializing new projects with Minsky:
 
 1. **minsky-workflow** - Establish the core workflow
-2. **session-first-workflow** - Enforce proper session usage
-3. **creating-tasks** - Enable structured task creation
-4. **changelog** - Set up change tracking
-5. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
+2. **changelog** - Set up change tracking
+3. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -373,7 +368,6 @@ Some rules are closely related and often used together:
 
 - **module-organization** and **domain-oriented-modules** complement each other for code structuring
 - **testable-design**, **designing-tests**, and **tests** form a comprehensive testing approach
-- **minsky-workflow** and **session-first-workflow** together define the complete development process
 - **robust-error-handling** and **dont-ignore-errors** ensure comprehensive error management
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
@@ -406,11 +400,10 @@ This rule provides an overview of the Minsky workflow system and serves as an en
 
 The following rules form the complete Minsky workflow system:
 
-1. [**minsky-cli-usage**](mdc:.cursor/rules/minsky-cli-usage.mdc) - Guidelines for using the Minsky CLI for all task and session operations
-2. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions
-3. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
-4. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
-5. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
+1. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions
+2. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
+3. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
+4. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
 
 ## Fundamental Principle: Command-Based Workflow
 
@@ -437,7 +430,7 @@ These workflow rules should be applied:
 1. **Task Selection and Status Verification**
    - First: Check available tasks with ${helpers.command("tasks.list")}
    - Then: Verify task status with ${helpers.command("tasks.status.get")}
-   - Apply: minsky-cli-usage and task-status-protocol
+   - Apply: task-status-protocol
 
 2. **Session Creation and Navigation**
    - First: Create or re-enter a session for the task
@@ -447,7 +440,7 @@ These workflow rules should be applied:
 3. **Task Implementation**
    - First: Understand task requirements
    - Then: Implement the solution in the session workspace
-   - Apply: task-implementation-workflow and session-first-workflow
+   - Apply: task-implementation-workflow
 
 4. **Testing and Verification**
    - First: Write and run tests for the implementation
@@ -474,7 +467,7 @@ These workflow rules should be applied:
 ### Task-Related Questions
 
 - **"What tasks are available?"**
-  → Apply minsky-cli-usage and use ${helpers.command("tasks.list")}
+  → Use ${helpers.command("tasks.list")}
 
 - **"How do I start working on a task?"**
   → Apply minsky-session-management to create a session
@@ -489,9 +482,6 @@ These workflow rules should be applied:
 
 - **"How do I get back to my session?"**
   → Apply minsky-session-management and use ${helpers.command("session.dir")}
-
-- **"Why aren't my changes showing up?"**
-  → Apply session-first-workflow to verify you're in the correct workspace
 
 ### Implementation Questions
 
@@ -510,10 +500,7 @@ These workflow rules should be applied:
 ## Error Recovery Checkpoints
 
 | Error Scenario | Rule to Apply | Recovery Action |
-|----------------|---------------|-----------------|
-| **Wrong Command** | minsky-cli-usage | Check command reference and retry |
-| **Path Resolution Issue** | session-first-workflow | Use absolute paths in session workspace |
-| **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
+|----------------|---------------|--------------------|
 | **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
 | **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
 | **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
@@ -522,18 +509,15 @@ These workflow rules should be applied:
 
 | Rule | Primary Purpose | Integrates With |
 |------|-----------------|----------------|
-| minsky-cli-usage | Command usage | All workflow rules |
-| minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
+| minsky-session-management | Session operations | task-implementation-workflow |
 | task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
-| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
+| task-status-protocol | Status management | task-status-workflow-protocol, task-implementation-workflow |
 | pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
-| session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
 
 ## Supporting Rules
 
 The Minsky workflow is supported by these additional rules:
 
-- [**session-first-workflow**](mdc:.cursor/rules/session-first-workflow.mdc) - Ensures all implementation work happens in dedicated sessions
 - [**creating-tasks**](mdc:.cursor/rules/creating-tasks.mdc) - Guidelines for creating well-structured task specifications
 - [**pr-description-guidelines**](mdc:.cursor/rules/pr-description-guidelines.mdc) - Format and content requirements for PR descriptions
 - [**rules-management**](mdc:.cursor/rules/rules-management.mdc) - Guidelines for managing Minsky rules`;
