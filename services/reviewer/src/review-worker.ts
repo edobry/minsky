@@ -19,6 +19,7 @@ import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
+import { sanitizeReviewBody } from "./sanitize";
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -185,7 +186,31 @@ export async function runReview(
     };
   }
 
-  const event = parseReviewEvent(output.text, isSelfReview);
+  // CoT-leakage guard (mt#1212): detect model scratch leaking into the visible
+  // review body. Distinct from the empty-output guard above — here the model
+  // produced content, but part of it is internal reasoning that should not
+  // ship. Observed on PR #743 (2026-04-24). Either strip the leaked prefix
+  // (when a structural Findings section follows) or replace the body with a
+  // structured service-error notice (when the leak is the entire body).
+  const sanitized = sanitizeReviewBody(output.text);
+  if (sanitized.action !== "passthrough") {
+    console.log(
+      JSON.stringify({
+        event: "reviewer.cot_leak_detected",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        commitSha: pr.headSha,
+        originalLength: sanitized.meta.originalLength,
+        cleanedLength: sanitized.meta.cleanedLength,
+        action: sanitized.action,
+        reason: sanitized.meta.reason,
+        provider: output.provider,
+        model: output.model,
+      })
+    );
+  }
+
+  const event =
+    sanitized.action === "errored" ? "COMMENT" : parseReviewEvent(sanitized.body, isSelfReview);
 
   const review = await submitReview(
     octokit,
@@ -193,13 +218,29 @@ export async function runReview(
     repo,
     prNumber,
     event,
-    annotateReviewBody(output.text, output, tier, isSelfReview)
+    annotateReviewBody(sanitized.body, output, tier, isSelfReview)
   );
+
+  if (sanitized.action === "errored") {
+    return {
+      status: "error",
+      review,
+      reason:
+        `Posted service-error notice as ${reviewerIdentity.login}: CoT leakage with no recoverable review body ` +
+        `(${sanitized.meta.reason})`,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+    };
+  }
 
   return {
     status: "reviewed",
     review,
-    reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model})`,
+    reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model})${
+      sanitized.action === "stripped" ? " [cot-leakage: stripped]" : ""
+    }`,
     tier,
     providerUsed: output.provider,
     providerModel: output.model,
