@@ -196,18 +196,19 @@ export const ghDenials: DenialRule[] = [
       if (args[0] !== "api") return false;
       const method = findGhApiMethod(args);
       if (method !== "PUT") return false;
-      const endpoint = findGhApiEndpoint(args);
+      // Scan ALL tokens for a PR-merge endpoint (bypass-proof vs quote-
+      // splitting of preceding -f values). See findGhApiPrMergeEndpointToken.
+      const endpoint = findGhApiPrMergeEndpointToken(args);
       if (endpoint === null) return false;
-      if (!PR_MERGE_ENDPOINT_RE.test(endpoint)) return false;
       const mergeMethod = findGhApiField(args, "merge_method");
       // Block when absent OR anything other than "merge".
       return mergeMethod !== "merge";
     },
     reason:
       "`gh api PUT .../pulls/N/merge` must use `-f merge_method=merge`. Minsky preserves " +
-      "merge commits for clean linear history — see docs/pr-workflow.md and " +
-      "feedback_gh_api_bypass.md. Squash-merges erase PR-branch history and invalidate " +
-      "review-evidence links. If you truly need the bypass, retry with `-f merge_method=merge`.",
+      "merge commits for clean linear history — see docs/pr-workflow.md §Merge method policy. " +
+      "Squash-merges erase PR-branch history and invalidate review-evidence links. " +
+      "If you truly need the bypass, retry with `-f merge_method=merge`.",
   },
 ];
 
@@ -321,14 +322,50 @@ const GH_API_VALUE_FLAGS = new Set([
 ]);
 
 /**
+ * Strip a single surrounding matched pair of single- or double-quotes from a
+ * token. Needed because the upstream tokenizer is intentionally not quote-
+ * aware (see splitOnShellOperators), so tokens like `"merge_method=merge"`
+ * arrive with the quotes still on them.
+ */
+export function stripSurroundingQuotes(token: string): string {
+  if (token.length >= 2) {
+    const first = token[0];
+    const last = token[token.length - 1];
+    if ((first === '"' || first === "'") && first === last) {
+      return token.slice(1, -1);
+    }
+  }
+  return token;
+}
+
+/**
  * Extract the HTTP method from `gh api` args. Defaults to "GET" when neither
  * -X nor --method is supplied. Expects `args` to start with the sub-command
  * ("api"); scans the rest for the flag.
+ *
+ * Handles all four method-flag shapes gh/Cobra accept:
+ *   -X PUT           (separate tokens)
+ *   --method PUT     (separate tokens, long form)
+ *   -XPUT            (combined short form)
+ *   --method=PUT     (equals form)
+ *
+ * Returns the method uppercased so comparisons are case-insensitive (gh
+ * accepts `-X put`; the old case-sensitive comparison was a bypass vector).
  */
 export function findGhApiMethod(args: string[]): string {
   for (let i = 1; i < args.length; i++) {
-    if (args[i] === "-X" || args[i] === "--method") {
-      return args[i + 1] ?? "GET";
+    const arg = args[i];
+    // Separate-tokens form: -X VALUE / --method VALUE
+    if (arg === "-X" || arg === "--method") {
+      return (args[i + 1] ?? "GET").toUpperCase();
+    }
+    // Equals form: --method=VALUE
+    if (arg.startsWith("--method=")) {
+      return arg.slice("--method=".length).toUpperCase();
+    }
+    // Combined short form: -XVALUE (e.g., -XPUT)
+    if (arg.startsWith("-X") && arg.length > 2) {
+      return arg.slice(2).toUpperCase();
     }
   }
   return "GET";
@@ -336,24 +373,31 @@ export function findGhApiMethod(args: string[]): string {
 
 /**
  * Extract the endpoint path from `gh api` args — the first positional argument
- * after flag/value pairs are stripped. Returns null if no positional is found.
+ * after flag/value pairs are stripped. Returns the unquoted token, or null if
+ * no positional is found.
  *
- * e.g., `gh api -X PUT repos/owner/repo/pulls/42/merge -f merge_method=merge`
- *   → "repos/owner/repo/pulls/42/merge"
+ * NOTE: This is a first-positional extractor for general use. The PR-merge
+ * denial rule does NOT rely on it for enforcement (see
+ * findGhApiPrMergeEndpointToken) because quote-splitting by the upstream
+ * tokenizer can pull the positional out of alignment. This helper is retained
+ * for cases where identifying the first positional in a well-formed
+ * invocation is useful.
  */
 export function findGhApiEndpoint(args: string[]): string | null {
   let i = 1; // skip "api"
   while (i < args.length) {
     const arg = args[i];
     if (arg.startsWith("-")) {
+      // Value-taking flag with separate value token: -f merge_method=merge
       if (GH_API_VALUE_FLAGS.has(arg)) {
-        i += 2; // flag + its value
+        i += 2;
         continue;
       }
-      i += 1; // standalone flag
+      // Equals-form flag (e.g., --method=PUT): single token, no separate value.
+      i += 1;
       continue;
     }
-    return arg;
+    return stripSurroundingQuotes(arg);
   }
   return null;
 }
@@ -362,12 +406,18 @@ export function findGhApiEndpoint(args: string[]): string | null {
  * Extract the value of a named `-f KEY=VALUE` / `--field KEY=VALUE` /
  * `--raw-field KEY=VALUE` from `gh api` args. Returns null if the field is
  * not present.
+ *
+ * Tokens are quote-stripped before matching, so `-f "merge_method=merge"`
+ * (where the upstream tokenizer kept the quotes on the token) is still
+ * recognized. Without this, a perfectly valid quoted invocation would be
+ * treated as if `merge_method` were absent and over-blocked.
  */
 export function findGhApiField(args: string[], key: string): string | null {
   const prefix = `${key}=`;
   for (const arg of args) {
-    if (arg.startsWith(prefix)) {
-      return arg.slice(prefix.length);
+    const stripped = stripSurroundingQuotes(arg);
+    if (stripped.startsWith(prefix)) {
+      return stripped.slice(prefix.length);
     }
   }
   return null;
@@ -378,6 +428,30 @@ export function findGhApiField(args: string[], key: string): string | null {
  * match `/merges`, `/merge-upstream`, or any sub-resource.
  */
 const PR_MERGE_ENDPOINT_RE = /(^|\/)pulls\/\d+\/merge$/;
+
+/**
+ * Scan ALL tokens for one that matches the PR-merge endpoint pattern (after
+ * unquoting). Returns the matched token (unquoted) or null.
+ *
+ * This is deliberately broader than findGhApiEndpoint: the policy question
+ * ("does this command target a PR-merge endpoint?") does not require
+ * perfectly locating which token is the positional. A quoted -f value like
+ * `-f commit_title="My PR"` can confuse positional extraction because the
+ * upstream tokenizer is not quote-aware and splits `"My PR"` into multiple
+ * tokens — but the actual endpoint token is still present somewhere in the
+ * arg list, and scanning all tokens finds it.
+ *
+ * Exported for tests.
+ */
+export function findGhApiPrMergeEndpointToken(args: string[]): string | null {
+  for (const arg of args) {
+    const stripped = stripSurroundingQuotes(arg);
+    if (PR_MERGE_ENDPOINT_RE.test(stripped)) {
+      return stripped;
+    }
+  }
+  return null;
+}
 
 /**
  * Check a parsed command against the denial tables, taking the invoking tool

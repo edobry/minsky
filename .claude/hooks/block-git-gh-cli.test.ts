@@ -11,6 +11,8 @@ import {
   findGhApiMethod,
   findGhApiEndpoint,
   findGhApiField,
+  findGhApiPrMergeEndpointToken,
+  stripSurroundingQuotes,
   SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
 
@@ -720,6 +722,11 @@ describe("denial table sanity", () => {
 const MERGE_METHOD_MERGE = "merge_method=merge";
 const MERGE_METHOD_SQUASH = "merge_method=squash";
 const MERGE_METHOD_REBASE = "merge_method=rebase";
+/** Quoted form of merge_method=merge (double-quote stripping coverage). */
+const MERGE_METHOD_MERGE_QUOTED = `"${MERGE_METHOD_MERGE}"`;
+/** Canonical PR-merge endpoints used in the new enforcement tests. */
+const ENDPOINT_PR1_MERGE = "repos/o/r/pulls/1/merge";
+const ENDPOINT_PR42_MERGE = "repos/o/r/pulls/42/merge";
 
 describe("findGhApiMethod", () => {
   it("defaults to GET when no method flag present", () => {
@@ -727,11 +734,11 @@ describe("findGhApiMethod", () => {
   });
 
   it("returns PUT for -X PUT", () => {
-    expect(findGhApiMethod(["api", "-X", "PUT", "repos/o/r/pulls/1/merge"])).toBe("PUT");
+    expect(findGhApiMethod(["api", "-X", "PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
   });
 
   it("returns PUT for --method PUT (long-form)", () => {
-    expect(findGhApiMethod(["api", "--method", "PUT", "repos/o/r/pulls/1/merge"])).toBe("PUT");
+    expect(findGhApiMethod(["api", "--method", "PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
   });
 
   it("returns POST for -X POST", () => {
@@ -742,15 +749,8 @@ describe("findGhApiMethod", () => {
 describe("findGhApiEndpoint", () => {
   it("extracts the first positional after flag/value pairs", () => {
     expect(
-      findGhApiEndpoint([
-        "api",
-        "-X",
-        "PUT",
-        "repos/o/r/pulls/42/merge",
-        "-f",
-        "merge_method=merge",
-      ])
-    ).toBe("repos/o/r/pulls/42/merge");
+      findGhApiEndpoint(["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", MERGE_METHOD_MERGE])
+    ).toBe(ENDPOINT_PR42_MERGE);
   });
 
   it("extracts the positional when it precedes flags", () => {
@@ -821,5 +821,195 @@ describe("checkDenial — gh api PR-merge endpoint (mt#1228)", () => {
     const reason = ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`);
     expect(reason).toContain(MERGE_METHOD_MERGE);
     expect(reason).toMatch(/pr-workflow|gh_api_bypass/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quote/case/alternate-form hardening (PR #761 round-1 review)
+// ---------------------------------------------------------------------------
+
+describe("stripSurroundingQuotes", () => {
+  it("removes matching double quotes from merge_method=merge", () => {
+    expect(stripSurroundingQuotes(MERGE_METHOD_MERGE_QUOTED)).toBe(MERGE_METHOD_MERGE);
+  });
+
+  it("removes matching single quotes", () => {
+    expect(stripSurroundingQuotes("'repos/o/r'")).toBe("repos/o/r");
+  });
+
+  it("leaves unquoted tokens unchanged", () => {
+    expect(stripSurroundingQuotes(MERGE_METHOD_MERGE)).toBe(MERGE_METHOD_MERGE);
+  });
+
+  it("leaves mismatched quotes alone", () => {
+    // "foo' is not a matched pair; don't touch it
+    expect(stripSurroundingQuotes("\"foo'")).toBe("\"foo'");
+  });
+
+  it("leaves single-character tokens alone", () => {
+    expect(stripSurroundingQuotes('"')).toBe('"');
+    expect(stripSurroundingQuotes("'")).toBe("'");
+    expect(stripSurroundingQuotes("")).toBe("");
+  });
+});
+
+describe("findGhApiMethod — additional forms and casing", () => {
+  it("uppercases lowercase -X values (avoids bypass via -X put)", () => {
+    expect(findGhApiMethod(["api", "-X", "put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("uppercases --method values (avoids bypass via --method put)", () => {
+    expect(findGhApiMethod(["api", "--method", "put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses equals form --method=PUT", () => {
+    expect(findGhApiMethod(["api", "--method=PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("uppercases equals form --method=put", () => {
+    expect(findGhApiMethod(["api", "--method=put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses combined short form -XPUT", () => {
+    expect(findGhApiMethod(["api", "-XPUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses combined short form with lowercase -Xput", () => {
+    expect(findGhApiMethod(["api", "-Xput", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+});
+
+describe("findGhApiField — quoted values", () => {
+  it("strips double quotes around the whole KEY=VALUE token", () => {
+    expect(findGhApiField(["api", "-f", MERGE_METHOD_MERGE_QUOTED], "merge_method")).toBe("merge");
+  });
+
+  it("strips single quotes around the whole KEY=VALUE token", () => {
+    expect(findGhApiField(["api", "-f", "'merge_method=merge'"], "merge_method")).toBe("merge");
+  });
+});
+
+describe("findGhApiPrMergeEndpointToken", () => {
+  it("finds the endpoint at any position in args", () => {
+    expect(
+      findGhApiPrMergeEndpointToken([
+        "api",
+        "-X",
+        "PUT",
+        "-f",
+        "commit_title=X",
+        ENDPOINT_PR42_MERGE,
+        "-f",
+        MERGE_METHOD_SQUASH,
+      ])
+    ).toBe(ENDPOINT_PR42_MERGE);
+  });
+
+  it("finds a quoted endpoint", () => {
+    // Pass the endpoint with surrounding double quotes as a single token —
+    // template literal construction matches how the upstream tokenizer would
+    // deliver a token like `"repos/o/r/pulls/42/merge"` with quotes intact.
+    expect(findGhApiPrMergeEndpointToken(["api", "-X", "PUT", `"${ENDPOINT_PR42_MERGE}"`])).toBe(
+      ENDPOINT_PR42_MERGE
+    );
+  });
+
+  it("returns null when no token matches", () => {
+    expect(
+      findGhApiPrMergeEndpointToken(["api", "-X", "PUT", "repos/o/r/pulls/42/merges"])
+    ).toBeNull();
+  });
+
+  it("does not match /merges or /merge-upstream", () => {
+    expect(
+      findGhApiPrMergeEndpointToken(["api", "-X", "PUT", "repos/o/r/pulls/42/merge-upstream"])
+    ).toBeNull();
+  });
+
+  it('finds endpoint after a quote-split -f commit_title="My PR Title" (bypass regression guard)', () => {
+    // Upstream tokenizer is not quote-aware, so `-f commit_title="My PR Title"`
+    // arrives as multiple tokens. The old positional-based extractor returned
+    // a fragment of the title; the all-tokens scan finds the real endpoint.
+    expect(
+      findGhApiPrMergeEndpointToken([
+        "api",
+        "-X",
+        "PUT",
+        "-f",
+        'commit_title="My',
+        "PR",
+        'Title"',
+        ENDPOINT_PR42_MERGE,
+        "-f",
+        MERGE_METHOD_SQUASH,
+      ])
+    ).toBe(ENDPOINT_PR42_MERGE);
+  });
+});
+
+describe("checkDenial — gh api PR-merge hardening (PR #761 round 1)", () => {
+  const ghApi = (argString: string) =>
+    checkDenial({ binary: "gh", args: argString.split(/\s+/).filter(Boolean) });
+
+  it("blocks lowercase -X put (case-insensitivity regression guard)", () => {
+    expect(ghApi("api -X put repos/o/r/pulls/42/merge -f merge_method=squash")).not.toBeNull();
+  });
+
+  it("blocks --method=PUT equals form with squash", () => {
+    expect(
+      ghApi("api --method=PUT repos/o/r/pulls/42/merge -f merge_method=squash")
+    ).not.toBeNull();
+  });
+
+  it("blocks -XPUT combined short form with squash", () => {
+    expect(ghApi("api -XPUT repos/o/r/pulls/42/merge -f merge_method=squash")).not.toBeNull();
+  });
+
+  it("blocks quoted endpoint (regression guard for quote-stripping)", () => {
+    // The tokenizer splits on whitespace only, so a quoted endpoint token
+    // arrives with the quote characters still attached. Template literal
+    // reconstructs the quoted form.
+    const args = ["api", "-X", "PUT", `"${ENDPOINT_PR42_MERGE}"`, "-f", MERGE_METHOD_SQUASH];
+    expect(checkDenial({ binary: "gh", args })).not.toBeNull();
+  });
+
+  it('blocks endpoint after a quote-split -f commit_title="My PR Title" (bypass regression guard)', () => {
+    // Before the mt#1228 round-1 review fix, positional-based extraction
+    // pulled \"PR\" out of the split title as the \"endpoint\", missed the
+    // regex, and let a squash-merge through.
+    const args = [
+      "api",
+      "-X",
+      "PUT",
+      "-f",
+      'commit_title="My',
+      "PR",
+      'Title"',
+      ENDPOINT_PR42_MERGE,
+      "-f",
+      MERGE_METHOD_SQUASH,
+    ];
+    expect(checkDenial({ binary: "gh", args })).not.toBeNull();
+  });
+
+  it('allows quoted -f "merge_method=merge" (over-block regression guard)', () => {
+    // Before quote-stripping in findGhApiField, a valid quoted
+    // -f \"merge_method=merge\" was treated as absent and over-blocked.
+    const args = ["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", MERGE_METHOD_MERGE_QUOTED];
+    expect(checkDenial({ binary: "gh", args })).toBeNull();
+  });
+
+  it("allows single-quoted -f 'merge_method=merge'", () => {
+    const args = ["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", "'merge_method=merge'"];
+    expect(checkDenial({ binary: "gh", args })).toBeNull();
+  });
+
+  it("denial reason does not reference out-of-repo memory paths", () => {
+    // Per PR #761 review non-blocking: keep denial reasons pointing at
+    // in-repo docs (docs/pr-workflow.md) rather than memory files that
+    // live outside the repo.
+    const reason = ghApi("api -X PUT repos/o/r/pulls/42/merge -f merge_method=squash");
+    expect(reason).not.toContain("feedback_gh_api_bypass.md");
+    expect(reason).toContain("pr-workflow.md");
   });
 });
