@@ -17,6 +17,32 @@ import { ValidationError } from "../../errors/index";
 export const EXEMPT_COMMANDS = new Set(["init", "setup", "mcp.register"]);
 
 /**
+ * Hosted-mode flag. When true, `guardProjectSetup` is a no-op.
+ *
+ * The setup guard exists to nudge developers on their laptops into running
+ * `minsky setup` so their MCP harness (Cursor/Claude/etc.) gets registered.
+ * That intent does not apply to a hosted HTTP MCP server — no harness to
+ * register, no developer to nag — so we skip the guard there. See mt#1208.
+ */
+let hostedMode = false;
+
+/**
+ * Enable or disable hosted mode. Called by the MCP `start` command when it
+ * is launched with `--http`. No-op for stdio / CLI invocations.
+ */
+export function setHostedMode(enabled: boolean): void {
+  hostedMode = enabled;
+}
+
+/**
+ * Test hook — returns the current hosted-mode flag. Not intended for
+ * production callers; the guard consults the flag internally.
+ */
+export function isHostedMode(): boolean {
+  return hostedMode;
+}
+
+/**
  * Dependencies for the project setup guard (injectable for testing).
  */
 export interface GuardDeps {
@@ -67,6 +93,10 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
  * @param deps      - Injectable dependencies (defaults to real fs)
  */
 export function guardProjectSetup(commandId: string, repoPath?: string, deps?: GuardDeps): void {
+  if (hostedMode) {
+    return;
+  }
+
   if (EXEMPT_COMMANDS.has(commandId)) {
     return;
   }
