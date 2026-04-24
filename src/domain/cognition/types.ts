@@ -33,8 +33,13 @@ export interface CognitionTask<T> {
   kind: string;
   systemPrompt: string;
   userPrompt: string;
-  /** Structured input referenced by the prompts. Serialized into the LLM input by direct providers. */
-  evidence: Record<string, unknown>;
+  /**
+   * Structured input referenced by the prompts. Serialized into the LLM input
+   * by direct providers. Optional — omit or pass `undefined` / `{}` when the
+   * task needs no structured input. Direct providers omit the evidence block
+   * when serialization yields no content.
+   */
+  evidence?: Record<string, unknown>;
   /** Zod schema describing the expected output shape. */
   schema: ZodType<T>;
   /** Advisory model hint. */
@@ -61,6 +66,11 @@ export interface CognitionBundle {
  * - `unavailable` — no cognition available; caller must supply a fallback.
  *
  * Callers must handle all three kinds (enforced by the discriminated union).
+ * Note: `DirectCognitionProvider` only ever returns `completed`; the
+ * `packaged` and `unavailable` kinds are produced by the delegated and
+ * degraded providers (mt#1185). Feature code should still discriminate on
+ * `kind` rather than assuming `completed`, so it remains portable across
+ * providers selected at the composition root.
  */
 export type CognitionResult<T> =
   | { kind: "completed"; value: T }
@@ -89,6 +99,11 @@ export interface CognitionProvider {
    * Execute a batch of tasks. Per-task output types are preserved via tuple
    * inference — callers should pass `as const` tuples to retain individual
    * types, otherwise the array widens to the union.
+   *
+   * **Failure semantics (all-or-nothing):** if any task rejects, the entire
+   * batch rejects with that task's error. Successful results from other tasks
+   * in the same batch are discarded. If callers need partial-success
+   * collection, they should call `perform` per task and aggregate results.
    */
   performBatch<Ts extends readonly CognitionTask<unknown>[]>(
     tasks: Ts

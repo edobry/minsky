@@ -97,9 +97,13 @@ export class DirectCognitionProvider implements CognitionProvider {
   }
 
   private buildRequest<T>(task: CognitionTask<T>): AIObjectGenerationRequest {
+    // Evidence is optional in CognitionTask — default to empty so the rest of
+    // the path is uniform. Empty / semantically-empty content is omitted below.
+    const evidence = task.evidence ?? {};
+
     let serialized: string;
     try {
-      serialized = JSON.stringify(task.evidence, null, 2);
+      serialized = JSON.stringify(evidence, null, 2);
     } catch (err) {
       throw new CognitionEvidenceSerializationError(
         `CognitionTask "${task.id}" (${task.kind}) evidence could not be serialized: ${(err as Error).message}`,
@@ -107,13 +111,21 @@ export class DirectCognitionProvider implements CognitionProvider {
       );
     }
 
+    // Defuse the sentinel: escape any literal `</evidence>` inside the
+    // serialized string so a malicious/accidental value can't prematurely
+    // close the block in the prompt (prompt-injection via delimiter break).
+    // `<\/evidence>` is still valid JSON (`\/` is a JSON escape for `/`) so
+    // downstream JSON re-parsers see the same string value; the LLM sees the
+    // literal backslash and does not treat it as a closing tag.
+    const safeSerialized = serialized.replace(/<\/evidence>/gi, "<\\/evidence>");
+
     // Omit the block when the serialized JSON is semantically empty — this
     // catches both `{}` and inputs where every value was non-serializable
     // (undefined, functions, symbols) and got dropped by JSON.stringify.
     const userContent =
-      serialized === "{}"
+      safeSerialized === "{}"
         ? task.userPrompt
-        : `${task.userPrompt}\n\n<evidence>\n${serialized}\n</evidence>`;
+        : `${task.userPrompt}\n\n<evidence>\n${safeSerialized}\n</evidence>`;
 
     return {
       messages: [
