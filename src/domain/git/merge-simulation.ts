@@ -17,6 +17,20 @@ export async function simulateMergeImpl(
   log.debug("Simulating merge", { repoPath, sourceBranch, targetBranch });
 
   try {
+    // Capture the caller's current HEAD so we can restore it in finally.
+    // `rev-parse --abbrev-ref HEAD` returns the branch name when on a branch,
+    // or the literal string "HEAD" when in detached-HEAD state.
+    let originalCheckout: string;
+    const abbrevRef = (
+      await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`)
+    ).stdout.trim();
+    if (abbrevRef === "HEAD") {
+      // Detached HEAD — capture the SHA so we can restore the exact commit.
+      originalCheckout = (await execAsync(`git -C ${repoPath} rev-parse HEAD`)).stdout.trim();
+    } else {
+      originalCheckout = abbrevRef;
+    }
+
     // Create a temporary branch for simulation
     const tempBranch = `conflict-simulation-${Date.now()}`;
 
@@ -50,9 +64,9 @@ export async function simulateMergeImpl(
         return conflictFiles;
       }
     } finally {
-      // Clean up temporary branch
+      // Clean up temporary branch and restore the caller's original HEAD.
       try {
-        await execAsync(`git -C ${repoPath} checkout ${targetBranch}`);
+        await execAsync(`git -C ${repoPath} checkout ${originalCheckout}`);
         await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
       } catch (cleanupError) {
         log.warn("Failed to clean up temporary branch", {
