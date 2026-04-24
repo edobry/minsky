@@ -1,5 +1,6 @@
 import { log } from "../../utils/logger";
 import type { SessionProviderInterface, SessionRecord } from "./types";
+import type { SessionListOptions } from "./types";
 import { attemptSessionAutoRepair } from "./session-auto-repair";
 import { createGitService } from "../git";
 import { getMinskyStateDir } from "../../utils/paths";
@@ -24,8 +25,8 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
     this.baseProvider = baseProvider;
   }
 
-  async listSessions(): Promise<SessionRecord[]> {
-    return this.baseProvider.listSessions();
+  async listSessions(options?: SessionListOptions): Promise<SessionRecord[]> {
+    return this.baseProvider.listSessions(options);
   }
 
   async getSession(session: string): Promise<SessionRecord | null> {

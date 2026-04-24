@@ -7,7 +7,7 @@
 
 import { injectable } from "tsyringe";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, and, asc, desc, gte, lte, type SQL } from "drizzle-orm";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { first } from "../../../utils/array-safety";
@@ -23,6 +23,29 @@ import type { SessionRecord, SessionDbState } from "../../session/session-db";
 import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schemas/session-schema";
 import type { PersistenceProvider } from "../../persistence/types";
 import { withPgPoolRetry } from "../../persistence/postgres-retry";
+
+/**
+ * Map a logical domain field name to the corresponding Postgres column.
+ * Accepts camelCase field names (as used in SessionRecord) as well as the
+ * snake_case column names.
+ */
+function pickPostgresOrderColumn(field: string) {
+  switch (field) {
+    case "lastActivityAt":
+    case "last_activity_at":
+      return postgresSessions.lastActivityAt;
+    case "createdAt":
+    case "created_at":
+      return postgresSessions.createdAt;
+    case "session":
+      return postgresSessions.session;
+    case "taskId":
+    case "task_id":
+      return postgresSessions.taskId;
+    default:
+      throw new Error(`Unsupported orderBy field for Postgres: ${field}`);
+  }
+}
 
 /**
  * PostgreSQL storage configuration
@@ -337,14 +360,51 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   /**
    * Get all sessions that match the query options
    */
-  async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
-    return withPgPoolRetry(() => this.getEntitiesInternal(), "postgres-storage.getEntities");
+  async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
+    return withPgPoolRetry(() => this.getEntitiesInternal(options), "postgres-storage.getEntities");
   }
 
-  private async getEntitiesInternal(): Promise<SessionRecord[]> {
+  private async getEntitiesInternal(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     await this.ensureConnection();
 
-    const results = await this.db.select().from(postgresSessions);
+    const conditions: SQL[] = [];
+    if (options?.taskId) {
+      // Normalize qualified IDs (e.g. "mt#283" → "283") to match storage format
+      const normalizedTaskId = options.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
+      conditions.push(eq(postgresSessions.taskId, normalizedTaskId));
+    }
+    if (options?.repoName) {
+      conditions.push(eq(postgresSessions.repoName, options.repoName));
+    }
+    if (options?.createdAfter) {
+      conditions.push(gte(postgresSessions.createdAt, new Date(options.createdAfter)));
+    }
+    if (options?.createdBefore) {
+      conditions.push(lte(postgresSessions.createdAt, new Date(options.createdBefore)));
+    }
+
+    const orderBy = (options?.orderBy ?? []).map((spec) => {
+      // Map the logical field name onto the actual Postgres column.
+      // Accept both camelCase domain field names and snake_case column names.
+      const column = pickPostgresOrderColumn(spec.field);
+      return spec.direction === "desc" ? desc(column) : asc(column);
+    });
+
+    let query = this.db.select().from(postgresSessions).$dynamic();
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    if (orderBy.length > 0) {
+      query = query.orderBy(...orderBy);
+    }
+    if (typeof options?.limit === "number") {
+      query = query.limit(options.limit);
+    }
+    if (typeof options?.offset === "number" && options.offset > 0) {
+      query = query.offset(options.offset);
+    }
+
+    const results = await query;
     log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
     const mapped = results.map((record, index: number) => {
       try {

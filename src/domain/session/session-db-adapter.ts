@@ -7,12 +7,13 @@
 
 import { injectable, inject } from "tsyringe";
 import type { SessionProviderInterface, SessionRecord } from "./types";
+import type { SessionListOptions } from "./types";
 import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
 
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
 import type { PersistenceProvider } from "../persistence/types";
-import type { DatabaseStorage } from "../storage/database-storage";
+import type { DatabaseStorage, DatabaseQueryOptions } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
   validateQualifiedTaskId,
@@ -59,8 +60,18 @@ export class SessionDbAdapter implements SessionProviderInterface {
     return await storage.getEntity(sessionId);
   }
 
-  async listSessions(): Promise<SessionRecord[]> {
-    log.debug("Listing all sessions");
+  async listSessions(options?: SessionListOptions): Promise<SessionRecord[]> {
+    log.debug(
+      options ? `Listing sessions with options: ${JSON.stringify(options)}` : "Listing all sessions"
+    );
+    if (options) {
+      // Push pagination/ordering/filters down to the storage layer to avoid
+      // loading every row into memory just to slice the result.
+      const storage = await this.getStorage();
+      const sessions = await storage.getEntities(options as DatabaseQueryOptions);
+      log.debug(`Got ${sessions.length} sessions from storage with options`);
+      return sessions;
+    }
     const state = await this.getState();
     log.debug(`Got state with ${state.sessions.length} sessions`);
     return state.sessions || [];

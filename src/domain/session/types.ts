@@ -127,6 +127,29 @@ export interface Session {
 }
 
 /**
+ * Options for listing sessions, applied at the storage layer.
+ */
+export interface SessionListOptions {
+  /** Filter by task ID (qualified or plain) */
+  taskId?: string;
+  /** Filter by repo name */
+  repoName?: string;
+  /** Inclusive lower bound on createdAt (ISO string) */
+  createdAfter?: string;
+  /** Inclusive upper bound on createdAt (ISO string) */
+  createdBefore?: string;
+  /** Maximum number of records to return */
+  limit?: number;
+  /** Number of records to skip (for paging) */
+  offset?: number;
+  /**
+   * Ordering directives, applied in order; the first is the primary sort key.
+   * `field` must match a session-record field (e.g., "lastActivityAt").
+   */
+  orderBy?: Array<{ field: string; direction: "asc" | "desc" }>;
+}
+
+/**
  * Interface for session database operations
  * This defines the contract for session management functionality
  */
@@ -134,7 +157,7 @@ export interface SessionProviderInterface {
   /**
    * Get all available sessions
    */
-  listSessions(): Promise<SessionRecord[]>;
+  listSessions(options?: SessionListOptions): Promise<SessionRecord[]>;
 
   /**
    * Get a specific session by name
