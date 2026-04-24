@@ -65,7 +65,7 @@ export type SessionGetParams = z.infer<typeof sessionGetParamsSchema>;
  */
 export const sessionStartParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name for the new session"),
+    sessionId: sessionIdSchema.optional().describe("Session ID for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
     description: z.string().min(1).optional().describe("Description for auto-created task"),
@@ -93,8 +93,8 @@ export const sessionStartParamsSchema = z
       if (!data.task && !data.description) {
         return false;
       }
-      // Either name or task or description must be provided
-      return data.name || data.task || data.description;
+      // Either sessionId or task or description must be provided
+      return data.sessionId || data.task || data.description;
     },
     {
       message: "Task association is required. Please provide --task <id> or --description <text>",

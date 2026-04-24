@@ -35,7 +35,6 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
           const result = await sessionPrWaitForReview(
             {
               sessionId: params.sessionId as string | undefined,
-              name: params.name as string | undefined,
               task: params.task as string | undefined,
               repo: params.repo as string | undefined,
               timeoutSeconds: params.timeoutSeconds as number | undefined,

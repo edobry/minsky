@@ -116,7 +116,7 @@ export const sessionGetCommandParams = {
  * Session start command parameters
  */
 export const sessionStartCommandParams = {
-  name: {
+  sessionId: {
     schema: z.string(),
     description: "Session ID",
     required: false,
@@ -613,7 +613,6 @@ export const sessionPrWaitForReviewCommandParams = {
     description: "Session ID (positional)",
     required: false,
   },
-  name: commonSessionParams.name,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,

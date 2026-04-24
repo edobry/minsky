@@ -116,7 +116,7 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
       const service = new SessionService(deps);
 
       const session = await service.start({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         description: params.description as string | undefined,
         branch: params.branch as string | undefined,

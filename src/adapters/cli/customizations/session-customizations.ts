@@ -32,7 +32,7 @@ export function getSessionCustomizations(): {
         },
         "session.start": {
           parameters: {
-            name: {
+            sessionId: {
               asArgument: true,
               description: "Session ID (optional, alternative to --task)",
             },

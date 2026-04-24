@@ -24,9 +24,6 @@ import {
 // SESSION METADATA SCHEMAS
 // ========================
 
-// Re-export SessionIdSchema as SessionNameSchema for backward compatibility
-export { SessionIdSchema as SessionNameSchema } from "./common-schemas";
-
 /**
  * Session description schema - used across all interfaces
  */
@@ -62,7 +59,7 @@ export const SessionStatusSchema = z.enum([
  */
 export const SessionStartParametersSchema = z
   .object({
-    name: SessionIdSchema,
+    sessionId: SessionIdSchema,
     description: SessionDescriptionSchema,
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,

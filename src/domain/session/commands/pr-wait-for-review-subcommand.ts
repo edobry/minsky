@@ -37,7 +37,6 @@ export interface SessionPrWaitForReviewDependencies {
 
 export interface SessionPrWaitForReviewParams {
   sessionId?: string;
-  name?: string;
   task?: string;
   repo?: string;
   /** Max seconds to wait (default 600; capped at 1800 by the parameter schema). */
@@ -140,7 +139,7 @@ export async function sessionPrWaitForReview(
 
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionId ?? params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
