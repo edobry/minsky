@@ -45,7 +45,12 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "no-skipped-tests",
     "test-driven-bugfix",
   ],
-  "code-style": ["comments", "naming-conventions", "constants-management", "cli-output-design"],
+  "code-style": [
+    "comments",
+    "meta-cognitive-boundary-protocol",
+    "constants-management",
+    "cli-output-design",
+  ],
   safety: [
     "operational-safety-dry-run-first",
     "dont-ignore-errors",
