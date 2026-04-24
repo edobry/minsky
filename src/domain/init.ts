@@ -154,16 +154,6 @@ export async function initializeProject(
   const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
-  // Generate MCP rule file (project-level rule checked into repo) when MCP is enabled
-  if (mcp?.enabled !== false) {
-    const mcpRulesDirPath =
-      ruleFormat === "cursor"
-        ? path.join(repoPath, ".cursor", "rules")
-        : path.join(repoPath, ".ai", "rules");
-
-    await createDirectoryIfNotExists(mcpRulesDirPath, fileSystem);
-  }
-
   // === Phase 2: Developer-local setup ===
   // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).
   // performSetup() writes .minsky/config.local.yaml (with harness field) and
