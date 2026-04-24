@@ -378,10 +378,11 @@ describe("MCP Server", () => {
     }
   });
 
-  test("HTTP transport: unknown session id returns 400 JSON-RPC -32600", async () => {
+  test("HTTP transport: unknown session id returns 404 JSON-RPC -32001", async () => {
     // Regression guard: posting to a non-existent session ID must be rejected with
-    // 400 and JSON-RPC error code -32600 (Invalid Request) so clients get a clear
-    // protocol-level signal rather than accidentally creating a new session.
+    // 404 and JSON-RPC error code -32001 ("Session not found"), matching the MCP
+    // Streamable HTTP spec and the SDK's webStandardStreamableHttp behavior. This
+    // gives compliant clients a retryable signal distinct from malformed-request errors.
     const { MinskyMCPServer } = await import("./server");
     const server = new MinskyMCPServer({
       name: "Test Server",
@@ -412,11 +413,11 @@ describe("MCP Server", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
       const body = await res.json();
       expect(body).toMatchObject({
         jsonrpc: "2.0",
-        error: { code: -32600 },
+        error: { code: -32001, message: "Session not found" },
         id: null,
       });
     } finally {
