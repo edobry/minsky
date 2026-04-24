@@ -11,6 +11,10 @@ import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
+// Shared HTTP content-type constants used across integration tests
+const CONTENT_TYPE_JSON = "application/json";
+const ACCEPT_MCP = "application/json, text/event-stream";
+
 describe("MCP Server", () => {
   beforeEach(() => {
     setupTestMocks();
@@ -128,8 +132,8 @@ describe("MCP Server", () => {
         fetch(baseUrl, {
           method: "POST",
           headers: {
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
+            "content-type": CONTENT_TYPE_JSON,
+            accept: ACCEPT_MCP,
           },
           body: initBody(clientName),
         });
@@ -242,5 +246,184 @@ describe("MCP Server", () => {
     expect(serverAsAny.httpSessions.has("idle")).toBe(false);
 
     await server.close();
+  });
+
+  test("HTTP transport: missing body-parser returns 500 JSON-RPC -32603", async () => {
+    // Regression guard: if express.json() is omitted, req.body is undefined and the
+    // old code would emit a confusing 400 protocol-violation error. With the guard in
+    // place the handler must return 500 with code -32603 and a message that names
+    // "express.json()" so the operator knows exactly what to fix.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Intentionally omit express.json() so req.body is undefined
+    const app = express();
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, {
+        method: "POST",
+        headers: { "content-type": CONTENT_TYPE_JSON },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      });
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32603 },
+        id: null,
+      });
+      expect((body.error.message as string).toLowerCase()).toContain("express.json()");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("HTTP transport: batch initialize creates a session", async () => {
+    // Regression guard for JSON-RPC batch initialize. An array body whose first
+    // element is an initialize request must create a new session and return an
+    // mcp-session-id header, then the session must serve subsequent tool calls.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool({
+      name: "ping",
+      description: "A simple ping tool",
+      handler: async () => "pong",
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      // POST a single-element batch containing an initialize request
+      const initRes = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          accept: ACCEPT_MCP,
+        },
+        body: JSON.stringify([
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "test", version: "1" },
+            },
+          },
+        ]),
+      });
+
+      expect(initRes.status).toBe(200);
+      const sessionId = initRes.headers.get("mcp-session-id");
+      expect(sessionId).toBeTruthy();
+      if (!sessionId) throw new Error("Expected mcp-session-id header in initialize response");
+
+      // Drain the SSE body
+      await initRes.text();
+
+      // Verify the session can serve tool calls
+      const toolsRes = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          accept: ACCEPT_MCP,
+          "mcp-session-id": sessionId,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+      });
+
+      expect(toolsRes.status).toBe(200);
+      const toolsText = await toolsRes.text();
+      expect(toolsText).toContain("ping");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("HTTP transport: unknown session id returns 400 JSON-RPC -32600", async () => {
+    // Regression guard: posting to a non-existent session ID must be rejected with
+    // 400 and JSON-RPC error code -32600 (Invalid Request) so clients get a clear
+    // protocol-level signal rather than accidentally creating a new session.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          "mcp-session-id": "00000000-0000-0000-0000-000000000000",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32600 },
+        id: null,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
   });
 });

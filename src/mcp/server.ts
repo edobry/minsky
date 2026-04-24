@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
@@ -278,6 +279,23 @@ export class MinskyMCPServer {
    * Handle HTTP POST requests - main MCP message handling
    */
   private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
+    // Guard: body-parser middleware must be installed before this handler.
+    // Without it req.body is undefined, and downstream isInitializeRequest(undefined)
+    // returns false — causing a confusing protocol-violation error instead of a clear
+    // deployment misconfiguration message.
+    if (req.body === undefined) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message:
+            "Internal error: request body not parsed. HTTP transport requires a JSON body parser (e.g. express.json()) installed before handleHttpRequest.",
+        },
+        id: null,
+      });
+      return;
+    }
+
     let session: { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number };
 
     // Reuse existing session if we have a session ID
@@ -285,7 +303,39 @@ export class MinskyMCPServer {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       session = this.httpSessions.get(sessionId)!;
       session.lastActiveAt = Date.now();
+    } else if (sessionId && !this.httpSessions.has(sessionId)) {
+      // Session ID provided but not found — reject with 400 JSON-RPC -32600.
+      // This is a protocol violation: the client claims an existing session that
+      // this server instance does not know about (e.g. stale ID after a restart).
+      res.status(400).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32600,
+          message: "Invalid Request: session not found",
+        },
+        id: null,
+      });
+      return;
     } else {
+      // No session ID: only accept initialize requests (or batches containing one).
+      // Any other request without a session ID is a protocol violation — the client
+      // must start with an initialize before sending tool calls.
+      const bodyIsInitialize =
+        isInitializeRequest(req.body) ||
+        (Array.isArray(req.body) && req.body.some((msg) => isInitializeRequest(msg)));
+
+      if (!bodyIsInitialize) {
+        res.status(400).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32600,
+            message: "Invalid Request: first request must be initialize",
+          },
+          id: null,
+        });
+        return;
+      }
+
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
