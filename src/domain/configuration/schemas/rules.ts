@@ -12,7 +12,6 @@ export const rulesTargetSchema = z.object({
 export const RULE_PRESETS: Record<string, string[]> = {
   "minsky-core": [
     "minsky-workflow",
-    "session-first-workflow",
     "task-status-protocol",
     "pr-preparation-workflow",
     "creating-tasks",
@@ -21,13 +20,10 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "minsky-workflow",
     "minsky-workflow-orchestrator",
     "minsky-session-management",
-    "session-first-workflow",
     "task-implementation-workflow",
     "task-status-protocol",
     "task-status-workflow-protocol",
     "creating-tasks",
-    "minsky-cli-usage",
-    "mcp-usage",
     "pr-preparation-workflow",
     "pr-description-guidelines",
     "testing-session-repo-changes",
@@ -45,7 +41,12 @@ export const RULE_PRESETS: Record<string, string[]> = {
     "no-skipped-tests",
     "test-driven-bugfix",
   ],
-  "code-style": ["comments", "naming-conventions", "constants-management", "cli-output-design"],
+  "code-style": [
+    "comments",
+    "meta-cognitive-boundary-protocol",
+    "constants-management",
+    "cli-output-design",
+  ],
   safety: [
     "operational-safety-dry-run-first",
     "dont-ignore-errors",

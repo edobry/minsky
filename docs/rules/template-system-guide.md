@@ -22,7 +22,7 @@ minsky rules generate --interface=cli --dry-run
 
 ### Available Templates
 
-The system includes 8 core templates:
+The system includes 7 core templates:
 
 1. **minsky-workflow-orchestrator** - Main workflow entry point
 2. **task-implementation-workflow** - Step-by-step task implementation
@@ -31,7 +31,6 @@ The system includes 8 core templates:
 5. **pr-preparation-workflow** - PR creation and submission
 6. **minsky-workflow** - Basic workflow concepts
 7. **index** - Rule system overview
-8. **mcp-usage** - MCP-specific usage patterns
 
 ## Interface Modes
 

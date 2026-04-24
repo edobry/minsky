@@ -27,7 +27,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|mcp__minsky__session_exec",
         "hooks": [
           {
             "type": "command",
