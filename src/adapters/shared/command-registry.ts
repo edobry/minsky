@@ -348,6 +348,9 @@ export class SharedCommandRegistry implements CommandRegistry {
    * Intended primarily for test teardown so test-only commands do not
    * persist in the global registry across tests. Returns true if a command
    * was removed; false if the id was not registered.
+   *
+   * @internal Test-only; deliberately omitted from the CommandRegistry
+   * interface so it does not form part of the supported public API.
    */
   unregisterCommand(id: string): boolean {
     return this.commands.delete(id);
