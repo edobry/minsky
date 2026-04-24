@@ -6,6 +6,5 @@ export default defineAgent({
     "Structural refactoring agent: improves code organization, naming, and module boundaries without altering behavior. Routes to the refactor subagent type for mandatory coherence verification.",
   model: "sonnet",
   skills: ["code-organization", "testing-guide"],
-  suggestedSubagentType: "refactor",
   prompt: loadMarkdown(import.meta.dir, "prompt.md"),
 });

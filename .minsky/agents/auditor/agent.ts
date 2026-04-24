@@ -7,6 +7,5 @@ export default defineAgent({
   model: "sonnet",
   skills: [],
   tools: ["Read", "Glob", "Grep", "Bash", "mcp__minsky__tasks_get", "mcp__minsky__tasks_spec_get"],
-  suggestedSubagentType: "verify-completion",
   prompt: loadMarkdown(import.meta.dir, "prompt.md"),
 });
