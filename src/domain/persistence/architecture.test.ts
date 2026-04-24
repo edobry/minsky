@@ -79,11 +79,19 @@ describe("Cache-before-init detection", () => {
     const method = source.match(/async initialize\(deps[\s\S]*?throw error;\s*\}\s*\}/)?.[0];
     expect(method).toBeDefined();
 
-    const verifyIdx = method?.indexOf("await sql`SELECT 1`") ?? -1;
+    // Accept either the original literal form or the withPgPoolRetry wrapper (mt#1193).
+    const verifyIdx = method?.search(/sql`SELECT 1`/) ?? -1;
     const assignIdx = method?.indexOf("this.sql = sql") ?? -1;
     expect(verifyIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(-1);
     expect(assignIdx).toBeGreaterThan(verifyIdx);
+
+    // The SELECT 1 must be wrapped by withPgPoolRetry so boot-time pool
+    // saturation is absorbed rather than cascading to init failure (mt#1193).
+    // Matches both `() => sql\`SELECT 1\`` and `async () => sql\`SELECT 1\``;
+    // tighter than a positional check but still accepts semantically
+    // equivalent refactor shapes.
+    expect(method).toMatch(/withPgPoolRetry\(\s*(?:async\s+)?\(\)\s*=>\s*sql`SELECT 1`/);
 
     const catchBlock = method?.match(/catch[\s\S]*?throw error/)?.[0];
     expect(catchBlock).toContain("this.sql = null");
