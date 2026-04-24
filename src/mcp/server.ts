@@ -122,14 +122,23 @@ export class MinskyMCPServer {
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
 
-  // For HTTP transport: map sessionId → {server, transport}. Each MCP session
-  // owns its own Server instance because the SDK's Server class binds 1:1 with
-  // a Transport and rejects a second connect(). Multi-client HTTP therefore
-  // requires per-session Server instances; tool/resource/prompt definitions are
-  // shared via the Maps on this MinskyMCPServer and closed over by the handlers
-  // registered on each per-session Server.
-  private httpSessions: Map<string, { server: Server; transport: StreamableHTTPServerTransport }> =
-    new Map();
+  // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
+  // Each MCP session owns its own Server instance because the SDK's Server
+  // class binds 1:1 with a Transport and rejects a second connect().
+  // `lastActiveAt` feeds the idle-timeout reaper so abandoned sessions
+  // (client POSTed initialize but never closed) don't accumulate indefinitely.
+  private httpSessions: Map<
+    string,
+    { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
+  > = new Map();
+
+  // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
+  // sessionId, and never call close() — leaving the Server+Transport pair
+  // pinned in memory. The reaper periodically drops sessions whose
+  // lastActiveAt is older than SESSION_IDLE_TIMEOUT_MS.
+  private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
@@ -178,6 +187,17 @@ export class MinskyMCPServer {
       // This is a placeholder transport that won't be used
       this.transport = new StdioServerTransport();
       log.debug("HTTP transport mode - transports will be created on-demand");
+
+      // Start the idle-session reaper. Cleared in close() to let the process
+      // exit. Using an unref'd interval so tests that forget to close() don't
+      // pin the event loop.
+      this.sessionReaperTimer = setInterval(
+        () => void this.reapIdleSessions(),
+        this.SESSION_REAPER_INTERVAL_MS
+      );
+      if (typeof this.sessionReaperTimer.unref === "function") {
+        this.sessionReaperTimer.unref();
+      }
     }
 
     log.systemDebug(
@@ -251,12 +271,13 @@ export class MinskyMCPServer {
    * Handle HTTP POST requests - main MCP message handling
    */
   private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
-    let session: { server: Server; transport: StreamableHTTPServerTransport };
+    let session: { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number };
 
     // Reuse existing session if we have a session ID
     if (sessionId && this.httpSessions.has(sessionId)) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       session = this.httpSessions.get(sessionId)!;
+      session.lastActiveAt = Date.now();
     } else {
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
@@ -268,24 +289,30 @@ export class MinskyMCPServer {
 
       // Register cleanup: when the transport closes (client disconnect, session
       // timeout, etc.), close the paired Server and drop it from the map so we
-      // don't leak Server instances over the service's lifetime.
+      // don't leak Server instances over the service's lifetime. Chain to any
+      // existing handler the SDK may have set internally so we don't overwrite it.
+      const prevOnclose = transport.onclose;
       transport.onclose = () => {
-        const closedId = transport.sessionId;
-        if (closedId && this.httpSessions.has(closedId)) {
-          this.httpSessions.delete(closedId);
-          log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
-        }
-        server.close().catch((error) => {
-          log.warn("Error closing per-session MCP Server", {
-            sessionId: closedId,
-            error: getErrorMessage(error),
+        try {
+          prevOnclose?.();
+        } finally {
+          const closedId = transport.sessionId;
+          if (closedId && this.httpSessions.has(closedId)) {
+            this.httpSessions.delete(closedId);
+            log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
+          }
+          server.close().catch((error) => {
+            log.warn("Error closing per-session MCP Server", {
+              sessionId: closedId,
+              error: getErrorMessage(error),
+            });
           });
-        });
+        }
       };
 
       // Connect server to its dedicated transport
       await server.connect(transport);
-      session = { server, transport };
+      session = { server, transport, lastActiveAt: Date.now() };
 
       log.debug("Created new HTTP session", { sessionId: transport.sessionId });
     }
@@ -312,9 +339,48 @@ export class MinskyMCPServer {
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const session = this.httpSessions.get(sessionId)!;
+    session.lastActiveAt = Date.now();
     await session.transport.handleRequest(req, res);
 
     log.debug("Established SSE stream", { sessionId });
+  }
+
+  /**
+   * Sweep httpSessions for entries whose lastActiveAt is older than
+   * SESSION_IDLE_TIMEOUT_MS. Closes the transport and paired Server for each
+   * idle entry. Runs on an interval scheduled in the HTTP-mode constructor.
+   */
+  private async reapIdleSessions(): Promise<void> {
+    const now = Date.now();
+    const idle: string[] = [];
+    for (const [id, session] of this.httpSessions.entries()) {
+      if (now - session.lastActiveAt > this.SESSION_IDLE_TIMEOUT_MS) {
+        idle.push(id);
+      }
+    }
+    for (const id of idle) {
+      const session = this.httpSessions.get(id);
+      if (!session) continue;
+      this.httpSessions.delete(id);
+      const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
+      log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
+      try {
+        await session.transport.close();
+      } catch (error) {
+        log.warn("Error closing idle HTTP transport", {
+          sessionId: id,
+          error: getErrorMessage(error),
+        });
+      }
+      try {
+        await session.server.close();
+      } catch (error) {
+        log.warn("Error closing idle per-session MCP Server", {
+          sessionId: id,
+          error: getErrorMessage(error),
+        });
+      }
+    }
   }
 
   /**
@@ -638,6 +704,11 @@ export class MinskyMCPServer {
    */
   async close(): Promise<void> {
     try {
+      if (this.sessionReaperTimer) {
+        clearInterval(this.sessionReaperTimer);
+        this.sessionReaperTimer = null;
+      }
+
       if (this.options.transportType === "http") {
         // Close all HTTP sessions (transport + per-session Server)
         for (const [sessionId, { server, transport }] of this.httpSessions.entries()) {
