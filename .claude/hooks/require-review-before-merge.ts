@@ -56,7 +56,7 @@ if (reviews.length === 0) {
 }
 
 // Check that at least one review contains spec verification
-const hasSpec = reviews.some((r) => r.body && /spec verification/i.test(r.body));
+const hasSpec = reviews.some((r) => r.body && /spec[- ]verification/i.test(r.body));
 if (!hasSpec) {
   writeOutput({
     hookSpecificOutput: {
@@ -69,7 +69,7 @@ if (!hasSpec) {
 }
 
 // Check that at least one review contains documentation impact assessment
-const hasDocImpact = reviews.some((r) => r.body && /documentation impact/i.test(r.body));
+const hasDocImpact = reviews.some((r) => r.body && /documentation[- ]impact/i.test(r.body));
 if (!hasDocImpact) {
   writeOutput({
     hookSpecificOutput: {
@@ -84,7 +84,7 @@ if (!hasDocImpact) {
 // Check that the most recent review with spec verification covers the current HEAD
 if (headSha) {
   const specReviews = reviews
-    .filter((r) => r.body && /spec verification/i.test(r.body))
+    .filter((r) => r.body && /spec[- ]verification/i.test(r.body))
     .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
   const latestReview = specReviews[0];
   if (latestReview && latestReview.commit_id !== headSha) {
