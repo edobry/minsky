@@ -247,10 +247,10 @@ These rules enforce quality and robustness in code:
 | **error-handling** (skill) | Standards for comprehensive error handling | When working with operations that might fail |
 | **dont-ignore-errors** | Enforces addressing all errors before considering tasks complete | During implementation and review of any code |
 | **tests** | Requirements for test coverage and when to run tests | When modifying code that requires testing |
-| **testable-design** | Guidelines for creating easily testable code | When designing new features or components |
-| **designing-tests** | Principles for effective test design | When writing or modifying tests |
+| **testing-standards** | Test structure, organization, testable design, and CLI output testing | When writing or modifying tests, or designing testable code |
+| **test-infrastructure** | Centralized test utilities under \`src/utils/test-utils/\` | When writing tests that need mocks, fixtures, or setup helpers |
+| **testing-boundaries** | What to test and what NOT to test | When deciding test scope |
 | **test-expectations** | Best practices for managing test expectations | When updating code that changes expected behavior |
-| **cli-testing** | Approaches for testing command-line interfaces | When testing CLI commands or features |
 | **testing-session-repo-changes** | Procedures for testing changes in session repositories | When modifying code that affects session repositories |
 
 ## Documentation & Communication Rules
@@ -322,7 +322,7 @@ During feature implementation, the most relevant rules are:
 1. **minsky-workflow** - Follow the proper process
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **error-handling** (skill) & **dont-ignore-errors** - Ensure resilient code
-4. **testable-design** & **tests** - Create properly tested features
+4. **tests** - Create properly tested features
 5. **changelog** - Document the changes
 
 ### When Fixing Bugs
@@ -340,7 +340,7 @@ Code reviewers should focus on:
 1. **pr-description-guidelines** - Ensure proper documentation
 2. **error-handling** (skill) & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
-4. **testable-design** & **tests** - Validate test coverage
+4. **tests** - Validate test coverage
 5. **changelog** - Confirm changes are documented
 
 ### When Creating New Rules
@@ -362,7 +362,7 @@ For initializing new projects with Minsky:
 Some rules are closely related and often used together:
 
 - **module-organization** and **domain-oriented-modules** complement each other for code structuring
-- **testable-design**, **designing-tests**, and **tests** form a comprehensive testing approach
+- **tests** and **testing-standards** form a comprehensive testing approach
 - **error-handling** (skill) and **dont-ignore-errors** ensure comprehensive error management
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 

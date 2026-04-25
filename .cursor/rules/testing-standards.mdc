@@ -1,0 +1,93 @@
+---
+description: 'Declarative standards for writing tests — structure, organization, testable design, and CLI output testing'
+globs:
+  - '**/*.test.ts'
+alwaysApply: false
+tags:
+  - testing
+---
+# Testing Standards
+
+Declarative "what good tests look like." For boundaries (what to test / what NOT to test), see [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc). For centralized mocking utilities and the `src/utils/test-utils/` module, see [test-infrastructure](mdc:.cursor/rules/test-infrastructure.mdc) and [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc).
+
+## Test Structure
+
+- Follow **Arrange-Act-Assert**: set up inputs and mocks, call the unit under test, assert on outputs and side effects — in that order.
+- Use `describe`/`test` blocks with clear, action-oriented names. Describe the expected behavior, not the implementation.
+- Use setup/teardown hooks (`beforeEach`, `afterEach`) only when needed; prefer local setup inside each test.
+- Keep one behavior per test. If an assertion fails, the test name should tell you what's broken.
+
+## Test Organization (Co-location)
+
+Co-locate tests with the module they test. Use file-name suffixes to distinguish layers:
+
+| Location                           | Purpose                    | Example                                |
+| ---------------------------------- | -------------------------- | -------------------------------------- |
+| `src/domain/[module].test.ts`      | Domain service tests       | `session.test.ts`                      |
+| `src/domain/[module].commands.test.ts` | Domain command tests   | `session.commands.test.ts`             |
+| `src/adapters/cli/[module].adapter.test.ts` | CLI adapter tests | `session.adapter.test.ts`              |
+| `src/adapters/mcp/[module].adapter.test.ts` | MCP adapter tests | `session.adapter.test.ts`              |
+| `tests/[feature]-integration.test.ts` | Complex cross-module integration | `cli-mcp-integration.test.ts` |
+
+**Never create bug-specific or feature-narrow test files** (e.g., `session-dir-task-lookup-bug.test.ts`, `session-create-only.test.ts`). Add new coverage to the existing file for the module; use nested `describe` blocks to group.
+
+## Testable Design
+
+Structure source code so tests don't need complex mocking:
+
+- **Separate concerns.** Put business logic in `src/domain/`. Interface modules (`src/adapters/cli/`, `src/adapters/mcp/`) handle parsing input, setting up environment, calling domain, formatting output. The domain layer must not know about CLI or MCP concerns.
+- **Inject dependencies.** Accept dependencies as parameters or constructor arguments. Do not import concrete implementations inside functions you want to test.
+  ```typescript
+  // ❌ Hard to test
+  function processData() {
+    const config = readConfigFile();
+  }
+
+  // ✅ Testable
+  function processData(config: Config) { /* ... */ }
+  ```
+- **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
+
+## Test Data
+
+- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky.
+- Create fixtures with helper functions; keep setup visually separate from assertions.
+- Reset state between tests — never rely on ordering or cross-test side effects.
+
+## Assertions
+
+- Use specific assertions (`toContain`, `toEqual`, `toHaveBeenCalledWith`) over broad ones (`toBeTruthy`).
+- Assert on observable behavior and side effects, not internal implementation details.
+- For complex objects, assert on the properties that matter; avoid over-specifying unrelated fields.
+
+## Error and Edge Cases
+
+- Test both success and failure paths explicitly.
+- Cover empty inputs, null values, invalid data, and resource failures (network, filesystem errors).
+- When testing thrown errors, assert on type or message — not stack traces.
+
+## CLI Testing
+
+Prefer **integration tests over E2E** for CLI commands: invoke the command handler directly with injected dependencies. Reserve E2E (spawning a subprocess) for critical user flows that cannot be covered by integration tests.
+
+When E2E is warranted:
+
+- **Test both TTY and non-TTY output modes** when the CLI changes behavior based on isatty.
+- **Test both human-readable and structured output** (`--json`, CSV, etc.). Parse structured output and assert on fields, not on formatting.
+- **Test exit codes explicitly.** `0` for success; document and verify distinct non-zero codes for distinct error classes.
+- Do not assert on ANSI color codes, table alignment, or spinner animation — that's framework output, not domain behavior.
+
+For the "don't test interactive prompts" rule, see [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc).
+
+## No Skipped Tests
+
+Zero tolerance: `.skip()`, `test.todo()`, and placeholder assertions (`expect(true).toBe(true)`) are forbidden. Every test must PASS or be DELETED. Enforced by ESLint; remediation is covered by the `fix-skipped-tests` skill.
+
+## See Also
+
+- [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) — what to test and what NOT to test
+- [test-infrastructure](mdc:.cursor/rules/test-infrastructure.mdc) — centralized test utilities (`src/utils/test-utils/`)
+- [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — mocking recipes and patterns
+- `testing-guide` skill — entry-point decision guide
+- `debug-tests` skill — systematic failure investigation
+- `test-driven-bugfix` skill — TDD bug-fix methodology
