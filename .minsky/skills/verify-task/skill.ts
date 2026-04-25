@@ -139,7 +139,9 @@ Surface confirmation:
 
 ### 6. Set task status to DONE
 
-Call \`mcp__minsky__tasks_status_set\` with:
+Call \`mcp__minsky__tasks_status_set\` → DONE as the final mechanical step.
+
+Full call:
 
 - \`taskId\`: the task ID
 - \`status\`: "DONE"
