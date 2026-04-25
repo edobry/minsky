@@ -13,6 +13,7 @@ import {
   listDirectoryAtRef,
   readFileAtRef,
   submitReview,
+  type PullRequestContext,
   type SubmittedReview,
 } from "./github-client";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -204,6 +205,74 @@ export function decidePostSanitizeOutcome(
   };
 }
 
+/**
+ * Decide whether tool-use is active for a given PR + provider combination.
+ *
+ * Gates on two axes (mt#1126 MVP + mt#1216 fork-access probe):
+ *
+ *   1) Provider capability — only OpenAI has a tool-use loop wired up.
+ *      Gemini and Anthropic fall back to the no-tools path with a warning
+ *      log at the caller site.
+ *
+ *   2) Fork accessibility — the reviewer App is installed on the base repo;
+ *      it may not have read access to forks. Public forks are typically
+ *      readable via `contents: read` on the head repo, so we probe at
+ *      review start (one `readFile` for a known file like README.md or
+ *      package.json). If the probe succeeds, enable tools on the fork; if
+ *      it 403s or 404s, disable and fall back to the no-tools prompt.
+ *
+ * The probe callback is injected for testability — callers wire it up
+ * against the octokit + head coords; tests pass a fake.
+ *
+ * Exported for tests.
+ */
+export async function decideToolsActive(
+  config: ReviewerConfig,
+  pr: Pick<PullRequestContext, "number" | "isForkedPR">,
+  probeForkAccess: () => Promise<boolean>
+): Promise<{ toolsActive: boolean; reason?: string }> {
+  if (config.provider !== "openai") {
+    return {
+      toolsActive: false,
+      reason: `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`,
+    };
+  }
+  if (!pr.isForkedPR) {
+    return { toolsActive: true };
+  }
+  const accessible = await probeForkAccess();
+  if (!accessible) {
+    return {
+      toolsActive: false,
+      reason: `fork-access probe failed for PR ${pr.number} (App lacks read access to fork, OR both README.md and package.json are absent at HEAD)`,
+    };
+  }
+  return { toolsActive: true };
+}
+
+/**
+ * Default fork-access probe used by `runReview`: attempt to read a known
+ * file (README.md, then package.json as fallback) from the PR head repo at
+ * HEAD. Returns true iff at least one probe succeeds.
+ *
+ * Exported for tests so integration tests can verify probe fall-through
+ * behavior without having to mock octokit at the usage site.
+ */
+export async function defaultForkAccessProbe(
+  octokit: Awaited<ReturnType<typeof createOctokit>>,
+  pr: Pick<PullRequestContext, "headOwner" | "headRepo" | "headSha">
+): Promise<boolean> {
+  for (const path of ["README.md", "package.json"]) {
+    try {
+      const result = await readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha);
+      if (result !== null) return true;
+    } catch {
+      // 403/permission or other error — continue to the next probe file.
+    }
+  }
+  return false;
+}
+
 export async function runReview(
   config: ReviewerConfig,
   owner: string,
@@ -262,30 +331,20 @@ export async function runReview(
       listDirectoryAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
   };
 
-  // Gate tool wiring on TWO axes:
-  //   1) Provider capability — mt#1126 MVP only supports OpenAI; Gemini and
-  //      Anthropic fall back to the no-tools path.
-  //   2) Fork accessibility — the reviewer App is installed on the base repo;
-  //      it may not have read access to forks. Rather than promise tools that
-  //      silently 404, disable tools for forked PRs and switch to the
-  //      NO_TOOLS_SECTION prompt so the model knows to mark cross-file
-  //      claims as NEEDS VERIFICATION.
-  //
-  // Both failure modes were surfaced by minsky-reviewer findings on mt#1126.
-  const providerSupportsTools = config.provider === "openai";
-  const toolsActive = providerSupportsTools && !pr.isForkedPR;
+  // Gate tool wiring via the pure helper. For forked PRs on OpenAI the probe
+  // runs a lightweight readFileAtRef for README.md (with package.json as
+  // fallback); if it succeeds, tools are enabled on the fork. Otherwise we
+  // switch to the NO_TOOLS_SECTION prompt so the model marks cross-file
+  // claims as NEEDS VERIFICATION.
+  const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
+    defaultForkAccessProbe(octokit, pr)
+  );
   const systemPrompt = buildCriticConstitution(toolsActive);
 
   // Log why tools are off when they're off, so operators can see it in the
-  // service logs rather than silently losing tool support. Previously, the
-  // warning lived inside callGoogle/callAnthropic and only fired when tools
-  // were passed — but the gating here never passes tools for those providers,
-  // so the warning never triggered. Surfaced as a mt#1126 reviewer finding.
-  if (!toolsActive) {
-    const reason = !providerSupportsTools
-      ? `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`
-      : `tools disabled for forked PR ${pr.number} (App may lack fork access)`;
-    console.warn(`[mt#1126] Running review without tools: ${reason}`);
+  // service logs rather than silently losing tool support.
+  if (!toolsActive && reason) {
+    console.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
   }
 
   // Only pass toolContext when tools are actually active — otherwise the
