@@ -168,10 +168,10 @@ These rules enforce quality and robustness in code:
 | **error-handling** (skill) | Standards for comprehensive error handling | When working with operations that might fail |
 | **dont-ignore-errors** | Enforces addressing all errors before considering tasks complete | During implementation and review of any code |
 | **tests** | Requirements for test coverage and when to run tests | When modifying code that requires testing |
-| **testable-design** | Guidelines for creating easily testable code | When designing new features or components |
-| **designing-tests** | Principles for effective test design | When writing or modifying tests |
+| **testing-standards** | Test structure, organization, testable design, and CLI output testing | When writing or modifying tests, or designing testable code |
+| **test-infrastructure** | Centralized test utilities under \`src/utils/test-utils/\` | When writing tests that need mocks, fixtures, or setup helpers |
+| **testing-boundaries** | What to test and what NOT to test | When deciding test scope |
 | **test-expectations** | Best practices for managing test expectations | When updating code that changes expected behavior |
-| **cli-testing** | Approaches for testing command-line interfaces | When testing CLI commands or features |
 | **testing-session-repo-changes** | Procedures for testing changes in session repositories | When modifying code that affects session repositories |
 
 ## Documentation & Communication Rules

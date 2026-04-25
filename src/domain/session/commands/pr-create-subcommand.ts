@@ -9,10 +9,14 @@ import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { ResourceNotFoundError, ValidationError } from "../../../errors/index";
 import type { SessionProviderInterface } from "../types";
+import type { AskRepository } from "../../ask/repository";
+import { log } from "../../../utils/logger";
 
 export interface SessionPrCreateDependencies {
   sessionDB: SessionProviderInterface;
   persistenceProvider?: import("../../persistence/types").PersistenceProvider;
+  /** Optional — when provided, a quality.review Ask row is filed on successful PR creation. */
+  askRepository?: AskRepository;
 }
 
 /**
@@ -44,9 +48,10 @@ export async function sessionPrCreate(
   baseBranch: string;
   title?: string;
   body?: string;
+  url?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  const { sessionDB, persistenceProvider } = deps;
+  const { sessionDB, persistenceProvider, askRepository } = deps;
 
   // Validate draft mode requirements
   if (params.draft) {
@@ -94,8 +99,56 @@ export async function sessionPrCreate(
     options
   );
 
+  // Best-effort: file a quality.review Ask on successful PR creation.
+  // Failure here must NOT fail the PR creation response.
+  if (askRepository) {
+    try {
+      const prUrl = result.url;
+      const prNumber = prUrl ? parsePrNumber(prUrl) : undefined;
+      const sessionId = result.sessionId ?? params.sessionId;
+      const taskId = result.session?.taskId ?? params.task;
+
+      await askRepository.create({
+        kind: "quality.review",
+        classifierVersion: "v1.0.0",
+        requestor: sessionId ?? "minsky.session:unknown",
+        parentSessionId: sessionId,
+        parentTaskId: taskId,
+        title: prNumber != null ? `Review PR #${prNumber}` : "Review PR",
+        question: params.body ?? "Review the changes in this PR.",
+        contextRefs: prUrl
+          ? [
+              {
+                kind: "github-pr",
+                ref: prUrl,
+                description: prNumber != null ? `PR #${prNumber}` : "PR",
+              },
+            ]
+          : [],
+        metadata: {},
+      });
+      log.debug("Filed quality.review Ask for PR", { prUrl, prNumber, sessionId, taskId });
+    } catch (askError) {
+      // Non-fatal: log and continue so PR creation always succeeds.
+      log.warn(`Failed to file quality.review Ask after PR creation: ${askError}`);
+    }
+  }
+
   return {
     ...result, // Includes url field from sessionPrImpl
     pullRequest: undefined, // Will be populated from session record if needed
   };
+}
+
+/**
+ * Extract the PR number from a GitHub pull request URL.
+ *
+ * Handles the canonical form: https://github.com/<owner>/<repo>/pull/<number>
+ * Returns `undefined` for non-matching or malformed URLs.
+ */
+export function parsePrNumber(url: string): number | undefined {
+  const match = /\/pull\/(\d+)/.exec(url);
+  if (!match || !match[1]) return undefined;
+  const n = parseInt(match[1], 10);
+  return isNaN(n) ? undefined : n;
 }

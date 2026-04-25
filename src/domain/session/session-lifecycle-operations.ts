@@ -57,8 +57,11 @@ export async function getSessionImpl(
 }
 
 /**
- * Lists all sessions based on parameters
- * Using proper dependency injection for better testability
+ * Lists sessions based on parameters, with pagination and ordering pushed
+ * down to the storage layer so we never load every session record into memory.
+ *
+ * Default ordering is by recency (lastActivityAt desc, falling back to
+ * createdAt desc) so the most recently-touched sessions appear first.
  */
 export async function listSessionsImpl(
   params: SessionListParams,
@@ -66,19 +69,21 @@ export async function listSessionsImpl(
     sessionDB: SessionProviderInterface;
   }
 ): Promise<Session[]> {
-  const sessions = await deps.sessionDB.listSessions();
-  let result = sessions.map((s) => ({ ...s, liveness: deriveSessionLiveness(s) })) as Session[];
+  const orderBy: Array<{ field: string; direction: "asc" | "desc" }> = [
+    { field: "lastActivityAt", direction: "desc" },
+    { field: "createdAt", direction: "desc" },
+  ];
 
-  // Filter by task ID if provided
-  if (params.task) {
-    const normalizedTaskId = params.task.replace(/^mt#/, "");
-    result = result.filter((s) => {
-      const sessionTaskId = s.taskId?.replace(/^mt#/, "");
-      return sessionTaskId === normalizedTaskId;
-    });
-  }
+  const sessions = await deps.sessionDB.listSessions({
+    taskId: params.task,
+    limit: params.limit ?? 20,
+    offset: params.offset ?? 0,
+    createdAfter: params.since,
+    createdBefore: params.until,
+    orderBy,
+  });
 
-  return result;
+  return sessions.map((s) => ({ ...s, liveness: deriveSessionLiveness(s) })) as Session[];
 }
 
 /**
