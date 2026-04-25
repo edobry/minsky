@@ -8,7 +8,7 @@
  * mode so MCP clients never receive a bare confirmation string in place of
  * the payload they asked for.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { z } from "zod";
 import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
@@ -16,6 +16,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
 } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 type CapturedCall = {
   params: Record<string, unknown>;
@@ -383,5 +384,106 @@ describe("MCP shared-command bridge", () => {
     expect(() => {
       registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
     }).not.toThrow();
+  });
+
+  // mt#1181 hardening: debug flag string-truthy coercion + sensitive param log redaction
+  describe("mt#1181 hardening", () => {
+    async function captureContextForDebugArg(
+      debugValue: unknown
+    ): Promise<CommandExecutionContext | undefined> {
+      const id = `tasks.__mcp_bridge_debug_${Math.random().toString(36).slice(2)}__`;
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#1181 debug coercion test",
+        requiresSetup: false,
+        parameters: {},
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return undefined;
+      await handler({ debug: debugValue });
+      return calls[0]?.context;
+    }
+
+    test("debug: 'false' (string) does NOT enable debug (fix: Boolean('false') was true)", async () => {
+      const context = await captureContextForDebugArg("false");
+      expect(context?.debug).toBe(false);
+    });
+
+    test("debug: true (real boolean) enables debug", async () => {
+      const context = await captureContextForDebugArg(true);
+      expect(context?.debug).toBe(true);
+    });
+
+    test("debug: 'true' (literal string) enables debug", async () => {
+      const context = await captureContextForDebugArg("true");
+      expect(context?.debug).toBe(true);
+    });
+
+    test("sensitive keys in args are redacted across all debug logs", async () => {
+      const id = "tasks.__mcp_bridge_redact_sensitive__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#1181 redaction test",
+        requiresSetup: false,
+        parameters: {},
+        execute: async () => ({ success: true }),
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      const spy = spyOn(log, "debug");
+      try {
+        await handler({ token: "secret-xyz", apiKey: "key-abc", normal: "visible" });
+        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
+        expect(allCallsJson).not.toContain("secret-xyz");
+        expect(allCallsJson).not.toContain("key-abc");
+        expect(allCallsJson).toContain("visible");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    test("non-sensitive values are still logged (regression guard)", async () => {
+      const id = "tasks.__mcp_bridge_redact_regression__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#1181 redaction regression test",
+        requiresSetup: false,
+        parameters: {},
+        execute: async () => ({ success: true }),
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      const spy = spyOn(log, "debug");
+      try {
+        await handler({ foo: "bar", count: 42 });
+        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
+        expect(allCallsJson).toContain("bar");
+        expect(allCallsJson).toContain("42");
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });
