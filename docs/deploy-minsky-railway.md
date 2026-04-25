@@ -14,7 +14,7 @@ Minsky's MCP server is transport-agnostic — the same tool registry serves stdi
 2. **Railway account** with a workspace you can deploy under.
 3. **GitHub App grant for Railway**: the Railway GitHub App must be installed on `edobry/minsky` (same grant as mt#1107). Verify at <https://github.com/settings/installations>.
 4. **Auth token**: `openssl rand -hex 32` — this becomes `MINSKY_MCP_AUTH_TOKEN`. Distribute only to trusted service consumers.
-5. **Supabase Postgres URL**: the same `DATABASE_URL` Minsky uses locally. Copy from `~/.config/minsky/config.yaml` or your env.
+5. **Supabase Postgres URL**: the same connection string Minsky uses locally. Copy from `~/.config/minsky/config.yaml` (the `persistence.postgres.connectionString` field) or your local env.
 
 ## First deploy
 
@@ -31,14 +31,20 @@ Railway auto-detects the `Dockerfile` at repo root and builds from it.
 
 ```bash
 # Auth — REQUIRED when using the --require-auth flag (which the default Dockerfile CMD enables)
-railway variable set MINSKY_MCP_AUTH_TOKEN=<output-of-openssl-rand-hex-32>
+railway variables --set MINSKY_MCP_AUTH_TOKEN=<output-of-openssl-rand-hex-32>
 
-# Database — the same Supabase instance used locally
-railway variable set DATABASE_URL=<your-supabase-postgres-url>
+# Persistence — BOTH vars required. The backend selector and the connection string must
+# be set together; `MINSKY_PERSISTENCE_POSTGRES_URL` alone does not flip the backend.
+railway variables --set MINSKY_PERSISTENCE_BACKEND=postgres
+railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-url>
 
 # Any other Minsky config env vars your setup uses (GitHub tokens, OpenAI keys, etc.)
 # The MCP server runs the same tools as the CLI, so it needs the same env.
 ```
+
+> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
+>
+> **Legacy `MINSKY_SESSIONDB_*` env vars** (`_BACKEND`, `_POSTGRES_URL`, `_SQLITE_PATH`) are still accepted for back-compat with older deploys and user configs, but emit a deprecation warning on load. Prefer `MINSKY_PERSISTENCE_*` for new deployments.
 
 Trigger a redeploy after setting variables:
 
@@ -217,7 +223,9 @@ MINSKY_MCP_TOKEN=<same-token-as-MINSKY_MCP_AUTH_TOKEN>
 
 **Service refuses to start with "--require-auth passed but MINSKY_MCP_AUTH_TOKEN env var is not set":** set the env var OR remove `--require-auth` from `CMD`. Running in the "auth-enabled-but-no-token" undefined state is blocked intentionally.
 
-**Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `DATABASE_URL` or unavailable Postgres).
+**Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `MINSKY_PERSISTENCE_POSTGRES_URL` or unavailable Postgres).
+
+**MCP calls return `Tool execution failed: no such table: ...`:** the container is running against its SQLite default instead of Postgres. Confirm `MINSKY_PERSISTENCE_BACKEND=postgres` is set (not just the connection-string var). See mt#1224.
 
 **Intermittent empty responses on tool calls:** session state issues with the Streamable HTTP transport. Check that the client is sending `mcp-session-id` correctly on follow-up requests after the initial session-establishment call.
 
