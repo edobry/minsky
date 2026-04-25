@@ -29,3 +29,12 @@ export {
 // Repository interface + implementations
 export type { AskRepository, CreateAskInput, CloseAskInput, RespondAskInput } from "./repository";
 export { DrizzleAskRepository, FakeAskRepository } from "./repository";
+
+// Reconciler
+export type {
+  GithubReview,
+  GithubReviewClient,
+  ReconcileResult,
+  AskReconcileOutcome,
+} from "./reconciler";
+export { reconcile, parsePrRef, findPrRef } from "./reconciler";
