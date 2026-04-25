@@ -28,6 +28,26 @@ Before creating a PR:
 
 **Pacing discipline:** Do not weaken tests or relax assertions to achieve a green state. A non-green state is acceptable while restoring correctness. Never trade fidelity for speed.
 
+### 1a. Live-target check for verify/probe/smoke scripts
+
+Some scripts have a contract that no static check can verify: their assertions must agree with a live external system (production deploy, hosted API, real database). For those, unit tests and type checks are insufficient — only running them against the live target proves they work.
+
+Before continuing, ask: **does this PR modify a verify, probe, smoke, or live-system-check script?** Cues:
+
+- File path or name contains `verify`, `probe`, `smoke`, `health-check`, `e2e`, or similar.
+- The script's assertions reference an external system (production URL, hosted API, deployed service).
+- The script's value is "catch drift between code and the live system."
+
+If yes:
+
+1. Run the script against the live target. Capture the output.
+2. Paste the output (or a clearly-attributed summary of it) into the PR body under a `## Test plan` or `## Live verification` section.
+3. If running against the live target is genuinely impossible (e.g., the target hasn't been deployed yet), state that explicitly in the PR body and note what manual verification was done in its place.
+
+**Why:** mt#1194 shipped probe assertions that never matched production because no one ran the script before merging. The defect was discovered ~5 hours post-merge and required a follow-up PR (mt#1267) to fix. See `feedback_run_end_to_end_verify_end_to_end` for the underlying lesson.
+
+This is a checklist item, not a hard gate — if you have a substantive reason to skip it, document the reason in the PR body. But "I read the code carefully" is not a substantive reason; the failure mode this guards against is "the code looks right but the live system disagrees."
+
 ### 2. Commit all changes
 
 Use `mcp__minsky__session_commit` with:
