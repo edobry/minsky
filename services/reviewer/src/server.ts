@@ -10,6 +10,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import { loadConfig } from "./config";
 import { runReview } from "./review-worker";
+import { loadSweeperConfig, startSweeper } from "./sweeper";
 
 const config = loadConfig();
 
@@ -153,6 +154,13 @@ console.log(
     specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
   })
 );
+
+// Start the periodic sweeper safety net (mt#1260).
+// In-process setInterval chosen over Railway cron for simplicity: no separate
+// entry-point, shares the same config/auth already loaded above.
+// Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
+// SWEEPER_REPO_NAME. Defaults: enabled, 5-min interval, edobry/minsky.
+startSweeper(config, loadSweeperConfig());
 
 if (config.provider === "anthropic") {
   console.warn(
