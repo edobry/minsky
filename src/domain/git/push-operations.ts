@@ -54,6 +54,18 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     branch = branchOut.trim();
   }
 
+  // Detached HEAD preflight: rev-parse --abbrev-ref returns the literal
+  // "HEAD" when no branch is checked out. Pushing that produces git's cryptic
+  // "destination is not a full refname" error. Surface a clear actionable
+  // message instead. See mt#994; mt#1217 fixed the upstream session_update
+  // path that was leaving sessions detached.
+  if (branch === "HEAD") {
+    throw new Error(
+      `Cannot push: HEAD is detached in ${workdir}. ` +
+        `Checkout your task branch before pushing (e.g. 'git checkout task/mt-XXX').`
+    );
+  }
+
   // 2. Validate remote exists
   const { stdout: remotesOut } = await deps.execAsync(`git -C ${workdir} remote`);
   const remotes = remotesOut
