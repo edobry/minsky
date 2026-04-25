@@ -76,7 +76,7 @@ describe("getEnforcedRules", () => {
     const ids = getEnforcedRules();
     expect(ids).toContain(BUN_TEST_PATTERNS_RULE_ID);
     expect(ids).toContain(NAMING_CONVENTIONS_RULE_ID);
-    expect(ids).toContain("no-skipped-tests");
+    expect(ids).toContain("testing-standards");
     expect(ids).toContain("git-safety");
   });
 

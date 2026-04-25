@@ -195,21 +195,33 @@ export async function callOpenAIWithClient(
     { role: "user", content: userPrompt },
   ];
 
+  // When tools are active the model must finish reasoning AND emit structured
+  // tool-call JSON within the same budget. 16384 was too tight — reasoning at
+  // "medium" effort exhausted the budget before the model could emit tool-call
+  // JSON, causing it to narrate "Calling read_file..." into the review body
+  // instead of actually invoking the tool. 32768 gives enough runway for both
+  // steps. The no-tools path is unchanged at 16384 (single-turn, no tool-call
+  // overhead). See mt#1232.
+  const maxCompletionTokens = tools ? 32768 : 16384;
+
+  // When tools are active, default reasoning_effort to "low" so the model
+  // spends budget on structured output (tool calls) rather than hidden CoT.
+  // The no-tools path keeps "medium" as the baseline. Caller-supplied
+  // options.reasoningEffort always takes precedence on both paths. See mt#1232.
+  const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
+
   const baseParams = {
     model,
-    // Reasoning models (GPT-5, o-series) consume this budget for hidden
-    // reasoning tokens as well as output. 8192 was too tight — reasoning
-    // sometimes exhausted the budget before producing any output, yielding
-    // empty reviews. 16384 gives enough runway for both a full adversarial
-    // analysis AND a detailed output. See mt#1125.
-    max_completion_tokens: 16384,
+    max_completion_tokens: maxCompletionTokens,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
     // API — so only include it when the configured model supports it. The
-    // default is "medium"; retries override with "low" to shift the budget
-    // toward visible output when the first attempt returned empty (mt#1131).
+    // default varies by path: "low" when tools are active (preserve budget for
+    // tool-call JSON), "medium" for single-turn no-tools reviews. Retries
+    // override with "low" to shift the budget toward visible output when the
+    // first attempt returned empty (mt#1131).
     ...(isReasoningModel(model)
-      ? { reasoning_effort: options?.reasoningEffort ?? ("medium" as const) }
+      ? { reasoning_effort: options?.reasoningEffort ?? defaultReasoningEffort }
       : {}),
   };
 
