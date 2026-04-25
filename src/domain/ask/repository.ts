@@ -15,7 +15,7 @@
  *   transition             — state-machine-aware state update (throws on invalid move)
  *   close                  — convenience wrapper: transition to "closed" + attach response
  *
- * Reference: ADR-006 §The Ask entity; mt#1237 spec.
+ * Reference: ADR per mt#1034 (pending merge); mt#1237 spec.
  */
 
 import { injectable } from "tsyringe";
@@ -24,7 +24,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
-import type { Ask, AskState, AskKind } from "./types";
+import type { Ask, AskState, AskKind, AgentId } from "./types";
 import { guardTransition } from "./state-machine";
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ function toInsert(input: CreateAskInput): AskInsert {
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,
-    state: input.state ?? "detected",
+    state: "detected",
     requestor: input.requestor,
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
@@ -90,14 +90,12 @@ function toInsert(input: CreateAskInput): AskInsert {
 // Input / option types
 // ---------------------------------------------------------------------------
 
-/** Input for creating a new Ask. `id` and `createdAt` are auto-assigned. */
+/** Input for creating a new Ask. `id` and `createdAt` are auto-assigned. All Asks start in "detected". */
 export interface CreateAskInput {
   kind: AskKind;
   classifierVersion: string;
-  /** Defaults to "detected" when omitted. */
-  state?: AskState;
-  requestor: string;
-  routingTarget?: string;
+  requestor: AgentId;
+  routingTarget?: Ask["routingTarget"];
   parentTaskId?: string;
   parentSessionId?: string;
   title: string;
@@ -110,6 +108,11 @@ export interface CreateAskInput {
 
 /** Input for closing an Ask (state → "closed"). */
 export interface CloseAskInput {
+  response: NonNullable<Ask["response"]>;
+}
+
+/** Input for recording a response on an Ask (state → "responded"). */
+export interface RespondAskInput {
   response: NonNullable<Ask["response"]>;
 }
 
@@ -155,6 +158,20 @@ export interface AskRepository {
    * @throws    `Error` — Ask not found.
    */
   transition(id: string, to: AskState): Promise<Ask>;
+
+  /**
+   * Record a response on an Ask (state → "responded").
+   *
+   * Transitions state to "responded", attaches the response payload, and sets
+   * `respondedAt`. Throws on invalid transitions (same as `transition`).
+   *
+   * @param id     Primary key of the Ask to update.
+   * @param input  The response payload to attach.
+   * @returns      The updated Ask.
+   * @throws       `InvalidAskTransitionError` — invalid transition.
+   * @throws       `Error` — Ask not found.
+   */
+  respond(id: string, input: RespondAskInput): Promise<Ask>;
 
   /**
    * Close an Ask (convenience wrapper around `transition`).
@@ -251,6 +268,33 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async respond(id: string, input: RespondAskInput): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    // Throws InvalidAskTransitionError on invalid moves.
+    guardTransition(existing.state, "responded");
+
+    const now = new Date();
+    const rows = await this.db
+      .update(asksTable)
+      .set({
+        state: "responded",
+        response: input.response as AskInsert["response"],
+        respondedAt: now,
+      })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask respond returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
   async close(id: string, input: CloseAskInput): Promise<Ask> {
     const existing = await this.getById(id);
     if (!existing) {
@@ -267,7 +311,7 @@ export class DrizzleAskRepository implements AskRepository {
         state: "closed",
         response: input.response as AskInsert["response"],
         closedAt: now,
-        respondedAt: existing.respondedAt ? undefined : now,
+        respondedAt: existing.respondedAt ? new Date(existing.respondedAt) : now,
       })
       .where(eq(asksTable.id, id))
       .returning();
@@ -321,7 +365,7 @@ export class FakeAskRepository implements AskRepository {
       id,
       kind: input.kind,
       classifierVersion: input.classifierVersion,
-      state: input.state ?? "detected",
+      state: "detected",
       requestor: input.requestor,
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
@@ -381,6 +425,27 @@ export class FakeAskRepository implements AskRepository {
     return { ...updated };
   }
 
+  async respond(id: string, input: RespondAskInput): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    // Same guard as production.
+    guardTransition(existing.state, "responded");
+
+    const now = new Date().toISOString();
+    const updated: Ask = {
+      ...existing,
+      state: "responded",
+      response: input.response,
+      respondedAt: now,
+    };
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
   async close(id: string, input: CloseAskInput): Promise<Ask> {
     const existing = this.store.get(id);
     if (!existing) {
@@ -401,5 +466,16 @@ export class FakeAskRepository implements AskRepository {
 
     this.store.set(id, updated);
     return { ...updated };
+  }
+
+  /**
+   * Test seam only — NOT on AskRepository interface or DrizzleAskRepository.
+   *
+   * Directly inserts an Ask at an arbitrary state, bypassing lifecycle guards.
+   * Use only in tests that need to set up preconditions for invalid-transition
+   * assertions where walking through valid transitions would be tedious.
+   */
+  _seedAtState(ask: Ask): void {
+    this.store.set(ask.id, { ...ask });
   }
 }

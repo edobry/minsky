@@ -13,7 +13,7 @@
  * specific non-terminal states; once terminal, no further transitions are
  * allowed.
  *
- * Reference: docs/architecture/adr-006-attention-allocation-subsystem.md
+ * Reference: ADR per mt#1034 (pending merge)
  */
 
 import type { AskState } from "./types";
@@ -65,7 +65,10 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
         break;
       case "responded":
         // Post-response validation/side-effects complete → closed.
-        allow(state, "closed", "cancelled");
+        // "cancelled" is not valid here: per types.ts, cancelled means
+        // "operator or upstream cancelled BEFORE response"; once a response
+        // is present the Ask must close, not cancel.
+        allow(state, "closed");
         break;
       case "closed":
         // Terminal — no further transitions.
@@ -113,10 +116,25 @@ export function guardTransition(from: AskState, to: AskState): AskState {
 /**
  * Returns true iff `state` is a terminal AskState (no further transitions
  * are ever allowed).
+ *
+ * Throws (via `assertNever`) if `state` is not a known AskState, so callers
+ * are forced to handle exhaustiveness at compile time.
  */
 export function isTerminal(state: AskState): boolean {
-  const allowed = VALID_TRANSITIONS.get(state);
-  return !allowed || allowed.size === 0;
+  switch (state) {
+    case "detected":
+    case "classified":
+    case "routed":
+    case "suspended":
+    case "responded":
+      return false;
+    case "closed":
+    case "cancelled":
+    case "expired":
+      return true;
+    default:
+      return assertNever(state);
+  }
 }
 
 /**

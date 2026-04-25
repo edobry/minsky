@@ -12,13 +12,14 @@
  *   - state-machine invalid transitions (throws with clear error)
  *   - list filters: listByParentTask, listByParentSession, listByState,
  *     listByClassifierVersion
+ *   - respond convenience wrapper: response attached, respondedAt set
  *   - close convenience wrapper: response attached, terminal state set
  *   - getById: returns null for unknown id
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
 
-import type { AskKind } from "./types";
+import type { Ask, AskKind } from "./types";
 import { FakeAskRepository } from "./repository";
 import type { CreateAskInput } from "./repository";
 import { InvalidAskTransitionError } from "./state-machine";
@@ -30,14 +31,34 @@ import { InvalidAskTransitionError } from "./state-machine";
 /** Kind used when testing a non-default AskKind value. */
 const KIND_DIRECTION_DECIDE: AskKind = "direction.decide";
 
+/** Default requestor used across test fixtures (extracted to a constant per
+ *  custom/no-magic-string-duplication). */
+const TEST_REQUESTOR = "com.anthropic.claude-code:proc:test-agent";
+
 /** Minimal valid CreateAskInput with every required field. */
 function makeInput(overrides: Partial<CreateAskInput> = {}): CreateAskInput {
   return {
     kind: "quality.review",
     classifierVersion: "v1.0.0",
-    requestor: "com.anthropic.claude-code:proc:test-agent",
+    requestor: TEST_REQUESTOR,
     title: "Review this output",
     question: "Does this implementation satisfy the spec?",
+    metadata: {},
+    ...overrides,
+  };
+}
+
+/** Build a minimal Ask object for use with _seedAtState. */
+function makeSeedAsk(overrides: Partial<Ask>): Ask {
+  return {
+    id: overrides.id ?? `seed-${Math.random().toString(36).slice(2)}`,
+    kind: "quality.review",
+    classifierVersion: "v1.0.0",
+    state: "detected",
+    requestor: TEST_REQUESTOR,
+    title: "Review this output",
+    question: "Does this implementation satisfy the spec?",
+    createdAt: new Date().toISOString(),
     metadata: {},
     ...overrides,
   };
@@ -84,14 +105,9 @@ describe("create", () => {
     expect(ask.createdAt).toBeDefined();
   });
 
-  it("defaults state to 'detected' when not supplied", async () => {
+  it("always starts state at 'detected'", async () => {
     const ask = await repo.create(makeInput());
     expect(ask.state).toBe("detected");
-  });
-
-  it("accepts an explicit initial state", async () => {
-    const ask = await repo.create(makeInput({ state: "classified" }));
-    expect(ask.state).toBe("classified");
   });
 
   it("assigns a unique id per Ask", async () => {
@@ -176,14 +192,19 @@ describe("transition — valid moves", () => {
     expect(cancelled.closedAt).toBeDefined();
   });
 
-  it("allows cancellation from routed", async () => {
-    const ask = await repo.create(makeInput({ state: "routed" }));
+  it("allows cancellation from routed (walk to routed first)", async () => {
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
     const cancelled = await repo.transition(ask.id, "cancelled");
     expect(cancelled.state).toBe("cancelled");
   });
 
-  it("allows expiry from suspended", async () => {
-    const ask = await repo.create(makeInput({ state: "suspended" }));
+  it("allows expiry from suspended (walk to suspended first)", async () => {
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
     const expired = await repo.transition(ask.id, "expired");
     expect(expired.state).toBe("expired");
     expect(expired.closedAt).toBeDefined();
@@ -196,35 +217,53 @@ describe("transition — valid moves", () => {
 
 describe("transition — invalid moves", () => {
   it("throws InvalidAskTransitionError on closed → responded", async () => {
-    const ask = await repo.create(makeInput({ state: "closed" }));
+    const ask = await repo.create(makeInput());
+    // Walk to closed via full happy path
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.transition(ask.id, "responded");
+    await repo.transition(ask.id, "closed");
     await expect(repo.transition(ask.id, "responded")).rejects.toBeInstanceOf(
       InvalidAskTransitionError
     );
   });
 
   it("throws InvalidAskTransitionError on responded → detected", async () => {
-    const ask = await repo.create(makeInput({ state: "responded" }));
-    await expect(repo.transition(ask.id, "detected")).rejects.toBeInstanceOf(
+    // Seed at responded state for invalid-transition test
+    const seeded = makeSeedAsk({ id: "seed-responded-1", state: "responded" });
+    repo._seedAtState(seeded);
+    await expect(repo.transition(seeded.id, "detected")).rejects.toBeInstanceOf(
       InvalidAskTransitionError
     );
   });
 
   it("throws InvalidAskTransitionError on expired → closed", async () => {
-    const ask = await repo.create(makeInput({ state: "expired" }));
-    await expect(repo.transition(ask.id, "closed")).rejects.toBeInstanceOf(
+    // Seed at expired state for invalid-transition test
+    const seeded = makeSeedAsk({ id: "seed-expired-1", state: "expired" });
+    repo._seedAtState(seeded);
+    await expect(repo.transition(seeded.id, "closed")).rejects.toBeInstanceOf(
       InvalidAskTransitionError
     );
   });
 
   it("throws InvalidAskTransitionError on cancelled → responded", async () => {
-    const ask = await repo.create(makeInput({ state: "cancelled" }));
-    await expect(repo.transition(ask.id, "responded")).rejects.toBeInstanceOf(
+    // Seed at cancelled state for invalid-transition test
+    const seeded = makeSeedAsk({ id: "seed-cancelled-1", state: "cancelled" });
+    repo._seedAtState(seeded);
+    await expect(repo.transition(seeded.id, "responded")).rejects.toBeInstanceOf(
       InvalidAskTransitionError
     );
   });
 
   it("error message names both states clearly", async () => {
-    const ask = await repo.create(makeInput({ state: "closed" }));
+    // Walk to closed, then attempt invalid transition
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.transition(ask.id, "responded");
+    await repo.transition(ask.id, "closed");
     let caught: unknown;
     try {
       await repo.transition(ask.id, "responded");
@@ -284,10 +323,17 @@ describe("listByParentSession", () => {
 
 describe("listByState", () => {
   it("returns only Asks in the given state", async () => {
-    await repo.create(makeInput({ state: "detected" }));
-    await repo.create(makeInput({ state: "detected" }));
-    await repo.create(makeInput({ state: "classified" }));
-    await repo.create(makeInput({ state: "suspended" }));
+    // Create detected Asks
+    await repo.create(makeInput());
+    await repo.create(makeInput());
+    // Create a classified Ask by walking
+    const a3 = await repo.create(makeInput());
+    await repo.transition(a3.id, "classified");
+    // Create a suspended Ask by walking
+    const a4 = await repo.create(makeInput());
+    await repo.transition(a4.id, "classified");
+    await repo.transition(a4.id, "routed");
+    await repo.transition(a4.id, "suspended");
 
     const suspended = await repo.listByState("suspended");
     expect(suspended).toHaveLength(1);
@@ -298,7 +344,7 @@ describe("listByState", () => {
   });
 
   it("returns an empty array when no Asks match the state", async () => {
-    await repo.create(makeInput({ state: "detected" }));
+    await repo.create(makeInput());
     const results = await repo.listByState("expired");
     expect(results).toHaveLength(0);
   });
@@ -322,12 +368,64 @@ describe("listByClassifierVersion", () => {
 });
 
 // ---------------------------------------------------------------------------
+// respond convenience wrapper
+// ---------------------------------------------------------------------------
+
+describe("respond", () => {
+  it("transitions to responded, attaches response payload, and sets respondedAt", async () => {
+    // Walk to suspended first
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+
+    const response: NonNullable<import("./types").Ask["response"]> = {
+      responder: "operator",
+      payload: { approved: true },
+      attentionCost: undefined,
+    };
+
+    const responded = await repo.respond(ask.id, { response });
+
+    expect(responded.state).toBe("responded");
+    expect(responded.response).toEqual(response);
+    expect(responded.respondedAt).toBeDefined();
+  });
+
+  it("throws InvalidAskTransitionError when responding from 'closed'", async () => {
+    // Walk to closed
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.transition(ask.id, "responded");
+    await repo.transition(ask.id, "closed");
+    await expect(
+      repo.respond(ask.id, { response: { responder: "operator", payload: {} } })
+    ).rejects.toBeInstanceOf(InvalidAskTransitionError);
+  });
+
+  it("throws when the Ask id is not found", async () => {
+    await expect(
+      repo.respond("no-such-id", { response: { responder: "operator", payload: {} } })
+    ).rejects.toThrow("not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // close convenience wrapper
 // ---------------------------------------------------------------------------
 
 describe("close", () => {
   it("transitions to closed and attaches the response payload", async () => {
-    const ask = await repo.create(makeInput({ state: "responded" }));
+    // Walk to responded using the respond() method, then close
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.respond(ask.id, {
+      response: { responder: "operator", payload: { approved: true } },
+    });
 
     const response: NonNullable<import("./types").Ask["response"]> = {
       responder: "operator",
@@ -343,7 +441,13 @@ describe("close", () => {
   });
 
   it("throws InvalidAskTransitionError when closing from 'closed'", async () => {
-    const ask = await repo.create(makeInput({ state: "closed" }));
+    // Walk to closed, then try to close again
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.transition(ask.id, "responded");
+    await repo.transition(ask.id, "closed");
     await expect(
       repo.close(ask.id, { response: { responder: "operator", payload: {} } })
     ).rejects.toBeInstanceOf(InvalidAskTransitionError);
@@ -370,8 +474,13 @@ describe("state persistence across operations", () => {
   });
 
   it("getById reflects response after close", async () => {
-    const ask = await repo.create(makeInput({ state: "responded" }));
+    // Walk to responded via respond(), then close
+    const ask = await repo.create(makeInput());
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
     const payload = { decision: "approved" };
+    await repo.respond(ask.id, { response: { responder: "operator", payload } });
     await repo.close(ask.id, { response: { responder: "operator", payload } });
 
     const fetched = await repo.getById(ask.id);
