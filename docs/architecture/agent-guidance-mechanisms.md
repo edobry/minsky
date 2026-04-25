@@ -63,6 +63,6 @@ For any concern, use the **strongest mechanism that fits**. If you find yourself
 
 ## Origin
 
-This framework emerged from a specific failure during mt#348: a narrowly-scoped refactor subagent eliminated a class but left stale comments, redundant files, and dead exports. The rule-based prompt to "verify coherence" was forgotten. The fix was structural: bake verification into the agent's identity (the `refactor` subagent), not into a remembered prompt.
+This framework emerged from a specific failure during mt#348: a narrowly-scoped refactor subagent eliminated a class but left stale comments, redundant files, and dead exports. The rule-based prompt to "verify coherence" was forgotten. The fix was structural: bake verification into the agent's identity (the `refactorer` subagent), not into a remembered prompt.
 
 For the full analysis, see the Notion insight: [rules → skills → subagents — a structural strength spectrum](https://www.notion.so/33b937f03cb481d5900ecfa84b3c44ff).
