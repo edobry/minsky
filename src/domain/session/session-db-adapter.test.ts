@@ -230,3 +230,68 @@ describe("SessionDbAdapter", () => {
     expect(mockStorage.initialize).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("SessionDbAdapter.listSessions(options) — pagination push-down (mt#933)", () => {
+  test("with options, routes through storage.getEntities and skips readState", async () => {
+    const records: SessionRecord[] = [
+      { session: "s1", taskId: "1" } as SessionRecord,
+      { session: "s2", taskId: "2" } as SessionRecord,
+    ];
+    const getEntitiesMock = mock((opts: unknown) => Promise.resolve(records));
+    const readStateMock = mock(() =>
+      Promise.resolve({ success: true, data: { sessions: [], baseDir: "/x" } })
+    );
+    const storage = {
+      initialize: mock(() => Promise.resolve()),
+      getEntities: getEntitiesMock,
+      readState: readStateMock,
+    };
+    const provider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => storage),
+    } as unknown as PersistenceProvider;
+
+    const adapter = new SessionDbAdapter(provider);
+    const opts = {
+      taskId: "mt#933",
+      limit: 5,
+      offset: 10,
+      orderBy: [{ field: "lastActivityAt", direction: "desc" as const }],
+    };
+    const out = await adapter.listSessions(opts);
+
+    expect(out).toEqual(records);
+    expect(getEntitiesMock).toHaveBeenCalledTimes(1);
+    expect(getEntitiesMock).toHaveBeenCalledWith(opts);
+    expect(readStateMock).not.toHaveBeenCalled();
+  });
+
+  test("without options, retains backwards-compatible readState path", async () => {
+    const readStateMock = mock(() =>
+      Promise.resolve({
+        success: true,
+        data: {
+          sessions: [{ session: "legacy", taskId: "1" } as SessionRecord],
+          baseDir: "/x",
+        },
+      })
+    );
+    const getEntitiesMock = mock(() => Promise.resolve([]));
+    const storage = {
+      initialize: mock(() => Promise.resolve()),
+      getEntities: getEntitiesMock,
+      readState: readStateMock,
+    };
+    const provider = {
+      ...mockPersistenceProvider,
+      getStorage: mock(() => storage),
+    } as unknown as PersistenceProvider;
+
+    const adapter = new SessionDbAdapter(provider);
+    const out = await adapter.listSessions();
+
+    expect(out).toHaveLength(1);
+    expect(readStateMock).toHaveBeenCalledTimes(1);
+    expect(getEntitiesMock).not.toHaveBeenCalled();
+  });
+});
