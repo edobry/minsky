@@ -473,3 +473,150 @@ describe("callOpenAIWithClient tool-use loop", () => {
     expect(capturedParams.tools).toBeUndefined();
   });
 });
+
+// ----- Token budget and reasoning_effort selection (mt#1232) -----
+//
+// Verifies that the tools-active path uses a larger token budget and lower
+// reasoning effort to prevent reasoning tokens from crowding out tool-call JSON.
+
+describe("callOpenAIWithClient token budget and reasoning_effort (mt#1232)", () => {
+  const REASONING_MODEL = "gpt-5";
+  const NON_REASONING_MODEL = "gpt-4o";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  function makeSingleCaptureClient(): {
+    client: OpenAI;
+    capturedParams: () => Record<string, unknown>;
+  } {
+    let lastParams: Record<string, unknown> = {};
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            lastParams = { ...params };
+            return {
+              choices: [{ message: { content: "review text", tool_calls: undefined } }],
+              usage: makeUsage(),
+            };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client, capturedParams: () => lastParams };
+  }
+
+  test("no-tools path: sends max_completion_tokens:16384 (reasoning model)", async () => {
+    const { client, capturedParams } = makeSingleCaptureClient();
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user");
+    expect(capturedParams().max_completion_tokens).toBe(16384);
+  });
+
+  test("no-tools path: sends reasoning_effort:'medium' by default (reasoning model)", async () => {
+    const { client, capturedParams } = makeSingleCaptureClient();
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user");
+    expect(capturedParams().reasoning_effort).toBe("medium");
+  });
+
+  test("no-tools path: does not send reasoning_effort for non-reasoning model", async () => {
+    const { client, capturedParams } = makeSingleCaptureClient();
+    await callOpenAIWithClient(client, NON_REASONING_MODEL, "system", "user");
+    expect(capturedParams().reasoning_effort).toBeUndefined();
+  });
+
+  test("no-tools path: max_completion_tokens:16384 even for non-reasoning model", async () => {
+    const { client, capturedParams } = makeSingleCaptureClient();
+    await callOpenAIWithClient(client, NON_REASONING_MODEL, "system", "user");
+    expect(capturedParams().max_completion_tokens).toBe(16384);
+  });
+
+  test("tools-active path: sends max_completion_tokens:32768 on first round (reasoning model)", async () => {
+    const allCaptured: Array<Record<string, unknown>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            allCaptured.push({ ...params });
+            return {
+              choices: [{ message: { content: "review text", tool_calls: undefined } }],
+              usage: makeUsage(),
+            };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user", tools);
+    expect(allCaptured[0]?.max_completion_tokens).toBe(32768);
+  });
+
+  test("tools-active path: sends reasoning_effort:'low' by default (reasoning model)", async () => {
+    const allCaptured: Array<Record<string, unknown>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            allCaptured.push({ ...params });
+            return {
+              choices: [{ message: { content: "review text", tool_calls: undefined } }],
+              usage: makeUsage(),
+            };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user", tools);
+    expect(allCaptured[0]?.reasoning_effort).toBe("low");
+  });
+
+  test("tools-active path: caller-supplied reasoningEffort overrides default 'low'", async () => {
+    const allCaptured: Array<Record<string, unknown>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            allCaptured.push({ ...params });
+            return {
+              choices: [{ message: { content: "review text", tool_calls: undefined } }],
+              usage: makeUsage(),
+            };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user", tools, {
+      reasoningEffort: "high",
+    });
+    expect(allCaptured[0]?.reasoning_effort).toBe("high");
+  });
+
+  test("no-tools path: caller-supplied reasoningEffort overrides default 'medium'", async () => {
+    const { client, capturedParams } = makeSingleCaptureClient();
+    await callOpenAIWithClient(client, REASONING_MODEL, "system", "user", undefined, {
+      reasoningEffort: "low",
+    });
+    expect(capturedParams().reasoning_effort).toBe("low");
+  });
+});

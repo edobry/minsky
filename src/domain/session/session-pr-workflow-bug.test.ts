@@ -4,6 +4,67 @@ import { SessionPRParameters } from "../schemas";
 import type { SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git/types";
 
+describe("Session PR inner update — sessionId param wiring (mt#1281)", () => {
+  // Regression: session-pr-operations.ts:244 used to pass `name: sessionId` to
+  // updateSessionImpl, but the receiving schema field is `sessionId`. The cast
+  // silently dropped the field and the resolver threw "Session ID is required"
+  // on every PR create. Fix: pass `sessionId` directly.
+  it("does not throw 'Session ID is required' when session exists", async () => {
+    const sessionRecord = {
+      session: "test-session-mt-1281",
+      taskId: "mt#9999",
+      repoUrl: "https://github.com/test/repo.git",
+      repoName: "test/repo",
+      backendType: "github" as const,
+      createdAt: new Date().toISOString(),
+    };
+
+    const mockParams: SessionPRParameters = {
+      session: "test-session-mt-1281",
+      title: "Test PR",
+      body: "Test body",
+      baseBranch: "main",
+      repo: "https://github.com/test/repo.git",
+      debug: false,
+      noStatusUpdate: true,
+      draft: false,
+      skipUpdate: false,
+      skipConflictCheck: false,
+      autoResolveDeleteConflicts: false,
+    };
+
+    const mockDeps = {
+      sessionDB: {
+        getSession: async () => sessionRecord,
+        listSessions: async () => [sessionRecord],
+        addSession: async () => {},
+        updateSession: async () => {},
+        deleteSession: async () => {},
+        getSessionWorkdir: async () => "/tmp/test-session",
+        getRepoPath: async () => "/tmp/test-repo",
+      } as unknown as SessionProviderInterface,
+      gitService: {
+        execInRepository: async () => "",
+        getCurrentBranch: async () => "task/mt-9999",
+        hasUncommittedChanges: async () => false,
+        getStatus: async () => ({ modified: [], untracked: [], deleted: [] }),
+      } as unknown as GitServiceInterface,
+    };
+
+    let errorMessage = "";
+    try {
+      await sessionPr(mockParams, mockDeps);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    // The fix guarantees we don't hit the "Session ID is required" branch.
+    // The call may still fail later (e.g., at the repository-backend or git
+    // step) — that's unrelated to the param-name bug.
+    expect(errorMessage).not.toContain("Session ID is required");
+  });
+});
+
 describe("Session PR Workflow Architectural Bug", () => {
   // Bug: Session PR creation bypasses session layer and goes directly to git layer
   // This violates core session workflow principles and leaves users on PR branches

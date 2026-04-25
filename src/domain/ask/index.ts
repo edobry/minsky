@@ -1,8 +1,8 @@
 /**
  * Ask subsystem — ADR-006 (mt#1034).
  *
- * Unified domain types for all human-in-the-loop mechanisms in Minsky.
- * Types-only at v1; persistence, CRUD, and router land in child tasks.
+ * Unified domain types, state machine, and repository for all human-in-the-loop
+ * mechanisms in Minsky. Router lands in a separate task.
  */
 
 export type {
@@ -17,3 +17,24 @@ export type {
 } from "./types";
 
 export { assertNever } from "./types";
+
+// State machine
+export {
+  VALID_TRANSITIONS,
+  guardTransition,
+  isTerminal,
+  InvalidAskTransitionError,
+} from "./state-machine";
+
+// Repository interface + implementations
+export type { AskRepository, CreateAskInput, CloseAskInput, RespondAskInput } from "./repository";
+export { DrizzleAskRepository, FakeAskRepository } from "./repository";
+
+// Reconciler
+export type {
+  GithubReview,
+  GithubReviewClient,
+  ReconcileResult,
+  AskReconcileOutcome,
+} from "./reconciler";
+export { reconcile, parsePrRef, findPrRef } from "./reconciler";
