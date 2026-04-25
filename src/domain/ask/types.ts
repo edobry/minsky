@@ -2,7 +2,7 @@
  * Ask Domain Types
  *
  * Core type definitions for the Ask entity — Wave 1 of the attention-allocation
- * subsystem (ADR-006 / mt#1034).
+ * subsystem (mt#1034 ADR; renumbering tracked in mt#1291).
  *
  * An Ask represents an agent-to-human (or agent-to-agent) attention request.
  * The 7 kinds cover all classes of asks identified in the ADR:
@@ -10,7 +10,7 @@
  *   information.retrieve, coordination.notify, stuck.unblock
  *
  * @see mt#1068 Ask entity spec
- * @see docs/architecture/adr-006-attention-allocation-subsystem.md
+ * @see mt#1034 attention-allocation ADR (in-flight; ADR number TBD per mt#1291)
  */
 
 // Re-export AgentId type alias from agent-identity module
@@ -18,7 +18,11 @@ export type { AgentIdScope } from "../agent-identity/format";
 
 /**
  * AgentId — opaque string in the format `{kind}:{scope}:{id}[@{parent}]`.
- * Accepted as text in the current release (mt#953 may refine to a branded type later).
+ *
+ * Defined as `string` here rather than imported from `../agent-identity` so the
+ * Ask subsystem can land before agent-identity's stable branded type ships
+ * (mt#953 / mt#992). When mt#953 produces a branded `AgentId`, this type
+ * becomes a re-export and call sites continue to compile.
  */
 export type AgentId = string;
 
@@ -88,13 +92,22 @@ export const VALID_ASK_TRANSITIONS: Record<AskState, AskState[]> = {
 
 /**
  * Transport kinds — identifies how/where an Ask is delivered.
- * `resolvedIn` literal in AttentionCost uses the same set.
+ *
+ * `policy`, `subagent`, `inbox`, `mesh`, `agui` are real transports the
+ * router (mt#1069) selects between. `timeout` only appears as a *responder*
+ * label (`AskResponse.responder`) when the Ask expires past `deadline`
+ * without a response — a deadline-driven Ask is never *bound* to a
+ * "timeout transport" at routing time. The `TransportKind` literal is shared
+ * for symmetry with `AskResponse.responder`-derived accounting; callers
+ * constructing a `TransportBinding` should never pass `kind: "timeout"`.
  */
 export type TransportKind = "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
 
 /**
  * TransportBinding — attached to a routed Ask by the router (mt#1069).
  * Stored in the `routing_target` column as JSONB.
+ *
+ * Invariant: `kind` should not be "timeout" — see `TransportKind` doc.
  */
 export interface TransportBinding {
   kind: TransportKind;
@@ -207,11 +220,17 @@ export interface StuckUnblockResponse {
 
 /**
  * AskResponsePayload — per-kind discriminated union keyed by `kind`.
- * `coordination.notify` payload is optional (fire-and-forget).
  *
- * This is the body of the response — the actual answer to the Ask.
- * It's wrapped by `AskResponse` (below) which adds `responder` and
- * `attentionCost` per ADR-006 §The Ask entity.
+ * Note on coordination.notify: the kind is fire-and-forget at the *Ask* level
+ * — `Ask.response` may stay `null` permanently for a `coordination.notify`
+ * Ask. When a response *is* recorded (e.g., the receiver explicitly ACKs),
+ * the payload still has all fields required by `CoordinationNotifyResponse`.
+ * Optionality lives at the Ask level (`response: AskResponse | null`), not
+ * inside the payload variant.
+ *
+ * This is the body of the response — the actual answer to the Ask. It's
+ * wrapped by `AskResponse` (below) which adds `responder` and `attentionCost`
+ * per the attention-allocation ADR (mt#1034) §The Ask entity.
  */
 export type AskResponsePayload =
   | CapabilityEscalateResponse
@@ -247,7 +266,11 @@ export interface AskResponse {
 
 /**
  * AttentionCost — records where attention was spent after an Ask closes.
- * Stored in `metadata.attentionCost` by the accounting rollup (mt#1071).
+ *
+ * Canonical storage: `Ask.response.attentionCost` (i.e., on the response
+ * envelope, not in `metadata`). The accounting rollup (mt#1071) writes
+ * here on close. `metadata` is reserved for caller-supplied bookkeeping
+ * and must not duplicate this datum.
  */
 export interface AttentionCost {
   /** Transport that ultimately resolved the ask */

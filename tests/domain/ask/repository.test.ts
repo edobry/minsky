@@ -68,12 +68,20 @@ function evalSqlWhere(sql: string, params: unknown[], row: AskRow): boolean {
     return andParts.every((p) => evalSqlWhere(p, params, row));
   }
 
-  // Only pattern this repo needs: "asks"."col" = $N
+  // Pattern: "asks"."col" = $N
   const eqMatch = /^"asks"\."(\w+)" = \$(\d+)$/.exec(s.trim());
   if (eqMatch) {
     const colName = eqMatch[1] as keyof AskRow;
     const paramIdx = Number(eqMatch[2]) - 1;
     return (row[colName] as unknown) === params[paramIdx];
+  }
+
+  // Pattern: "asks"."col" <> $N  (Drizzle's ne() emits <>, not !=)
+  const neMatch = /^"asks"\."(\w+)" <> \$(\d+)$/.exec(s.trim());
+  if (neMatch) {
+    const colName = neMatch[1] as keyof AskRow;
+    const paramIdx = Number(neMatch[2]) - 1;
+    return (row[colName] as unknown) !== params[paramIdx];
   }
 
   // Permissive fallback for unknown patterns (test-only)
@@ -121,14 +129,25 @@ function createFakeDb(initial: AskRow[] = []): AskRepositoryDb & {
     select(_fields?: unknown) {
       return {
         from(_table: unknown) {
+          // Sort newest-first to match list()'s ORDER BY created_at DESC.
+          // Tests don't exercise other orderings.
+          function sortDesc(data: AskRow[]): AskRow[] {
+            return [...data].sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+          }
           return {
             where(cond: any) {
               const filtered = queryRows(cond);
               return {
+                orderBy(_order: any) {
+                  return Promise.resolve(sortDesc(filtered));
+                },
                 then(resolve: (v: AskRow[]) => void, reject?: (err: unknown) => void) {
                   Promise.resolve(filtered).then(resolve, reject);
                 },
               };
+            },
+            orderBy(_order: any) {
+              return Promise.resolve(sortDesc(queryRows()));
             },
             then(resolve: (v: AskRow[]) => void) {
               resolve(queryRows());
@@ -427,6 +446,92 @@ describe("AskRepository", () => {
         },
       });
       expect(closed).toBeNull();
+    });
+
+    it("is idempotent — calling close() on an already-closed Ask returns the existing closed record", async () => {
+      const repo = new AskRepository(createFakeDb());
+      const ask = await repo.create({
+        kind: ASK_KINDS.AUTHORIZATION_APPROVE,
+        requestor: "agent:session:a",
+        title: "t",
+        question: "q",
+        payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, action: "git push" },
+      });
+
+      const first = await repo.close(ask.id, {
+        response: {
+          responder: "operator",
+          payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
+        },
+      });
+      const firstClosedAt = first?.closedAt;
+      expect(first?.state).toBe("closed");
+
+      // Second close() must not mutate state, response, or closedAt.
+      const second = await repo.close(ask.id, {
+        response: {
+          responder: "agent:session:b",
+          payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "deny" },
+        },
+      });
+      expect(second?.state).toBe("closed");
+      expect(second?.response).toMatchObject({
+        responder: "operator",
+        payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
+      });
+      expect(firstClosedAt).toBeInstanceOf(Date);
+      expect(second?.closedAt?.getTime()).toBe((firstClosedAt as Date).getTime());
+    });
+  });
+
+  describe("list ordering and rowToAsk strictness", () => {
+    it("returns rows newest-first by created_at", async () => {
+      const db = createFakeDb();
+      const repo = new AskRepository(db);
+
+      const a = await repo.create({
+        kind: ASK_KINDS.INFORMATION_RETRIEVE,
+        requestor: "a",
+        title: "first",
+        question: "q",
+        payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, query: "x" },
+      });
+      // Backdate the first row so the second has a strictly later created_at.
+      const firstStored = db._rows.get(a.id);
+      if (firstStored) firstStored.created_at = new Date("2020-01-01T00:00:00Z");
+
+      const b = await repo.create({
+        kind: ASK_KINDS.INFORMATION_RETRIEVE,
+        requestor: "a",
+        title: "second",
+        question: "q",
+        payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, query: "y" },
+      });
+
+      const all = await repo.list();
+      expect(all.map((x) => x.id)).toEqual([b.id, a.id]);
+    });
+
+    it("rowToAsk throws when created_at is missing instead of silently defaulting", async () => {
+      // Indirect coverage: get() runs rowToAsk; if we hand-craft a row without
+      // created_at via the fake's internal map, get() should reject it loudly.
+      const db = createFakeDb();
+      const repo = new AskRepository(db);
+      const ask = await repo.create({
+        kind: ASK_KINDS.INFORMATION_RETRIEVE,
+        requestor: "a",
+        title: "t",
+        question: "q",
+        payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, query: "x" },
+      });
+      const stored = db._rows.get(ask.id);
+      if (stored) {
+        // Cast to a permissive shape so the test can simulate a malformed row
+        // (the production schema would reject this at write time).
+        (stored as unknown as { created_at: Date | null }).created_at = null;
+      }
+
+      await expect(repo.get(ask.id)).rejects.toThrow(/created_at/);
     });
   });
 

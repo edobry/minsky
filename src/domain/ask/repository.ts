@@ -2,17 +2,18 @@
  * Ask Repository
  *
  * CRUD for the Ask domain entity (mt#1068). Wave 1 of the attention-allocation
- * subsystem (ADR-006 / mt#1034).
+ * subsystem (mt#1034 ADR; renumbering tracked in mt#1291).
  *
  * Design:
  * - Follows the narrow MinskyBackendDb interface pattern from MemoryService to
  *   avoid `as unknown as PostgresJsDatabase` casts in tests.
  * - No embeddings, no vector storage — simpler than MemoryService.
  * - State transitions are NOT enforced here; the router (mt#1069) owns lifecycle.
- *   This repository only ensures CRUD round-trip and close-with-response atomicity.
+ *   This repository ensures CRUD round-trip and close() idempotency at the
+ *   `state != 'closed'` guard level.
  */
 
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne, desc } from "drizzle-orm";
 import { asksTable } from "../storage/schemas/ask-schema";
 import type {
   Ask,
@@ -45,31 +46,42 @@ export interface AskRepositoryDb {
 // Row → domain mapper
 // ---------------------------------------------------------------------------
 
+/**
+ * Map a database row to the Ask domain entity.
+ *
+ * Strict mode: snake_case keys only (the canonical Drizzle/Postgres shape).
+ * If a required column (`id`, `kind`, `state`, `requestor`, `title`,
+ * `question`, `payload`, `created_at`) is missing, throws — silent
+ * defaulting would mask upstream query bugs.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToAsk(row: Record<string, any>): Ask {
+  const createdAt = coerceDate(row["created_at"]);
+  if (createdAt == null) {
+    throw new Error(
+      `rowToAsk: row is missing required column 'created_at' (id=${String(row["id"])})`
+    );
+  }
   return {
     id: String(row["id"]),
     kind: row["kind"] as AskKind,
-    classifierVersion: String(row["classifier_version"] ?? row["classifierVersion"] ?? "v1"),
+    classifierVersion: String(row["classifier_version"] ?? "v1"),
     state: row["state"] as AskState,
     requestor: String(row["requestor"]),
-    routingTarget:
-      (row["routing_target"] as TransportBinding | null | undefined) ??
-      (row["routingTarget"] as TransportBinding | null | undefined) ??
-      null,
-    parentTaskId: row["parent_task_id"] ?? row["parentTaskId"] ?? null,
-    parentSessionId: row["parent_session_id"] ?? row["parentSessionId"] ?? null,
+    routingTarget: (row["routing_target"] as TransportBinding | null | undefined) ?? null,
+    parentTaskId: row["parent_task_id"] ?? null,
+    parentSessionId: row["parent_session_id"] ?? null,
     title: String(row["title"]),
     question: String(row["question"]),
     payload: row["payload"] as AskPayload,
     response: (row["response"] as AskResponse | null | undefined) ?? null,
     metadata: (row["metadata"] as Record<string, unknown> | null | undefined) ?? null,
     deadline: coerceDate(row["deadline"]),
-    createdAt: coerceDate(row["created_at"] ?? row["createdAt"]) ?? new Date(),
-    routedAt: coerceDate(row["routed_at"] ?? row["routedAt"]),
-    suspendedAt: coerceDate(row["suspended_at"] ?? row["suspendedAt"]),
-    respondedAt: coerceDate(row["responded_at"] ?? row["respondedAt"]),
-    closedAt: coerceDate(row["closed_at"] ?? row["closedAt"]),
+    createdAt,
+    routedAt: coerceDate(row["routed_at"]),
+    suspendedAt: coerceDate(row["suspended_at"]),
+    respondedAt: coerceDate(row["responded_at"]),
+    closedAt: coerceDate(row["closed_at"]),
   };
 }
 
@@ -148,21 +160,37 @@ export class AskRepository implements AskRepositorySurface {
     const baseQuery = this.db.select().from(asksTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
 
-    const rows = await filteredQuery;
+    // Newest-first ordering — predictable for operator surfaces and tests.
+    const rows = await filteredQuery.orderBy(desc(asksTable.createdAt));
     return (rows as Record<string, unknown>[]).map(rowToAsk);
   }
 
   /**
-   * Transition an Ask to `closed`, recording the response and setting
-   * `responded_at` and `closed_at` atomically at the query level.
-   * Merges supplied metadata into any existing metadata (shallow).
+   * Transition an Ask to `closed`, recording the response and stamping
+   * lifecycle timestamps.
+   *
+   * Concurrency contract:
+   * - Idempotent at the close transition: the UPDATE is guarded by
+   *   `state != 'closed'`, so a concurrent second close() no-ops. The losing
+   *   caller receives the *winning* close()'s record (via the post-UPDATE
+   *   read), not its own intended state.
+   * - `responded_at` is preserved if already set (router/transport may have
+   *   stamped it); otherwise set to `now`.
+   * - Metadata merge is shallow client-side. Safe under the planned
+   *   single-writer-per-field invariant: only `close()` writes `metadata`
+   *   after creation. If a future caller adds a concurrent metadata writer,
+   *   move the merge server-side via `COALESCE(metadata,'{}') || $jsonb`.
+   *
+   * Returns: the closed Ask (winner under contention), or `null` if no row
+   * with this id exists.
    */
   async close(id: string, input: AskCloseInput): Promise<Ask | null> {
     const now = new Date();
 
-    // Fetch current metadata for shallow merge; avoids round-tripping full row.
+    // Read current state to compute the metadata merge and detect missing rows.
     const existing = await this.get(id);
     if (!existing) return null;
+    if (existing.state === "closed") return existing; // already terminal — idempotent return
 
     const mergedMetadata =
       input.metadata == null
@@ -178,11 +206,15 @@ export class AskRepository implements AskRepositorySurface {
         closedAt: now,
         metadata: mergedMetadata,
       })
-      .where(eq(asksTable.id, id))
+      .where(and(eq(asksTable.id, id), ne(asksTable.state, "closed")))
       .returning();
 
     const row = (rows as Record<string, unknown>[])[0];
-    if (!row) return null;
+    if (!row) {
+      // A concurrent close() landed first between our read and update. Return
+      // the now-closed record so the caller observes a consistent end state.
+      return this.get(id);
+    }
     return rowToAsk(row);
   }
 }

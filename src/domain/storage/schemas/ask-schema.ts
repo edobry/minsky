@@ -6,7 +6,7 @@
  * The asks table uses JSONB for payload/response/metadata to store discriminated unions.
  *
  * @see mt#1068 Ask entity spec
- * @see docs/architecture/adr-006-attention-allocation-subsystem.md
+ * @see mt#1034 attention-allocation ADR (in-flight; ADR number TBD per mt#1291)
  */
 
 import { pgTable, text, timestamp, pgEnum, index, uuid, jsonb } from "drizzle-orm/pg-core";

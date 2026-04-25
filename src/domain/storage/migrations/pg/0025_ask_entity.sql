@@ -1,25 +1,31 @@
--- Ask entity (mt#1068): attention-allocation subsystem Wave 1 (ADR-006 / mt#1034).
+-- Ask entity (mt#1068): attention-allocation subsystem Wave 1 (mt#1034 ADR; renumbering mt#1291).
 -- Primary table for the Ask domain entity. No embeddings (asks are routed, not searched semantically at v1).
 -- Router (mt#1069), transports (mt#1070/mt#1072/mt#1180), and accounting rollups (mt#1071) consume this table.
 
--- Enum types
-CREATE TYPE "public"."ask_kind" AS ENUM (
-	'capability.escalate',
-	'direction.decide',
-	'quality.review',
-	'authorization.approve',
-	'information.retrieve',
-	'coordination.notify',
-	'stuck.unblock'
-);
+-- Enum types (idempotent: Postgres lacks CREATE TYPE IF NOT EXISTS)
+DO $$ BEGIN
+	CREATE TYPE "public"."ask_kind" AS ENUM (
+		'capability.escalate',
+		'direction.decide',
+		'quality.review',
+		'authorization.approve',
+		'information.retrieve',
+		'coordination.notify',
+		'stuck.unblock'
+	);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE TYPE "public"."ask_state" AS ENUM (
-	'pending',
-	'routed',
-	'suspended',
-	'responded',
-	'closed'
-);
+DO $$ BEGIN
+	CREATE TYPE "public"."ask_state" AS ENUM (
+		'pending',
+		'routed',
+		'suspended',
+		'responded',
+		'closed'
+	);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 
 -- Primary asks table
