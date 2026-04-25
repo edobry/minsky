@@ -118,11 +118,24 @@ const server = Bun.serve({
         return new Response("missing signature or event headers", { status: 400 });
       }
 
+      // Attempt to extract action from the raw body before signature verification.
+      // This is best-effort: body may not be valid JSON or may not have an action field.
+      let webhookAction: string | undefined;
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        if (typeof parsed["action"] === "string") {
+          webhookAction = parsed["action"];
+        }
+      } catch {
+        // Non-JSON body — leave action undefined.
+      }
+
       console.log(
         JSON.stringify({
           event: "webhook_received",
           delivery_id: deliveryId,
           github_event: eventName,
+          action: webhookAction,
           signature_present: Boolean(signature),
         })
       );
