@@ -104,13 +104,20 @@ export const VALID_ASK_TRANSITIONS: Record<AskState, AskState[]> = {
 export type TransportKind = "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
 
 /**
+ * TransportBindingKind — the subset of TransportKind valid as a routing
+ * binding. Excludes "timeout" (which only appears as `AskResponse.responder`).
+ */
+export type TransportBindingKind = Exclude<TransportKind, "timeout">;
+
+/**
  * TransportBinding — attached to a routed Ask by the router (mt#1069).
  * Stored in the `routing_target` column as JSONB.
  *
- * Invariant: `kind` should not be "timeout" — see `TransportKind` doc.
+ * Invariant: `kind` excludes "timeout" — enforced at the type level via
+ * `TransportBindingKind`.
  */
 export interface TransportBinding {
-  kind: TransportKind;
+  kind: TransportBindingKind;
   target: AgentId | "operator" | "policy";
 }
 
@@ -359,6 +366,7 @@ export interface AskListFilter {
   parentSessionId?: string;
   classifierVersion?: string;
   kind?: AskKind;
+  requestor?: AgentId;
 }
 
 /**

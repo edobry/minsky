@@ -49,39 +49,74 @@ export interface AskRepositoryDb {
 /**
  * Map a database row to the Ask domain entity.
  *
- * Strict mode: snake_case keys only (the canonical Drizzle/Postgres shape).
- * If a required column (`id`, `kind`, `state`, `requestor`, `title`,
- * `question`, `payload`, `created_at`) is missing, throws — silent
- * defaulting would mask upstream query bugs.
+ * Reads camelCase keys (Drizzle's `$inferSelect` shape — the property names
+ * defined in `asksTable`). Snake_case keys are accepted as a fallback for
+ * defensive parity with other domain modules (e.g., MemoryService) that
+ * sometimes see raw SQL column shapes from non-Drizzle paths.
+ *
+ * Strict validation: throws if any required field is missing or wrong-shaped.
+ * Required fields per ADR / schema: `id`, `kind`, `state`, `requestor`,
+ * `title`, `question`, `payload`, `createdAt`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToAsk(row: Record<string, any>): Ask {
-  const createdAt = coerceDate(row["created_at"]);
-  if (createdAt == null) {
-    throw new Error(
-      `rowToAsk: row is missing required column 'created_at' (id=${String(row["id"])})`
-    );
+  const id = row["id"];
+  const kind = row["kind"];
+  const state = row["state"];
+  const requestor = row["requestor"];
+  const title = row["title"];
+  const question = row["question"];
+  const payload = row["payload"];
+  const createdAt = coerceDate(row["createdAt"] ?? row["created_at"]);
+
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(`rowToAsk: row is missing required field 'id'`);
   }
+  if (typeof kind !== "string") {
+    throw new Error(`rowToAsk: row is missing required field 'kind' (id=${id})`);
+  }
+  if (typeof state !== "string") {
+    throw new Error(`rowToAsk: row is missing required field 'state' (id=${id})`);
+  }
+  if (typeof requestor !== "string") {
+    throw new Error(`rowToAsk: row is missing required field 'requestor' (id=${id})`);
+  }
+  if (typeof title !== "string") {
+    throw new Error(`rowToAsk: row is missing required field 'title' (id=${id})`);
+  }
+  if (typeof question !== "string") {
+    throw new Error(`rowToAsk: row is missing required field 'question' (id=${id})`);
+  }
+  if (payload == null || typeof payload !== "object") {
+    throw new Error(`rowToAsk: row is missing required field 'payload' (id=${id})`);
+  }
+  if (createdAt == null) {
+    throw new Error(`rowToAsk: row is missing required field 'createdAt' (id=${id})`);
+  }
+
   return {
-    id: String(row["id"]),
-    kind: row["kind"] as AskKind,
-    classifierVersion: String(row["classifier_version"] ?? "v1"),
-    state: row["state"] as AskState,
-    requestor: String(row["requestor"]),
-    routingTarget: (row["routing_target"] as TransportBinding | null | undefined) ?? null,
-    parentTaskId: row["parent_task_id"] ?? null,
-    parentSessionId: row["parent_session_id"] ?? null,
-    title: String(row["title"]),
-    question: String(row["question"]),
-    payload: row["payload"] as AskPayload,
+    id,
+    kind: kind as AskKind,
+    classifierVersion: String(row["classifierVersion"] ?? row["classifier_version"] ?? "v1"),
+    state: state as AskState,
+    requestor,
+    routingTarget:
+      (row["routingTarget"] as TransportBinding | null | undefined) ??
+      (row["routing_target"] as TransportBinding | null | undefined) ??
+      null,
+    parentTaskId: row["parentTaskId"] ?? row["parent_task_id"] ?? null,
+    parentSessionId: row["parentSessionId"] ?? row["parent_session_id"] ?? null,
+    title,
+    question,
+    payload: payload as AskPayload,
     response: (row["response"] as AskResponse | null | undefined) ?? null,
     metadata: (row["metadata"] as Record<string, unknown> | null | undefined) ?? null,
     deadline: coerceDate(row["deadline"]),
     createdAt,
-    routedAt: coerceDate(row["routed_at"]),
-    suspendedAt: coerceDate(row["suspended_at"]),
-    respondedAt: coerceDate(row["responded_at"]),
-    closedAt: coerceDate(row["closed_at"]),
+    routedAt: coerceDate(row["routedAt"] ?? row["routed_at"]),
+    suspendedAt: coerceDate(row["suspendedAt"] ?? row["suspended_at"]),
+    respondedAt: coerceDate(row["respondedAt"] ?? row["responded_at"]),
+    closedAt: coerceDate(row["closedAt"] ?? row["closed_at"]),
   };
 }
 
@@ -156,6 +191,7 @@ export class AskRepository implements AskRepositorySurface {
     if (filter?.parentSessionId) {
       conditions.push(eq(asksTable.parentSessionId, filter.parentSessionId));
     }
+    if (filter?.requestor) conditions.push(eq(asksTable.requestor, filter.requestor));
 
     const baseQuery = this.db.select().from(asksTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;

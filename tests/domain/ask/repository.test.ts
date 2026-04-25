@@ -32,27 +32,56 @@ import {
 } from "../../../src/domain/ask/types";
 
 // ── Row shape for the fake DB ────────────────────────────────────────────────
+// Matches Drizzle's `$inferSelect` shape: camelCase property names from the
+// schema definition. The previous snake_case shape was wrong (Drizzle returns
+// rows keyed by TS property names, not SQL column names) — fixed in commit
+// after BLOCKING reviewer finding.
 
 type AskRow = {
   id: string;
   kind: string;
-  classifier_version: string;
+  classifierVersion: string;
   state: string;
   requestor: string;
-  routing_target: TransportBinding | null;
-  parent_task_id: string | null;
-  parent_session_id: string | null;
+  routingTarget: TransportBinding | null;
+  parentTaskId: string | null;
+  parentSessionId: string | null;
   title: string;
   question: string;
   payload: AskPayload;
   response: AskResponse | null;
   metadata: Record<string, unknown> | null;
   deadline: Date | null;
-  created_at: Date;
-  routed_at: Date | null;
-  suspended_at: Date | null;
-  responded_at: Date | null;
-  closed_at: Date | null;
+  createdAt: Date;
+  routedAt: Date | null;
+  suspendedAt: Date | null;
+  respondedAt: Date | null;
+  closedAt: Date | null;
+};
+
+// Map SQL column names (what PgDialect emits in WHERE clauses) to AskRow
+// property names. Drizzle WHERE clauses reference SQL columns; row objects
+// expose TS property names.
+const COL_TO_PROP: Record<string, keyof AskRow> = {
+  id: "id",
+  kind: "kind",
+  state: "state",
+  requestor: "requestor",
+  title: "title",
+  question: "question",
+  payload: "payload",
+  response: "response",
+  metadata: "metadata",
+  deadline: "deadline",
+  classifier_version: "classifierVersion",
+  routing_target: "routingTarget",
+  parent_task_id: "parentTaskId",
+  parent_session_id: "parentSessionId",
+  created_at: "createdAt",
+  routed_at: "routedAt",
+  suspended_at: "suspendedAt",
+  responded_at: "respondedAt",
+  closed_at: "closedAt",
 };
 
 const pgDialect = new PgDialect();
@@ -69,19 +98,25 @@ function evalSqlWhere(sql: string, params: unknown[], row: AskRow): boolean {
   }
 
   // Pattern: "asks"."col" = $N
+  // SQL uses snake_case column names; rows are keyed by camelCase
+  // (Drizzle $inferSelect shape). Translate via COL_TO_PROP.
   const eqMatch = /^"asks"\."(\w+)" = \$(\d+)$/.exec(s.trim());
-  if (eqMatch) {
-    const colName = eqMatch[1] as keyof AskRow;
+  if (eqMatch && eqMatch[1] && eqMatch[2]) {
+    const sqlCol = eqMatch[1];
+    const propName = COL_TO_PROP[sqlCol];
+    if (!propName) throw new Error(`evalSqlWhere: unmapped SQL column ${sqlCol}`);
     const paramIdx = Number(eqMatch[2]) - 1;
-    return (row[colName] as unknown) === params[paramIdx];
+    return (row[propName] as unknown) === params[paramIdx];
   }
 
   // Pattern: "asks"."col" <> $N  (Drizzle's ne() emits <>, not !=)
   const neMatch = /^"asks"\."(\w+)" <> \$(\d+)$/.exec(s.trim());
-  if (neMatch) {
-    const colName = neMatch[1] as keyof AskRow;
+  if (neMatch && neMatch[1] && neMatch[2]) {
+    const sqlCol = neMatch[1];
+    const propName = COL_TO_PROP[sqlCol];
+    if (!propName) throw new Error(`evalSqlWhere: unmapped SQL column ${sqlCol}`);
     const paramIdx = Number(neMatch[2]) - 1;
-    return (row[colName] as unknown) !== params[paramIdx];
+    return (row[propName] as unknown) !== params[paramIdx];
   }
 
   // Permissive fallback for unknown patterns (test-only)
@@ -132,7 +167,7 @@ function createFakeDb(initial: AskRow[] = []): AskRepositoryDb & {
           // Sort newest-first to match list()'s ORDER BY created_at DESC.
           // Tests don't exercise other orderings.
           function sortDesc(data: AskRow[]): AskRow[] {
-            return [...data].sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+            return [...data].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
           }
           return {
             where(cond: any) {
@@ -167,23 +202,23 @@ function createFakeDb(initial: AskRow[] = []): AskRepositoryDb & {
               const row: AskRow = {
                 id,
                 kind: vals.kind,
-                classifier_version: vals.classifierVersion ?? "v1",
+                classifierVersion: vals.classifierVersion ?? "v1",
                 state: vals.state ?? "pending",
                 requestor: vals.requestor,
-                routing_target: vals.routingTarget ?? null,
-                parent_task_id: vals.parentTaskId ?? null,
-                parent_session_id: vals.parentSessionId ?? null,
+                routingTarget: vals.routingTarget ?? null,
+                parentTaskId: vals.parentTaskId ?? null,
+                parentSessionId: vals.parentSessionId ?? null,
                 title: vals.title,
                 question: vals.question,
                 payload: vals.payload,
                 response: vals.response ?? null,
                 metadata: vals.metadata ?? null,
                 deadline: vals.deadline ?? null,
-                created_at: now,
-                routed_at: null,
-                suspended_at: null,
-                responded_at: null,
-                closed_at: null,
+                createdAt: now,
+                routedAt: null,
+                suspendedAt: null,
+                respondedAt: null,
+                closedAt: null,
               };
               rows.set(id, row);
               return Promise.resolve([row]);
@@ -206,12 +241,12 @@ function createFakeDb(initial: AskRow[] = []): AskRepositoryDb & {
                     const next: AskRow = { ...existing };
                     if ("state" in setData) next.state = setData.state;
                     if ("response" in setData) next.response = setData.response;
-                    if ("respondedAt" in setData) next.responded_at = setData.respondedAt;
-                    if ("closedAt" in setData) next.closed_at = setData.closedAt;
-                    if ("routedAt" in setData) next.routed_at = setData.routedAt;
-                    if ("suspendedAt" in setData) next.suspended_at = setData.suspendedAt;
+                    if ("respondedAt" in setData) next.respondedAt = setData.respondedAt;
+                    if ("closedAt" in setData) next.closedAt = setData.closedAt;
+                    if ("routedAt" in setData) next.routedAt = setData.routedAt;
+                    if ("suspendedAt" in setData) next.suspendedAt = setData.suspendedAt;
                     if ("metadata" in setData) next.metadata = setData.metadata;
-                    if ("routingTarget" in setData) next.routing_target = setData.routingTarget;
+                    if ("routingTarget" in setData) next.routingTarget = setData.routingTarget;
                     rows.set(next.id, next);
                     updated.push(next);
                   }
@@ -496,9 +531,9 @@ describe("AskRepository", () => {
         question: "q",
         payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, query: "x" },
       });
-      // Backdate the first row so the second has a strictly later created_at.
+      // Backdate the first row so the second has a strictly later createdAt.
       const firstStored = db._rows.get(a.id);
-      if (firstStored) firstStored.created_at = new Date("2020-01-01T00:00:00Z");
+      if (firstStored) firstStored.createdAt = new Date("2020-01-01T00:00:00Z");
 
       const b = await repo.create({
         kind: ASK_KINDS.INFORMATION_RETRIEVE,
@@ -528,10 +563,28 @@ describe("AskRepository", () => {
       if (stored) {
         // Cast to a permissive shape so the test can simulate a malformed row
         // (the production schema would reject this at write time).
-        (stored as unknown as { created_at: Date | null }).created_at = null;
+        (stored as unknown as { createdAt: Date | null }).createdAt = null;
       }
 
-      await expect(repo.get(ask.id)).rejects.toThrow(/created_at/);
+      await expect(repo.get(ask.id)).rejects.toThrow(/createdAt/);
+    });
+
+    it("rowToAsk also throws when other required fields (id, kind, payload, etc.) are missing", async () => {
+      // Direct exercise of validation: feed a malformed row through get() by
+      // poking the fake DB internals.
+      const db = createFakeDb();
+      const repo = new AskRepository(db);
+      const ask = await repo.create({
+        kind: ASK_KINDS.INFORMATION_RETRIEVE,
+        requestor: "a",
+        title: "t",
+        question: "q",
+        payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, query: "x" },
+      });
+
+      const stored = db._rows.get(ask.id);
+      if (stored) (stored as unknown as { title: string | null }).title = null;
+      await expect(repo.get(ask.id)).rejects.toThrow(/title/);
     });
   });
 
