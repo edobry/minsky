@@ -102,8 +102,13 @@ type EnvSpec =
 
 const ENV_SPEC: EnvSpec[] = [
   { name: "MINSKY_MCP_AUTH_TOKEN", kind: "envFile", generateIfMissing: true },
+  // Persistence: BOTH the backend selector and the connection string must be
+  // set. Setting only the URL leaves persistence.backend at its sqlite default
+  // and the container falls back to ephemeral SQLite (mt#1280 outage). The
+  // env-var names here match the modern mappings landed in mt#1275.
+  { name: "MINSKY_PERSISTENCE_BACKEND", kind: "literal", value: "postgres" },
   {
-    name: "MINSKY_POSTGRES_URL",
+    name: "MINSKY_PERSISTENCE_POSTGRES_URL",
     kind: "yaml",
     path: ["persistence", "postgres", "connectionString"],
   },

@@ -130,9 +130,9 @@ All probes passed.
 
 ### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600
 
-**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. mt#1199's `isInitializeRequest` gate emits `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}` before the SDK transport's own session validator (which would emit -32000) is reached.
+**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. mt#1199's `isInitializeRequest` gate emits a JSON-RPC `-32600 "Invalid Request"` error (with a message describing the missing initialize) before the SDK transport's own session validator (which would emit -32000) is reached.
 
-**Expected:** `status=400`, body `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}`
+**Expected (structural):** `status=400`, body is JSON-RPC 2.0 with `error.code === -32600` and `error.message` starting with `"Invalid Request"`. The exact message text and `id` field may evolve with future MCP SDK versions; the probe asserts the structural shape rather than an exact string. Current observed payload (informational, not contractual): `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}`.
 
 **Failure hints:**
 
