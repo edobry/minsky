@@ -27,7 +27,18 @@ export class PersistenceProviderFactory {
     switch (config.backend) {
       case "postgres":
         if (!config.postgres) {
-          throw new Error("PostgreSQL configuration required for postgres backend");
+          throw new Error(
+            "PostgreSQL configuration required for postgres backend: " +
+              "persistence.backend='postgres' but persistence.postgres is undefined. " +
+              "Set persistence.postgres.connectionString in config, or export " +
+              "MINSKY_PERSISTENCE_POSTGRES_URL (or legacy MINSKY_POSTGRES_URL) as an env var."
+          );
+        }
+        if (!config.postgres.connectionString) {
+          throw new Error(
+            "PostgreSQL configuration incomplete: persistence.postgres.connectionString is empty. " +
+              "Set it in config or export MINSKY_PERSISTENCE_POSTGRES_URL."
+          );
         }
         // Use factory to create appropriate PostgreSQL provider based on runtime capabilities
         provider = await PostgresProviderFactory.create(config);
