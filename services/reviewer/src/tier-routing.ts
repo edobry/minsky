@@ -12,7 +12,7 @@
  * with a body-marker fallback.
  *
  * Fallback chain:
- *   1. MCP provenance record (authorshipTier field) — authoritative.
+ *   1. MCP authorship record (tier field) — authoritative.
  *   2. PR-body HTML comment marker (<!-- minsky:tier=N -->).
  *   3. Hybrid default: fail-closed when MCP is configured, fail-open otherwise.
  *
@@ -21,11 +21,11 @@
  *     returns null → decideRouting defaults to Tier 2. Preserves Sprint A
  *     behavior for deployments without an MCP endpoint.
  *   - MCP configured but lookup misses (record absent, HTTP error, parse error,
- *     authorshipTier===null) AND no body marker: fail-CLOSED. resolveTier
+ *     tier===null) AND no body marker: fail-CLOSED. resolveTier
  *     returns 3 (Tier 3 / mandatory review). Rationale: when MCP is meant to be
  *     authoritative, an unresolvable tier must not silently default to skippable.
  *
- * A record present but with authorshipTier === null falls THROUGH to
+ * A record present but with tier === null falls THROUGH to
  * the body-marker path (tier not yet computed), not directly to the default.
  */
 
