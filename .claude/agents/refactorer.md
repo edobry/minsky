@@ -2,8 +2,7 @@
 name: refactorer
 description: >-
   Structural refactoring agent: improves code organization, naming, and module
-  boundaries without altering behavior. Routes to the refactor subagent type for
-  mandatory coherence verification.
+  boundaries without altering behavior.
 model: sonnet
 skills:
   - code-organization
