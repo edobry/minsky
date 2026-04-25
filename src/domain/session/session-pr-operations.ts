@@ -239,19 +239,22 @@ Please provide a title for your pull request:
   try {
     // Use enhanced update with conflict detection options — pass deps through
     // so updateSessionImpl doesn't try to create its own sessionProvider.
+    //
+    // No `as SessionUpdateParameters` cast: TypeScript structurally enforces the
+    // shape so a misnamed field (e.g. `name: sessionId` — the mt#1274 bug) fails
+    // to compile rather than silently passing undefined to the resolver.
     await updateSessionImpl(
       {
-        name: sessionId,
+        sessionId,
         repo: params.repo,
-        json: false,
         force: false,
         noStash: false,
         noPush: false,
         dryRun: false,
-        skipConflictCheck: params.skipConflictCheck,
-        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-        skipIfAlreadyMerged: true, // Automatically skip if changes already merged
-      } as import("../schemas").SessionUpdateParameters,
+        skipConflictCheck: params.skipConflictCheck ?? false,
+        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
+        skipIfAlreadyMerged: true,
+      },
       {
         sessionDB: deps.sessionDB,
         gitService: deps.gitService,
