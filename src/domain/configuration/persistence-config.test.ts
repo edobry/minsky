@@ -25,6 +25,10 @@ describe("getEffectivePersistenceConfig", () => {
   beforeEach(() => {
     _resetSessiondbDeprecationWarnedForTests();
     warnSpy = spyOn(log, "warn").mockImplementation(() => undefined);
+    // Clear any historical calls inherited from the global tests/setup.ts mock
+    // or from prior test files in the same suite — assertions must scope to
+    // calls made *during this test*.
+    warnSpy.mockClear();
     origEnvPostgresUrl = process.env.MINSKY_POSTGRES_URL;
     delete process.env.MINSKY_POSTGRES_URL;
   });
