@@ -206,10 +206,14 @@ export interface StuckUnblockResponse {
 }
 
 /**
- * AskResponse — discriminated union keyed by `kind`.
- * `coordination.notify` response is optional (fire-and-forget).
+ * AskResponsePayload — per-kind discriminated union keyed by `kind`.
+ * `coordination.notify` payload is optional (fire-and-forget).
+ *
+ * This is the body of the response — the actual answer to the Ask.
+ * It's wrapped by `AskResponse` (below) which adds `responder` and
+ * `attentionCost` per ADR-006 §The Ask entity.
  */
-export type AskResponse =
+export type AskResponsePayload =
   | CapabilityEscalateResponse
   | DirectionDecideResponse
   | QualityReviewResponse
@@ -217,6 +221,25 @@ export type AskResponse =
   | InformationRetrieveResponse
   | CoordinationNotifyResponse
   | StuckUnblockResponse;
+
+/**
+ * AskResponse — full response envelope per ADR-006 §The Ask entity.
+ *
+ * Carries:
+ *   - `responder`: who answered (agent, operator, policy, or timeout)
+ *   - `payload`: the kind-discriminated answer body (`AskResponsePayload`)
+ *   - `attentionCost`: optional, filled by the accounting rollup (mt#1071)
+ *
+ * Stored as JSONB on the `asks` table's `response` column.
+ */
+export interface AskResponse {
+  /** Who produced the response — first-class pseudo-agents are "operator", "policy", "timeout" */
+  responder: AgentId | "operator" | "policy" | "timeout";
+  /** Per-kind payload (discriminated by `kind`) */
+  payload: AskResponsePayload;
+  /** Optional attention cost — written by the accounting layer (mt#1071) */
+  attentionCost?: AttentionCost;
+}
 
 // ---------------------------------------------------------------------------
 // AttentionCost (accounting summary — stored on close)

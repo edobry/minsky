@@ -27,6 +27,7 @@ import {
   type Ask,
   type AskPayload,
   type AskResponse,
+  type AskResponsePayload,
   type TransportBinding,
 } from "../../../src/domain/ask/types";
 
@@ -372,15 +373,18 @@ describe("AskRepository", () => {
 
       const before = Date.now();
       const closed = await repo.close(ask.id, {
-        response: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
+        response: {
+          responder: "operator",
+          payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
+        },
         metadata: { approver: "operator" },
       });
 
       expect(closed).not.toBeNull();
       expect(closed?.state).toBe("closed");
       expect(closed?.response).toMatchObject({
-        kind: ASK_KINDS.AUTHORIZATION_APPROVE,
-        decision: "approve",
+        responder: "operator",
+        payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
       });
       expect(closed?.closedAt).toBeInstanceOf(Date);
       expect(closed?.respondedAt).toBeInstanceOf(Date);
@@ -401,7 +405,10 @@ describe("AskRepository", () => {
       });
 
       const closed = await repo.close(ask.id, {
-        response: { kind: ASK_KINDS.QUALITY_REVIEW, verdict: "approve" },
+        response: {
+          responder: "agent:session:reviewer-bot",
+          payload: { kind: ASK_KINDS.QUALITY_REVIEW, verdict: "approve" },
+        },
         metadata: { reviewer: "bot" },
       });
 
@@ -414,7 +421,10 @@ describe("AskRepository", () => {
     it("returns null for missing id", async () => {
       const repo = new AskRepository(createFakeDb());
       const closed = await repo.close("missing", {
-        response: { kind: ASK_KINDS.INFORMATION_RETRIEVE, answer: "n/a" },
+        response: {
+          responder: "policy",
+          payload: { kind: ASK_KINDS.INFORMATION_RETRIEVE, answer: "n/a" },
+        },
       });
       expect(closed).toBeNull();
     });
@@ -498,7 +508,7 @@ describe("AskRepository", () => {
         }
       }
 
-      function narrowResponse(r: AskResponse): string {
+      function narrowResponse(r: AskResponsePayload): string {
         switch (r.kind) {
           case ASK_KINDS.CAPABILITY_ESCALATE:
             return r.output;
@@ -519,12 +529,25 @@ describe("AskRepository", () => {
         }
       }
 
+      // Envelope-narrowing: an AskResponse wraps a payload that itself is
+      // discriminated by `kind`. Verify the envelope routes responder/payload
+      // and that payload-level narrowing still type-checks.
+      function narrowEnvelope(env: AskResponse): string {
+        return `${env.responder}:${narrowResponse(env.payload)}`;
+      }
+
       expect(
         narrowPayload({ kind: ASK_KINDS.CAPABILITY_ESCALATE, model: "opus", prompt: "x" })
       ).toBe("opus");
       expect(narrowResponse({ kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" })).toBe(
         "approve"
       );
+      expect(
+        narrowEnvelope({
+          responder: "policy",
+          payload: { kind: ASK_KINDS.AUTHORIZATION_APPROVE, decision: "approve" },
+        })
+      ).toBe("policy:approve");
     });
   });
 });
