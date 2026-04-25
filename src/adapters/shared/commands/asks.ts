@@ -16,6 +16,7 @@ import { DrizzleAskRepository, type AskRepository } from "../../../domain/ask/re
 import type { Ask, AskKind, AskState } from "../../../domain/ask/types";
 import {
   reconcile,
+  type GithubReview,
   type GithubReviewClient,
   type ReconcileResult,
 } from "../../../domain/ask/reconciler";
@@ -133,13 +134,13 @@ const asksReconcileParams = {};
  * Stub `GithubReviewClient` used until the production client is wired up.
  *
  * Returns an empty review list and logs a warning so operators understand
- * why no Asks transition. Tracked as a follow-up to mt#1240; the reconciler
- * module itself is fully functional, this is a wiring concern.
+ * why no Asks transition. Tracked as a follow-up to mt#1240 (mt#1292); the
+ * reconciler module itself is fully functional, this is a wiring concern.
  */
 const stubGithubClient: GithubReviewClient = {
-  async listReviews(): Promise<[]> {
+  async listReviews(_owner: string, _repo: string, _prNumber: number): Promise<GithubReview[]> {
     log.warn(
-      "asks.reconcile: no GithubReviewClient is wired (mt#1240 follow-up); returning empty review list"
+      "asks.reconcile: no GithubReviewClient is wired (mt#1292 follow-up); returning empty review list"
     );
     return [];
   },

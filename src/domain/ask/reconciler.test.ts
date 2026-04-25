@@ -361,4 +361,69 @@ describe("reconcile", () => {
     expect(payload.reviewId).toBe(5003);
     expect(payload.reviewBody).toBe("third");
   });
+
+  test("walks an ask seeded in 'detected' through the full lifecycle to 'responded'", async () => {
+    // Seed at the earliest pre-response state. Without mt#1069 (router), the
+    // reconciler is responsible for walking detected → classified → routed →
+    // suspended before recording the response.
+    const ask: Ask = {
+      id: "ask-detected-1",
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      state: "detected",
+      requestor: TEST_REQUESTOR,
+      title: "Review PR #99",
+      question: "please review",
+      contextRefs: [{ kind: "github-pr", ref: TEST_PR_REF }],
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+    repo._seedAtState(ask);
+
+    const reviews = new Map([["owner/repo/99", [makeReview(7001, TEST_REVIEW_BODY)]]]);
+    const client = makeFakeGithubClient(reviews);
+
+    const result = await reconcile(repo, client, notify);
+
+    expect(result.inspected).toBe(1);
+    expect(result.responded).toBe(1);
+
+    const after = await repo.getById("ask-detected-1");
+    expect(after?.state).toBe("responded");
+    // Lifecycle timestamps were set as the reconciler walked the Ask
+    expect(after?.routedAt).toBeDefined();
+    expect(after?.suspendedAt).toBeDefined();
+    expect(after?.respondedAt).toBeDefined();
+    expect(notify.bellCalls).toBe(1);
+  });
+
+  test("walks an ask seeded in 'classified' through to 'responded'", async () => {
+    const ask: Ask = {
+      id: "ask-classified-1",
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      state: "classified",
+      requestor: TEST_REQUESTOR,
+      title: "Review PR #99",
+      question: "please review",
+      contextRefs: [{ kind: "github-pr", ref: TEST_PR_REF }],
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+    repo._seedAtState(ask);
+
+    const reviews = new Map([["owner/repo/99", [makeReview(7002, TEST_REVIEW_BODY)]]]);
+    const client = makeFakeGithubClient(reviews);
+
+    const result = await reconcile(repo, client, notify);
+
+    expect(result.inspected).toBe(1);
+    expect(result.responded).toBe(1);
+
+    const after = await repo.getById("ask-classified-1");
+    expect(after?.state).toBe("responded");
+    expect(after?.routedAt).toBeDefined();
+    expect(after?.suspendedAt).toBeDefined();
+    expect(after?.respondedAt).toBeDefined();
+  });
 });
