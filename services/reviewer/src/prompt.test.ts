@@ -52,3 +52,49 @@ describe("CRITIC_CONSTITUTION legacy export", () => {
     expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true));
   });
 });
+
+// ----- TOOL_ACCESS_SECTION envelope documentation (mt#1216) -----
+//
+// The model parses tool results as JSON envelopes (mt#1216 unified the two
+// prior result shapes into `{ ok, … }` envelopes). The prompt MUST document
+// those fields so the model can reason about the result format; otherwise
+// it regresses to treating the whole JSON blob as file content.
+
+describe("buildCriticConstitution — TOOL_ACCESS_SECTION envelope fields", () => {
+  const prompt = buildCriticConstitution(true);
+
+  test("documents the envelope discriminator", () => {
+    expect(prompt).toContain('"ok": true');
+    expect(prompt).toContain('"ok": false');
+  });
+
+  test("documents read_file fields: content, truncated, binary, size", () => {
+    expect(prompt).toContain('"content"');
+    expect(prompt).toContain('"truncated"');
+    expect(prompt).toContain('"binary"');
+    expect(prompt).toContain('"size"');
+  });
+
+  test("documents list_directory fields: entries + the four entry types", () => {
+    expect(prompt).toContain('"entries"');
+    expect(prompt).toContain('"file"');
+    expect(prompt).toContain('"dir"');
+    expect(prompt).toContain('"symlink"');
+    expect(prompt).toContain('"submodule"');
+  });
+
+  test("documents the not_found error sentinel", () => {
+    expect(prompt).toContain('"not_found"');
+  });
+
+  test("documents the error field on the failure branch", () => {
+    expect(prompt).toContain('"error"');
+  });
+
+  test("no-tools variant still does NOT mention envelope fields (those docs are off when tools are off)", () => {
+    const noTools = buildCriticConstitution(false);
+    expect(noTools).not.toContain('"ok": true');
+    expect(noTools).not.toContain('"truncated"');
+    expect(noTools).not.toContain('"entries"');
+  });
+});

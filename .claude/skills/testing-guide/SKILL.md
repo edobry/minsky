@@ -102,12 +102,10 @@ describe("Module", () => {
 
 ## Related rules and skills
 
+- `testing-standards` — test structure, organization, testable design, CLI output testing
+- `test-infrastructure` — centralized test utilities (`src/utils/test-utils/`)
 - `testing-boundaries` — what to test and what NOT to test
-- `test-organization` — file placement and naming
-- `bun-test-patterns` — mocking utilities and framework patterns
-- `framework-specific-tests` — bun:test standards
-- `test-infrastructure-patterns` — setup and fixtures
-- `designing-tests` — general test design principles
+- `bun-test-patterns` — mocking recipes and framework patterns
 - `test-expectations` — managing assertions
 - `/debug-tests` — systematic failure investigation
 - `/test-driven-bugfix` — TDD bug fix methodology

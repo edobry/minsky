@@ -37,6 +37,20 @@ export interface DatabaseQueryOptions {
   repoName?: string;
   /** Filter by session */
   session?: string;
+  /** Inclusive lower bound on createdAt (ISO string) */
+  createdAfter?: string;
+  /** Inclusive upper bound on createdAt (ISO string) */
+  createdBefore?: string;
+  /** Maximum number of records to return */
+  limit?: number;
+  /** Number of records to skip (for paging) */
+  offset?: number;
+  /**
+   * Ordering directives applied at the storage layer.
+   * Multiple entries are applied in order; the first is the primary sort key.
+   * `field` must match a column on the entity (e.g., "lastActivityAt", "createdAt").
+   */
+  orderBy?: Array<{ field: string; direction: "asc" | "desc" }>;
   /** Allow additional implementation-specific options */
   [key: string]: unknown;
 }

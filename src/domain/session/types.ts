@@ -2,6 +2,7 @@ import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
+import type { DatabaseQueryOptions } from "../storage/database-storage";
 
 export enum SessionStatus {
   CREATED = "CREATED",
@@ -127,6 +128,18 @@ export interface Session {
 }
 
 /**
+ * Options for listing sessions, applied at the storage layer.
+ *
+ * Extends DatabaseQueryOptions so a SessionListOptions value can be passed
+ * straight to a storage backend's getEntities() without an unsafe cast.
+ */
+export interface SessionListOptions extends DatabaseQueryOptions {
+  // All fields are inherited from DatabaseQueryOptions:
+  //   taskId, repoName, createdAfter, createdBefore, limit, offset, orderBy
+  // Kept as a named alias here for domain-layer clarity.
+}
+
+/**
  * Interface for session database operations
  * This defines the contract for session management functionality
  */
@@ -134,7 +147,7 @@ export interface SessionProviderInterface {
   /**
    * Get all available sessions
    */
-  listSessions(): Promise<SessionRecord[]>;
+  listSessions(options?: SessionListOptions): Promise<SessionRecord[]>;
 
   /**
    * Get a specific session by name
