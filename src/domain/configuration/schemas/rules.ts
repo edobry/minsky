@@ -24,10 +24,10 @@ export const RULE_PRESETS: Record<string, string[]> = {
   ],
   "typescript-strict": ["no-dynamic-imports", "ensure-ascii-code-symbols", "constants-management"],
   "testing-standards": [
-    "designing-tests",
+    "testing-standards",
+    "test-infrastructure",
+    "testing-boundaries",
     "bun-test-patterns",
-    "test-organization",
-    "no-skipped-tests",
   ],
   "code-style": [
     "comments",

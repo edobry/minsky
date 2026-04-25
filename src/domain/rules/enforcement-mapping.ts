@@ -101,7 +101,7 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
 
   // ── Test patterns: no global module mocks ────────────────────────────────
   {
-    ruleId: "test-infrastructure-patterns",
+    ruleId: "test-infrastructure",
     mechanisms: [
       {
         type: "eslint",
@@ -133,21 +133,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
         description:
           "Errors when known async factory functions (e.g. createSessionProvider) are called without await, preventing Promise-instead-of-value bugs",
         configPath: "eslint-rules/no-unwaited-async-factory.js",
-        portability: "portable",
-      },
-    ],
-  },
-
-  // ── Test organisation: co-located test files ─────────────────────────────
-  {
-    ruleId: "test-organization",
-    mechanisms: [
-      {
-        type: "eslint",
-        name: "custom/no-tests-directories",
-        description:
-          "Warns when test files are placed inside __tests__ directories; encourages co-located *.test.ts files",
-        configPath: "eslint-rules/no-tests-directories.js",
         portability: "portable",
       },
     ],
@@ -228,10 +213,18 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // ── Test suite must pass ──────────────────────────────────────────────────
+  // ── Testing standards: co-location, suite must pass ──────────────────────
   {
-    ruleId: "no-skipped-tests",
+    ruleId: "testing-standards",
     mechanisms: [
+      {
+        type: "eslint",
+        name: "custom/no-tests-directories",
+        description:
+          "Warns when test files are placed inside __tests__ directories; encourages co-located *.test.ts files",
+        configPath: "eslint-rules/no-tests-directories.js",
+        portability: "portable",
+      },
       {
         type: "git-hook",
         name: "pre-commit: unit tests",
