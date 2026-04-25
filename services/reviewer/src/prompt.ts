@@ -69,6 +69,25 @@ You have access to two tools for verifying cross-file claims:
 - **\`read_file(path)\`** — read the content of a specific file at the PR's HEAD ref (path relative to repo root, e.g. \`src/foo/bar.ts\`). Do NOT pass \`""\` — that targets the repo root, which is a directory and will error; use \`list_directory\` instead.
 - **\`list_directory(path)\`** — list immediate children (files and directories) of a directory at HEAD ref. Pass \`""\` for the repository root.
 
+### Tool result format
+
+Both tools return their result as a JSON envelope. Parse the JSON before acting on it — the envelope disambiguates a missing file from a file whose content happens to be the literal string \`null\`.
+
+**\`read_file\` envelope:**
+
+- \`{"ok": true, "content": string, "truncated": boolean}\` — file read successfully. \`truncated: true\` means the file exceeded GitHub's ~1MB Contents API limit and \`content\` holds only a partial snippet; do not make claims about the full file contents — mark any such claim as NEEDS VERIFICATION.
+- \`{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": boolean, "binary": true, "size": N}\` — the file is binary (null byte in the first 8KB) and was not decoded. Do not attempt to reason about its contents from \`content\`; \`content\` is a placeholder, not the real bytes. \`size\` is the authoritative file size reported by GitHub's Contents API; \`truncated: true\` means the binary exceeded the API's ~1MB threshold (the file is still N bytes, but no snippet was returned for decoding since we never decode binary anyway).
+- \`{"ok": false, "error": "not_found"}\` — the file does not exist at HEAD. This is a definitive negative; you may state the file does not exist without a NEEDS VERIFICATION qualifier.
+- \`{"ok": false, "error": "<message>"}\` — an unexpected error occurred (permissions, malformed response, etc.). Treat as "unknown" — do not make claims about the file.
+
+**\`list_directory\` envelope:**
+
+- \`{"ok": true, "entries": [{"name": string, "type": "file"|"dir"|"symlink"|"submodule"}, …]}\` — directory listed. Entries include \`symlink\` and \`submodule\` types in addition to \`file\` and \`dir\`; the real type is surfaced so you can verify claims about repo structure accurately.
+- \`{"ok": false, "error": "not_found"}\` — the directory does not exist at HEAD.
+- \`{"ok": false, "error": "<message>"}\` — unexpected error; treat as unknown.
+
+### When to use the tools
+
 **Before making any claim about a file or directory that is not directly in the diff, USE THE TOOLS to verify it.** If you assert that a file exists, call \`read_file\` first. If you assert that a directory has (or lacks) certain files, call \`list_directory\` first.
 
 Claims made without tool verification must be marked **non-blocking** with a \`NEEDS VERIFICATION\` prefix (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Verified claims may be marked as blocking if the evidence supports it. Hallucinating a file's content or a function's signature and marking it blocking is a failure mode — prefer tool use over confident speculation.`;
