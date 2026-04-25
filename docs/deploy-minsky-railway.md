@@ -95,7 +95,7 @@ All four probes must pass for a healthy deployment. Expected output:
   Probing https://<service>.up.railway.app
   ✓ GET /health → 200  (status=200)
   ✓ POST /mcp (no auth) → 401  (status=401)
-  ✓ POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000  (status=400, jsonrpc=2.0, error.code=-32000)
+  ✓ POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600  (status=400, jsonrpc=2.0, error.code=-32600)
   ✓ POST /mcp initialize → 200 + mcp-session-id  (status=200, mcp-session-id present (36 chars))
   ✓ POST /mcp tools/list (with session id) → well-known tool  (status=200, well-known Minsky tool found in response (NNNN bytes))
 
@@ -122,11 +122,11 @@ All probes passed.
 
 - Non-401: auth middleware is misconfigured or `--require-auth` flag was removed from `CMD`. Verify the Dockerfile CMD still passes `--require-auth`.
 
-### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000
+### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600
 
-**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. The SDK's `StreamableHTTPServerTransport.validateSession` emits `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}`.
+**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. mt#1199's `isInitializeRequest` gate emits `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}` before the SDK transport's own session validator (which would emit -32000) is reached.
 
-**Expected:** `status=400`, body `{"jsonrpc":"2.0","error":{"code":-32000,...}}`
+**Expected:** `status=400`, body `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}`
 
 **Failure hints:**
 
@@ -154,9 +154,9 @@ Two sub-checks, both must pass:
 
 **4b — POST /mcp tools/list (with session id) → well-known tool**
 
-**What it proves:** The session established by initialize is usable for follow-up requests, and the full tool registry (including well-known Minsky tools like `session_get` or `tasks_list`) is registered and returned.
+**What it proves:** The session established by initialize is usable for follow-up requests, and the full tool registry (including well-known Minsky tools like `session.get` or `tasks.list` — the dot-separated form used by the Minsky tool registry) is registered and returned.
 
-**Expected:** `status=200`, response body contains `"session_get"` or `"tasks_list"`.
+**Expected:** `status=200`, response body contains `"session.get"` or `"tasks.list"`.
 
 **Failure hints:**
 
@@ -175,12 +175,12 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://<railway-domain>/mcp \
   -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 # → 401
 
-# Non-initialize authenticated (expect 400 + JSON-RPC -32000, after mt#1199)
+# Non-initialize authenticated (expect 400 + JSON-RPC -32600, after mt#1199)
 curl -sS https://<railway-domain>/mcp \
   -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# → {"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}
+# → {"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}
 
 # Initialize handshake (expect 200 + mcp-session-id header)
 curl -sS -D - https://<railway-domain>/mcp \
@@ -197,7 +197,7 @@ curl -sS https://<railway-domain>/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: <session-id-from-above>" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-# → response body contains "session_get" and "tasks_list"
+# → response body contains "session.get" and "tasks.list"
 ```
 
 ## Consumer integration
