@@ -84,9 +84,22 @@ export const sessionListCommandParams = {
     description: "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
     required: false,
   },
+  limit: {
+    schema: z.number().int().positive(),
+    description: "Maximum number of sessions to return (default: 20)",
+    required: false,
+    defaultValue: 20,
+  },
+  offset: {
+    schema: z.number().int().nonnegative(),
+    description: "Number of sessions to skip for pagination (default: 0)",
+    required: false,
+    defaultValue: 0,
+  },
   verbose: {
     schema: z.boolean(),
-    description: "Show detailed session information",
+    description:
+      "Include full session record (PR state, pull request info). Default omits these large fields.",
     required: false,
     defaultValue: false,
   },

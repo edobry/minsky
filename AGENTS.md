@@ -434,7 +434,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testable-design, orchestrate skill
+- See also: testing-standards, orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -457,117 +457,354 @@ See `.claude/skills/code-organization/SKILL.md` for deeper guidance.
 
 ## Testing
 
-# Designing Tests
+# Testing Standards
 
-Write comprehensive, maintainable tests following these principles:
+Declarative "what good tests look like." For boundaries (what to test / what NOT to test), see [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc). For centralized mocking utilities and the `src/utils/test-utils/` module, see [test-infrastructure](mdc:.cursor/rules/test-infrastructure.mdc) and [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc).
 
-## Test Structure & Organization
-- Use `describe`/`it` blocks to organize tests in a clear hierarchy
-- Name tests with clear, action-oriented descriptions of what's being tested
-- Follow the Arrange-Act-Assert pattern for test clarity
-- Keep test files alongside the code they test with matching names (e.g., `file.ts` and `file.test.ts`)
-- For test file organization patterns, see [test-organization](mdc:.cursor/rules/test-organization.mdc)
+## Test Structure
 
-## Environment Isolation
-- Create temporary test directories for filesystem operations
-- Use `beforeEach`/`afterEach` hooks for consistent setup and cleanup
-- Reset test state between tests to prevent cross-test contamination
-- Explicitly clean up resources even when tests fail (using `afterEach`)
-- Never depend on global state or other tests' side effects
+- Follow **Arrange-Act-Assert**: set up inputs and mocks, call the unit under test, assert on outputs and side effects — in that order.
+- Use `describe`/`test` blocks with clear, action-oriented names. Describe the expected behavior, not the implementation.
+- Use setup/teardown hooks (`beforeEach`, `afterEach`) only when needed; prefer local setup inside each test.
+- Keep one behavior per test. If an assertion fails, the test name should tell you what's broken.
 
-## Test Data Management
-- Create test fixtures with meaningful, predictable test data
-- Use helper functions to set up test state
-- Maintain clear separation between test setup and assertions
-- Make test data representative of real usage but simple enough to reason about
-- Don't use test data that could produce flaky tests (e.g., current date/time)
+## Test Organization (Co-location)
 
-## Mocking & Stubbing
-- Mock external services and dependencies for deterministic tests
-- Use the simplest mocking approach that meets your needs
-- Prefer explicit mocks over automatic/magic mocking
-- Verify mock calls when testing integration points
-- Reset mocks between tests
+Co-locate tests with the module they test. Use file-name suffixes to distinguish layers:
 
-## Error & Edge Case Testing
-- Test both success and failure paths explicitly
-- Include tests for edge cases and boundary conditions
-- Test handling of empty inputs, null values, and invalid data
-- Verify error objects, messages, and types
-- Test graceful handling of resource failures (network, filesystem, etc.)
+| Location                           | Purpose                    | Example                                |
+| ---------------------------------- | -------------------------- | -------------------------------------- |
+| `src/domain/[module].test.ts`      | Domain service tests       | `session.test.ts`                      |
+| `src/domain/[module].commands.test.ts` | Domain command tests   | `session.commands.test.ts`             |
+| `src/adapters/cli/[module].adapter.test.ts` | CLI adapter tests | `session.adapter.test.ts`              |
+| `src/adapters/mcp/[module].adapter.test.ts` | MCP adapter tests | `session.adapter.test.ts`              |
+| `tests/[feature]-integration.test.ts` | Complex cross-module integration | `cli-mcp-integration.test.ts` |
 
-## Assertion Best Practices
-- Use specific, precise assertions (e.g., `toContain` vs `toBeTruthy`)
-- Test only what matters – avoid over-specifying implementation details
-- Verify side effects (e.g., file creation/deletion) in addition to function returns
-- Keep assertions focused on a single behavior per test
-- For complex objects, assert only on relevant properties
+**Never create bug-specific or feature-narrow test files** (e.g., `session-dir-task-lookup-bug.test.ts`, `session-create-only.test.ts`). Add new coverage to the existing file for the module; use nested `describe` blocks to group.
 
-## Setup & Teardown
-- Use the minimum setup necessary for each test
-- Prefer local setup within tests over complex shared fixtures
-- Ensure proper cleanup to avoid test pollution
-- Make tests resilient to different execution environments
-- Document environment requirements in test files
+## Testable Design
 
-## Coverage Guidelines
-- Aim for high coverage of business logic and error handling
-- Don't obsess over 100% coverage at the expense of test quality
-- Focus on testing behaviors rather than implementation details
-- Include tests for both API and CLI/UI interfaces
-- Test different output formats (text, JSON, etc.) for data-producing functions
+Structure source code so tests don't need complex mocking:
 
-## Guidelines for Writing Effective, Maintainable Tests
+- **Separate concerns.** Put business logic in `src/domain/`. Interface modules (`src/adapters/cli/`, `src/adapters/mcp/`) handle parsing input, setting up environment, calling domain, formatting output. The domain layer must not know about CLI or MCP concerns.
+- **Inject dependencies.** Accept dependencies as parameters or constructor arguments. Do not import concrete implementations inside functions you want to test.
+  ```typescript
+  // ❌ Hard to test
+  function processData() {
+    const config = readConfigFile();
+  }
 
-### 1. Focus on Core Functionality
-- Write tests that verify the essential behavior and outcomes of a module or function, not its internal implementation details.
-- Prefer black-box testing: test the public API and observable effects, not private state or internal calls.
+  // ✅ Testable
+  function processData(config: Config) { /* ... */ }
+  ```
+- **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
 
-### 2. Avoid Complex Mocking
-- Do not use complex or brittle mocking patterns, especially those that require deep knowledge of module internals or rely on patching module properties.
-- If mocking is necessary, use simple, explicit stubs or dependency injection.
-- Avoid mocking file system operations, process environment, or global state unless absolutely required.
+## Test Data
 
-### 3. Use Dependency Injection
-- Structure code so that dependencies (e.g., services, database, file system) can be injected for testing.
-- In tests, provide minimal mock implementations for dependencies that return predictable results.
-- This enables tests to be simple, reliable, and decoupled from implementation details.
+- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky.
+- Create fixtures with helper functions; keep setup visually separate from assertions.
+- Reset state between tests — never rely on ordering or cross-test side effects.
 
-### 4. Avoid File System Operations in Tests
-- Do not create, modify, or delete files or directories in tests unless the test is specifically for file I/O.
-- Prefer in-memory or stubbed data for testing logic.
-- If file system operations are unavoidable, use temporary directories and ensure cleanup is robust.
+## Assertions
 
-### 5. Prefer Simplicity and Maintainability
-- Write tests that are easy to read, understand, and maintain.
-- Avoid over-specifying behavior that is likely to change as implementation evolves.
-- Use clear, descriptive test names that specify the intended behavior.
+- Use specific assertions (`toContain`, `toEqual`, `toHaveBeenCalledWith`) over broad ones (`toBeTruthy`).
+- Assert on observable behavior and side effects, not internal implementation details.
+- For complex objects, assert on the properties that matter; avoid over-specifying unrelated fields.
 
-### 6. Test Only What Matters
-- Do not test implementation details that are not part of the module's contract.
-- Avoid asserting on the number of function calls, internal state, or specific log output unless it is part of the public API.
+## Error and Edge Cases
 
-### 7. Use Proper Test Structure
-- Group related tests using `describe` blocks.
-- Use `test` or `it` for individual test cases.
-- Use setup/teardown hooks (`beforeEach`, `afterEach`) only when necessary.
+- Test both success and failure paths explicitly.
+- Cover empty inputs, null values, invalid data, and resource failures (network, filesystem errors).
+- When testing thrown errors, assert on type or message — not stack traces.
 
-### 8. Document Test Rationale
-- When a test uses a non-obvious pattern (e.g., a stub, a workaround for a test runner limitation), document why.
+## CLI Testing
 
-### 9. Prefer Integration Over End-to-End for CLI
-- For CLI commands, prefer integration tests that invoke the command handler directly with injected dependencies, rather than spawning processes or writing/reading files.
-- Only use end-to-end CLI tests for critical user flows that cannot be covered by integration tests.
+Prefer **integration tests over E2E** for CLI commands: invoke the command handler directly with injected dependencies. Reserve E2E (spawning a subprocess) for critical user flows that cannot be covered by integration tests.
 
-### 10. Update Tests When Refactoring
-- When refactoring code, update tests to match the new structure, but do not overfit tests to the implementation.
-- Remove or rewrite tests that are no longer relevant or that test implementation details.
+When E2E is warranted:
 
-See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.
+- **Test both TTY and non-TTY output modes** when the CLI changes behavior based on isatty.
+- **Test both human-readable and structured output** (`--json`, CSV, etc.). Parse structured output and assert on fields, not on formatting.
+- **Test exit codes explicitly.** `0` for success; document and verify distinct non-zero codes for distinct error classes.
+- Do not assert on ANSI color codes, table alignment, or spinner animation — that's framework output, not domain behavior.
 
----
+For the "don't test interactive prompts" rule, see [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc).
 
-_This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
+## No Skipped Tests
+
+Zero tolerance: `.skip()`, `test.todo()`, and placeholder assertions (`expect(true).toBe(true)`) are forbidden. Every test must PASS or be DELETED. Enforced by ESLint; remediation is covered by the `fix-skipped-tests` skill.
+
+## See Also
+
+- [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) — what to test and what NOT to test
+- [test-infrastructure](mdc:.cursor/rules/test-infrastructure.mdc) — centralized test utilities (`src/utils/test-utils/`)
+- [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — mocking recipes and patterns
+- `testing-guide` skill — entry-point decision guide
+- `debug-tests` skill — systematic failure investigation
+- `test-driven-bugfix` skill — TDD bug-fix methodology
+
+# Test Infrastructure
+
+Minsky provides centralized test utilities in `src/utils/test-utils/`. **All tests must use these utilities** instead of direct `bun:test` APIs.
+
+## Required: Use Centralized Utilities
+
+```typescript
+// ❌ Direct bun:test API usage
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({ /* ... */ }));
+
+// ✅ Centralized utilities
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockLogger } from "../utils/test-utils/mock-logger";
+setupTestMocks();
+const mockFn = createMock();
+```
+
+Enforced by ESLint: `src/eslint-rules/no-jest-patterns.js` flags direct `jest.fn()` and `mock.module()` calls.
+
+## Why Centralized
+
+- Consistent mocking patterns across the codebase
+- Automatic mock cleanup via `setupTestMocks()` — no manual `afterEach` plumbing
+- Type-safe mock creation
+- Centralized logger mocking prevents `log.cli is not a function` errors
+
+## Authoritative References
+
+- **Mocking recipes and patterns**: [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — comprehensive guide with `createMock`, `mockModule`, `createPartialMock`, async patterns, error cases.
+- **Full API documentation**: `src/utils/test-utils/README.md` — the canonical reference for every exported helper.
+
+## Module Organization Principle
+
+Test utilities live in focused, single-responsibility modules under `src/utils/test-utils/` (mocking, dependencies, factories, cleanup, etc.). Do not create "god modules" that mix state management, data generation, and database utilities — split by concern.
+
+When adding a new test helper:
+
+1. Check `src/utils/test-utils/README.md` for an existing module that covers the concern.
+2. If none fits, add a new focused module — do not extend an unrelated one.
+3. Re-export from `src/utils/test-utils/index.ts`.
+
+## See Also
+
+- [testing-standards](mdc:.cursor/rules/testing-standards.mdc) — test structure, organization, testable design
+- [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) — what to test and what NOT to test
+- [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — mocking recipes
+- `testing-guide` skill — entry-point decision guide
+
+# Testing Boundaries: What to Test and What NOT to Test
+
+## Core Testing Principles
+
+1. **ALWAYS Test Domain Logic and Core Business Rules**
+   * Tests MUST verify the correctness of domain logic, business rules, and pure functions
+   * Each test should validate that given specific inputs, the expected outputs or state changes occur
+   * Focus on behavior, not implementation details
+
+2. **NEVER Test Framework Internals or Third-Party Libraries**
+   * Tests MUST NOT rely on or assert against internal implementation details of frameworks or libraries
+   * Assume that well-maintained libraries are already tested by their maintainers
+   * **Examples of what NOT to test:**
+     * Commander.js argument parsing
+     * Winston logger formatting
+     * Bun.js runtime behavior
+     * NodeJS built-in module implementation details
+
+3. **NEVER Test Interfaces Directly - Test Domain Methods Behind Them**
+   * Tests MUST NOT directly test CLI or MCP interfaces
+   * Instead, test the domain methods that these interfaces call
+   * **Examples of what NOT to test directly:**
+     * CLI command execution or option parsing
+     * MCP tool interaction patterns
+     * Terminal output formatting or styling
+     * Terminal interactive prompts
+
+4. **NEVER Test Console Output Directly**
+   * Tests MUST NOT assert against specific console output strings or formatting
+   * Instead, test that the correct information was passed to the output function
+   * **Examples of what NOT to test:**
+     * Specific console.log output strings
+     * ANSI color codes or styling
+     * Table formatting or alignment
+     * Spinner animations
+
+5. **NEVER Test Filesystem Operations Directly**
+   * Tests MUST NOT perform actual filesystem operations
+   * Instead, use the centralized mock filesystem utilities
+   * **Examples of what NOT to test directly:**
+     * File reading/writing (use mockFS)
+     * Directory creation/deletion
+     * File watching
+     * Path resolution
+
+6. **ABSOLUTELY NEVER Replace Tests with Placeholders**
+   * Tests MUST NEVER include placeholders like `expect(true).toBe(true)`
+   * Tests MUST NEVER be marked as `.skip()` to make the test suite pass
+   * Tests MUST NEVER contain commented-out assertions
+   * NEVER create "dummy" tests that don't actually test functionality
+
+7. **NEVER Delete Test Files to Fix Test Failures**
+   * Test files for application code MUST NEVER be deleted to make tests pass
+   * Each test represents a verification contract that must be preserved
+   * **The only acceptable cases for test deletion are:**
+     * Tests for test utilities themselves (with explicit user approval)
+     * Redundant tests that have been properly consolidated elsewhere
+
+   * **When faced with failing tests, follow this hierarchy:**
+     1. Fix the actual code bug causing the test to fail
+     2. Fix merge conflicts in test files by properly resolving the conflicts
+     3. Update tests to match intentional API changes
+     4. Disable specific test cases temporarily with clear documentation
+     5. Only consider deletion after discussion with user and with documented rationale
+
+   * **For merge conflict resolution:**
+     * Examine both versions of conflicted test code before resolving
+     * Understand what each side is testing
+     * Preserve test coverage from both versions when possible
+     * When resolving conflicts, maintain the verification intent of both sides
+
+   * **Before any test file deletion, explicitly verify and confirm:**
+     * What the test is actually testing (application code vs. test utilities)
+     * Why the test cannot be fixed instead of deleted
+     * What verification coverage will be lost by deletion
+     * Get explicit user approval stating "we don't need these tests"
+
+## What To Test
+
+### Domain Logic
+✅ **DO TEST:** Business rules, pure functions, state transitions, data transformation logic
+
+```typescript
+// Good test example - Testing domain logic
+import { calculateRating } from "../domain/rating";
+
+test("calculateRating returns correct rating based on score", () => {
+  expect(calculateRating(95)).toBe("A");
+  expect(calculateRating(85)).toBe("B");
+  expect(calculateRating(75)).toBe("C");
+});
+```
+
+### Error Handling
+✅ **DO TEST:** Error conditions, invalid inputs, edge cases, boundary values
+
+```typescript
+// Good test example - Testing error handling
+test("processData throws an error with invalid data format", () => {
+  expect(() => processData({ malformed: true })).toThrowError("Invalid data format");
+});
+```
+
+### Integration Points
+✅ **DO TEST:** Integration between domain modules, correct flow of data between components
+
+```typescript
+// Good test example - Testing integration between modules
+test("session uses task repository correctly", () => {
+  const mockTaskRepo = createMock();
+  mockTaskRepo.findTask.mockReturnValue({ id: "123", title: "Test Task" });
+
+  const session = createSession({ taskRepo: mockTaskRepo });
+  const result = session.getCurrentTask();
+
+  expect(mockTaskRepo.findTask).toHaveBeenCalled();
+  expect(result.id).toBe("123");
+});
+```
+
+## What NOT To Test
+
+### Framework/Library Internals
+❌ **DO NOT TEST:** Internal behavior of Commander.js, Winston, Bun, or other libraries
+
+```typescript
+// BAD test example - Testing framework internals
+test("commander correctly parses command line arguments", () => {
+  const program = new Command();
+  program.option('-d, --debug', 'debug mode');
+  program.parse(['-d']);
+
+  // Don't test the framework's argument parsing logic
+  expect(program.opts().debug).toBe(true);
+});
+```
+
+### Direct Interface Testing
+❌ **DO NOT TEST:** CLI or MCP interfaces directly - test the domain methods they call
+
+```typescript
+// BAD test example - Testing CLI interface directly
+test("CLI command prints correct output", async () => {
+  const { stdout } = await execCommand('task create "Test Task"');
+
+  // Don't test the specific output formatting
+  expect(stdout).toContain('Task "Test Task" created successfully');
+});
+
+// GOOD test example - Testing domain method instead
+test("createTask returns the created task", async () => {
+  const task = await createTask("Test Task");
+
+  expect(task.title).toBe("Test Task");
+  expect(task.status).toBe("open");
+});
+```
+
+### Direct Filesystem Operations
+❌ **DO NOT TEST:** Actual file reading/writing or directory operations
+
+```typescript
+// BAD test example - Testing filesystem operations directly
+test("writeConfig saves the config to disk", () => {
+  writeConfig({ setting: "value" });
+
+  // Don't test actual filesystem operations
+  const content = fs.readFileSync(CONFIG_PATH, 'utf8');
+  expect(JSON.parse(content)).toEqual({ setting: "value" });
+});
+
+// GOOD test example - Using mock filesystem
+test("writeConfig saves the config to the correct path", () => {
+  const mockFS = createMockFileSystem();
+
+  writeConfig({ setting: "value" });
+
+  expect(mockFS.written[CONFIG_PATH]).toEqual(JSON.stringify({ setting: "value" }));
+});
+```
+
+### Console Output
+❌ **DO NOT TEST:** Specific console output strings or formatting
+
+```typescript
+// BAD test example - Testing console output directly
+test("reportStatus logs the status", () => {
+  const spy = jest.spyOn(console, 'log');
+
+  reportStatus({ status: "completed" });
+
+  // Don't test specific output strings
+  expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
+});
+
+// GOOD test example - Testing the core logic instead
+test("getStatusReport returns the correct status information", () => {
+  const report = getStatusReport({ status: "completed" });
+
+  expect(report.status).toBe("completed");
+  expect(report.timestamp).toBeDefined();
+});
+```
+
+## Always Consider Test Boundaries First
+
+When creating any test, start by asking:
+1. What domain logic am I testing?
+2. Am I accidentally testing framework/library internals?
+3. Am I accidentally testing interface concerns instead of domain logic?
+4. Am I accidentally testing console output directly?
+5. Am I accidentally performing direct filesystem operations?
 
 ## Boundaries
 
