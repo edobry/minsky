@@ -18,6 +18,7 @@ import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
+import { registerAsksCommands } from "./asks";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
@@ -69,6 +70,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register tools commands
   registerToolsCommands(container);
 
+  // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
+  registerAsksCommands(container);
+
   // Register changeset commands
   registerChangesetCommands();
 
@@ -107,6 +111,7 @@ export {
   registerPersistenceCommands,
   registerAiCommands,
   registerToolsCommands,
+  registerAsksCommands,
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,

@@ -7,7 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { eq, and, sql, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -32,6 +32,26 @@ export interface SqliteStorageConfig {
 
 // Use the standard schema definition from session-schema.ts
 const sessionsTable = sqliteSessions;
+
+/**
+ * Map a logical domain field name to the corresponding SQLite column.
+ * Accepts both camelCase domain field names and snake_case column names.
+ */
+function pickSqliteOrderColumn(field: string) {
+  switch (field) {
+    case "lastActivityAt":
+    case "last_activity_at":
+      return sessionsTable.lastActivityAt;
+    case "createdAt":
+      return sessionsTable.createdAt;
+    case "session":
+      return sessionsTable.session;
+    case "taskId":
+      return sessionsTable.taskId;
+    default:
+      throw new Error(`Unsupported orderBy field for SQLite: ${field}`);
+  }
+}
 
 /**
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
@@ -239,14 +259,12 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
     }
 
     try {
-      const baseQuery = this.drizzleDb.select().from(sessionsTable);
-
       // Build WHERE conditions from filters
       const conditions: SQL[] = [];
       if (options) {
         if (options.taskId) {
           // Normalize taskId by removing # prefix if present
-          const validatedTaskId = options.taskId.replace(/^#/, "");
+          const validatedTaskId = options.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
           // BUGFIX: Use SQL to handle null values properly
           // This finds sessions where taskId (without #) equals validatedTaskId
           // and excludes sessions with null taskId
@@ -258,10 +276,39 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
         if (options.repoName) {
           conditions.push(eq(sessionsTable.repoName, options.repoName));
         }
+
+        if (options.createdAfter) {
+          conditions.push(gte(sessionsTable.createdAt, options.createdAfter));
+        }
+        if (options.createdBefore) {
+          conditions.push(lte(sessionsTable.createdAt, options.createdBefore));
+        }
       }
 
-      const sessions =
-        conditions.length > 0 ? await baseQuery.where(and(...conditions)) : await baseQuery;
+      const orderBy = (options?.orderBy ?? []).map((spec) => {
+        const column = pickSqliteOrderColumn(spec.field);
+        // NULLS placement: keep never-touched rows out of the recency-first
+        // page in both directions, mirroring the Postgres backend.
+        return spec.direction === "desc"
+          ? sql`${column} DESC NULLS LAST`
+          : sql`${column} ASC NULLS LAST`;
+      });
+
+      let query = this.drizzleDb.select().from(sessionsTable).$dynamic();
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+      if (orderBy.length > 0) {
+        query = query.orderBy(...orderBy);
+      }
+      if (typeof options?.limit === "number") {
+        query = query.limit(options.limit);
+      }
+      if (typeof options?.offset === "number" && options.offset > 0) {
+        query = query.offset(options.offset);
+      }
+
+      const sessions = await query;
       return sessions as DomainSessionRecord[];
     } catch (error) {
       const errorMessage = getErrorMessage(error);

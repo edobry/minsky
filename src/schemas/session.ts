@@ -35,6 +35,30 @@ export const _sessionRecordSchema = z.object({
  */
 export const sessionListParamsSchema = commonCommandOptionsSchema.extend({
   task: taskIdSchema.optional().describe("Filter sessions by task ID"),
+  since: z
+    .string()
+    .optional()
+    .describe(
+      "Only include sessions created on/after this time (YYYY-MM-DD or relative like 7d/24h/30m)"
+    ),
+  until: z
+    .string()
+    .optional()
+    .describe(
+      "Only include sessions created on/before this time (YYYY-MM-DD or relative like 7d/24h/30m)"
+    ),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Maximum number of sessions to return (default: 20)"),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe("Number of sessions to skip for pagination (default: 0)"),
 });
 
 /**

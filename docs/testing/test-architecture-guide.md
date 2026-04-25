@@ -181,6 +181,7 @@ src/
 
 ## Related Documentation
 
-- [test-organization.mdc](mdc:.cursor/rules/test-organization.mdc) - File organization rules
+- [testing-standards.mdc](mdc:.cursor/rules/testing-standards.mdc) - Test structure, organization, and testable design
+- [test-infrastructure.mdc](mdc:.cursor/rules/test-infrastructure.mdc) - Centralized test utilities
 - [bun-test-patterns.mdc](mdc:.cursor/rules/bun-test-patterns.mdc) - Test implementation patterns
 - [testing-boundaries.mdc](mdc:.cursor/rules/testing-boundaries.mdc) - What to test vs avoid
