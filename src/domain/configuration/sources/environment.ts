@@ -51,7 +51,14 @@ export const environmentMappings = {
 
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",
 
-  // SessionDB configuration
+  // Persistence configuration (modern — populates `persistence.*`)
+  MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
+  MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
+  MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
+
+  // SessionDB configuration (legacy — kept for back-compat, deprecated)
+  // These populate the legacy `sessiondb.*` key; `getEffectivePersistenceConfig`
+  // reads both shapes. New deployments should use `MINSKY_PERSISTENCE_*` above.
   MINSKY_SESSIONDB_BACKEND: "sessiondb.backend",
   MINSKY_SESSIONDB_SQLITE_PATH: "sessiondb.sqlite.path",
   MINSKY_SESSIONDB_POSTGRES_URL: "sessiondb.postgres.connectionString",
@@ -195,6 +202,18 @@ function envVarToConfigPath(envVar: string): string | null {
       return `sessiondb.${camelCase(elementAt(parts, 1, "sessiondb field"))}`;
     } else if (parts.length === 3) {
       return `sessiondb.${parts[1]}.${camelCase(elementAt(parts, 2, "sessiondb subfield"))}`;
+    }
+  }
+
+  if (parts[0] === "persistence") {
+    // PERSISTENCE_BACKEND -> persistence.backend
+    // PERSISTENCE_SQLITE_DBPATH -> persistence.sqlite.dbPath
+    // PERSISTENCE_POSTGRES_CONNECTIONSTRING -> persistence.postgres.connectionString
+    if (parts.length === 2) {
+      return `persistence.${camelCase(elementAt(parts, 1, "persistence field"))}`;
+    } else if (parts.length >= 3) {
+      const tail = parts.slice(2).join("_");
+      return `persistence.${parts[1]}.${camelCase(tail)}`;
     }
   }
 
