@@ -222,6 +222,33 @@ describe("FakePrWatchRepository", () => {
       expect(first.triggeredAt).toBeDefined();
       expect(second.triggeredAt).toBeDefined();
     });
+
+    it("is idempotent for keep=false: second call returns existing triggeredAt unchanged", async () => {
+      const watch = await repo.create(makeInput({ keep: false }));
+
+      const first = await repo.markTriggered(watch.id);
+      const firstTimestamp = first.triggeredAt;
+      expect(firstTimestamp).toBeDefined();
+      if (!firstTimestamp) return;
+
+      // Second call should not advance triggeredAt — one-shot semantics.
+      const second = await repo.markTriggered(watch.id);
+      expect(second.triggeredAt).toBe(firstTimestamp);
+    });
+
+    it("returns the same persisted state on duplicate one-shot triggers", async () => {
+      const watch = await repo.create(makeInput({ keep: false, prNumber: 7 }));
+
+      await repo.markTriggered(watch.id);
+      const second = await repo.markTriggered(watch.id);
+
+      // The second call must reflect the same record, not a divergent copy.
+      const fetched = await repo.getById(watch.id);
+      expect(fetched).not.toBeNull();
+      if (!fetched?.triggeredAt) return;
+      expect(second.triggeredAt).toBe(fetched.triggeredAt);
+      expect(second.prNumber).toBe(7);
+    });
   });
 
   // -------------------------------------------------------------------------

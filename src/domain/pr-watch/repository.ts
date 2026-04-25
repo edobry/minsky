@@ -16,7 +16,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { prWatchesTable } from "../storage/schemas/pr-watch-schema";
@@ -177,18 +177,51 @@ export class DrizzlePrWatchRepository implements PrWatchRepository {
       throw new Error(`PrWatch not found: ${id}`);
     }
 
+    // Idempotency: one-shot watches that are already triggered are no-ops.
+    // Returning the existing record matches the contract: "ensure this watch
+    // has been marked triggered". Concurrent callers either both observe the
+    // same triggeredAt timestamp or compete via the conditional UPDATE below.
+    if (!existing.keep && existing.triggeredAt) {
+      return existing;
+    }
+
     const now = new Date();
+
+    if (existing.keep) {
+      // Persistent watch: always update triggered_at (records last-fire time).
+      const rows = await this.db
+        .update(prWatchesTable)
+        .set({ triggeredAt: now })
+        .where(eq(prWatchesTable.id, id))
+        .returning();
+
+      const row = rows[0];
+      if (!row) {
+        throw new Error(`PrWatch update returned no row: ${id}`);
+      }
+      return toPrWatch(row);
+    }
+
+    // One-shot watch: conditional UPDATE — only succeeds if triggered_at is
+    // still NULL. If a concurrent worker already set it, this returns 0 rows
+    // and we re-fetch to return the winner's state idempotently.
     const rows = await this.db
       .update(prWatchesTable)
       .set({ triggeredAt: now })
-      .where(eq(prWatchesTable.id, id))
+      .where(and(eq(prWatchesTable.id, id), isNull(prWatchesTable.triggeredAt)))
       .returning();
 
     const row = rows[0];
-    if (!row) {
-      throw new Error(`PrWatch update returned no row: ${id}`);
+    if (row) {
+      return toPrWatch(row);
     }
-    return toPrWatch(row);
+
+    // Race-loss: another worker triggered first. Re-fetch and return their state.
+    const refetched = await this.getById(id);
+    if (!refetched) {
+      throw new Error(`PrWatch disappeared between guard and re-fetch: ${id}`);
+    }
+    return refetched;
   }
 
   async delete(id: string): Promise<void> {
@@ -276,6 +309,11 @@ export class FakePrWatchRepository implements PrWatchRepository {
     const existing = this.store.get(id);
     if (!existing) {
       throw new Error(`PrWatch not found: ${id}`);
+    }
+
+    // Mirror Drizzle idempotency: one-shot watches already triggered are no-ops.
+    if (!existing.keep && existing.triggeredAt) {
+      return this.clone(existing);
     }
 
     const now = new Date().toISOString();
