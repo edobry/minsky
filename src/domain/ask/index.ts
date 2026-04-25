@@ -27,5 +27,5 @@ export {
 } from "./state-machine";
 
 // Repository interface + implementations
-export type { AskRepository, CreateAskInput, CloseAskInput } from "./repository";
+export type { AskRepository, CreateAskInput, CloseAskInput, RespondAskInput } from "./repository";
 export { DrizzleAskRepository, FakeAskRepository } from "./repository";
