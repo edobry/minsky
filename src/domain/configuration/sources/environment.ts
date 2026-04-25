@@ -64,6 +64,13 @@ export const environmentMappings = {
   MINSKY_SESSIONDB_POSTGRES_URL: "sessiondb.postgres.connectionString",
   MINSKY_SESSIONDB_BASE_DIR: "sessiondb.baseDir",
 
+  // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
+  // escape hatch documented in persistence-config.ts and surfaced in factory /
+  // validation error messages; it requires an explicit mapping because the
+  // auto-conversion fallback would route it to "postgres.url" instead of
+  // "persistence.postgres.connectionString".
+  MINSKY_POSTGRES_URL: "persistence.postgres.connectionString",
+
   // Logger configuration
   MINSKY_LOG_MODE: "logger.mode",
   LOG_MODE: "logger.mode",
