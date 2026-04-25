@@ -1,0 +1,57 @@
+---
+description: Centralized test utilities in src/utils/test-utils/ — required for all tests
+globs:
+  - '**/*.test.ts'
+alwaysApply: false
+tags:
+  - testing
+---
+# Test Infrastructure
+
+Minsky provides centralized test utilities in `src/utils/test-utils/`. **All tests must use these utilities** instead of direct `bun:test` APIs.
+
+## Required: Use Centralized Utilities
+
+```typescript
+// ❌ Direct bun:test API usage
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({ /* ... */ }));
+
+// ✅ Centralized utilities
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockLogger } from "../utils/test-utils/mock-logger";
+setupTestMocks();
+const mockFn = createMock();
+```
+
+Enforced by ESLint: `src/eslint-rules/no-jest-patterns.js` flags direct `jest.fn()` and `mock.module()` calls.
+
+## Why Centralized
+
+- Consistent mocking patterns across the codebase
+- Automatic mock cleanup via `setupTestMocks()` — no manual `afterEach` plumbing
+- Type-safe mock creation
+- Centralized logger mocking prevents `log.cli is not a function` errors
+
+## Authoritative References
+
+- **Mocking recipes and patterns**: [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — comprehensive guide with `createMock`, `mockModule`, `createPartialMock`, async patterns, error cases.
+- **Full API documentation**: `src/utils/test-utils/README.md` — the canonical reference for every exported helper.
+
+## Module Organization Principle
+
+Test utilities live in focused, single-responsibility modules under `src/utils/test-utils/` (mocking, dependencies, factories, cleanup, etc.). Do not create "god modules" that mix state management, data generation, and database utilities — split by concern.
+
+When adding a new test helper:
+
+1. Check `src/utils/test-utils/README.md` for an existing module that covers the concern.
+2. If none fits, add a new focused module — do not extend an unrelated one.
+3. Re-export from `src/utils/test-utils/index.ts`.
+
+## See Also
+
+- [testing-standards](mdc:.cursor/rules/testing-standards.mdc) — test structure, organization, testable design
+- [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) — what to test and what NOT to test
+- [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) — mocking recipes
+- `testing-guide` skill — entry-point decision guide
