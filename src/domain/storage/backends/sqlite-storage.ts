@@ -7,7 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { eq, and, asc, desc, gte, lte, sql, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -287,7 +287,11 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
 
       const orderBy = (options?.orderBy ?? []).map((spec) => {
         const column = pickSqliteOrderColumn(spec.field);
-        return spec.direction === "desc" ? desc(column) : asc(column);
+        // NULLS placement: keep never-touched rows out of the recency-first
+        // page in both directions, mirroring the Postgres backend.
+        return spec.direction === "desc"
+          ? sql`${column} DESC NULLS LAST`
+          : sql`${column} ASC NULLS LAST`;
       });
 
       let query = this.drizzleDb.select().from(sessionsTable).$dynamic();

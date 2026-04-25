@@ -74,4 +74,31 @@ describe("SqliteStorage pagination (mt#933)", () => {
     });
     expect(out.map((s) => s.session)).toEqual(["s10", "s11", "s12", "s13", "s14", "s15"]);
   });
+
+  test("NULL lastActivityAt sorts to the end (not the top) of a desc page", async () => {
+    // Reset DB and seed a deterministic mix: 3 with activity, 3 without.
+    const fresh = createSqliteStorage({ dbPath: ":memory:" });
+    await fresh.initialize();
+    await fresh.writeState({
+      sessions: [
+        makeRecord(1, new Date(Date.UTC(2026, 0, 1)).toISOString()),
+        makeRecord(2, new Date(Date.UTC(2026, 0, 2)).toISOString()),
+        makeRecord(3, new Date(Date.UTC(2026, 0, 3)).toISOString()),
+        // Three never-touched sessions (lastActivityAt left undefined → NULL)
+        makeRecord(4),
+        makeRecord(5),
+        makeRecord(6),
+      ],
+      baseDir: "/mock/tmp",
+    });
+    const out = await fresh.getEntities({
+      orderBy: [{ field: "lastActivityAt", direction: "desc" }],
+    });
+    // The three active rows must come first (newest activity first), then the
+    // null-activity rows trail. The reverse — Postgres's default DESC NULLS
+    // FIRST behavior — would put s4/s5/s6 ahead of s3, hiding the recently
+    // active sessions from the first page.
+    expect(out.slice(0, 3).map((s) => s.session)).toEqual(["s3", "s2", "s1"]);
+    expect(new Set(out.slice(3).map((s) => s.session))).toEqual(new Set(["s4", "s5", "s6"]));
+  });
 });

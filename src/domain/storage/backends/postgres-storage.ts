@@ -7,7 +7,7 @@
 
 import { injectable } from "tsyringe";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, asc, desc, gte, lte, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { first } from "../../../utils/array-safety";
@@ -386,8 +386,15 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     const orderBy = (options?.orderBy ?? []).map((spec) => {
       // Map the logical field name onto the actual Postgres column.
       // Accept both camelCase domain field names and snake_case column names.
+      //
+      // NULLS placement: Postgres defaults DESC → NULLS FIRST and ASC → NULLS LAST.
+      // For session lists we want never-touched rows (NULL lastActivityAt) to sort
+      // to the *end* regardless of direction so they don't crowd out recently
+      // active sessions on the first page.
       const column = pickPostgresOrderColumn(spec.field);
-      return spec.direction === "desc" ? desc(column) : asc(column);
+      return spec.direction === "desc"
+        ? sql`${column} DESC NULLS LAST`
+        : sql`${column} ASC NULLS LAST`;
     });
 
     let query = this.db.select().from(postgresSessions).$dynamic();

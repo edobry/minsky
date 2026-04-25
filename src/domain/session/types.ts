@@ -2,6 +2,7 @@ import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
+import type { DatabaseQueryOptions } from "../storage/database-storage";
 
 export enum SessionStatus {
   CREATED = "CREATED",
@@ -128,25 +129,14 @@ export interface Session {
 
 /**
  * Options for listing sessions, applied at the storage layer.
+ *
+ * Extends DatabaseQueryOptions so a SessionListOptions value can be passed
+ * straight to a storage backend's getEntities() without an unsafe cast.
  */
-export interface SessionListOptions {
-  /** Filter by task ID (qualified or plain) */
-  taskId?: string;
-  /** Filter by repo name */
-  repoName?: string;
-  /** Inclusive lower bound on createdAt (ISO string) */
-  createdAfter?: string;
-  /** Inclusive upper bound on createdAt (ISO string) */
-  createdBefore?: string;
-  /** Maximum number of records to return */
-  limit?: number;
-  /** Number of records to skip (for paging) */
-  offset?: number;
-  /**
-   * Ordering directives, applied in order; the first is the primary sort key.
-   * `field` must match a session-record field (e.g., "lastActivityAt").
-   */
-  orderBy?: Array<{ field: string; direction: "asc" | "desc" }>;
+export interface SessionListOptions extends DatabaseQueryOptions {
+  // All fields are inherited from DatabaseQueryOptions:
+  //   taskId, repoName, createdAfter, createdBefore, limit, offset, orderBy
+  // Kept as a named alias here for domain-layer clarity.
 }
 
 /**

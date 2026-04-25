@@ -13,7 +13,7 @@ import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provi
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
 import type { PersistenceProvider } from "../persistence/types";
-import type { DatabaseStorage, DatabaseQueryOptions } from "../storage/database-storage";
+import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
   validateQualifiedTaskId,
@@ -68,7 +68,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       // Push pagination/ordering/filters down to the storage layer to avoid
       // loading every row into memory just to slice the result.
       const storage = await this.getStorage();
-      const sessions = await storage.getEntities(options as DatabaseQueryOptions);
+      const sessions = await storage.getEntities(options);
       log.debug(`Got ${sessions.length} sessions from storage with options`);
       return sessions;
     }
