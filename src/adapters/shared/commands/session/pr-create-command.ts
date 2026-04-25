@@ -18,6 +18,8 @@ import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import { DrizzleAskRepository } from "../../../../domain/ask/repository";
+import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
  * Parameters accepted by the session PR create command.
@@ -246,6 +248,25 @@ export async function executeSessionPrCreate(
       );
     }
 
+    // Build an AskRepository from the persistence provider's DB connection (best-effort).
+    let askRepository: DrizzleAskRepository | undefined;
+    const persistenceProvider = context.container?.has("persistence")
+      ? context.container.get("persistence")
+      : undefined;
+    if (persistenceProvider) {
+      try {
+        const sqlProvider = persistenceProvider as SqlCapablePersistenceProvider;
+        if (sqlProvider.getDatabaseConnection) {
+          const db = await sqlProvider.getDatabaseConnection();
+          if (db) {
+            askRepository = new DrizzleAskRepository(db);
+          }
+        }
+      } catch (askRepoError) {
+        log.debug(`Could not initialize AskRepository for PR create: ${askRepoError}`);
+      }
+    }
+
     const result = await sessionPrCreate(
       {
         title: finalTitle,
@@ -262,9 +283,8 @@ export async function executeSessionPrCreate(
       },
       {
         sessionDB: deps.sessionProvider,
-        persistenceProvider: context.container?.has("persistence")
-          ? context.container.get("persistence")
-          : undefined,
+        persistenceProvider,
+        askRepository,
       },
       {
         interface: interfaceType,
