@@ -435,8 +435,9 @@ export class MinskyMCPServer {
       // when a session exists. A missing or unknown session-id means the resource
       // does not exist, not that the method is disallowed. Plain text body (no
       // JSON-RPC envelope) because SSE GET is a streaming connection, not a
-      // JSON-RPC message exchange.
-      res.status(404).send("Session not found");
+      // JSON-RPC message exchange. Explicit text/plain Content-Type to match
+      // documented behavior — Express defaults string bodies to text/html.
+      res.status(404).type("text/plain").send("Session not found");
       return;
     }
 

@@ -458,6 +458,7 @@ describe("MCP Server", () => {
       const res = await fetch(baseUrl, { method: "GET" });
 
       expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
       const body = await res.text();
       expect(body).toBe(SESSION_NOT_FOUND_MSG);
     } finally {
@@ -499,6 +500,7 @@ describe("MCP Server", () => {
       });
 
       expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
       const body = await res.text();
       expect(body).toBe(SESSION_NOT_FOUND_MSG);
     } finally {
