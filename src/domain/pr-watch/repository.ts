@@ -128,6 +128,20 @@ export interface PrWatchRepository {
    * @throws    `Error` — PrWatch not found.
    */
   delete(id: string): Promise<void>;
+
+  /**
+   * Update the `lastSeen` cursor on a PrWatch.
+   *
+   * Used by the reconciler to record the last-observed event id/conclusion
+   * after a match, so persistent watches (keep=true) do not re-fire on the
+   * same event in subsequent passes.
+   *
+   * @param id        Primary key of the PrWatch to update.
+   * @param lastSeen  Event-specific cursor payload (replaces existing).
+   * @returns         The updated PrWatch.
+   * @throws          `Error` — PrWatch not found.
+   */
+  updateLastSeen(id: string, lastSeen: Record<string, unknown>): Promise<PrWatch>;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +252,20 @@ export class DrizzlePrWatchRepository implements PrWatchRepository {
       throw new Error(`PrWatch not found: ${id}`);
     }
   }
+
+  async updateLastSeen(id: string, lastSeen: Record<string, unknown>): Promise<PrWatch> {
+    const rows = await this.db
+      .update(prWatchesTable)
+      .set({ lastSeen })
+      .where(eq(prWatchesTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`PrWatch not found: ${id}`);
+    }
+    return toPrWatch(row);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +362,16 @@ export class FakePrWatchRepository implements PrWatchRepository {
       throw new Error(`PrWatch not found: ${id}`);
     }
     this.store.delete(id);
+  }
+
+  async updateLastSeen(id: string, lastSeen: Record<string, unknown>): Promise<PrWatch> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`PrWatch not found: ${id}`);
+    }
+    const updated: PrWatch = { ...existing, lastSeen: { ...lastSeen } };
+    this.store.set(id, this.clone(updated));
+    return this.clone(updated);
   }
 
   /**
