@@ -17,6 +17,7 @@ import {
   type SubmittedReview,
 } from "./github-client";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
+import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
@@ -44,6 +45,8 @@ export interface ReviewResult {
   retryAttempted?: boolean;
   /** Outcome of the task-spec fetch from the hosted Minsky MCP (absent on skipped reviews). */
   taskSpecFetch?: TaskSpecFetchResult;
+  /** PR scope classification used to select the prompt variant (mt#1188). Absent on skipped reviews. */
+  scope?: PRScope;
 }
 
 /**
@@ -315,6 +318,15 @@ export async function runReview(
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber);
   const tier = await resolveTier(prNumber, pr.body, config);
 
+  // Classify the PR scope (mt#1188): drives prompt-variant selection to
+  // reduce false REQUEST_CHANGES on trivial / docs-only PRs (PR #703 trigger).
+  const prScope = classifyPRScope({
+    diff: pr.diff,
+    filesChanged: pr.filesChanged,
+    prBody: pr.body,
+  });
+  const scopeBucket = scopeBucketFor(prScope);
+
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {
     return { status: "skipped", reason: routing.reason, tier };
@@ -369,7 +381,7 @@ export async function runReview(
   const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
     defaultForkAccessProbe(octokit, pr)
   );
-  const systemPrompt = buildCriticConstitution(toolsActive);
+  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket);
 
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
@@ -420,6 +432,7 @@ export async function runReview(
       attempt,
       retryAttempted,
       taskSpecFetch,
+      scope: prScope,
     };
   }
 
@@ -492,6 +505,7 @@ export async function runReview(
       attempt,
       retryAttempted,
       taskSpecFetch,
+      scope: prScope,
     };
   }
 
@@ -515,6 +529,7 @@ export async function runReview(
     attempt,
     retryAttempted,
     taskSpecFetch,
+    scope: prScope,
   };
 }
 

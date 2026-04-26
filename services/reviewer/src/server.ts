@@ -10,6 +10,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import { loadConfig } from "./config";
 import { runReview } from "./review-worker";
+import { loadSweeperConfig, startSweeper } from "./sweeper";
 
 // GitHub webhook payloads are bounded by GitHub at ~25MB, but typical PR
 // events are well under 1MB. We cap reads at 5MB to prevent unauthenticated
@@ -77,6 +78,7 @@ async function handlePullRequestEvent(
       status: result.status,
       reason: result.reason,
       tier: result.tier,
+      scope: result.scope,
       reviewUrl: result.review?.htmlUrl,
       provider: result.providerUsed,
       model: result.providerModel,
@@ -249,6 +251,14 @@ console.log(
     specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
   })
 );
+
+// Start the periodic sweeper safety net (mt#1260).
+// In-process setInterval chosen over Railway cron for simplicity: no separate
+// entry-point, shares the same config/auth already loaded above.
+// Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
+// SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
+// SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
+startSweeper(config, loadSweeperConfig());
 
 if (config.provider === "anthropic") {
   console.warn(

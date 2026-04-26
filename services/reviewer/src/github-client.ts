@@ -47,6 +47,12 @@ export interface PullRequestContext {
   baseBranch: string;
   diff: string;
   headSha: string;
+  /**
+   * List of file paths changed by this PR (relative to repo root).
+   * Used by the scope classifier (mt#1188) to determine docs-only / test-only.
+   * Fetched from the pulls.listFiles endpoint alongside the diff.
+   */
+  filesChanged: string[];
 }
 
 export async function fetchPullRequestContext(
@@ -55,7 +61,7 @@ export async function fetchPullRequestContext(
   repo: string,
   prNumber: number
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse] = await Promise.all([
+  const [prResponse, diffResponse, filesResponse] = await Promise.all([
     octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
     octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
       owner,
@@ -63,6 +69,25 @@ export async function fetchPullRequestContext(
       pull_number: prNumber,
       mediaType: { format: "diff" },
     }),
+    // Fetch changed file paths for the scope classifier (mt#1188).
+    // per_page=300 covers the vast majority of PRs; GitHub caps at 3000 files
+    // per PR, but the classifier's heuristics work well enough on the first
+    // 300 — the scope check is advisory, not security-critical.
+    //
+    // Fall back to an empty list on failure (rare 422 on >3000-file PRs,
+    // transient 5xx). The classifier then produces conservative `normal`
+    // scope and the review still runs — matching the "advisory, not
+    // security-critical" framing above. The failure is observable via the
+    // warning log.
+    octokit.rest.pulls
+      .listFiles({ owner, repo, pull_number: prNumber, per_page: 300 })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[mt#1188] pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal): ${message}`
+        );
+        return { data: [] as Array<{ filename: string }> };
+      }),
   ]);
 
   const pr = prResponse.data;
@@ -70,6 +95,7 @@ export async function fetchPullRequestContext(
   // string at runtime even though the typed response is PullRequest. String()
   // safely coerces the runtime value without the as-unknown double cast.
   const diff = String(diffResponse.data);
+  const filesChanged = filesResponse.data.map((f) => f.filename);
 
   // Head repository coords may differ from base coords for forked PRs.
   // pr.head.repo is null in rare cases (deleted fork); fall back to base.
@@ -90,6 +116,7 @@ export async function fetchPullRequestContext(
     baseBranch: pr.base.ref,
     diff,
     headSha: pr.head.sha,
+    filesChanged,
   };
 }
 

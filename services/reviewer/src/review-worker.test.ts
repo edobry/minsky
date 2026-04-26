@@ -9,11 +9,13 @@ import {
   defaultForkAccessProbe,
   buildRunReviewStartLog,
   type CallReviewerFn,
+  type ReviewResult,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
+import type { PRScope } from "./pr-scope";
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -706,5 +708,40 @@ describe("buildRunReviewStartLog (mt#1256)", () => {
     const log = buildRunReviewStartLog("d", "o", "r", 1, "s");
     const keys = Object.keys(log).sort();
     expect(keys).toEqual(["delivery_id", "event", "owner", "pr", "repo", "sha"]);
+  });
+});
+
+// ----- ReviewResult.scope type (mt#1188) -----
+//
+// Structural type assertion: ReviewResult.scope must be typed as PRScope | undefined.
+// These tests assert that valid scope values are assignable and that the field
+// exists in ReviewResult. Separated from runReview integration tests (which would
+// require full octokit mock) to keep test seams clean.
+
+describe("ReviewResult.scope type (mt#1188)", () => {
+  test("ReviewResult accepts a valid PRScope value in the scope field", () => {
+    const scopes: PRScope[] = ["trivial", "docs-only", "test-only", "normal"];
+    for (const scope of scopes) {
+      // Structural type check: ReviewResult with all required fields + scope.
+      const result: ReviewResult = {
+        status: "reviewed",
+        reason: "Posted APPROVE review as minsky-reviewer[bot]",
+        tier: 3,
+        scope,
+      };
+      expect(result.scope).toBe(scope);
+    }
+  });
+
+  test("ReviewResult.scope is absent (undefined) on skipped reviews", () => {
+    // The skipped path in runReview returns { status: "skipped", reason, tier }
+    // without a scope field — scope classification is skipped when routing
+    // says shouldReview=false.
+    const skippedResult: ReviewResult = {
+      status: "skipped",
+      reason: "Tier 1 — skipping review",
+      tier: 1,
+    };
+    expect(skippedResult.scope).toBeUndefined();
   });
 });
