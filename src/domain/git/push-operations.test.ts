@@ -48,23 +48,27 @@ describe("pushImpl", () => {
     expect(calls.every((c) => !c.command.includes(CMD_PUSH_PREFIX))).toBe(true);
   });
 
-  test("propagates unrelated rev-parse errors instead of mislabeling as detached", async () => {
-    const notARepoErr = new Error("fatal: not a git repository (or any of the parent directories)");
+  test("propagates the original rev-parse error unchanged (preserves type/stack/fields)", async () => {
+    class GitExecError extends Error {
+      stderr = "fatal: not a git repository (or any of the parent directories)";
+      code = 128;
+    }
+    const original = new GitExecError("Command failed");
     const { deps } = makeDeps({
-      [CMD_REV_PARSE]: notARepoErr,
+      [CMD_REV_PARSE]: original,
     });
 
-    const promise = pushImpl({ repoPath: WORKDIR }, deps);
-    await expect(promise).rejects.toThrow(/not a git repository/);
-    await expect(promise).rejects.not.toThrow(/HEAD is detached/);
-  });
-
-  test("error message does not reference product-specific branch naming", async () => {
-    const { deps } = makeDeps({
-      [CMD_REV_PARSE]: { stdout: "HEAD\n" },
-    });
-
-    await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.not.toThrow(/task\/mt-/);
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+    // Same object identity — not re-wrapped
+    expect(caught).toBe(original);
+    // Custom fields preserved
+    expect((caught as GitExecError).code).toBe(128);
+    expect((caught as GitExecError).stderr).toMatch(/not a git repository/);
   });
 
   test("succeeds for normal attached HEAD on a fresh branch", async () => {

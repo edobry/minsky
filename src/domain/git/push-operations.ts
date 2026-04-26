@@ -41,18 +41,13 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   // Resolve current branch via rev-parse --abbrev-ref HEAD. The literal
   // string "HEAD" is git's machine-readable signal for detached HEAD —
   // locale-independent across git versions. Surface an actionable error
-  // for that case; let unrelated rev-parse failures (not a git repo,
-  // missing git binary, permission errors) propagate with original
-  // stderr/message context. See mt#994; mt#1217 fixed the upstream
-  // session_update path that was leaving sessions detached.
-  let branch: string;
-  try {
-    const { stdout } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-    branch = stdout.trim();
-  } catch (err: unknown) {
-    const gitError = validateGitError(err);
-    throw new Error(gitError.stderr || gitError.message || String(err));
-  }
+  // for that case. Unrelated rev-parse failures (not a git repo, missing
+  // git binary, permission errors) propagate as the original error from
+  // execAsync — preserving type, stack, and structured fields. See mt#994;
+  // mt#1217 fixed the upstream session_update path that was leaving
+  // sessions detached.
+  const { stdout } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+  const branch = stdout.trim();
   if (branch === "HEAD") {
     throw new Error(
       `Cannot push: HEAD is detached in ${workdir}. ` +
