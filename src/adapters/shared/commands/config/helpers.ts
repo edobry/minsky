@@ -6,13 +6,13 @@
  */
 
 import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
-import { SENSITIVE_KEY_REGEX } from "../../../../utils/redaction";
+import { isSensitiveKey } from "../../../../utils/redaction";
 
 /**
  * Recursively masks sensitive values in a plain config object using
- * SENSITIVE_KEY_REGEX — the same regex used by maskCredentialsInEffectiveValues
- * and isSensitiveKey in redaction.ts, so both helpers share identical matching
- * semantics (mt#1181 Finding 1).
+ * isSensitiveKey — the same function used by isSensitivePath in this file and
+ * the standalone isSensitiveKey export in redaction.ts. Both share identical
+ * matching semantics including hyphen normalization (mt#1181 Finding 2).
  *
  * @param value  Any config value (object, array, or primitive)
  * @returns      A new value with sensitive keys replaced by the masked sentinel
@@ -27,7 +27,7 @@ function maskConfigValue(value: unknown): unknown {
   if (typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEY_REGEX.test(k.toLowerCase()) && v !== null && v !== undefined) {
+      if (isSensitiveKey(k) && v !== null && v !== undefined) {
         result[k] = typeof v === "string" ? `${"*".repeat(20)} (configured)` : "[MASKED]";
       } else {
         result[k] = maskConfigValue(v);
@@ -49,7 +49,9 @@ export function maskCredentials(
   showSecrets: boolean
 ): Record<string, unknown> {
   if (showSecrets) {
-    return config;
+    // Deep-clone so callers that mutate the returned object do not corrupt the
+    // original config reference (mt#1181 Finding 1 — mutation hazard).
+    return structuredClone(config);
   }
 
   return maskConfigValue(config) as Record<string, unknown>;
@@ -66,15 +68,15 @@ export function maskCredentialsInEffectiveValues(
   const masked: Record<string, { value: unknown; source: string; path: string }> = {};
 
   // Helper to check if a path contains sensitive information.
-  // NOTE: shares SENSITIVE_KEY_REGEX with isSensitiveKey in redaction.ts —
-  // both must use case-insensitive matching so that paths like
-  // "github.Token", "ai.providers.OpenAI.apiKEY", "SESSIONDB.ConnectionString"
-  // are masked just as their key-only counterparts would be.
+  // Delegates to isSensitiveKey (redaction.ts) so that both share identical
+  // matching semantics — same regex, same hyphen normalization — for paths like
+  // "github.Token", "ai.providers.OpenAI.apiKEY", "SESSIONDB.ConnectionString",
+  // and hyphenated segments like "headers.x-api-key" (mt#1181 Finding 2).
   const isSensitivePath = (path: string): boolean => {
     // Test each dot-separated segment so that only the actual key part is
     // matched (e.g. "providers" in "ai.providers.openai.apiKey" is not
     // flagged, but "apiKey" is).
-    return path.split(".").some((segment) => SENSITIVE_KEY_REGEX.test(segment.toLowerCase()));
+    return path.split(".").some((segment) => isSensitiveKey(segment));
   };
 
   // Helper to mask value (but don't re-mask already masked values)

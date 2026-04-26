@@ -14,9 +14,21 @@ const PATH_AI_OPENAI_APIKEY = "ai.providers.OpenAI.apiKEY";
 // ─── maskCredentials (Finding 1) ─────────────────────────────────────────────
 
 describe("maskCredentials — uses SENSITIVE_KEY_REGEX recursively", () => {
-  test("showSecrets=true returns config unchanged", () => {
+  test("showSecrets=true returns a deep clone, not the original reference", () => {
     const cfg = { github: { token: "ghp_abc" } };
-    expect(maskCredentials(cfg, true)).toBe(cfg);
+    const result = maskCredentials(cfg, true);
+    // Values must be equal
+    expect(result).toEqual(cfg);
+    // But must NOT be the same reference (mutation hazard — mt#1181 Finding 1)
+    expect(result).not.toBe(cfg);
+  });
+
+  test("showSecrets=true clone: mutating the result does not corrupt the input", () => {
+    const cfg: Record<string, unknown> = { github: { token: "ghp_original" } };
+    const result = maskCredentials(cfg, true);
+    (result.github as Record<string, unknown>).token = "MUTATED";
+    // Original must be unchanged
+    expect((cfg.github as Record<string, unknown>).token).toBe("ghp_original");
   });
 
   test("masks string value as '***** (configured)' sentinel", () => {
@@ -125,5 +137,24 @@ describe("maskCredentialsInEffectiveValues — isSensitivePath (case-insensitive
     const result = maskCredentialsInEffectiveValues(ev, false);
     // value is null — isSensitivePath matches but maskValue is skipped per the guard
     expect(result["github.token"]?.value).toBeNull();
+  });
+
+  // mt#1181 Finding 2: hyphenated HTTP-header style path segments must match
+  test("x-api-key path segment is masked (hyphen normalization)", () => {
+    const ev = { "headers.x-api-key": entry("my-key-value") };
+    const result = maskCredentialsInEffectiveValues(ev, false);
+    expect(result["headers.x-api-key"]?.value).toMatch(/\*{20}/);
+  });
+
+  test("x-auth-token path segment is masked (hyphen normalization)", () => {
+    const ev = { "headers.x-auth-token": entry("tok_abc") };
+    const result = maskCredentialsInEffectiveValues(ev, false);
+    expect(result["headers.x-auth-token"]?.value).toMatch(/\*{20}/);
+  });
+
+  test("proxy-authorization path segment is masked (hyphen normalization)", () => {
+    const ev = { "proxy-authorization": entry("Basic xyz") };
+    const result = maskCredentialsInEffectiveValues(ev, false);
+    expect(result["proxy-authorization"]?.value).toMatch(/\*{20}/);
   });
 });

@@ -6,25 +6,34 @@
  */
 
 /**
- * Case-insensitive substring patterns that identify sensitive keys.
+ * Case-insensitive patterns that identify sensitive keys.
  *
- * Design rationale (mt#1181):
- *   - The bare "key" substring was removed because it matched benign keys like
- *     `monkey`, `keyboard`, `keyPath`, `surveyKeyPath`.
+ * Design rationale (mt#1181 / R4 Findings A+B):
+ *   - Generic English words ("token", "password", "secret", "connectionString")
+ *     are matched only as whole words/segments, NOT as substrings. This prevents
+ *     false positives like `secretary` (contains "secret"), `tokenize` (contains
+ *     "token"). `passwordHash` intentionally does NOT match — it is metadata,
+ *     not a credential value.
  *   - Credential-type *Key / *_key compound words are listed explicitly so that
  *     `apiKey`, `privateKey`, `access_key`, etc. are still caught.
- *   - The snake_case catch-all (`_key` suffix) is handled separately in
- *     SENSITIVE_KEY_REGEX rather than in this list to avoid substring pollution.
+ *   - The catch-all (`[-_]key` suffix) is handled in SENSITIVE_KEY_REGEX to
+ *     catch `refresh_key`, `refresh-key`, etc. without false positives on
+ *     `monkey` or `keyboard`.
  *   - "authorization" and "credential" are intentionally absent as bare
  *     substring patterns because they over-match benign keys such as
  *     `authorizationMode`, `credentialStatus`, `authorizationLevel`. They are
- *     instead anchored as whole-word exact matches in SENSITIVE_KEY_REGEX.
+ *     instead anchored as whole-word/segment matches in SENSITIVE_KEY_REGEX.
+ *   - Hyphenated HTTP-header style keys (`x-api-key`, `x-auth-token`,
+ *     `proxy-authorization`) are supported natively in the regex; `-` and `_`
+ *     are treated as equivalent separators. No input normalization is performed.
  *
  * NOTE: Both isSensitiveKey (here) and isSensitivePath in
  * src/adapters/shared/commands/config/helpers.ts share SENSITIVE_KEY_REGEX and
  * MUST use the same case-insensitive matching semantics.
  */
 export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
+  // Generic credential words — matched as whole segments only (see SENSITIVE_KEY_REGEX).
+  // passwordHash intentionally does NOT match (metadata, not a credential value).
   "token",
   "password",
   "secret",
@@ -47,39 +56,93 @@ export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
   "secret_key",
 ];
 
+// Generic words that require whole-segment matching to prevent substring false positives.
+// After lowercasing, matched via `(?:^|[-_a-z])WORD$`:
+//   - exact:          "token"          -> matches
+//   - separator:      "x-auth-token"   -> "-" before "token" -> matches
+//   - camelCase:      "accessToken"    lowercased "accesstoken", "n" precedes "token" -> matches
+// Non-matches:
+//   - "tokenize"      -> ends with "tokenize", not "token"
+//   - "secretary"     -> ends with "secretary", not "secret"
+//   - "passwordHash"  -> ends with "passwordhash" (metadata, not a credential)
+const GENERIC_WORDS = ["token", "password", "secret", "connectionstring"];
+
+// Compound camelCase terms lowercased. Specific enough that exact-or-suffix matching is safe.
+const COMPOUND_CAMEL = [
+  "apikey",
+  "secretkey",
+  "privatekey",
+  "accesskey",
+  "authkey",
+  "signingkey",
+  "encryptionkey",
+];
+
+// Compound separator terms with [-_] to match both snake_case and kebab-case.
+// e.g. "api[-_]key" matches "api_key" and "api-key" (so "x-api-key" is caught natively).
+const COMPOUND_SEP = [
+  "private[-_]key",
+  "access[-_]key",
+  "auth[-_]key",
+  "signing[-_]key",
+  "encryption[-_]key",
+  "api[-_]key",
+  "secret[-_]key",
+];
+
+// Authorization variants — whole-segment anchored; "authorizationmode" is NOT matched.
+const AUTH_VARIANTS = ["authorization", "authorizationheader"];
+
+// Credential variants — whole-segment anchored; "credentialstatus" is NOT matched.
+const CRED_VARIANTS = ["credential", "credentials", "credentialstring"];
+
 /**
  * Regex that identifies a sensitive key name after lowercasing the input.
  *
- * Matches if the lowercase key:
- *   1. Is in SENSITIVE_KEY_PATTERNS (substring match), OR
- *   2. Ends with "_key" — catches arbitrary snake_case credential keys
- *      (e.g. "refresh_key", "master_key") without a false positive on
- *      "monkey" (no underscore before "key").
- *   3. Is exactly "authorization" or "authorizationheader" — whole-word
- *      anchored so that "authorizationmode", "authorizationlevel", etc. are
- *      NOT matched.
- *   4. Is exactly "credential", "credentials", or "credentialstring" — same
- *      reasoning; prevents false positives on "credentialstatus", etc.
+ * Matching rules (applied after `key.toLowerCase()`):
+ *   1. Generic words ("token", "password", "secret", "connectionstring"):
+ *      matched only when the word is an exact key OR a whole trailing segment,
+ *      i.e. preceded by `^`, `[-_]`, or a lowercase letter (camelCase boundary).
+ *      Prevents `secretary`, `tokenize`, `passwordHash` from matching.
+ *   2. Compound credential terms ("apiKey", "api_key", etc.): matched as exact
+ *      key or as a trailing segment. `[-_]` accepts either `-` or `_` so that
+ *      `x-api-key`, `x-auth-token`, `proxy-authorization` are caught natively
+ *      without any input normalization.
+ *   3. Catch-all: `[-_]key$` — catches `refresh_key`, `refresh-key`, etc.
+ *      The separator before "key" prevents false positives on `monkey`.
+ *   4. Authorization variants ("authorization", "authorizationheader"):
+ *      whole segment only; `authorizationMode` is NOT matched.
+ *   5. Credential variants ("credential", "credentials", "credentialstring"):
+ *      whole segment only; `credentialStatus` is NOT matched.
  *
  * Does NOT match:
- *   - "monkey"             — ends with "key" but no underscore; not in the explicit list
+ *   - "monkey"             — ends with "key" but no separator; not in explicit list
  *   - "keyboard"           — "key" is a prefix, not a suffix
- *   - "keyPath"            — lowercased to "keypath"; not in list, no "_key" suffix
+ *   - "keyPath"            — lowercased to "keypath"; no [-_]key suffix
  *   - "surveyKeyPath"      — same reasoning
- *   - "authorizationMode"  — lowercased to "authorizationmode"; not an exact match
- *   - "credentialStatus"   — lowercased to "credentialstatus"; not an exact match
+ *   - "secretary"          — ends with "secretary", not "secret"
+ *   - "tokenize"           — ends with "tokenize", not "token"
+ *   - "passwordHash"       — metadata field; ends with "passwordhash", not "password"
+ *   - "authorizationMode"  — lowercased to "authorizationmode"; not a whole segment
+ *   - "credentialStatus"   — lowercased to "credentialstatus"; not a whole segment
  *
  * Exported so that isSensitivePath in helpers.ts can share identical semantics.
  */
 export const SENSITIVE_KEY_REGEX: RegExp = new RegExp(
-  // Patterns from SENSITIVE_KEY_PATTERNS, lowercased for the regex
-  `${
-    SENSITIVE_KEY_PATTERNS.map((p) => p.toLowerCase()).join("|")
-    // Plus generic snake_case suffix
-  }|_key$` +
-    // Whole-word anchored exact matches for authorization and credential variants
-    "|^authorization$|^authorizationheader$" +
-    "|^credential$|^credentials$|^credentialstring$"
+  [
+    // Generic words: whole-segment match only (exact, separator, or camelCase prefix)
+    ...GENERIC_WORDS.map((w) => `(?:^|[-_a-z])${w}$`),
+    // Compound camelCase terms: exact-or-suffix
+    ...COMPOUND_CAMEL.map((t) => `(?:^|[-_a-z])${t}$`),
+    // Compound separator terms with [-_] support: exact-or-suffix
+    ...COMPOUND_SEP.map((t) => `(?:^|[-_a-z])${t}$`),
+    // Generic catch-all: any key ending with [-_]key (separator required before "key")
+    "[-_]key$",
+    // Authorization variants: whole segment only
+    ...AUTH_VARIANTS.map((v) => `(?:^|[-_a-z])${v}$`),
+    // Credential variants: whole segment only
+    ...CRED_VARIANTS.map((v) => `(?:^|[-_a-z])${v}$`),
+  ].join("|")
   // No flags needed — isSensitiveKey always lowercases before calling .test()
 );
 
@@ -89,6 +152,9 @@ export const SENSITIVE_KEY_REGEX: RegExp = new RegExp(
  * Uses SENSITIVE_KEY_REGEX for precise matching. isSensitivePath in
  * src/adapters/shared/commands/config/helpers.ts uses the same regex so that
  * both functions share identical semantics.
+ *
+ * No input normalization is performed — the regex natively accepts both `-` and
+ * `_` separators (e.g. `x-api-key` and `x_api_key` both match).
  */
 export function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_REGEX.test(key.toLowerCase());

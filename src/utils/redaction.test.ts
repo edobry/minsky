@@ -52,6 +52,51 @@ describe("isSensitiveKey", () => {
     expect(isSensitiveKey("apikey")).toBe(true);
   });
 
+  // mt#1181 R4 Finding A: substring overbreadth — generic words must not over-match
+  test("'secretary' is NOT sensitive (substring guard for 'secret')", () => {
+    expect(isSensitiveKey("secretary")).toBe(false);
+  });
+
+  test("'tokenize' is NOT sensitive (substring guard for 'token')", () => {
+    expect(isSensitiveKey("tokenize")).toBe(false);
+  });
+
+  test("'passwordHash' is NOT sensitive (metadata field, not a credential value)", () => {
+    // Judgment call: passwordHash is metadata (e.g. a hash algorithm name), not a
+    // credential value, so we intentionally exclude it from redaction.
+    expect(isSensitiveKey("passwordHash")).toBe(false);
+  });
+
+  // mt#1181 R4 Finding A: camelCase suffix must still match
+  test("'accessToken' IS sensitive (camelCase suffix match)", () => {
+    expect(isSensitiveKey("accessToken")).toBe(true);
+  });
+
+  test("'access_token' IS sensitive (snake_case suffix match)", () => {
+    expect(isSensitiveKey("access_token")).toBe(true);
+  });
+
+  // mt#1181 R4 Finding B: hyphenated HTTP-header style keys (native regex, no normalization)
+  test("x-api-key is sensitive (native regex, hyphen as separator)", () => {
+    expect(isSensitiveKey("x-api-key")).toBe(true);
+  });
+
+  test("x-auth-token is sensitive (native regex, hyphen as separator)", () => {
+    expect(isSensitiveKey("x-auth-token")).toBe(true);
+  });
+
+  test("proxy-authorization is sensitive (native regex, hyphen as separator)", () => {
+    expect(isSensitiveKey("proxy-authorization")).toBe(true);
+  });
+
+  test("x-amz-access-key is sensitive (native regex, hyphen as separator)", () => {
+    expect(isSensitiveKey("x-amz-access-key")).toBe(true);
+  });
+
+  test("x-access-token is sensitive (native regex, hyphen as separator)", () => {
+    expect(isSensitiveKey("x-access-token")).toBe(true);
+  });
+
   test("SENSITIVE_KEY_PATTERNS is readonly and contains expected entries", () => {
     expect(SENSITIVE_KEY_PATTERNS).toContain("token");
     expect(SENSITIVE_KEY_PATTERNS).toContain("apiKey");
@@ -197,5 +242,89 @@ describe("redact", () => {
     const input: Record<string, unknown> = { authorizationHeader: "Bearer tok" };
     const result = redact(input);
     expect(result.authorizationHeader).toBe("[REDACTED]");
+  });
+
+  // mt#1181 R4 Finding A: substring overbreadth guards in redact()
+  test("'secretary' is NOT redacted (substring guard for 'secret')", () => {
+    const input: Record<string, unknown> = { secretary: "Jane Doe" };
+    const result = redact(input);
+    expect(result.secretary).toBe("Jane Doe");
+  });
+
+  test("'tokenize' is NOT redacted (substring guard for 'token')", () => {
+    const input: Record<string, unknown> = { tokenize: true };
+    const result = redact(input);
+    expect(result.tokenize).toBe(true);
+  });
+
+  test("'passwordHash' is NOT redacted (metadata, not a credential value)", () => {
+    const input: Record<string, unknown> = { passwordHash: "bcrypt$..." };
+    const result = redact(input);
+    expect(result.passwordHash).toBe("bcrypt$...");
+  });
+
+  test("'accessToken' IS redacted (camelCase suffix)", () => {
+    const input: Record<string, unknown> = { accessToken: "tok_abc" };
+    const result = redact(input);
+    expect(result.accessToken).toBe("[REDACTED]");
+  });
+
+  test("'access_token' IS redacted (snake_case suffix)", () => {
+    const input: Record<string, unknown> = { access_token: "tok_abc" };
+    const result = redact(input);
+    expect(result.access_token).toBe("[REDACTED]");
+  });
+
+  // mt#1181 R4 Finding B: hyphenated HTTP-header style keys (native regex, no normalization)
+  test("x-api-key is redacted (native regex, hyphen as separator)", () => {
+    const input: Record<string, unknown> = { "x-api-key": "my-key-value" };
+    const result = redact(input);
+    expect(result["x-api-key"]).toBe("[REDACTED]");
+  });
+
+  test("x-auth-token is redacted (native regex, hyphen as separator)", () => {
+    const input: Record<string, unknown> = { "x-auth-token": "tok_abc" };
+    const result = redact(input);
+    expect(result["x-auth-token"]).toBe("[REDACTED]");
+  });
+
+  test("proxy-authorization is redacted (native regex, hyphen as separator)", () => {
+    const proxyAuthKey = "proxy-authorization";
+    const input: Record<string, unknown> = { [proxyAuthKey]: "Basic xyz" };
+    const result = redact(input);
+    expect(result[proxyAuthKey]).toBe("[REDACTED]");
+  });
+
+  test("x-amz-access-key is redacted (native regex, hyphen as separator)", () => {
+    const amzAccessKeyHeader = "x-amz-access-key";
+    const input: Record<string, unknown> = { [amzAccessKeyHeader]: "AKIAIOSFODNN7" };
+    const result = redact(input);
+    expect(result[amzAccessKeyHeader]).toBe("[REDACTED]");
+  });
+
+  test("Authorization (mixed-case exact) is redacted", () => {
+    const input: Record<string, unknown> = { Authorization: "Bearer tok" };
+    const result = redact(input);
+    expect(result.Authorization).toBe("[REDACTED]");
+  });
+
+  test("authorizationMode is NOT redacted (regression guard)", () => {
+    const input: Record<string, unknown> = { authorizationMode: "implicit" };
+    const result = redact(input);
+    expect(result.authorizationMode).toBe("implicit");
+  });
+
+  test("monkey, keyboard, keyPath, surveyKeyPath remain NOT redacted (regression guards)", () => {
+    const input: Record<string, unknown> = {
+      monkey: "banana",
+      keyboard: "qwerty",
+      keyPath: "/foo/bar",
+      surveyKeyPath: "/survey/key/path",
+    };
+    const result = redact(input);
+    expect(result.monkey).toBe("banana");
+    expect(result.keyboard).toBe("qwerty");
+    expect(result.keyPath).toBe("/foo/bar");
+    expect(result.surveyKeyPath).toBe("/survey/key/path");
   });
 });
