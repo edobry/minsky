@@ -306,14 +306,16 @@ export class MinskyMCPServer {
       session = this.httpSessions.get(sessionId)!;
       session.lastActiveAt = Date.now();
     } else if (sessionId && !this.httpSessions.has(sessionId)) {
-      // Session ID provided but not found — reject with 400 JSON-RPC -32600.
-      // This is a protocol violation: the client claims an existing session that
-      // this server instance does not know about (e.g. stale ID after a restart).
-      res.status(400).json({
+      // Session ID provided but not found — reject with 404 JSON-RPC -32001
+      // "Session not found". This matches the MCP Streamable HTTP spec and the
+      // SDK's own webStandardStreamableHttp behavior: the session resource does
+      // not exist on this instance (e.g. stale ID after a restart). 404 tells
+      // compliant clients the condition is retryable via a fresh initialize.
+      res.status(404).json({
         jsonrpc: "2.0",
         error: {
-          code: -32600,
-          message: "Invalid Request: session not found",
+          code: -32001,
+          message: "Session not found",
         },
         id: null,
       });
@@ -431,8 +433,13 @@ export class MinskyMCPServer {
    */
   private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
     if (!sessionId || !this.httpSessions.has(sessionId)) {
-      // Return 405 Method Not Allowed if no SSE stream available
-      res.status(405).set("Allow", "POST").send("Method Not Allowed");
+      // Return 404 Not Found — GET is a valid method on this endpoint, but only
+      // when a session exists. A missing or unknown session-id means the resource
+      // does not exist, not that the method is disallowed. Plain text body (no
+      // JSON-RPC envelope) because SSE GET is a streaming connection, not a
+      // JSON-RPC message exchange. Explicit text/plain Content-Type to match
+      // documented behavior — Express defaults string bodies to text/html.
+      res.status(404).type("text/plain").send("Session not found");
       return;
     }
 
