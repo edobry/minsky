@@ -16,8 +16,8 @@ import {
   type PullRequestContext,
   type SubmittedReview,
 } from "./github-client";
-import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
+import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
