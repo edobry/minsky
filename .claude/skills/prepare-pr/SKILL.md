@@ -38,15 +38,32 @@ Before continuing, ask: **does this PR modify a verify, probe, smoke, or live-sy
 - The script's assertions reference an external system (production URL, hosted API, deployed service).
 - The script's value is "catch drift between code and the live system."
 
-If yes:
+In scope: read-only / non-destructive checks (HTTP GET probes, `--phase=verify`–style assertions, status reads). Out of scope: scripts that have side effects on the target (writes, migrations, deletes, load tests). If your script has side effects, this step does NOT apply — those need their own pre-merge protocol (staging run + reviewer sign-off), not a paste-into-PR-body.
 
-1. Run the script against the live target. Capture the output.
-2. Paste the output (or a clearly-attributed summary of it) into the PR body under a `## Test plan` or `## Live verification` section.
-3. If running against the live target is genuinely impossible (e.g., the target hasn't been deployed yet), state that explicitly in the PR body and note what manual verification was done in its place.
+If in scope:
+
+1. **Confirm read-only first.** Reading the script, verify it does not mutate the target. If unsure, treat as out-of-scope.
+2. **Prefer the highest-fidelity environment you have access to.** Production-parity staging is preferred when it exists; production is acceptable for read-only probes; local mock environments do NOT satisfy this step.
+3. **Run the script. Capture the output.**
+4. **Redact before pasting.** Output may contain bearer tokens, session IDs (capability tokens — treat like passwords), Authorization headers, internal hostnames/IPs, user data, or other sensitive fields. Before pasting:
+   - Replace bearer tokens / API keys with `<REDACTED>` or `Bearer ****`.
+   - Replace session IDs and cookies with length-only summaries (`session-id-len=36`).
+   - Strip raw response bodies that may contain stack traces, config fragments, or PII — paste structural assertions only (`status=200, mcp-session-id present`) rather than full response bodies.
+   - When in doubt, paste a clearly-attributed summary instead of raw output.
+5. **Paste into the PR body** under a `## Test plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
+
+**Override exceptions** (any of the following — document in the PR body which applies):
+
+- The target hasn't been deployed yet (run-after-deploy planned).
+- The author lacks access to the live target per access policy (not a personal access gap — a documented policy boundary). In this case: tag a maintainer with the right access to run the script and attach the output as part of review.
+- The target has a maintenance window or rate-limit constraint that makes ad-hoc runs harmful. Document the constraint and the alternative validation.
+- "I read the code carefully" is NOT a valid override.
 
 **Why:** mt#1194 shipped probe assertions that never matched production because no one ran the script before merging. The defect was discovered ~5 hours post-merge and required a follow-up PR (mt#1267) to fix. See `feedback_run_end_to_end_verify_end_to_end` for the underlying lesson.
 
-This is a checklist item, not a hard gate — if you have a substantive reason to skip it, document the reason in the PR body. But "I read the code carefully" is not a substantive reason; the failure mode this guards against is "the code looks right but the live system disagrees."
+This is a checklist item, not a hard gate. The override exceptions exist for legitimate cases. The failure mode this guards against is "the code looks right but the live system disagrees" — and the cost of a five-hour post-merge discovery is much higher than the cost of one extra `bun scripts/...` invocation per PR.
+
+**Reviewer-side**: when reviewing a PR that touches a verify/probe/smoke script, confirm the PR body either contains the redacted live output OR a documented override exception. If neither is present, request the live-run output before approving.
 
 ### 2. Commit all changes
 
