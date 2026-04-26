@@ -122,6 +122,16 @@ function redact(value: unknown, depth = 0): unknown {
   if (Array.isArray(value)) {
     return value.map((v) => redact(v, depth + 1));
   }
+  // Special-case Error: replacing it with a plain object via Object.entries
+  // would drop the prototype and lose `stack`/`message` (which are typically
+  // non-enumerable). Convert to a serializable shape that preserves both.
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message.replace(/Bearer\s+\S+/gi, "Bearer ***"),
+      stack: value.stack?.replace(/Bearer\s+\S+/gi, "Bearer ***"),
+    };
+  }
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -171,6 +181,10 @@ export function createLogger(options?: LoggerOptions) {
 
   const humanFormat = winston.format.combine(
     winston.format.timestamp(),
+    // Preserve Error.stack on top-level error logs in HUMAN mode too —
+    // STRUCTURED already had this; the previous omission silently dropped
+    // stack traces in TTY/dev contexts.
+    winston.format.errors({ stack: true }),
     redactFormat,
     winston.format.printf((info) => {
       const {
