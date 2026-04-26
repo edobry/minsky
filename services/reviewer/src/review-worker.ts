@@ -327,6 +327,21 @@ export async function runReview(
   });
   const scopeBucket = scopeBucketFor(prScope);
 
+  // Emit a structured log when the opt-out marker forced trivial scope so
+  // operators can track usage in metrics / dashboards (mt#1188 NON-BLOCKING).
+  if (pr.body && pr.body.includes("<!-- minsky:trivial -->")) {
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_marker_override",
+        owner,
+        repo,
+        pr: prNumber,
+        scope: prScope,
+        marker: "<!-- minsky:trivial -->",
+      })
+    );
+  }
+
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {
     return { status: "skipped", reason: routing.reason, tier };

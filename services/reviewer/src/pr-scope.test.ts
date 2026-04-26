@@ -102,6 +102,53 @@ describe("classifyPRScope — test-only", () => {
       classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["components/Button.test.tsx"] })
     ).toBe("test-only");
   });
+
+  // ---- Expanded pattern coverage (mt#1188 BLOCKING fix) ----
+
+  test("__tests__/ directory convention is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["src/__tests__/foo.ts"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test("test/ directory convention is test-only", () => {
+    expect(
+      classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["test/integration/suite.ts"] })
+    ).toBe("test-only");
+  });
+
+  test("case-insensitive: Tests/ directory is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["Tests/unit/foo.ts"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test("case-insensitive: .TEST.ts suffix is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["src/foo.TEST.ts"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test(".test.mjs file is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["src/module.test.mjs"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test(".spec.cjs file is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["src/module.spec.cjs"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test("mixed __tests__/ and test/ directories are test-only together", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["src/__tests__/a.ts", "test/b.ts"],
+      })
+    ).toBe("test-only");
+  });
 });
 
 describe("classifyPRScope — trivial", () => {

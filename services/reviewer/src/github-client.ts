@@ -55,6 +55,77 @@ export interface PullRequestContext {
   filesChanged: string[];
 }
 
+/**
+ * Safety cap on paginated listFiles results. PRs with more files than this
+ * threshold are too large to classify reliably — partial data risks
+ * non-conservative misclassification (e.g. docs-only first page, code on
+ * later pages). When exceeded, return an empty list so the scope classifier
+ * falls through to `normal` (the conservative default).
+ *
+ * 1000 covers virtually all real PRs; GitHub caps PRs at 3000 changed files.
+ *
+ * Exported for tests.
+ */
+export const MAX_FILES_FETCHED = 1000;
+
+/**
+ * Fetch all changed files for a PR using full pagination (follows Link
+ * headers). Returns the file list, or an empty list when:
+ *   - the API call fails (rate-limit, transient 5xx) — logged as a warning
+ *   - more than MAX_FILES_FETCHED entries are returned — also logged so
+ *     operators see the partial-data guard firing in metrics
+ *
+ * In both error cases the caller receives `[]`, which causes the scope
+ * classifier to fall through to conservative `normal` scope.
+ *
+ * Exported for tests.
+ */
+export async function fetchListFiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<{ data: Array<{ filename: string }> }> {
+  try {
+    const files = await octokit.paginate(octokit.rest.pulls.listFiles, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+
+    if (files.length > MAX_FILES_FETCHED) {
+      console.log(
+        JSON.stringify({
+          event: "pr_scope_files_cap_exceeded",
+          owner,
+          repo,
+          pr: prNumber,
+          fileCount: files.length,
+          cap: MAX_FILES_FETCHED,
+          message: `PR has ${files.length} changed files (cap=${MAX_FILES_FETCHED}); falling back to empty filesChanged (scope will default to normal)`,
+        })
+      );
+      return { data: [] };
+    }
+
+    return { data: files };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_listfiles_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+        message: `pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal)`,
+      })
+    );
+    return { data: [] };
+  }
+}
+
 export async function fetchPullRequestContext(
   octokit: Octokit,
   owner: string,
@@ -69,25 +140,22 @@ export async function fetchPullRequestContext(
       pull_number: prNumber,
       mediaType: { format: "diff" },
     }),
-    // Fetch changed file paths for the scope classifier (mt#1188).
-    // per_page=300 covers the vast majority of PRs; GitHub caps at 3000 files
-    // per PR, but the classifier's heuristics work well enough on the first
-    // 300 — the scope check is advisory, not security-critical.
+    // Fetch changed file paths for the scope classifier (mt#1188) using full
+    // pagination so PRs with >100 files (GitHub's default page size) are not
+    // silently truncated. Truncation is non-conservative: a docs-heavy first
+    // page with code on later pages would misclassify the PR as docs-only and
+    // lower rigor on what should be a normal review.
     //
-    // Fall back to an empty list on failure (rare 422 on >3000-file PRs,
+    // Safety cap: if pagination yields more than MAX_FILES_FETCHED entries we
+    // cannot reliably classify (partial data from a huge PR), so we log a
+    // warning and return a sentinel that lets the caller fall through to
+    // conservative `normal` scope.
+    //
+    // Fall back to an empty list on API failure (rare 422 on >3000-file PRs,
     // transient 5xx). The classifier then produces conservative `normal`
-    // scope and the review still runs — matching the "advisory, not
-    // security-critical" framing above. The failure is observable via the
-    // warning log.
-    octokit.rest.pulls
-      .listFiles({ owner, repo, pull_number: prNumber, per_page: 300 })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[mt#1188] pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal): ${message}`
-        );
-        return { data: [] as Array<{ filename: string }> };
-      }),
+    // scope and the review still runs. The failure is observable via the
+    // structured warning log.
+    fetchListFiles(octokit, owner, repo, prNumber),
   ]);
 
   const pr = prResponse.data;
@@ -95,6 +163,9 @@ export async function fetchPullRequestContext(
   // string at runtime even though the typed response is PullRequest. String()
   // safely coerces the runtime value without the as-unknown double cast.
   const diff = String(diffResponse.data);
+  // filesResponse.data is either the full paginated file list or [] (when the
+  // cap is exceeded or the API call fails). In both error cases, empty → scope
+  // classifier falls through to conservative `normal` scope.
   const filesChanged = filesResponse.data.map((f) => f.filename);
 
   // Head repository coords may differ from base coords for forked PRs.

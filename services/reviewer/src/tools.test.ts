@@ -1,12 +1,20 @@
 /**
- * Tests for github-client helpers: readFileAtRef and listDirectoryAtRef.
+ * Tests for github-client helpers: readFileAtRef, listDirectoryAtRef,
+ * normalizeContentPath, and fetchListFiles.
  *
- * Mocks octokit.rest.repos.getContent to avoid real network calls.
+ * Mocks octokit.rest.repos.getContent / octokit.paginate to avoid real
+ * network calls.
  */
 
 import { describe, expect, test, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
-import { listDirectoryAtRef, normalizeContentPath, readFileAtRef } from "./github-client";
+import {
+  fetchListFiles,
+  listDirectoryAtRef,
+  MAX_FILES_FETCHED,
+  normalizeContentPath,
+  readFileAtRef,
+} from "./github-client";
 
 /** Build a minimal mock Octokit with a stubbed getContent. */
 function makeOctokit(
@@ -402,5 +410,76 @@ describe("listDirectoryAtRef — root-path normalization", () => {
 
     await listDirectoryAtRef(octokit, OWNER, REPO, "src/foo/", REF);
     expect(capturedPath).toBe("src/foo");
+  });
+});
+
+// ----- fetchListFiles (mt#1188 BLOCKING: pagination) -----
+
+/** Build a minimal mock Octokit with a stubbed paginate + listFiles. */
+function makeOctokitWithPaginate(
+  paginateImpl: (endpoint: unknown, params: unknown) => Promise<Array<{ filename: string }>>
+): Octokit {
+  return {
+    paginate: mock(paginateImpl),
+    rest: {
+      pulls: {
+        listFiles: {},
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchListFiles", () => {
+  test("returns all files from a single page", async () => {
+    const files = [{ filename: "src/a.ts" }, { filename: "src/b.ts" }];
+    const octokit = makeOctokitWithPaginate(async () => files);
+
+    const result = await fetchListFiles(octokit, OWNER, REPO, 42);
+    expect(result.data).toEqual(files);
+  });
+
+  test("returns all files across multiple pages (paginate follows Link headers)", async () => {
+    // Simulate paginate combining two pages
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const page2 = Array.from({ length: 50 }, (_, i) => ({ filename: `tests/test${i}.ts` }));
+    const allFiles = [...page1, ...page2];
+    const octokit = makeOctokitWithPaginate(async () => allFiles);
+
+    const result = await fetchListFiles(octokit, OWNER, REPO, 7);
+    expect(result.data).toHaveLength(150);
+    expect(result.data[0].filename).toBe("src/file0.ts");
+    expect(result.data[149].filename).toBe("tests/test49.ts");
+  });
+
+  test("returns empty list and logs when file count exceeds MAX_FILES_FETCHED", async () => {
+    // A PR with too many files cannot be reliably classified; fall through to
+    // conservative normal scope.
+    const tooManyFiles = Array.from({ length: MAX_FILES_FETCHED + 1 }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+    }));
+    const octokit = makeOctokitWithPaginate(async () => tooManyFiles);
+
+    const result = await fetchListFiles(octokit, OWNER, REPO, 99);
+    expect(result.data).toEqual([]);
+  });
+
+  test("returns exactly MAX_FILES_FETCHED files without triggering the cap", async () => {
+    // Boundary: exactly at the cap should NOT trigger the cap fallback.
+    const atCap = Array.from({ length: MAX_FILES_FETCHED }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+    }));
+    const octokit = makeOctokitWithPaginate(async () => atCap);
+
+    const result = await fetchListFiles(octokit, OWNER, REPO, 100);
+    expect(result.data).toHaveLength(MAX_FILES_FETCHED);
+  });
+
+  test("returns empty list on API error (conservative fallback)", async () => {
+    const octokit = makeOctokitWithPaginate(async () => {
+      throw new Error("rate limit exceeded");
+    });
+
+    const result = await fetchListFiles(octokit, OWNER, REPO, 55);
+    expect(result.data).toEqual([]);
   });
 });

@@ -33,7 +33,16 @@ export type ScopeBucket = "trivial-or-docs" | "test-only" | "normal";
 const DOCS_FILE_PATTERN =
   /^(docs\/|.*\.md$|.*\.mdx$|README(\.[a-z]+)?$|CHANGELOG(\.[a-z]+)?$|LICENSE(\.[a-z]+)?$)/i;
 
-const TEST_FILE_PATTERN = /^(tests\/|.*\.test\.(ts|tsx|js|jsx)$|.*\.spec\.(ts|tsx|js|jsx)$)/;
+// Case-insensitive (i flag) to handle OS X / Windows paths where casing can
+// vary. Covers the three major JS/TS test directory conventions:
+//   - tests/ or test/ at the path root (e.g. "tests/integration/foo.ts")
+//   - __tests__/ anywhere in the path (e.g. "src/__tests__/foo.ts") — this
+//     directory is almost always nested under a source tree, so we match it
+//     wherever it appears rather than only at the root.
+//   - Standard file-suffix patterns (.test.*, .spec.*) anywhere in the path.
+// Extensions include mjs/cjs for modern ESM/CJS module test files.
+const TEST_FILE_PATTERN =
+  /^(tests\/|test\/|.*__tests__\/|.*\.test\.(ts|tsx|js|jsx|mjs|cjs)$|.*\.spec\.(ts|tsx|js|jsx|mjs|cjs)$)/i;
 
 /** Opt-out marker in PR body: force the result to `trivial`. */
 const TRIVIAL_MARKER = "<!-- minsky:trivial -->";
