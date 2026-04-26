@@ -370,4 +370,86 @@ describe("redact", () => {
     expect(result["secret-key"]).toBe("[REDACTED]");
     expect(result["access-key"]).toBe("[REDACTED]");
   });
+
+  // mt#1181 R6 finding: lowercased camelCase boundary over-redacted unprefixed words
+  test("mytoken, custompassword, dbconnectionstring are NOT redacted (R6)", () => {
+    const input: Record<string, unknown> = {
+      mytoken: "user-data-1",
+      custompassword: "user-data-2",
+      dbconnectionstring: "user-data-3",
+    };
+    const result = redact(input);
+    expect(result.mytoken).toBe("user-data-1");
+    expect(result.custompassword).toBe("user-data-2");
+    expect(result.dbconnectionstring).toBe("user-data-3");
+  });
+
+  test("accessToken, bearerToken, refreshToken, idToken ARE redacted (explicit camelCase)", () => {
+    const input: Record<string, unknown> = {
+      accessToken: "at-1",
+      bearerToken: "bt-1",
+      refreshToken: "rt-1",
+      idToken: "it-1",
+      apiToken: "apit-1",
+      authToken: "autht-1",
+      sessionToken: "st-1",
+      csrfToken: "csrf-1",
+    };
+    const result = redact(input);
+    expect(result.accessToken).toBe("[REDACTED]");
+    expect(result.bearerToken).toBe("[REDACTED]");
+    expect(result.refreshToken).toBe("[REDACTED]");
+    expect(result.idToken).toBe("[REDACTED]");
+    expect(result.apiToken).toBe("[REDACTED]");
+    expect(result.authToken).toBe("[REDACTED]");
+    expect(result.sessionToken).toBe("[REDACTED]");
+    expect(result.csrfToken).toBe("[REDACTED]");
+  });
+
+  test("token, password, secret as exact keys ARE redacted", () => {
+    const input: Record<string, unknown> = {
+      token: "t",
+      password: "p",
+      secret: "s",
+      connectionString: "c",
+    };
+    const result = redact(input);
+    expect(result.token).toBe("[REDACTED]");
+    expect(result.password).toBe("[REDACTED]");
+    expect(result.secret).toBe("[REDACTED]");
+    expect(result.connectionString).toBe("[REDACTED]");
+  });
+
+  test("separator-bounded generic words ARE redacted (x-token, auth-password)", () => {
+    const input: Record<string, unknown> = {
+      "x-token": "1",
+      "auth-password": "2",
+      "stored-secret": "3",
+    };
+    const result = redact(input);
+    expect(result["x-token"]).toBe("[REDACTED]");
+    expect(result["auth-password"]).toBe("[REDACTED]");
+    expect(result["stored-secret"]).toBe("[REDACTED]");
+  });
+
+  // mt#1181 R6 finding: shared references in a DAG must not be collapsed to [Circular]
+  test("shared references in a DAG are redacted on every branch (not [Circular])", () => {
+    const shared = { token: "x", normal: "y" };
+    const input: Record<string, unknown> = { a: shared, b: shared };
+    const result = redact(input) as {
+      a: { token: string; normal: string };
+      b: { token: string; normal: string };
+    };
+    expect(result.a).toEqual({ token: "[REDACTED]", normal: "y" });
+    expect(result.b).toEqual({ token: "[REDACTED]", normal: "y" });
+    // Critically, b is NOT "[Circular]"
+    expect(result.b).not.toBe("[Circular]");
+  });
+
+  test("true cycle is still detected as [Circular]", () => {
+    const obj: Record<string, unknown> = { a: 1 };
+    obj.self = obj;
+    const result = redact(obj) as { a: number; self: unknown };
+    expect(result.self).toBe("[Circular]");
+  });
 });
