@@ -296,6 +296,12 @@ export interface ReviewPromptInput {
   authorshipTier: 1 | 2 | 3 | null;
   branchName: string;
   baseBranch: string;
+  /**
+   * Rendered markdown summary of prior bot reviews on this PR.
+   * When present and non-empty, injected as a "## Prior Reviews" section
+   * between the task spec and the diff. Undefined or empty string → section omitted.
+   */
+  priorReviews?: string;
 }
 
 export function buildReviewPrompt(input: ReviewPromptInput): string {
@@ -311,6 +317,9 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
   const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
+  const priorReviewsSection =
+    input.priorReviews && input.priorReviews.trim() ? `\n\n${input.priorReviews}` : "";
+
   return `# PR Review Request
 
 ## PR Metadata
@@ -324,7 +333,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}
+${specSection}${outOfRepoBlock}${priorReviewsSection}
 
 ## Diff
 

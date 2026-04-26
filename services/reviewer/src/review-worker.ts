@@ -8,6 +8,7 @@
 import type { ReviewerConfig } from "./config";
 import {
   createOctokit,
+  fetchPriorReviews,
   fetchPullRequestContext,
   getAppIdentity,
   listDirectoryAtRef,
@@ -19,6 +20,8 @@ import {
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
+import type { PriorReview } from "./prior-review-summary";
+import { countBlockingFindings, summarizePriorReviews } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
@@ -30,6 +33,37 @@ import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
  * successful retry with reduced reasoning effort, or a failed retry.
  */
 export type ReviewAttemptTrace = "first-attempt-success" | "retry-success" | "retry-failed";
+
+/** Result of prior-review ingestion. Logged per review for convergence observability. */
+export interface PriorReviewIngestionResult {
+  /** Number of prior review iterations fetched (after filtering). */
+  iterationCount: number;
+  /** Number of those iterations that are stale (posted against an older commit). */
+  staleCount: number;
+  /**
+   * Per-iteration [BLOCKING] count extracted from each prior review body.
+   * Oldest-first ordering, matches summarizePriorReviews' iteration order.
+   * Empty array when iterationCount is 0 or when the fetch errored — never
+   * undefined, so downstream log consumers can always index it.
+   *
+   * Enables the SC-3 convergence metric: comparing Iter-1 blockers vs.
+   * Iter-N blockers across rounds to detect severity inflation or drift.
+   */
+  priorBlockingCounts: number[];
+  /** Set when the fetch threw an error; review still proceeds without prior context. */
+  error?: string;
+}
+
+/**
+ * Injectable prior-review fetcher type, for test seams.
+ * Defaults to `fetchPriorReviews` from github-client.
+ */
+export type PriorReviewFetcherFn = (
+  octokit: InstanceType<typeof import("@octokit/rest").Octokit>,
+  owner: string,
+  repo: string,
+  prNumber: number
+) => Promise<PriorReview[]>;
 
 export interface ReviewResult {
   status: "reviewed" | "skipped" | "error";
@@ -47,6 +81,13 @@ export interface ReviewResult {
   taskSpecFetch?: TaskSpecFetchResult;
   /** PR scope classification used to select the prompt variant (mt#1188). Absent on skipped reviews. */
   scope?: PRScope;
+  /** Outcome of the prior-review ingestion (absent on skipped reviews). */
+  priorReviewIngestion?: PriorReviewIngestionResult;
+  /**
+   * Best-effort count of [BLOCKING] findings in the submitted review body.
+   * null when extraction failed or review was not posted (error/skipped paths).
+   */
+  blockingCount?: number | null;
 }
 
 /**
@@ -300,6 +341,19 @@ export function buildRunReviewStartLog(
   };
 }
 
+/**
+ * Optional injectable dependencies for runReview. All fields are optional;
+ * defaults to real production implementations when absent.
+ */
+export interface RunReviewDeps {
+  /**
+   * Test seam for prior-review fetch. When provided, replaces the real
+   * fetchPriorReviews call. Receives the same (octokit, owner, repo, prNumber)
+   * arguments. Throw to simulate a fetch error.
+   */
+  priorReviewFetcher?: PriorReviewFetcherFn;
+}
+
 export async function runReview(
   config: ReviewerConfig,
   owner: string,
@@ -307,7 +361,8 @@ export async function runReview(
   prNumber: number,
   prAuthorLogin: string,
   deliveryId: string = "unknown",
-  headSha?: string
+  headSha?: string,
+  deps: RunReviewDeps = {}
 ): Promise<ReviewResult> {
   console.log(
     JSON.stringify(buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown"))
@@ -350,6 +405,33 @@ export async function runReview(
     config,
   });
 
+  // Fetch prior bot reviews on this PR. Non-blocking — errors produce an empty
+  // summary with error logged, review continues without prior context.
+  const priorReviewFetcherFn = deps.priorReviewFetcher ?? fetchPriorReviews;
+  let priorReviewIngestion: PriorReviewIngestionResult;
+  let priorReviewsMarkdown = "";
+  try {
+    const priorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
+    const summary = summarizePriorReviews(priorReviews, pr.headSha);
+    priorReviewIngestion = {
+      iterationCount: summary.iterationCount,
+      staleCount: summary.reviews.filter((r) => r.isStale).length,
+      priorBlockingCounts: priorReviews.map((r) => countBlockingFindings(r.body)),
+    };
+    priorReviewsMarkdown = summary.markdown;
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[mt#1189] Prior-review fetch failed, continuing without context: ${errorMessage}`
+    );
+    priorReviewIngestion = {
+      iterationCount: 0,
+      staleCount: 0,
+      priorBlockingCounts: [],
+      error: errorMessage,
+    };
+  }
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
@@ -359,6 +441,7 @@ export async function runReview(
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
+    priorReviews: priorReviewsMarkdown || undefined,
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
@@ -433,6 +516,7 @@ export async function runReview(
       retryAttempted,
       taskSpecFetch,
       scope: prScope,
+      priorReviewIngestion,
     };
   }
 
@@ -499,6 +583,7 @@ export async function runReview(
       retryAttempted,
       taskSpecFetch,
       scope: prScope,
+      priorReviewIngestion,
     };
   }
 
@@ -510,6 +595,11 @@ export async function runReview(
     outcome.event,
     annotateReviewBody(sanitized.body, output, tier, isSelfReview)
   );
+
+  // Best-effort count of BLOCKING findings in the submitted review body.
+  // Enables "prior-blocker count / new-blocker count" convergence metric in logs.
+  // Shares countBlockingFindings with the prior-review counts above.
+  const blockingCount: number = countBlockingFindings(sanitized.body);
 
   return {
     status: outcome.status,
@@ -523,6 +613,8 @@ export async function runReview(
     retryAttempted,
     taskSpecFetch,
     scope: prScope,
+    priorReviewIngestion,
+    blockingCount,
   };
 }
 
