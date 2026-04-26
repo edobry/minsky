@@ -57,7 +57,7 @@ export function loadSweeperConfig(): SweeperConfig {
     owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
     repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
     intervalMs: parseInt(process.env["SWEEPER_INTERVAL_MS"] ?? "600000", 10),
-    enabled: (process.env["SWEEPER_ENABLED"] ?? "true") !== "false",
+    enabled: (process.env["SWEEPER_ENABLED"] ?? "false") === "true",
   };
 }
 
@@ -108,7 +108,9 @@ export async function listOpenPRs(
   octokit: Octokit,
   owner: string,
   repo: string
-): Promise<Array<{ number: number; headSha: string; body: string; authorLogin: string }>> {
+): Promise<
+  Array<{ number: number; headSha: string; body: string; authorLogin: string; draft: boolean }>
+> {
   const prs = await octokit.paginate(octokit.rest.pulls.list, {
     owner,
     repo,
@@ -121,6 +123,7 @@ export async function listOpenPRs(
     headSha: pr.head.sha,
     body: pr.body ?? "",
     authorLogin: pr.user?.login ?? "",
+    draft: pr.draft === true,
   }));
 }
 
@@ -307,6 +310,19 @@ export async function runSweep(
   const missing: MissingReviewPR[] = [];
 
   for (const pr of openPRs) {
+    // Skip draft PRs — mirrors the webhook handler's skip_draft policy.
+    if (pr.draft) {
+      console.log(
+        JSON.stringify({
+          event: "skip_draft_sweeper",
+          pr: pr.number,
+          owner,
+          repo,
+        })
+      );
+      continue;
+    }
+
     // Respect tier routing: skip PRs that decideRouting says to skip.
     // We use extractTierFromPRBody here (not the full resolveTier fallback
     // chain with MCP) because the sweeper is a lightweight background task —
@@ -392,10 +408,13 @@ export async function runSweep(
  * Chosen over a Railway cron entry-point for simplicity: no second Railway
  * service to provision and the sweeper shares the same config the server
  * already has. The interval is configurable via SWEEPER_INTERVAL_MS (default
- * 10 min). Disable entirely with SWEEPER_ENABLED=false.
+ * 10 min). Opt-in via SWEEPER_ENABLED=true (disabled by default).
  *
  * The first sweep runs after one full interval — not immediately at boot —
  * to avoid competing with the service startup sequence.
+ *
+ * A reentrancy guard (isSweeping) prevents overlapping sweeps if a cycle
+ * takes longer than the interval (e.g., during a slow LLM round).
  *
  * Returns the timer handle so callers can clear it in tests.
  */
@@ -422,16 +441,32 @@ export function startSweeper(
     })
   );
 
+  let isSweeping = false;
+
   const handle = setInterval(() => {
-    runSweep(config, sweeperConfig).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
+    if (isSweeping) {
+      console.warn(
         JSON.stringify({
-          event: "sweeper.cycle_error",
-          error: message,
+          event: "sweeper.skip_reentrant",
+          message: "Previous sweep still in progress; skipping this interval tick.",
         })
       );
-    });
+      return;
+    }
+    isSweeping = true;
+    runSweep(config, sweeperConfig)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          JSON.stringify({
+            event: "sweeper.cycle_error",
+            error: message,
+          })
+        );
+      })
+      .finally(() => {
+        isSweeping = false;
+      });
   }, sweeperConfig.intervalMs);
 
   return handle;
