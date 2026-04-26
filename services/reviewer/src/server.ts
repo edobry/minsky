@@ -113,6 +113,24 @@ const server = Bun.serve({
       const deliveryId = request.headers.get("x-github-delivery") ?? "unknown";
       const eventName = request.headers.get("x-github-event");
 
+      // Read body BEFORE the missing-headers check so we can include `action`
+      // in the webhook_received log. Body reads are cheap for legitimate
+      // payloads; malicious-volume attacks are handled downstream by signature
+      // verification rejecting invalid payloads.
+      const body = await request.text();
+
+      // Best-effort extract `action` from the JSON body for observability.
+      // If the body is not valid JSON or has no `action` field, we emit null.
+      let action: string | null = null;
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        if (typeof parsed["action"] === "string") {
+          action = parsed["action"];
+        }
+      } catch {
+        // Non-JSON or malformed body — action stays null.
+      }
+
       // Log webhook_received BEFORE the missing-headers check so that requests
       // with absent headers (signature_present: false) still produce a log line.
       // This is the primary diagnostic signal for bad-actor or misconfigured senders.
@@ -121,6 +139,7 @@ const server = Bun.serve({
           event: "webhook_received",
           delivery_id: deliveryId,
           github_event: eventName ?? null,
+          action,
           signature_present: Boolean(signature),
         })
       );
@@ -128,8 +147,6 @@ const server = Bun.serve({
       if (!signature || !eventName) {
         return new Response("missing signature or event headers", { status: 400 });
       }
-
-      const body = await request.text();
 
       try {
         await webhooks.verifyAndReceive({

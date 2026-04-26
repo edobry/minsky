@@ -435,7 +435,8 @@ export async function runReview(
       JSON.stringify({
         event: "reviewer.cot_leak_detected",
         prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-        commitSha: pr.headSha,
+        sha: pr.headSha, // canonical field name (aligned with review_result log)
+        commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
         originalLength: sanitized.meta.originalLength,
         cleanedLength: sanitized.meta.cleanedLength,
         action: sanitized.action,
