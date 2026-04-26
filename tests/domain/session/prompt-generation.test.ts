@@ -74,7 +74,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for implementation", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "implementation" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -91,9 +91,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain(MCP_SESSION_PR_CREATE);
     });
 
-    it("suggests refactor subagent type", () => {
+    it("suggests refactorer agentType", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "refactor" });
-      expect(result.suggestedSubagentType).toBe("refactor");
+      expect(result.agentType).toBe("refactorer");
     });
 
     it("suggests sonnet as the model for refactor", () => {
@@ -130,7 +130,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for review", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "review" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -153,7 +153,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for cleanup", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -176,9 +176,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain("**Not applicable**");
     });
 
-    it("suggests verify-completion subagent type", () => {
+    it("suggests auditor agentType", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
-      expect(result.suggestedSubagentType).toBe("verify-completion");
+      expect(result.agentType).toBe("auditor");
     });
 
     it("suggests sonnet as the model for audit", () => {

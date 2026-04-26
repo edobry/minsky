@@ -70,6 +70,7 @@ async function handlePullRequestEvent(
       status: result.status,
       reason: result.reason,
       tier: result.tier,
+      scope: result.scope,
       reviewUrl: result.review?.htmlUrl,
       provider: result.providerUsed,
       model: result.providerModel,
