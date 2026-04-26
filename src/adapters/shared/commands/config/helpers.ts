@@ -6,6 +6,37 @@
  */
 
 import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
+import { isSensitiveKey } from "../../../../utils/redaction";
+
+/**
+ * Recursively masks sensitive values in a plain config object using
+ * isSensitiveKey — the same function used by isSensitivePath in this file and
+ * the standalone isSensitiveKey export in redaction.ts. Both share identical
+ * matching semantics including hyphen normalization (mt#1181 Finding 2).
+ *
+ * @param value  Any config value (object, array, or primitive)
+ * @returns      A new value with sensitive keys replaced by the masked sentinel
+ */
+function maskConfigValue(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(maskConfigValue);
+  }
+  if (typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (isSensitiveKey(k) && v !== null && v !== undefined) {
+        result[k] = typeof v === "string" ? `${"*".repeat(20)} (configured)` : "[MASKED]";
+      } else {
+        result[k] = maskConfigValue(v);
+      }
+    }
+    return result;
+  }
+  return value;
+}
 
 /**
  * Masks sensitive credential values in configuration
@@ -18,39 +49,15 @@ export function maskCredentials(
   showSecrets: boolean
 ): Record<string, unknown> {
   if (showSecrets) {
-    return config;
+    // Deep-clone so callers that mutate the returned object do not corrupt the
+    // original config reference (mt#1181 Finding 1 — mutation hazard).
+    // Uses JSON-clone (matching the pre-refactor behavior) instead of
+    // structuredClone, which throws DataCloneError on functions, class
+    // instances, or unsupported value types (R5 finding).
+    return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   }
 
-  const masked = JSON.parse(JSON.stringify(config)) as Record<string, unknown>; // Deep clone
-
-  // Mask AI provider API keys
-  const maskedAi = masked.ai as Record<string, unknown> | undefined;
-  if (maskedAi?.providers) {
-    for (const [_provider, providerConfig] of Object.entries(
-      maskedAi.providers as Record<string, unknown>
-    )) {
-      if (providerConfig && typeof providerConfig === "object") {
-        const cfg = providerConfig as Record<string, unknown>;
-        if (cfg.apiKey) {
-          cfg.apiKey = `${"*".repeat(20)} (configured)`;
-        }
-      }
-    }
-  }
-
-  // Mask GitHub token
-  const maskedGithub = masked.github as Record<string, unknown> | undefined;
-  if (maskedGithub?.token) {
-    maskedGithub.token = `${"*".repeat(20)} (configured)`;
-  }
-
-  // Mask any other potential credential fields
-  const maskedSessiondb = masked.sessiondb as Record<string, unknown> | undefined;
-  if (maskedSessiondb?.connectionString) {
-    maskedSessiondb.connectionString = `${"*".repeat(20)} (configured)`;
-  }
-
-  return masked;
+  return maskConfigValue(config) as Record<string, unknown>;
 }
 
 export function maskCredentialsInEffectiveValues(
@@ -63,16 +70,16 @@ export function maskCredentialsInEffectiveValues(
 
   const masked: Record<string, { value: unknown; source: string; path: string }> = {};
 
-  // Helper to check if a path contains sensitive information
+  // Helper to check if a path contains sensitive information.
+  // Delegates to isSensitiveKey (redaction.ts) so that both share identical
+  // matching semantics — same regex, same hyphen normalization — for paths like
+  // "github.Token", "ai.providers.OpenAI.apiKEY", "SESSIONDB.ConnectionString",
+  // and hyphenated segments like "headers.x-api-key" (mt#1181 Finding 2).
   const isSensitivePath = (path: string): boolean => {
-    return (
-      path.includes("token") ||
-      path.includes("apiKey") ||
-      path.includes("password") ||
-      path.includes("secret") ||
-      path.includes("key") ||
-      path.includes("connectionString")
-    );
+    // Test each dot-separated segment so that only the actual key part is
+    // matched (e.g. "providers" in "ai.providers.openai.apiKey" is not
+    // flagged, but "apiKey" is).
+    return path.split(".").some((segment) => isSensitiveKey(segment));
   };
 
   // Helper to mask value (but don't re-mask already masked values)

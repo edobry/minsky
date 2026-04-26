@@ -124,7 +124,7 @@ For each root cause, propose a fix that is **structural, not behavioral**. Prefe
 
 Fix types by category:
 
-- **Verification gap** — Add a step to the relevant skill (review-pr, verify-completion) or CLAUDE.md protocol
+- **Verification gap** — Add a step to the relevant skill (review-pr, auditor) or CLAUDE.md protocol
 - **Communication gap** — Update subagent prompt templates or add explicit instructions to CLAUDE.md
 - **Process gap** — Add a new protocol section to CLAUDE.md or a new step to an existing skill
 - **Enforcement gap** — Convert the rule into a hook, a skill step, or a subagent identity trait
