@@ -3,7 +3,7 @@
  * @migrated Already using native Bun patterns
  * @refactored Uses project utilities and proper TypeScript imports
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { Server as SdkServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
@@ -509,5 +509,113 @@ describe("MCP Server", () => {
       );
       await server.close();
     }
+  });
+
+  test("staleness signal: sendLoggingMessage called at alert level and exit scheduled when stale", async () => {
+    // Verifies that when StalenessDetector returns a non-null warning:
+    // (a) the tool response is still returned correctly,
+    // (b) server.sendLoggingMessage is called once with level="alert" and
+    //     logger="minsky-staleness",
+    // (c) the exit indirection is invoked (not the real process.exit).
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a trivial tool
+    server.addTool({
+      name: "echo",
+      description: "Echo a value",
+      handler: async (args: Record<string, unknown>) => String(args.value ?? "ok"),
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    // The stale message uses real-looking hex commit hashes so triggerStaleSignal's
+    // regex ([0-9a-f]{7,8}) can extract them. Mirrors the format from StalenessDetector.
+    const fakeStartupHead = "abc01234";
+    const fakeCurrentHead = "def56789";
+    const fakeStaleMessage =
+      `\n\n⚠️ The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection so we don't actually exit
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the internal SDK server instance.
+    // The private `server` field holds the SDK Server for stdio mode.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    // Access the private setupRequestHandlers result by invoking the handler directly.
+    // We exercise it via the internal tools map + the handler logic in setupRequestHandlers,
+    // which is invoked by calling the registered CallToolRequestSchema handler.
+    // Since MinskyMCPServer wires handlers to its private `server`, we call the handler
+    // by simulating a tool call via the internal handler map.
+    const toolsMap = server.getTools();
+    const echoTool = toolsMap.get("echo");
+    if (!echoTool) throw new Error("Expected echo tool to be registered");
+
+    // Simulate the tools/call handler internals: call the tool handler and check staleness.
+    // We replicate the handler's logic here to avoid needing a full MCP protocol round-trip.
+    // The actual staleness check lives in setupRequestHandlers which is already called
+    // during construction. We test triggerStaleSignal directly.
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+
+    // Verify tool call succeeds
+    const result = await echoTool.handler({ value: "hello" });
+    expect(result).toBe("hello");
+
+    // Verify stale signal not yet triggered
+    expect(exitCalls.length).toBe(0);
+    expect(loggingCalls.length).toBe(0);
+
+    // Trigger the stale signal (as the handler would)
+    triggerStaleSignal(sdkServer as any);
+
+    // sendLoggingMessage should be called immediately (before the setTimeout fires)
+    expect(loggingCalls.length).toBe(1);
+    const firstCall = loggingCalls[0];
+    if (!firstCall) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(firstCall.level).toBe("alert");
+    expect(firstCall.logger).toBe("minsky-staleness");
+    const data = firstCall.data as { text: string; startupHead: string; currentHead: string };
+    expect(data.text).toContain("reconnect via /mcp");
+    expect(data.startupHead).toBe(fakeStartupHead);
+    expect(data.currentHead).toBe(fakeCurrentHead);
+
+    // hasTriggeredStaleSignal should now be true — calling again is a no-op
+    triggerStaleSignal(sdkServer as any);
+    expect(loggingCalls.length).toBe(1); // no second call
+
+    // exit is scheduled via setTimeout(200ms) — advance using fake timers isn't
+    // available in bun:test, so we wait for the timer to fire naturally.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+    const firstExitCode = exitCalls[0];
+    if (firstExitCode === undefined) throw new Error("Expected exitCalls[0] to be defined");
+    expect(firstExitCode).toBe(0);
+
+    await server.close();
   });
 });
