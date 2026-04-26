@@ -225,12 +225,18 @@ export class DrizzlePrWatchRepository implements PrWatchRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const existing = await this.getById(id);
-    if (!existing) {
+    // Single-statement conditional delete; if zero rows were affected the
+    // record did not exist (or was already deleted by a concurrent worker).
+    // This honors the contract — throws "PrWatch not found" — without a
+    // check-then-delete race window.
+    const rows = await this.db
+      .delete(prWatchesTable)
+      .where(eq(prWatchesTable.id, id))
+      .returning({ id: prWatchesTable.id });
+
+    if (rows.length === 0) {
       throw new Error(`PrWatch not found: ${id}`);
     }
-
-    await this.db.delete(prWatchesTable).where(eq(prWatchesTable.id, id));
   }
 }
 
