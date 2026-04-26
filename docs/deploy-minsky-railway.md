@@ -14,7 +14,7 @@ Minsky's MCP server is transport-agnostic — the same tool registry serves stdi
 2. **Railway account** with a workspace you can deploy under.
 3. **GitHub App grant for Railway**: the Railway GitHub App must be installed on `edobry/minsky` (same grant as mt#1107). Verify at <https://github.com/settings/installations>.
 4. **Auth token**: `openssl rand -hex 32` — this becomes `MINSKY_MCP_AUTH_TOKEN`. Distribute only to trusted service consumers.
-5. **Supabase Postgres URL**: the same `DATABASE_URL` Minsky uses locally. Copy from `~/.config/minsky/config.yaml` or your env.
+5. **Supabase Postgres URL**: the same connection string Minsky uses locally. Copy from `~/.config/minsky/config.yaml` (the `persistence.postgres.connectionString` field) or your local env.
 
 ## First deploy
 
@@ -31,14 +31,20 @@ Railway auto-detects the `Dockerfile` at repo root and builds from it.
 
 ```bash
 # Auth — REQUIRED when using the --require-auth flag (which the default Dockerfile CMD enables)
-railway variable set MINSKY_MCP_AUTH_TOKEN=<output-of-openssl-rand-hex-32>
+railway variables --set MINSKY_MCP_AUTH_TOKEN=<output-of-openssl-rand-hex-32>
 
-# Database — the same Supabase instance used locally
-railway variable set DATABASE_URL=<your-supabase-postgres-url>
+# Persistence — BOTH vars required. The backend selector and the connection string must
+# be set together; `MINSKY_PERSISTENCE_POSTGRES_URL` alone does not flip the backend.
+railway variables --set MINSKY_PERSISTENCE_BACKEND=postgres
+railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-url>
 
 # Any other Minsky config env vars your setup uses (GitHub tokens, OpenAI keys, etc.)
 # The MCP server runs the same tools as the CLI, so it needs the same env.
 ```
+
+> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
+>
+> **Legacy `MINSKY_SESSIONDB_*` env vars** (`_BACKEND`, `_POSTGRES_URL`, `_SQLITE_PATH`) are still accepted for back-compat with older deploys and user configs, but emit a deprecation warning on load. Prefer `MINSKY_PERSISTENCE_*` for new deployments.
 
 Trigger a redeploy after setting variables:
 
@@ -95,7 +101,7 @@ All four probes must pass for a healthy deployment. Expected output:
   Probing https://<service>.up.railway.app
   ✓ GET /health → 200  (status=200)
   ✓ POST /mcp (no auth) → 401  (status=401)
-  ✓ POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000  (status=400, jsonrpc=2.0, error.code=-32000)
+  ✓ POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600  (status=400, jsonrpc=2.0, error.code=-32600)
   ✓ POST /mcp initialize → 200 + mcp-session-id  (status=200, mcp-session-id present (36 chars))
   ✓ POST /mcp tools/list (with session id) → well-known tool  (status=200, well-known Minsky tool found in response (NNNN bytes))
 
@@ -122,11 +128,11 @@ All probes passed.
 
 - Non-401: auth middleware is misconfigured or `--require-auth` flag was removed from `CMD`. Verify the Dockerfile CMD still passes `--require-auth`.
 
-### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000
+### Probe 3 — POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600
 
-**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. The SDK's `StreamableHTTPServerTransport.validateSession` emits `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}`.
+**What it proves:** After the mt#1199 per-session Server fix, a valid-auth but protocol-invalid request (no `mcp-session-id`, non-initialize method) is rejected with a well-formed JSON-RPC error at the protocol level rather than a 500. mt#1199's `isInitializeRequest` gate emits a JSON-RPC `-32600 "Invalid Request"` error (with a message describing the missing initialize) before the SDK transport's own session validator (which would emit -32000) is reached.
 
-**Expected:** `status=400`, body `{"jsonrpc":"2.0","error":{"code":-32000,...}}`
+**Expected (structural):** `status=400`, body is JSON-RPC 2.0 with `error.code === -32600` and `error.message` starting with `"Invalid Request"`. The exact message text and `id` field may evolve with future MCP SDK versions; the probe asserts the structural shape rather than an exact string. Current observed payload (informational, not contractual): `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}`.
 
 **Failure hints:**
 
@@ -154,9 +160,9 @@ Two sub-checks, both must pass:
 
 **4b — POST /mcp tools/list (with session id) → well-known tool**
 
-**What it proves:** The session established by initialize is usable for follow-up requests, and the full tool registry (including well-known Minsky tools like `session_get` or `tasks_list`) is registered and returned.
+**What it proves:** The session established by initialize is usable for follow-up requests, and the full tool registry (including well-known Minsky tools like `session.get` or `tasks.list` — the dot-separated form used by the Minsky tool registry) is registered and returned.
 
-**Expected:** `status=200`, response body contains `"session_get"` or `"tasks_list"`.
+**Expected:** `status=200`, response body contains `"session.get"` or `"tasks.list"`.
 
 **Failure hints:**
 
@@ -175,12 +181,12 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://<railway-domain>/mcp \
   -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 # → 401
 
-# Non-initialize authenticated (expect 400 + JSON-RPC -32000, after mt#1199)
+# Non-initialize authenticated (expect 400 + JSON-RPC -32600, after mt#1199)
 curl -sS https://<railway-domain>/mcp \
   -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# → {"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Mcp-Session-Id header is required"}}
+# → {"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}
 
 # Initialize handshake (expect 200 + mcp-session-id header)
 curl -sS -D - https://<railway-domain>/mcp \
@@ -197,7 +203,7 @@ curl -sS https://<railway-domain>/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: <session-id-from-above>" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-# → response body contains "session_get" and "tasks_list"
+# → response body contains "session.get" and "tasks.list"
 ```
 
 ## Consumer integration
@@ -217,7 +223,9 @@ MINSKY_MCP_TOKEN=<same-token-as-MINSKY_MCP_AUTH_TOKEN>
 
 **Service refuses to start with "--require-auth passed but MINSKY_MCP_AUTH_TOKEN env var is not set":** set the env var OR remove `--require-auth` from `CMD`. Running in the "auth-enabled-but-no-token" undefined state is blocked intentionally.
 
-**Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `DATABASE_URL` or unavailable Postgres).
+**Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `MINSKY_PERSISTENCE_POSTGRES_URL` or unavailable Postgres).
+
+**MCP calls return `Tool execution failed: no such table: ...`:** the container is running against its SQLite default instead of Postgres. Confirm `MINSKY_PERSISTENCE_BACKEND=postgres` is set (not just the connection-string var). See mt#1224.
 
 **Intermittent empty responses on tool calls:** session state issues with the Streamable HTTP transport. Check that the client is sending `mcp-session-id` correctly on follow-up requests after the initial session-establishment call.
 

@@ -66,3 +66,9 @@ workspace:
 ## Notes
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
+
+## Postgres Persistence
+
+For Postgres-specific runtime settings — connection pool size (`persistence.postgres.maxConnections`,
+`MINSKY_POSTGRES_MAX_CONNECTIONS`), connection-exhaustion retry behavior, and MCP graceful shutdown —
+see [Postgres Persistence Configuration](./persistence-configuration.md).

@@ -102,8 +102,13 @@ type EnvSpec =
 
 const ENV_SPEC: EnvSpec[] = [
   { name: "MINSKY_MCP_AUTH_TOKEN", kind: "envFile", generateIfMissing: true },
+  // Persistence: BOTH the backend selector and the connection string must be
+  // set. Setting only the URL leaves persistence.backend at its sqlite default
+  // and the container falls back to ephemeral SQLite (mt#1280 outage). The
+  // env-var names here match the modern mappings landed in mt#1275.
+  { name: "MINSKY_PERSISTENCE_BACKEND", kind: "literal", value: "postgres" },
   {
-    name: "MINSKY_POSTGRES_URL",
+    name: "MINSKY_PERSISTENCE_POSTGRES_URL",
     kind: "yaml",
     path: ["persistence", "postgres", "connectionString"],
   },
@@ -924,17 +929,18 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     detail: `status=${noAuth.status}`,
   });
 
-  // 3. /mcp authenticated with non-initialize body → expect HTTP 400 + JSON-RPC -32000.
+  // 3. /mcp authenticated with non-initialize body → expect HTTP 400 + JSON-RPC -32600.
   //
   //    After mt#1199 (per-session MCP Server fix), a POST with a valid bearer
-  //    token but no mcp-session-id and a non-initialize method must be rejected
-  //    at the protocol level with 400 "Bad Request: Mcp-Session-Id header is
-  //    required" — not silently swallowed, not 500 "Already connected to a
-  //    transport". The SDK's StreamableHTTPServerTransport.validateSession
-  //    emits this response with error.code === -32000.
+  //    token but no mcp-session-id and a non-initialize method is rejected
+  //    by mt#1199's isInitializeRequest gate before any transport is created,
+  //    with body
+  //      {"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: first request must be initialize"},"id":null}
+  //    The SDK's StreamableHTTPServerTransport.validateSession path (which
+  //    would emit -32000 "Bad Request: Mcp-Session-Id header is required") is
+  //    never reached because mt#1199's gate short-circuits first.
   //
-  //    PASS if: status 200-range is NOT returned, status IS 400, body is
-  //             valid JSON-RPC 2.0 with error.code === -32000.
+  //    PASS if: status IS 400, body is valid JSON-RPC 2.0 with error.code === -32600.
   //    FAIL modes with specific hints:
   //      - 500 → pre-fix regression ("Already connected to a transport" bug);
   //              the operator must redeploy with mt#1199's fix.
@@ -972,11 +978,16 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
       ? (authBody as Record<string, unknown>)
       : null;
   const authJsonrpc = authBodyObj?.["jsonrpc"];
-  const authErrorCode =
+  const authErrorObj =
     authBodyObj !== null &&
     typeof authBodyObj["error"] === "object" &&
     authBodyObj["error"] !== null
-      ? (authBodyObj["error"] as Record<string, unknown>)["code"]
+      ? (authBodyObj["error"] as Record<string, unknown>)
+      : null;
+  const authErrorCode = authErrorObj !== null ? authErrorObj["code"] : undefined;
+  const authErrorMessage =
+    authErrorObj !== null && typeof authErrorObj["message"] === "string"
+      ? authErrorObj["message"]
       : undefined;
 
   let authOk = false;
@@ -995,15 +1006,19 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
     authDetail = `Unexpected status=${authStatus} (expected 400). Protocol shape drift — body jsonrpc=${authJsonrpc}, error.code=${authErrorCode}.`;
   } else if (authJsonrpc !== "2.0") {
     authDetail = `HTTP 400 but body.jsonrpc=${JSON.stringify(authJsonrpc)} (expected "2.0"). Wrong response shape.`;
-  } else if (authErrorCode !== -32000) {
-    authDetail = `HTTP 400 + jsonrpc=2.0 but error.code=${authErrorCode} (expected -32000 "Bad Request: Mcp-Session-Id header is required").`;
+  } else if (authErrorCode !== -32600) {
+    authDetail = `HTTP 400 + jsonrpc=2.0 but error.code=${authErrorCode} (expected -32600 "Invalid Request: first request must be initialize").`;
+  } else if (authErrorMessage === undefined || !authErrorMessage.startsWith("Invalid Request")) {
+    authDetail =
+      `HTTP 400 + jsonrpc=2.0 + error.code=-32600 but error.message=${JSON.stringify(authErrorMessage)} ` +
+      `(expected message starting with "Invalid Request"). Protocol shape drift.`;
   } else {
     authOk = true;
-    authDetail = `status=400, jsonrpc=2.0, error.code=-32000`;
+    authDetail = `status=400, jsonrpc=2.0, error.code=-32600`;
   }
 
   results.push({
-    name: "POST /mcp (auth, non-initialize) → 400 JSON-RPC -32000",
+    name: "POST /mcp (auth, non-initialize) → 400 JSON-RPC -32600",
     ok: authOk,
     detail: authDetail,
   });
@@ -1014,7 +1029,8 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
   //    Step 1: POST initialize → expect 200 + mcp-session-id response header.
   //    Step 2: POST tools/list with captured mcp-session-id header → expect
   //            a non-empty tool list containing at least one well-known Minsky
-  //            tool name (session_get or tasks_list).
+  //            tool name (session.get or tasks.list — dot-separated, matching
+  //            the names registered in the Minsky tool registry).
   //
   //    Accept header includes text/event-stream because the server may use SSE
   //    framing for the response. We compare the raw text body as a string
@@ -1118,7 +1134,8 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
         } finally {
           toolsCancel();
         }
-        const hasKnownTool = toolsText.includes("session_get") || toolsText.includes("tasks_list");
+        const hasKnownTool =
+          toolsText.includes(`"session.get"`) || toolsText.includes(`"tasks.list"`);
 
         if (toolsResp.status !== 200) {
           toolsOk = false;
@@ -1127,7 +1144,7 @@ async function phaseVerify(opts: { cwd: string }): Promise<void> {
           toolsOk = false;
           toolsDetail =
             `tools/list returned 200 but body (${toolsText.length} bytes) contains neither ` +
-            `"session_get" nor "tasks_list". Tool registration may have failed on startup.`;
+            `"session.get" nor "tasks.list". Tool registration may have failed on startup.`;
         } else {
           toolsOk = true;
           toolsDetail = `status=200, well-known Minsky tool found in response (${toolsText.length} bytes)`;
