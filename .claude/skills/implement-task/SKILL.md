@@ -71,7 +71,7 @@ Before writing any code:
 Before declaring complete:
 
 - **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
-- Run the `verify-completion` subagent to objectively check each success criterion
+- Run the `auditor` subagent to objectively check each success criterion
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
 
@@ -99,6 +99,6 @@ These constraints apply throughout implementation:
 ## Key principles
 
 - **Spec defines scope.** Don't add features or refactor beyond what the spec asks for.
-- **Verify before declaring complete.** Use the verify-completion subagent — the doer should not verify their own work.
+- **Verify before declaring complete.** Use the `auditor` subagent — the doer should not verify their own work.
 - **Commit incrementally.** Don't save everything for one final commit.
 - **Document findings in the spec.** Update the task spec with progress, decisions, and verification outcomes — never create separate summary files.

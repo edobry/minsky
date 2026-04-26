@@ -58,6 +58,34 @@ Explicitly state what will change:
 - If unexpected results: **STOP** — do not run additional commands
 - Use `git reflog` for recovery options
 
+## Session-level MCP operations that force-push
+
+Some Minsky MCP tools internally do `git push --force` and are NOT covered by the `git push --force` hooks because they don't go through the `Bash` or `session_exec` git CLI surfaces. Treat these as destructive operations subject to the same protocols as direct `git push --force`:
+
+- **`mcp__minsky__session_update`** — merges main onto local session HEAD, then force-pushes. If the remote `task/<id>` branch has been advanced beyond the local session HEAD by another agent (e.g. another session, reviewer-bot iteration on the PR), the merge commit's parent is the **stale local** rather than the advanced remote, and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning.
+- **`mcp__minsky__session_pr_create`** — calls `session_update` internally before creating the PR. Same destructive failure mode applies.
+
+mt#1304 tracks the tool-level fix. Until that lands, follow the pre-flight check below for every call.
+
+### Pre-flight check (MANDATORY before session_update or session_pr_create)
+
+When the session's task has an open PR:
+
+1. `mcp__minsky__session_get(task)` → note `lastCommitHash`.
+2. `mcp__minsky__session_pr_list(task)` (or `mcp__github__pull_request_read get` and inspect `head.sha`).
+3. **If `lastCommitHash !== head.sha`**: the remote has advanced beyond the local session. **Do NOT call `session_update` or `session_pr_create`.** Surface the divergence to the user. Use non-mutating reads (`mcp__github__get_file_contents(ref="task/mt-N")`, `mcp__github__pull_request_read(method="get_diff")`) for analysis. Edit the session only when actually committing, and only after confirming local-vs-origin parity.
+
+### Recovery if you orphaned commits
+
+The orphaned SHAs remain accessible on GitHub by SHA for some retention window. Restore via the GitHub Refs API directly (server-side; doesn't need local repo state):
+
+```bash
+gh api -X PATCH /repos/<owner>/<repo>/git/refs/heads/<branch> \
+  -f sha=<orphaned-head-sha> -F force=true
+```
+
+After restoring, **stop touching the branch in this session** — the local session is still at the corrupted state. Surface the incident to the user, who can either start a fresh session or run an explicit recovery. Do NOT call `session_update` again on the recovered branch in the corrupted session — you'll just re-trigger the same destructive force-push.
+
 ## Force push prohibition
 
 `git push --force` is **strictly prohibited** except when ALL conditions are met:
