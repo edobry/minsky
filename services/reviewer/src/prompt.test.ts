@@ -4,6 +4,10 @@
  * The tool-access section must only appear when the caller asserts tools are
  * available — mt#1126 minsky-reviewer finding #3 surfaced that including it
  * unconditionally lies to providers that can't call tools (Gemini, Anthropic).
+ *
+ * Scope-aware calibration sections (mt#1188) are tested in the second describe
+ * block below. The normal-scope path must be byte-identical to the pre-mt#1188
+ * prompt.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -19,6 +23,8 @@ import {
 // Extracted to prevent the no-magic-string-duplication lint rule from triggering.
 const NO_TOOLS_SECTION_HEADING = "## Cross-file claims without tool access";
 const IN_REPO_CARVE_OUT_PHRASE = "This rule does NOT apply to in-repo paths";
+const SCOPE_CALIBRATION_HEADING = "## Scope-aware calibration";
+const RESERVE_BLOCKING = "reserve BLOCKING severity";
 
 describe("buildCriticConstitution", () => {
   test("includes the Tool access section when toolsAvailable=true", () => {
@@ -55,6 +61,15 @@ describe("buildCriticConstitution", () => {
     // but not yet used vs. no tools at all).
     expect(buildCriticConstitution(true)).toContain("NEEDS VERIFICATION");
     expect(buildCriticConstitution(false)).toContain("NEEDS VERIFICATION");
+  });
+
+  test("normal scope (default) is byte-identical to pre-mt#1188 prompt (no extra section)", () => {
+    // The normal-scope path must not inject any extra sections — preserves
+    // backwards compatibility for callers that don't pass a scope.
+    const defaultPrompt = buildCriticConstitution(true);
+    const explicitNormal = buildCriticConstitution(true, "normal");
+    expect(defaultPrompt).toBe(explicitNormal);
+    expect(defaultPrompt).not.toContain(SCOPE_CALIBRATION_HEADING);
   });
 });
 
@@ -405,5 +420,72 @@ describe("NO_TOOLS_SECTION in-repo exception clause", () => {
     // Tools variant has its own verification mechanism (read_file /
     // list_directory), so the exception is specific to NO_TOOLS_SECTION.
     expect(withTools).not.toContain("Exception — diff-vs-description mismatch on in-repo paths");
+  });
+});
+
+describe("buildCriticConstitution — scope-aware calibration (mt#1188)", () => {
+  test("trivial-or-docs scope includes the calibration section header", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    expect(prompt).toContain(SCOPE_CALIBRATION_HEADING);
+  });
+
+  test("trivial-or-docs scope includes reserve-BLOCKING instruction", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    expect(prompt).toContain(RESERVE_BLOCKING);
+  });
+
+  test("trivial-or-docs scope includes (a) security category", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    expect(prompt).toContain("(a)");
+    expect(prompt.toLowerCase()).toContain("security");
+  });
+
+  test("trivial-or-docs scope instructs COMMENT preference over REQUEST_CHANGES", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    expect(prompt).toContain("Prefer");
+    expect(prompt).toContain("COMMENT");
+  });
+
+  test("trivial-or-docs scope identifies itself as trivial / docs-only", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    expect(prompt).toContain("trivial / docs-only");
+  });
+
+  test("normal scope does NOT include the calibration section", () => {
+    const prompt = buildCriticConstitution(true, "normal");
+    expect(prompt).not.toContain(SCOPE_CALIBRATION_HEADING);
+    expect(prompt).not.toContain(RESERVE_BLOCKING);
+  });
+
+  test("test-only scope includes the calibration section with test-specific categories", () => {
+    const prompt = buildCriticConstitution(true, "test-only");
+    expect(prompt).toContain(SCOPE_CALIBRATION_HEADING);
+    expect(prompt).toContain("test-only");
+    expect(prompt).toContain(RESERVE_BLOCKING);
+    // Must include test-specific BLOCKING categories.
+    expect(prompt).toContain("does not actually assert the claim");
+    expect(prompt).toContain("race conditions");
+  });
+
+  test("test-only scope does NOT contain the docs-only clause", () => {
+    const prompt = buildCriticConstitution(true, "test-only");
+    expect(prompt).not.toContain("trivial / docs-only");
+    expect(prompt).not.toContain("License / legal");
+  });
+
+  test("calibration section appears between Principles and Failure modes", () => {
+    const prompt = buildCriticConstitution(true, "trivial-or-docs");
+    const principlesIdx = prompt.indexOf("## Principles");
+    const calibrationIdx = prompt.indexOf(SCOPE_CALIBRATION_HEADING);
+    const failureModesIdx = prompt.indexOf("## Failure modes");
+    expect(principlesIdx).toBeLessThan(calibrationIdx);
+    expect(calibrationIdx).toBeLessThan(failureModesIdx);
+  });
+
+  test("scope-aware clause works with toolsAvailable=false too", () => {
+    const prompt = buildCriticConstitution(false, "trivial-or-docs");
+    expect(prompt).toContain(SCOPE_CALIBRATION_HEADING);
+    expect(prompt).toContain(NO_TOOLS_SECTION_HEADING);
+    expect(prompt).not.toContain("## Tool access");
   });
 });
