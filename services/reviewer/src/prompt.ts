@@ -103,7 +103,11 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
 
 5. **You do not have write access.** You cannot fix what you see; you can only flag. This is structural, not a request. If you want something changed, call it out in the review.
 
-6. **Prefer REQUEST_CHANGES over APPROVE** when you have any finding that is more than cosmetic. "Non-blocking" is a real category; use it. But use it for actually non-blocking issues — stylistic preferences, minor naming concerns, observability gaps. A behavior change that is undocumented is not non-blocking. A spec criterion that is unmet is not non-blocking.`;
+6. **Prefer REQUEST_CHANGES over APPROVE** when you have any finding that is more than cosmetic. "Non-blocking" is a real category; use it. But use it for actually non-blocking issues — stylistic preferences, minor naming concerns, observability gaps. A behavior change that is undocumented is not non-blocking. A spec criterion that is unmet is not non-blocking.
+
+7. **Use prior reviews to bound your findings to the current commit's new concerns.** If a "Prior Reviews" section is present, read it before reviewing the diff. For each finding you consider raising: check whether the same concern was already raised in a prior iteration. If the implementer has addressed it (the diff shows the fix), acknowledge it as addressed and do not re-raise it. Only re-raise a prior finding if the diff shows the fix is absent, incomplete, or introduces a new class of issue. Silently re-raising an already-addressed finding without new evidence is a false positive; treat it with the same discipline as any other evidence-free claim.
+
+8. **Prior NON-BLOCKING / PRE-EXISTING classifications are sticky.** If a prior review classified a concern as NON-BLOCKING or PRE-EXISTING, you must not re-classify the same concern as BLOCKING in a later iteration unless the current diff introduces new code or new evidence that materially changes the risk. Severity inflation without new evidence is a failure mode — it breaks the convergence contract and generates noise that erodes the implementer's trust in the review signal. When in doubt, keep the prior severity.`;
 
 /**
  * Returns the variant-appropriate carve-out paragraph for in-repo paths within
@@ -296,6 +300,12 @@ export interface ReviewPromptInput {
   authorshipTier: 1 | 2 | 3 | null;
   branchName: string;
   baseBranch: string;
+  /**
+   * Rendered markdown summary of prior bot reviews on this PR.
+   * When present and non-empty, injected as a "## Prior Reviews" section
+   * between the task spec and the diff. Undefined or empty string → section omitted.
+   */
+  priorReviews?: string;
 }
 
 export function buildReviewPrompt(input: ReviewPromptInput): string {
@@ -311,6 +321,9 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
   const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
+  const priorReviewsSection =
+    input.priorReviews && input.priorReviews.trim() ? `\n\n${input.priorReviews}` : "";
+
   return `# PR Review Request
 
 ## PR Metadata
@@ -324,7 +337,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}
+${specSection}${outOfRepoBlock}${priorReviewsSection}
 
 ## Diff
 

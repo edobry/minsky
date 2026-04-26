@@ -12,6 +12,7 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
   const auth = createAppAuth({
@@ -145,6 +146,72 @@ export async function submitReview(
     id: response.data.id,
     htmlUrl: response.data.html_url,
   };
+}
+
+/**
+ * Hard limit on the number of reviews fetched per PR to avoid runaway pagination
+ * on pathological PRs with hundreds of reviews. listReviews returns oldest-first,
+ * so we take the first MAX_REVIEWS_FETCHED (oldest) and log a warning when truncated.
+ */
+const MAX_REVIEWS_FETCHED = 500;
+
+/**
+ * Fetch prior reviews on a PR posted by the reviewer bot.
+ *
+ * Filters to reviews from the ALLOWED_REVIEWER_BOT_LOGINS allowlist that also
+ * contain the Chinese-wall marker. Drops DISMISSED and PENDING reviews.
+ * Returns the remaining reviews sorted ascending by submittedAt (oldest first),
+ * ready for summarizePriorReviews.
+ *
+ * Uses octokit.paginate to fetch all pages (GitHub's listReviews caps at 100
+ * per page). Capped at MAX_REVIEWS_FETCHED (500) to avoid runaway fetches on
+ * pathological PRs; a warning is logged when the cap is hit.
+ *
+ * Filter logic lives in isBotReviewerEntry (prior-review-summary.ts) so it
+ * can be tested without importing @octokit dependencies.
+ */
+export async function fetchPriorReviews(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<PriorReview[]> {
+  // paginate fetches all pages automatically. listReviews returns oldest-first.
+  const allReviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
+    owner,
+    repo,
+    pull_number: prNumber,
+    per_page: 100,
+  });
+
+  let rawReviews = allReviews;
+  if (rawReviews.length > MAX_REVIEWS_FETCHED) {
+    console.warn(
+      `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
+        `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
+    );
+    rawReviews = rawReviews.slice(0, MAX_REVIEWS_FETCHED);
+  }
+
+  const reviews = rawReviews
+    .map(
+      (r): PriorReview => ({
+        id: r.id,
+        state: r.state as PriorReview["state"],
+        submittedAt: r.submitted_at ?? new Date(0).toISOString(),
+        commitId: r.commit_id,
+        userLogin: r.user?.login ?? "",
+        // GitHub's Reviews API returns null for empty approve/comment bodies.
+        // Coalesce to "" so downstream body.includes(...) in
+        // isBotReviewerEntry doesn't throw on PRs containing empty reviews.
+        body: r.body ?? "",
+      })
+    )
+    .filter((r) => isBotReviewerEntry(r))
+    // Sort ascending by submittedAt — oldest first
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+  return reviews;
 }
 
 /**
