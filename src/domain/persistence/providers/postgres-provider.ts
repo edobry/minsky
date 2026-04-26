@@ -93,7 +93,10 @@ export class PostgresPersistenceProvider
   /**
    * Initialize PostgreSQL connection
    */
-  async initialize(deps?: { sqlClient?: ReturnType<typeof postgres> }): Promise<void> {
+  async initialize(deps?: {
+    sqlClient?: ReturnType<typeof postgres>;
+    postgresFactory?: typeof postgres;
+  }): Promise<void> {
     if (this.isInitialized) {
       return;
     }
@@ -105,10 +108,13 @@ export class PostgresPersistenceProvider
     try {
       log.debug("Initializing PostgreSQL persistence provider");
 
+      // Resolve the factory — allows tests to inject a mock without mock.module()
+      const pgFactory = deps?.postgresFactory ?? postgres;
+
       // Create PostgreSQL connection (use injected client or create new one)
       const sql =
         deps?.sqlClient ??
-        postgres(pgConfig.connectionString, {
+        pgFactory(pgConfig.connectionString, {
           max: resolveMaxConnections(pgConfig.maxConnections),
           connect_timeout: pgConfig.connectTimeout || 10,
           idle_timeout: pgConfig.idleTimeout || 60,

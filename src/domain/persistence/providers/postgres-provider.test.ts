@@ -9,7 +9,8 @@ import type { PersistenceConfig } from "../../../domain/configuration/types";
 import { first } from "../../../utils/array-safety";
 import { persistenceConfigSchema } from "../../configuration/schemas/persistence";
 
-// Mock SQL client — injected via initialize()
+// Mock SQL client — injected via initialize({ sqlClient: mockSql })
+// This path bypasses the postgres() factory call entirely.
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
   const queryString = first(strings as unknown as string[], "SQL template strings");
@@ -26,6 +27,34 @@ const mockSql = Object.assign(mockSqlFunction, {
   query: mock(() => Promise.resolve([])),
   end: mock(() => Promise.resolve()),
 });
+
+/**
+ * Build a mock postgres factory that captures the call arguments and returns a
+ * minimal sql client compatible with drizzle + withPgPoolRetry. Injected via
+ * initialize({ postgresFactory }) to test the production factory call path without
+ * using mock.module() (which is banned by the no-global-module-mocks ESLint rule).
+ */
+function makeMockPostgresFactory(): {
+  factory: (connStr: string, opts: Record<string, unknown>) => unknown;
+  getCapturedArgs: () => [string, Record<string, unknown>] | null;
+} {
+  let capturedArgs: [string, Record<string, unknown>] | null = null;
+
+  const factory = mock((connStr: string, opts: Record<string, unknown>) => {
+    capturedArgs = [connStr, opts];
+    const sqlFn = mock(() => Promise.resolve([]));
+    return Object.assign(sqlFn, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: mock(() => Promise.resolve()),
+    });
+  });
+
+  return {
+    factory: factory as unknown as (connStr: string, opts: Record<string, unknown>) => unknown,
+    getCapturedArgs: () => capturedArgs,
+  };
+}
 
 const CONNECTION_REFUSED = "connection refused";
 const TEST_CONNECTION_STRING = "postgresql://user:pass@host/db";
@@ -194,29 +223,83 @@ describe("PostgresPersistenceProvider", () => {
   });
 
   test("connectTimeout: 15 (seconds) is passed as connect_timeout: 15 to postgres-js client args", async () => {
-    // The provider stores the config and passes connectTimeout directly to
-    // connect_timeout in the postgres-js call. Verify the stored config value
-    // (which feeds the postgres-js args) matches the input without conversion.
+    // This test exercises the postgres() factory call path via the postgresFactory
+    // DI hook on initialize(). The factory mock captures call arguments so we can
+    // assert connect_timeout: 15 is passed directly (no unit conversion).
+    const { factory: pgFactory, getCapturedArgs } = makeMockPostgresFactory();
     const configWith15: PersistenceConfig = {
       backend: "postgres",
       postgres: {
         connectionString: TEST_CONNECTION_STRING,
         connectTimeout: 15,
+        idleTimeout: 60,
       },
     };
     const p = new PostgresPersistenceProvider(configWith15);
 
-    // The internal config (accessed via the private pgConfig getter) is what
-    // gets passed to postgres-js as connect_timeout. Use injection to observe
-    // that initialize() accepts the value and the provider reaches initialized
-    // state — meaning the value (15, in seconds) was used without conversion.
-    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
-    await p.initialize({ sqlClient: mockSql as any });
+    await p.initialize({ postgresFactory: pgFactory as any });
 
-    // pgConfig.connectTimeout is what the production code passes to connect_timeout.
-    // Access via the known internal field for verification.
-    const storedConfig = (p as unknown as { config: PersistenceConfig }).config;
-    expect(storedConfig.postgres?.connectTimeout).toBe(15);
+    const capturedArgs = getCapturedArgs();
+    expect(capturedArgs).not.toBeNull();
+    if (capturedArgs) {
+      const [connStr, opts] = capturedArgs;
+      expect(connStr).toBe(TEST_CONNECTION_STRING);
+      expect(opts.connect_timeout).toBe(15);
+      expect(opts.idle_timeout).toBe(60);
+    }
+    expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
+  // mt#1201 NON-BLOCKING: idleTimeout validation and pass-through tests
+  test("idleTimeout schema value of 15 (seconds) passes validation", () => {
+    const result = persistenceConfigSchema.safeParse({
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        idleTimeout: 15,
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.postgres?.idleTimeout).toBe(15);
+    }
+  });
+
+  test("idleTimeout schema value of 600000 (old ms upper bound) fails validation under new second-scale bounds", () => {
+    const result = persistenceConfigSchema.safeParse({
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        idleTimeout: 600000,
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("idleTimeout: 30 (seconds) is passed as idle_timeout: 30 to postgres-js client args", async () => {
+    // This test exercises the postgres() factory call path via the postgresFactory
+    // DI hook on initialize(). Assert that idleTimeout: 30 is forwarded as
+    // idle_timeout: 30 without unit conversion.
+    const { factory: pgFactory, getCapturedArgs } = makeMockPostgresFactory();
+    const configWith30: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        connectTimeout: 10,
+        idleTimeout: 30,
+      },
+    };
+    const p = new PostgresPersistenceProvider(configWith30);
+
+    await p.initialize({ postgresFactory: pgFactory as any });
+
+    const capturedArgs = getCapturedArgs();
+    expect(capturedArgs).not.toBeNull();
+    if (capturedArgs) {
+      const [, opts] = capturedArgs;
+      expect(opts.idle_timeout).toBe(30);
+      expect(opts.connect_timeout).toBe(10);
+    }
     expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 });
