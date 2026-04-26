@@ -250,3 +250,27 @@ If you prefer more control:
 - **Reduced Conflicts**: Conflicts are resolved during PR branch preparation, not during merging
 - **Consistent Process**: Standardizes the PR workflow across all projects
 - **Task Integration**: Automatically updates task status; persistence/commits are performed by the task backend
+
+## Merge method policy
+
+**Always `merge_method=merge`. Never `squash`. Never `rebase`.**
+
+Minsky preserves merge commits for the linear-history-with-meaningful-merge-commits pattern above. Squash-merges erase the PR branch history, invalidate review-evidence links, and collapse multi-commit fix iterations into a single rewritten commit. That loses information about how a change evolved — information the `minsky-reviewer[bot]` calibration work, the session timeline, and post-merge audits all depend on.
+
+### Normal path
+
+`mcp__minsky__session_pr_merge` uses `merge_method=merge` by default. The CLI enforces the policy transparently; you don't have to remember it.
+
+### Bypass path (reviewer-bot deadlocks)
+
+When the reviewer-bot gets stuck in a recursive-fix loop on non-substantive findings and operator-dismissal is warranted (see `~/.claude/projects/.../memory/feedback_gh_api_bypass.md`), use:
+
+```bash
+gh api -X PUT repos/OWNER/REPO/pulls/N/merge \
+  -f merge_method=merge \
+  -f commit_title="<PR title> (#N)"
+```
+
+The `merge_method=merge` value is non-negotiable — the `block-git-gh-cli` PreToolUse hook (mt#1228) blocks `gh api PUT .../pulls/N/merge` invocations that use any other value, or that omit `merge_method` entirely (ambiguous intent). If the hook rejects your invocation, retry with `-f merge_method=merge`.
+
+The hook exists because three squash-merges landed on main on 2026-04-24 despite the policy being cited in every one of those bypass commit messages — memory lost to muscle memory. Structure enforces what policy alone could not.
