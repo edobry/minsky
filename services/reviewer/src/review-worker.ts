@@ -273,13 +273,43 @@ export async function defaultForkAccessProbe(
   return false;
 }
 
+/**
+ * Build the structured log object emitted at the start of each review.
+ * Extracted as a pure function so tests can assert the log shape without
+ * module-level mocking (mt#1256).
+ *
+ * Exported for tests.
+ */
+export function buildRunReviewStartLog(
+  deliveryId: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sha: string
+): Record<string, unknown> {
+  return {
+    event: "runReview_start",
+    delivery_id: deliveryId,
+    owner,
+    repo,
+    pr: prNumber,
+    sha,
+  };
+}
+
 export async function runReview(
   config: ReviewerConfig,
   owner: string,
   repo: string,
   prNumber: number,
-  prAuthorLogin: string
+  prAuthorLogin: string,
+  deliveryId: string = "unknown",
+  headSha?: string
 ): Promise<ReviewResult> {
+  console.log(
+    JSON.stringify(buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown"))
+  );
+
   const octokit = await createOctokit(config);
 
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber);
@@ -405,7 +435,8 @@ export async function runReview(
       JSON.stringify({
         event: "reviewer.cot_leak_detected",
         prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-        commitSha: pr.headSha,
+        sha: pr.headSha, // canonical field name (aligned with review_result log)
+        commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
         originalLength: sanitized.meta.originalLength,
         cleanedLength: sanitized.meta.cleanedLength,
         action: sanitized.action,
