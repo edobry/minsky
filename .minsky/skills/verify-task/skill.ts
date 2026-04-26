@@ -4,13 +4,13 @@ export default defineSkill({
   name: "verify-task",
   description:
     "Verify a task's acceptance tests, perform the post-merge adoption audit, and transition IN-REVIEW → DONE. " +
-    "Dispatches the verify-completion subagent for objective acceptance-test verification. " +
+    "Dispatches the auditor subagent for objective acceptance-test verification. " +
     'Use when: "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".',
   userInvocable: true,
   content: `# Verify Task
 
 Own the IN-REVIEW → DONE lifecycle transition: run acceptance-test verification via the
-\`verify-completion\` subagent, perform the post-merge adoption audit, and set DONE on pass.
+\`auditor\` subagent, perform the post-merge adoption audit, and set DONE on pass.
 
 ## Arguments
 
@@ -58,9 +58,9 @@ Call \`mcp__minsky__tasks_spec_get\` with the task ID. Extract:
 
 This is the ground truth for step 3.
 
-### 3. Dispatch \`verify-completion\` subagent
+### 3. Dispatch \`auditor\` subagent
 
-**Do not re-implement verification logic here.** Dispatch the existing \`verify-completion\`
+**Do not re-implement verification logic here.** Dispatch the existing \`auditor\`
 subagent with the task ID. The subagent will:
 
 1. Fetch the task spec
@@ -69,7 +69,7 @@ subagent with the task ID. The subagent will:
 4. Run baseline checks: full test suite, type check, lint, E2E smoke test, doc staleness
 5. Return a structured report with pass/fail verdicts per criterion
 
-Dispatch using \`subagent_type: "verify-completion"\` and pass the task ID as input.
+Dispatch using \`subagent_type: "auditor"\` and pass the task ID as input.
 
 Wait for the subagent report before proceeding.
 
@@ -160,7 +160,7 @@ Surface:
 
 ## Key principles
 
-- **The doer should not verify their own work.** This skill dispatches the \`verify-completion\`
+- **The doer should not verify their own work.** This skill dispatches the \`auditor\`
   subagent, which brings an objective perspective.
 - **Never set DONE on a FAIL verdict.** If any success criterion is unmet, the task stays
   IN-REVIEW. Surface the specific failing criteria — do not summarize vaguely.
