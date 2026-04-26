@@ -16,6 +16,7 @@ import {
   type PullRequestContext,
   type SubmittedReview,
 } from "./github-client";
+import { log } from "./logger";
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -309,8 +310,9 @@ export async function runReview(
   deliveryId: string = "unknown",
   headSha?: string
 ): Promise<ReviewResult> {
-  console.log(
-    JSON.stringify(buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown"))
+  log.info(
+    "runReview_start",
+    buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")
   );
 
   const octokit = await createOctokit(config);
@@ -386,7 +388,7 @@ export async function runReview(
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
   if (!toolsActive && reason) {
-    console.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
+    log.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
   }
 
   // Only pass toolContext when tools are actually active — otherwise the
@@ -444,20 +446,18 @@ export async function runReview(
   // structured service-error notice (when the leak is the entire body).
   const sanitized = sanitizeReviewBody(output.text);
   if (sanitized.action !== "passthrough") {
-    console.log(
-      JSON.stringify({
-        event: "reviewer.cot_leak_detected",
-        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-        sha: pr.headSha, // canonical field name (aligned with review_result log)
-        commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
-        originalLength: sanitized.meta.originalLength,
-        cleanedLength: sanitized.meta.cleanedLength,
-        action: sanitized.action,
-        reason: sanitized.meta.reason,
-        provider: output.provider,
-        model: output.model,
-      })
-    );
+    log.info("reviewer.cot_leak_detected", {
+      event: "reviewer.cot_leak_detected",
+      prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+      sha: pr.headSha, // canonical field name (aligned with review_result log)
+      commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
+      originalLength: sanitized.meta.originalLength,
+      cleanedLength: sanitized.meta.cleanedLength,
+      action: sanitized.action,
+      reason: sanitized.meta.reason,
+      provider: output.provider,
+      model: output.model,
+    });
   }
 
   const outcome = decidePostSanitizeOutcome(sanitized, isSelfReview, {

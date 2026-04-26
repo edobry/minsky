@@ -15,6 +15,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
+import { log } from "./logger";
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -371,7 +372,7 @@ async function callGoogle(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider google does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }
@@ -405,7 +406,7 @@ async function callAnthropic(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider anthropic does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }

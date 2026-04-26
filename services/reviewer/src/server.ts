@@ -10,6 +10,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import { loadConfig } from "./config";
 import { runReview } from "./review-worker";
+import { log } from "./logger";
 
 const config = loadConfig();
 
@@ -38,15 +39,13 @@ async function handlePullRequestEvent(
   const headSha = payload.pull_request.head.sha;
 
   if (payload.pull_request.draft) {
-    console.log(
-      JSON.stringify({
-        event: "skip_draft",
-        delivery_id: deliveryId,
-        pr: prNumber,
-        owner,
-        repo,
-      })
-    );
+    log.info("skip_draft", {
+      event: "skip_draft",
+      delivery_id: deliveryId,
+      pr: prNumber,
+      owner,
+      repo,
+    });
     return;
   }
 
@@ -59,25 +58,23 @@ async function handlePullRequestEvent(
   // Cost: on persistent failures (bad config, exhausted quota) GitHub will
   // retry several times before giving up; duplicate reviews are possible on
   // flaky errors. Sprint B adds per-SHA idempotency to eliminate duplicates.
-  console.log(
-    JSON.stringify({
-      event: "review_result",
-      delivery_id: deliveryId,
-      sha: headSha,
-      pr: prNumber,
-      owner,
-      repo,
-      status: result.status,
-      reason: result.reason,
-      tier: result.tier,
-      scope: result.scope,
-      reviewUrl: result.review?.htmlUrl,
-      provider: result.providerUsed,
-      model: result.providerModel,
-      usage: result.usage,
-      taskSpecFetch: result.taskSpecFetch,
-    })
-  );
+  log.info("review_result", {
+    event: "review_result",
+    delivery_id: deliveryId,
+    sha: headSha,
+    pr: prNumber,
+    owner,
+    repo,
+    status: result.status,
+    reason: result.reason,
+    tier: result.tier,
+    reviewUrl: result.review?.htmlUrl,
+    provider: result.providerUsed,
+    model: result.providerModel,
+    usage: result.usage,
+    taskSpecFetch: result.taskSpecFetch,
+    scope: result.scope,
+  });
 }
 
 webhooks.on("pull_request.opened", async ({ id, payload }) => {
@@ -135,15 +132,13 @@ const server = Bun.serve({
       // Log webhook_received BEFORE the missing-headers check so that requests
       // with absent headers (signature_present: false) still produce a log line.
       // This is the primary diagnostic signal for bad-actor or misconfigured senders.
-      console.log(
-        JSON.stringify({
-          event: "webhook_received",
-          delivery_id: deliveryId,
-          github_event: eventName ?? null,
-          action,
-          signature_present: Boolean(signature),
-        })
-      );
+      log.info("webhook_received", {
+        event: "webhook_received",
+        delivery_id: deliveryId,
+        github_event: eventName ?? null,
+        action,
+        signature_present: Boolean(signature),
+      });
 
       if (!signature || !eventName) {
         return new Response("missing signature or event headers", { status: 400 });
@@ -164,16 +159,14 @@ const server = Bun.serve({
         // legitimate handler errors appear in logs for debugging.
         const message = error instanceof Error ? error.message : String(error);
         const isSignatureError = /signature/i.test(message);
-        console.error(
-          JSON.stringify({
-            event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
-            delivery_id: deliveryId,
-            deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
-            github_event: eventName,
-            eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
-            error: message,
-          })
-        );
+        log.error(isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error", {
+          event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
+          delivery_id: deliveryId,
+          deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
+          github_event: eventName,
+          eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
+          error: message,
+        });
         return new Response(isSignatureError ? "invalid signature" : "internal error", {
           status: isSignatureError ? 401 : 500,
         });
@@ -184,23 +177,19 @@ const server = Bun.serve({
   },
 });
 
-console.log(
-  JSON.stringify({
-    event: "server_started",
-    port: server.port,
-    provider: config.provider,
-    model: config.providerModel,
-    tier2Enabled: config.tier2Enabled,
-    specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
-  })
-);
+log.info("server_started", {
+  event: "server_started",
+  port: server.port,
+  provider: config.provider,
+  model: config.providerModel,
+  tier2Enabled: config.tier2Enabled,
+  specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
+});
 
 if (config.provider === "anthropic") {
-  console.warn(
-    JSON.stringify({
-      event: "degraded_config_warning",
-      message:
-        "REVIEWER_PROVIDER=anthropic: implementer and reviewer likely share the Claude model family. Chinese wall captures context-isolation benefit only, not architectural diversity. Consider openai or google for full Sprint A coverage. See services/reviewer/README.md.",
-    })
-  );
+  log.warn("degraded_config_warning", {
+    event: "degraded_config_warning",
+    message:
+      "REVIEWER_PROVIDER=anthropic: implementer and reviewer likely share the Claude model family. Chinese wall captures context-isolation benefit only, not architectural diversity. Consider openai or google for full Sprint A coverage. See services/reviewer/README.md.",
+  });
 }
