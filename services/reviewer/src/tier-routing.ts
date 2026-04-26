@@ -8,11 +8,11 @@
  *
  * Sprint A: tier is read from the PR body (implementer writes it when
  * opening the PR).
- * Sprint B (mt#1085): tier is resolved via the Minsky MCP provenance endpoint
- * with a body-marker fallback.
+ * Sprint B (mt#1085): tier is resolved via the Minsky MCP authorship endpoint
+ * (`authorship.get`) with a body-marker fallback.
  *
  * Fallback chain:
- *   1. MCP provenance record (authorshipTier field) — authoritative.
+ *   1. MCP authorship record (tier field) — authoritative.
  *   2. PR-body HTML comment marker (<!-- minsky:tier=N -->).
  *   3. Hybrid default: fail-closed when MCP is configured, fail-open otherwise.
  *
@@ -21,16 +21,16 @@
  *     returns null → decideRouting defaults to Tier 2. Preserves Sprint A
  *     behavior for deployments without an MCP endpoint.
  *   - MCP configured but lookup misses (record absent, HTTP error, parse error,
- *     authorshipTier===null) AND no body marker: fail-CLOSED. resolveTier
+ *     tier===null) AND no body marker: fail-CLOSED. resolveTier
  *     returns 3 (Tier 3 / mandatory review). Rationale: when MCP is meant to be
  *     authoritative, an unresolvable tier must not silently default to skippable.
  *
- * A record present but with authorshipTier === null falls THROUGH to
+ * A record present but with tier === null falls THROUGH to
  * the body-marker path (tier not yet computed), not directly to the default.
  */
 
 import type { ReviewerConfig } from "./config";
-import { callProvenanceGet } from "./mcp-client";
+import { callAuthorshipGet } from "./mcp-client";
 
 export type AuthorshipTier = 1 | 2 | 3 | null;
 
@@ -46,11 +46,11 @@ export function extractTierFromPRBody(body: string): AuthorshipTier {
 }
 
 /**
- * Look up the authorship tier for a PR via the Minsky MCP provenance endpoint.
+ * Look up the authorship tier for a PR via the Minsky MCP authorship endpoint.
  *
  * Returns:
  * - A numeric tier (1 | 2 | 3) when the record exists and has a computed tier.
- * - null when the record exists but authorshipTier is null (not yet computed).
+ * - null when the record exists but tier is null (not yet computed).
  * - undefined when the record does not exist or the MCP call failed — signals
  *   that the caller should move to the next fallback.
  *
@@ -63,14 +63,14 @@ export async function lookupTierFromMCP(
   config: ReviewerConfig
 ): Promise<AuthorshipTier | null | undefined> {
   try {
-    const record = await callProvenanceGet(String(prNumber), "pr", config);
+    const record = await callAuthorshipGet(String(prNumber), "pr", config);
 
     if (record === null) {
       // No record found — fall through to next fallback.
       return undefined;
     }
 
-    const raw = record.authorshipTier;
+    const raw = record.tier;
     if (raw === null || raw === undefined) {
       // Record exists but tier is not yet computed — fall through to body marker.
       return null;
@@ -83,7 +83,7 @@ export async function lookupTierFromMCP(
 
     // Unknown numeric tier — treat as "no tier" and fall through.
     console.warn(
-      `[tier-routing] provenance record for PR ${prNumber} has unexpected authorshipTier=${raw}; skipping MCP result`
+      `[tier-routing] authorship record for PR ${prNumber} has unexpected tier=${raw}; skipping MCP result`
     );
     return undefined;
   } catch (err) {
@@ -95,8 +95,8 @@ export async function lookupTierFromMCP(
 
 /**
  * Resolve the authorship tier for a PR using the full fallback chain:
- *   1. MCP provenance record
- *   2. PR-body HTML comment marker
+ *   1. MCP authorship record (tier field via authorship.get) — authoritative.
+ *   2. PR-body HTML comment marker.
  *   3. Hybrid default — see module-level docstring for the fail-open / fail-closed policy.
  *
  * When MCP is configured and the lookup misses (no record, HTTP error, null tier) AND the
@@ -118,7 +118,7 @@ export async function resolveTier(
 ): Promise<AuthorshipTier> {
   const mcpConfigured = !!(config.mcpUrl && config.mcpToken);
 
-  // Step 1: MCP provenance lookup (no-op if unconfigured; callProvenanceGet early-returns null).
+  // Step 1: MCP authorship lookup (no-op if unconfigured; callAuthorshipGet early-returns null).
   const mcpTier = await mcpLookupFn(prNumber, config);
 
   if (mcpTier === 1 || mcpTier === 2 || mcpTier === 3) {

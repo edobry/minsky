@@ -25,6 +25,7 @@ export const commandCategorySchema = z.enum([
   "KNOWLEDGE",
   "MEMORY",
   "PROVENANCE",
+  "AUTHORSHIP",
   "COMPILE",
 ]);
 
