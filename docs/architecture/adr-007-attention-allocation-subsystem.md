@@ -1,4 +1,4 @@
-# ADR-006: Attention-Allocation Subsystem (Ask Entity, Router, Transport Bindings)
+# ADR-007: Attention-Allocation Subsystem (Ask Entity, Router, Transport Bindings)
 
 ## Status
 
@@ -39,11 +39,11 @@ The companion principle — **humility as a design property** — is the posture
 - **mt#454** — Agent Inbox; the natural persistence home for async asks
 - **mt#1001** — mesh signal channel push; the transport for `coordination.notify`
 - **mt#700** — Layer 2 task executor; emits AG-UI-shaped events and must classify asks before emitting
-- **mt#781** — Locus / cockpit; the rendering surface for attention debt and open asks
+- **mt#781** — Locus / cockpit (superseded by mt#1143 cockpit); the rendering surface for attention debt and open asks
 - **mt#503** — premature-completion guardrails; adjacent System 3\* detector pattern (different failure mode, same shape; see mt#1035)
 - **mt#953** — agent identity; provides the `{kind}:{scope}:{id}` format used as the Ask's `requestor` and `routingTarget`
 
-Each of these has been updated to reference mt#1034 at the relevant point in its spec. This ADR is the load-bearing synthesis that lets them be implemented as composable pieces of one subsystem rather than five overlapping ones.
+mt#697, mt#454, mt#1001, mt#700, and mt#953 have been updated to reference mt#1034 at the relevant point in their specs. mt#781 was repointed to mt#1143 (cockpit) as its implementation anchor; mt#1143 is the rendering surface that consumes this ADR. This ADR is the load-bearing synthesis that lets them be implemented as composable pieces of one subsystem rather than five overlapping ones.
 
 ### Why a domain primitive is needed
 
@@ -124,6 +124,29 @@ export type AskState =
   | "closed" // terminal
   | "cancelled" // operator or upstream cancelled before response
   | "expired"; // deadline passed with no response
+```
+
+### Supporting types
+
+The following types appear in the `Ask` interface above. `AgentId` is defined in mt#953; `AskOption` and `ContextRef` are defined here.
+
+```typescript
+// AgentId — defined in mt#953; format is {kind}:{scope}:{id}
+// Reference mt#953 for the authoritative definition; reproduced here for readability.
+export type AgentId = string; // format: "{kind}:{scope}:{id}"
+
+export interface AskOption {
+  id: string;
+  label: string;
+  description?: string;
+  value: unknown;
+}
+
+export interface ContextRef {
+  kind: "task" | "session" | "pr" | "diff" | "file" | "ask";
+  ref: string;
+  lineRange?: [number, number];
+}
 ```
 
 Notes:
@@ -301,22 +324,22 @@ This ADR is research. The implementation decomposes into the child tasks below. 
 
 1. **Ask entity + persistence** — DB schema, TypeScript types, CRUD, `classifierVersion` migration path. Scope: ~400 lines domain + 1 migration. Depends on nothing.
 2. **Router skeleton + policy-resolver transport** — Router interface, policy consultation, `responder = "policy"` close path. No other transports yet. Depends on child #1.
-3. **Inbox transport binding (mt#454 integration)** — adapt the existing Inbox design to be the persistence for `direction.decide` / async `authorization.approve` / async `quality.review`. Depends on child #1 and mt#454 landing.
-4. **AG-UI transport binding (mt#700 integration)** — sync interrupt emitter for `authorization.approve` and sync `quality.review`. Depends on child #1 and mt#700 landing.
-5. **Mesh transport binding (mt#1001 integration)** — `coordination.notify` routing. Depends on child #1 and mt#1001 landing.
+3. **Inbox transport binding (mt#454 integration)** — adapt the existing Inbox design to be the persistence for `direction.decide` / async `authorization.approve` / async `quality.review`. Owned by mt#454; depends on child #1 landing first.
+4. **AG-UI transport binding (mt#700 integration)** — sync interrupt emitter for `authorization.approve` and sync `quality.review`. Owned by mt#700; depends on child #1 landing first.
+5. **Mesh transport binding (mt#1001 integration)** — `coordination.notify` routing. Owned by mt#1001; depends on child #1 landing first.
 6. **Subagent dispatch binding** — `capability.escalate` and `stuck.unblock` routing via the Task tool. Depends on child #1.
 7. **Attention-accounting schema + reporting** — per-task / per-kind rollups; `tasks_list` / `session_status` surfacing. Depends on child #1.
 8. **BLOCKED subtype rendering** — `tasks_list` renders `BLOCKED(direction)` etc. with the linked Ask. Depends on children #1 and #3.
 
-Child tasks are created alongside the merge of this ADR.
+Child tasks mt#1068–mt#1072 cover children #1, #2, #6, #7, and #8 above. Children #3, #4, and #5 (the transport bindings for Inbox, AG-UI, and Mesh) are owned by their parent tasks (mt#454, mt#700, mt#1001 respectively) — they consume ADR-007 but do not get separate child tasks under mt#1034.
 
 ## Relationship to existing tasks
 
 - **mt#697** — DONE. This ADR is the reification of the findings. The AG-UI adoption recommendation carries through: sync interrupt pattern yes, `reason` enum no, adopt as one of several transports.
 - **mt#454** — Inbox spec has been updated in-place to reflect its role as the async-ask backbone. No schema change required beyond `kind` and `classifierVersion` fields on the request row.
-- **mt#1001** — mesh push spec has been updated with the mt#697 recommendation (LISTEN/NOTIFY + SSE). This ADR confirms `coordination.notify` as the only kind that routes here.
-- **mt#700** — Layer 2 executor spec has been updated with the AG-UI HITL contract. This ADR confirms that contract and names the two kinds that use it.
-- **mt#781** — Locus/cockpit spec has been updated to reference AG-UI rendering and the Ask subsystem. This ADR confirms the cockpit as the rendering surface for open asks and attention debt.
+- **mt#1001** — mesh push carries the LISTEN/NOTIFY + SSE decision from mt#697. This ADR confirms `coordination.notify` as the only kind that routes here.
+- **mt#700** — Layer 2 executor carries the AG-UI HITL contract. This ADR confirms that contract and names the two kinds that use it.
+- **mt#781** — mt#1143 cockpit (which subsumes mt#781) is the rendering surface for open asks and attention debt. This ADR is the load-bearing synthesis those tasks consume.
 - **mt#953** — agent identity format (`{kind}:{scope}:{id}`) is used for `requestor` and `routingTarget`. This ADR does not extend mt#953; it only consumes it.
 - **mt#503** — premature-completion guardrails. Empty spec (pre-existing data issue; out of scope here). Adjacent detector pattern; mt#1035 owns the detector design and will evaluate whether mt#503 should share infrastructure.
 
