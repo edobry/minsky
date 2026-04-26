@@ -73,6 +73,7 @@ async function handlePullRequestEvent(
     model: result.providerModel,
     usage: result.usage,
     taskSpecFetch: result.taskSpecFetch,
+    scope: result.scope,
   });
 }
 

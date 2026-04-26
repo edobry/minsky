@@ -66,25 +66,43 @@ function resolveLevel(options?: LoggerOptions): LogLevel {
 }
 
 /**
- * Pattern that matches common secret-like field names. Tested case-insensitively
- * against the lower-cased key. Covers known variants:
- *   token, mcpToken, accessToken, refreshToken, authToken, bearerToken, idToken
- *   apiKey, api_key, x_api_key, xApiKey
- *   secret, clientSecret, client_secret, app_secret
- *   password, passwd
- *   privateKey, private_key
- *   authorization, x-authorization (and related auth* / authorization* forms)
+ * Curated set of canonical sensitive-field names. Tested case-insensitively
+ * after normalizing away separators (`_` and `-`), so `accessToken`,
+ * `access_token`, and `access-token` all hit the same entry.
  *
- * Underscores and hyphens are normalized away before matching so {access_token,
- * accessToken, access-token} all match.
+ * Exact-match against this set rather than substring regex deliberately —
+ * substring patterns silently scrub legitimate telemetry fields whose names
+ * happen to contain "token" (e.g., `promptTokens`, `completionTokens`,
+ * `reasoningTokens`, `tokenizer`) or `auth` (e.g., `authState`, `author`).
+ *
+ * To add a new sensitive key, add the lowercased no-separator form here.
  */
-const REDACT_KEY_PATTERN =
-  /^(?:.*(?:token|secret|password|passwd|apikey|privatekey|authorization|authtoken|bearertoken)|auth)$/;
+const REDACT_KEYS = new Set([
+  // Generic
+  "token",
+  "secret",
+  "password",
+  "passwd",
+  "apikey",
+  "privatekey",
+  "authorization",
+  // Common variants
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "authtoken",
+  "bearertoken",
+  "clientsecret",
+  "appsecret",
+  "xapikey",
+  // Project-specific
+  "mcptoken",
+]);
 
 function isSensitiveKey(key: string): boolean {
   // Lowercase + drop separators so accessToken / access_token / access-token all match.
   const normalized = key.toLowerCase().replace(/[_-]/g, "");
-  return REDACT_KEY_PATTERN.test(normalized);
+  return REDACT_KEYS.has(normalized);
 }
 
 const REDACTED = "***";

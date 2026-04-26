@@ -289,6 +289,44 @@ describe("logger", () => {
       expect(allOutput).toContain("3");
     });
 
+    test("preserves telemetry fields whose names contain substrings of secret keys", () => {
+      // Regression guard for the substring-match foot-gun: keys like
+      // promptTokens / completionTokens / reasoningTokens / totalTokens MUST
+      // pass through. Same for tokenizer, authState, author. Only exact
+      // (normalized) matches in REDACT_KEYS get scrubbed.
+      const logger = createLogger({ mode: "STRUCTURED", level: "info" });
+      const { lines, restore } = captureLines();
+      try {
+        logger.info("usage.report", {
+          usage: {
+            promptTokens: 1234,
+            completionTokens: 567,
+            reasoningTokens: 89,
+            totalTokens: 1890,
+          },
+          tokenizer: "cl100k_base",
+          authState: "ready",
+          author: "minsky-ai[bot]",
+          // And one real secret key for contrast — must still be scrubbed.
+          accessToken: "secret-access-123",
+        });
+      } finally {
+        restore();
+      }
+      const allOutput = lines.join("\n");
+      // Telemetry numeric values present.
+      expect(allOutput).toContain("1234");
+      expect(allOutput).toContain("567");
+      expect(allOutput).toContain("89");
+      expect(allOutput).toContain("1890");
+      // Non-secret string values present.
+      expect(allOutput).toContain("cl100k_base");
+      expect(allOutput).toContain("ready");
+      expect(allOutput).toContain("minsky-ai[bot]");
+      // The real secret IS scrubbed.
+      expect(allOutput).not.toContain("secret-access-123");
+    });
+
     test("logger rewrites Bearer-style strings even outside known sensitive keys", () => {
       // If a Bearer token leaks into a free-form field (e.g., an error message),
       // redactFormat must still scrub it.

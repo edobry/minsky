@@ -87,7 +87,7 @@ export function buildEmptyOutputSkipNotice(output: ReviewOutput): string {
       ? ` Likely cause: the model's reasoning phase exhausted the output budget (${u.reasoningTokens} reasoning tokens, 0 completion tokens).`
       : "";
   return (
-    `Warning: **Automated review skipped** — the reviewer (${output.provider}:${output.model}) ` +
+    `⚠️ **Automated review skipped** — the reviewer (${output.provider}:${output.model}) ` +
     `returned no content for this PR.${reasoningHint}\n\n` +
     `This is **not** an approval or a rejection. Manual review is recommended. ` +
     `Diagnostic details are available in the reviewer service logs.`
@@ -551,7 +551,7 @@ function annotateReviewBody(
     `Reviewer: \`minsky-reviewer[bot]\` via \`${output.provider}:${output.model}\`\n` +
     `Tier: ${tier ?? "unknown"}${
       isSelfReview
-        ? `\n\nWarning: Reviewer identity matches PR author (same App). Event forced to COMMENT per GitHub self-approval restriction. This is a misconfiguration — Sprint A's architecture requires distinct implementer and reviewer Apps.`
+        ? `\n\n⚠️ Reviewer identity matches PR author (same App). Event forced to COMMENT per GitHub self-approval restriction. This is a misconfiguration — Sprint A's architecture requires distinct implementer and reviewer Apps.`
         : ""
     }\n\n---\n\n`;
 
