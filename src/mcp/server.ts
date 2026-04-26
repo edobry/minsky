@@ -233,6 +233,8 @@ export class MinskyMCPServer {
           prompts: {},
           logging: {},
         },
+        instructions:
+          "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.",
       }
     );
     this.diag.captureInit(server);
