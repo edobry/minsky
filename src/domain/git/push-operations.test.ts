@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { pushImpl, type PushDependencies } from "./push-operations";
 
 const WORKDIR = "/tmp/work";
-const CMD_SYMREF = `git -C ${WORKDIR} symbolic-ref -q --short HEAD`;
+const CMD_SYMREF = `git -C ${WORKDIR} symbolic-ref --short HEAD`;
 const CMD_REMOTE = `git -C ${WORKDIR} remote`;
 const CMD_PUSH_PREFIX = `git -C ${WORKDIR} push`;
 
@@ -35,17 +35,28 @@ describe("pushImpl", () => {
     expect(pushImpl.length).toBe(2);
   });
 
-  test("throws actionable error when symbolic-ref exits non-zero (detached HEAD)", async () => {
+  test("throws actionable error on detached HEAD (canonical 'not a symbolic ref')", async () => {
     const { deps, calls } = makeDeps({
       [CMD_SYMREF]: new Error("fatal: ref HEAD is not a symbolic ref"),
     });
 
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
-      /Cannot push: HEAD is detached in \/tmp\/work.*git switch|git checkout -b/s
+      /Cannot push: HEAD is detached in \/tmp\/work.*(?:git switch|git checkout -b)/s
     );
 
     expect(calls.every((c) => !c.command.includes(CMD_REMOTE))).toBe(true);
     expect(calls.every((c) => !c.command.includes(CMD_PUSH_PREFIX))).toBe(true);
+  });
+
+  test("propagates unrelated git errors instead of mislabeling as detached", async () => {
+    const notARepoErr = new Error("fatal: not a git repository (or any of the parent directories)");
+    const { deps } = makeDeps({
+      [CMD_SYMREF]: notARepoErr,
+    });
+
+    const promise = pushImpl({ repoPath: WORKDIR }, deps);
+    await expect(promise).rejects.toThrow(/not a git repository/);
+    await expect(promise).rejects.not.toThrow(/HEAD is detached/);
   });
 
   test("error message does not reference product-specific branch naming", async () => {

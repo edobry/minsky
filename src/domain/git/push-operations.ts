@@ -38,22 +38,27 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   const remote = options.remote || "origin";
   const workdir = options.repoPath ?? validateProcess(process).cwd();
 
-  // Resolve current branch via symbolic-ref. A non-zero exit means HEAD is
-  // detached — pushing a detached HEAD produces git's cryptic "destination
-  // is not a full refname" error. Surface an actionable message instead.
+  // Resolve current branch via symbolic-ref. On detached HEAD, git exits
+  // non-zero with stderr "fatal: ref HEAD is not a symbolic ref" — use that
+  // canonical signal to surface an actionable error. Unrelated failures
+  // (not a repo, missing git binary, permission errors) propagate their
+  // original stderr/message instead of being mislabeled as detached.
   // See mt#994; mt#1217 fixed the upstream session_update path that was
-  // leaving sessions detached. (Unborn HEAD is out of scope: symbolic-ref
-  // succeeds in that case and returns the would-be branch name, so the
-  // remote-validation / push step will surface its own error.)
+  // leaving sessions detached.
   let branch: string;
   try {
-    const { stdout } = await deps.execAsync(`git -C ${workdir} symbolic-ref -q --short HEAD`);
+    const { stdout } = await deps.execAsync(`git -C ${workdir} symbolic-ref --short HEAD`);
     branch = stdout.trim();
-  } catch {
-    throw new Error(
-      `Cannot push: HEAD is detached in ${workdir}. ` +
-        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
-    );
+  } catch (err: unknown) {
+    const gitError = validateGitError(err);
+    const haystack = `${gitError.stderr ?? ""} ${gitError.message ?? ""}`;
+    if (haystack.includes("not a symbolic ref")) {
+      throw new Error(
+        `Cannot push: HEAD is detached in ${workdir}. ` +
+          `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
+      );
+    }
+    throw new Error(gitError.stderr || gitError.message || String(err));
   }
 
   // 2. Validate remote exists
