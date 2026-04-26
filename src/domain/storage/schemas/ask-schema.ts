@@ -5,7 +5,7 @@ import type { AskKind, AskState, AskOption, ContextRef } from "../../ask/types";
 /**
  * Asks table — the unified domain entity for all human-in-the-loop mechanisms.
  *
- * Implements the `asks` table from ADR-006 §The Ask entity.
+ * Implements the `asks` table from ADR-008 §The Ask entity.
  * All seven AskKind values and eight AskState values are enforced via CHECK
  * constraints so the DB rejects invalid enum values even if the application
  * layer passes them through.

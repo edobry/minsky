@@ -1,5 +1,5 @@
 /**
- * Ask subsystem — ADR-006 (mt#1034).
+ * Ask subsystem — ADR-008 (mt#1034).
  *
  * Unified domain types, state machine, and repository for all human-in-the-loop
  * mechanisms in Minsky. Router lands in a separate task.
