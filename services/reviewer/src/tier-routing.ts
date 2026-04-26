@@ -8,8 +8,8 @@
  *
  * Sprint A: tier is read from the PR body (implementer writes it when
  * opening the PR).
- * Sprint B (mt#1085): tier is resolved via the Minsky MCP provenance endpoint
- * with a body-marker fallback.
+ * Sprint B (mt#1085): tier is resolved via the Minsky MCP authorship endpoint
+ * (`authorship.get`) with a body-marker fallback.
  *
  * Fallback chain:
  *   1. MCP authorship record (tier field) — authoritative.
@@ -95,8 +95,8 @@ export async function lookupTierFromMCP(
 
 /**
  * Resolve the authorship tier for a PR using the full fallback chain:
- *   1. MCP provenance record
- *   2. PR-body HTML comment marker
+ *   1. MCP authorship record (tier field via authorship.get) — authoritative.
+ *   2. PR-body HTML comment marker.
  *   3. Hybrid default — see module-level docstring for the fail-open / fail-closed policy.
  *
  * When MCP is configured and the lookup misses (no record, HTTP error, null tier) AND the

@@ -9,9 +9,9 @@
  *
  * DI assumption: `context.container?.has("persistence")` at execute time is
  * effectively a registration-time capture because
- * `src/adapters/mcp/shared-command-integration.ts:186-191` always populates
- * `context.container` from `config.container` when the command is invoked through
- * the MCP bridge. If the MCP bridge is ever changed to use per-request containers,
+ * `src/adapters/mcp/shared-command-integration.ts (registration site)` always
+ * populates `context.container` from `config.container` when the command is
+ * invoked through the MCP bridge. If the MCP bridge is ever changed to use per-request containers,
  * all commands in both `authorship.ts` and `provenance.ts` that check
  * `context.container?.has("persistence")` will break in the same way.
  *

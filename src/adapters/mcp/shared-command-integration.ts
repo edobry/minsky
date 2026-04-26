@@ -449,7 +449,22 @@ export function registerKnowledgeCommandsWithMcp(
 }
 
 /**
- * Register authorship commands with MCP
+ * Register authorship commands with MCP.
+ *
+ * This is the **least-privilege MCP entry point** for the authorship namespace.
+ * Reviewer-style deployments that should NOT have access to the full provenance
+ * record (transcript IDs, participants, substantive human input, etc.) should
+ * call this function instead of `registerAllMainCommandsWithMcp` — the latter
+ * intentionally exposes both `provenance.*` and `authorship.*` for admin/CLI use.
+ *
+ * The narrowing happens at two layers:
+ *   1. Server surface: this function exposes only `CommandCategory.AUTHORSHIP`.
+ *   2. Response shape: `authorship.get` returns `{ tier, rationale?, policyVersion?, judgingModel? }`,
+ *      not the full ProvenanceRecord (see `authorship.ts`).
+ *
+ * `provenance.get` and `provenance.recompute` (deprecated alias) remain available
+ * via `registerProvenanceCommandsWithMcp` / `registerAllMainCommandsWithMcp` for
+ * admin and CLI consumers — that surface is INTENTIONAL, per mt#1227 / mt#1254.
  */
 export function registerAuthorshipCommandsWithMcp(
   commandMapper: CommandMapper,
