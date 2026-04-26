@@ -1,15 +1,17 @@
 /**
  * Tests for the periodic sweeper (mt#1260).
  *
- * All external I/O (octokit calls, getAppIdentity, createOctokit) is avoided
- * by injecting a fake SweeperDeps via the depsOverride parameter of runSweep.
- * Tests are fully hermetic — no module mocking required.
+ * All external I/O (octokit calls, getAppIdentity, createOctokit, runReview)
+ * is avoided by injecting fake SweeperDeps via the depsOverride parameter of
+ * runSweep. Tests are fully hermetic — no module mocking required.
  *
  * Test scenarios:
  *   - Detection: PR with no bot review at HEAD → flagged as missing
  *   - Idempotent: second sweep after first finds zero missing
  *   - Tier-skip: PR routing to skip (Tier 1) → not flagged
  *   - Mismatch: bot reviewed but at an older commit_id → still flagged
+ *   - Dismissed: bot review at HEAD but DISMISSED → still flagged
+ *   - Retrigger: runReview called for each missing PR
  */
 
 import { describe, test, expect, mock } from "bun:test";
@@ -45,7 +47,7 @@ const BASE_CONFIG: ReviewerConfig = {
 const SWEEPER_CONFIG: SweeperConfig = {
   owner: "edobry",
   repo: "minsky",
-  intervalMs: 300000,
+  intervalMs: 600000,
   enabled: true,
 };
 
@@ -56,6 +58,7 @@ const TIER3_BODY = "<!-- minsky:tier=3 -->";
 const TIER1_BODY = "<!-- minsky:tier=1 -->";
 const TIER2_BODY = "<!-- minsky:tier=2 -->";
 const REASON_NO_REVIEW = "no_review_by_bot" as const;
+const PR_AUTHOR = "test-author";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -68,6 +71,7 @@ const REASON_NO_REVIEW = "no_review_by_bot" as const;
 interface FakeReview {
   user: { login: string } | null;
   commit_id: string;
+  state: string;
 }
 
 /**
@@ -78,27 +82,12 @@ interface FakePR {
   number: number;
   head: { sha: string };
   body: string | null;
-}
-
-/**
- * A single delivery entry in the fake Octokit's delivery store.
- * Mirrors the fields retriggerViaPRDelivery reads.
- */
-interface FakeDelivery {
-  id: number;
-  event: string;
-  delivered_at: string;
-}
-
-interface FakeDeliveryDetail {
-  request: { payload: string | null };
+  user: { login: string } | null;
 }
 
 interface FakeOctokitOptions {
   openPRs?: FakePR[];
   reviews?: Record<number, FakeReview[]>;
-  deliveries?: FakeDelivery[];
-  deliveryDetails?: Record<number, FakeDeliveryDetail>;
 }
 
 /** Create a minimal fake Octokit with configurable paginate behavior. */
@@ -117,16 +106,8 @@ function makeFakeOctokit(options: FakeOctokitOptions): Octokit {
       return Promise.resolve(options.openPRs ?? []);
     }
 
-    // apps.listWebhookDeliveries
-    return Promise.resolve(options.deliveries ?? []);
+    return Promise.resolve([]);
   });
-
-  const getWebhookDelivery = mock(({ delivery_id }: { delivery_id: number }) => {
-    const detail = options.deliveryDetails?.[delivery_id];
-    return Promise.resolve({ data: detail ?? { request: { payload: null } } });
-  });
-
-  const redeliverWebhookDelivery = mock(() => Promise.resolve({ data: {} }));
 
   return {
     paginate: paginateFn,
@@ -135,20 +116,20 @@ function makeFakeOctokit(options: FakeOctokitOptions): Octokit {
         list: {} as unknown,
         listReviews: {} as unknown,
       },
-      apps: {
-        listWebhookDeliveries: {} as unknown,
-        getWebhookDelivery,
-        redeliverWebhookDelivery,
-      },
     },
   } as unknown as Octokit;
 }
 
-/** Build a SweeperDeps with the given fake octokit and the standard bot login. */
-function makeFakeDeps(options: FakeOctokitOptions, botLogin = BOT_LOGIN): SweeperDeps {
+/** Build a SweeperDeps with the given fake octokit, standard bot login, and optional runReviewFn. */
+function makeFakeDeps(
+  options: FakeOctokitOptions,
+  botLogin = BOT_LOGIN,
+  runReviewFn?: SweeperDeps["runReviewFn"]
+): SweeperDeps {
   return {
     octokit: makeFakeOctokit(options),
     botLogin,
+    runReviewFn,
   };
 }
 
@@ -164,11 +145,20 @@ describe("detectMissingReview", () => {
       },
     });
 
-    const result = await detectMissingReview(octokit, "edobry", "minsky", 42, HEAD_SHA, BOT_LOGIN);
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
 
     expect(result).not.toBeNull();
     expect(result?.number).toBe(42);
     expect(result?.headSha).toBe(HEAD_SHA);
+    expect(result?.authorLogin).toBe(PR_AUTHOR);
     expect(result?.reason).toBe(REASON_NO_REVIEW);
   });
 
@@ -179,12 +169,21 @@ describe("detectMissingReview", () => {
           {
             user: { login: BOT_LOGIN },
             commit_id: OLD_SHA, // Older SHA, not the current HEAD
+            state: "COMMENTED",
           },
         ],
       },
     });
 
-    const result = await detectMissingReview(octokit, "edobry", "minsky", 42, HEAD_SHA, BOT_LOGIN);
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
 
     expect(result).not.toBeNull();
     expect(result?.reason).toBe("commit_id_mismatch");
@@ -198,12 +197,21 @@ describe("detectMissingReview", () => {
           {
             user: { login: BOT_LOGIN },
             commit_id: HEAD_SHA, // Matches HEAD
+            state: "COMMENTED",
           },
         ],
       },
     });
 
-    const result = await detectMissingReview(octokit, "edobry", "minsky", 42, HEAD_SHA, BOT_LOGIN);
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
 
     expect(result).toBeNull();
   });
@@ -215,12 +223,21 @@ describe("detectMissingReview", () => {
           {
             user: { login: "human-reviewer" },
             commit_id: HEAD_SHA,
+            state: "APPROVED",
           },
         ],
       },
     });
 
-    const result = await detectMissingReview(octokit, "edobry", "minsky", 42, HEAD_SHA, BOT_LOGIN);
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
 
     expect(result).not.toBeNull();
     expect(result?.reason).toBe(REASON_NO_REVIEW);
@@ -233,14 +250,81 @@ describe("detectMissingReview", () => {
           {
             user: { login: "MINSKY-REVIEWER[BOT]" }, // Different case
             commit_id: HEAD_SHA,
+            state: "COMMENTED",
           },
         ],
       },
     });
 
-    const result = await detectMissingReview(octokit, "edobry", "minsky", 42, HEAD_SHA, BOT_LOGIN);
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
 
     // Should match because comparison is case-insensitive
+    expect(result).toBeNull();
+  });
+
+  test("DISMISSED bot review at HEAD → still flagged (dismissed reviews don't count)", async () => {
+    const octokit = makeFakeOctokit({
+      reviews: {
+        42: [
+          {
+            user: { login: BOT_LOGIN },
+            commit_id: HEAD_SHA, // Matches HEAD but dismissed
+            state: "DISMISSED",
+          },
+        ],
+      },
+    });
+
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.reason).toBe(REASON_NO_REVIEW);
+  });
+
+  test("DISMISSED bot review + non-dismissed review at HEAD → not flagged", async () => {
+    const octokit = makeFakeOctokit({
+      reviews: {
+        42: [
+          {
+            user: { login: BOT_LOGIN },
+            commit_id: OLD_SHA,
+            state: "DISMISSED",
+          },
+          {
+            user: { login: BOT_LOGIN },
+            commit_id: HEAD_SHA,
+            state: "COMMENTED",
+          },
+        ],
+      },
+    });
+
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
+
     expect(result).toBeNull();
   });
 });
@@ -250,19 +334,24 @@ describe("detectMissingReview", () => {
 // ---------------------------------------------------------------------------
 
 describe("listOpenPRs", () => {
-  test("returns mapped PRs with number, headSha, body", async () => {
+  test("returns mapped PRs with number, headSha, body, authorLogin", async () => {
     const octokit = makeFakeOctokit({
       openPRs: [
-        { number: 1, head: { sha: "sha1" }, body: TIER3_BODY },
-        { number: 2, head: { sha: "sha2" }, body: null },
+        { number: 1, head: { sha: "sha1" }, body: TIER3_BODY, user: { login: "author1" } },
+        { number: 2, head: { sha: "sha2" }, body: null, user: null },
       ],
     });
 
     const result = await listOpenPRs(octokit, "edobry", "minsky");
 
     expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({ number: 1, headSha: "sha1", body: TIER3_BODY });
-    expect(result[1]).toEqual({ number: 2, headSha: "sha2", body: "" });
+    expect(result[0]).toEqual({
+      number: 1,
+      headSha: "sha1",
+      body: TIER3_BODY,
+      authorLogin: "author1",
+    });
+    expect(result[1]).toEqual({ number: 2, headSha: "sha2", body: "", authorLogin: "" });
   });
 
   test("returns empty array when no open PRs", async () => {
@@ -281,9 +370,10 @@ describe("listOpenPRs", () => {
 describe("runSweep", () => {
   test("detection: PR with no bot review → appears in missing list", async () => {
     const deps = makeFakeDeps({
-      openPRs: [{ number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY }],
+      openPRs: [
+        { number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
       reviews: { 10: [] },
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -291,15 +381,16 @@ describe("runSweep", () => {
     expect(result.prsScanned).toBe(1);
     expect(result.missing).toHaveLength(1);
     expect(result.missing[0]?.number).toBe(10);
-    expect(result.missing[0]?.reason).toBe("no_review_by_bot");
+    expect(result.missing[0]?.reason).toBe(REASON_NO_REVIEW);
   });
 
   test("idempotent: second sweep finds zero missing when bot has reviewed at HEAD", async () => {
     // First sweep: no review
     const firstDeps = makeFakeDeps({
-      openPRs: [{ number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY }],
+      openPRs: [
+        { number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
       reviews: { 10: [] },
-      deliveries: [],
     });
 
     const firstResult = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, firstDeps);
@@ -307,9 +398,12 @@ describe("runSweep", () => {
 
     // Second sweep: bot has now reviewed at HEAD (simulating the retrigger completed)
     const secondDeps = makeFakeDeps({
-      openPRs: [{ number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY }],
-      reviews: { 10: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA }] },
-      deliveries: [],
+      openPRs: [
+        { number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
+      reviews: {
+        10: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA, state: "COMMENTED" }],
+      },
     });
 
     const secondResult = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, secondDeps);
@@ -322,10 +416,9 @@ describe("runSweep", () => {
     const deps = makeFakeDeps({
       openPRs: [
         // Tier 1 marker → decideRouting returns shouldReview=false
-        { number: 20, head: { sha: HEAD_SHA }, body: TIER1_BODY },
+        { number: 20, head: { sha: HEAD_SHA }, body: TIER1_BODY, user: { login: PR_AUTHOR } },
       ],
       reviews: { 20: [] }, // No reviews — but should be skipped
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -337,9 +430,10 @@ describe("runSweep", () => {
   test("tier-skip: Tier 2 PR with tier2Enabled=false → not flagged", async () => {
     // BASE_CONFIG has tier2Enabled=false
     const deps = makeFakeDeps({
-      openPRs: [{ number: 21, head: { sha: HEAD_SHA }, body: TIER2_BODY }],
+      openPRs: [
+        { number: 21, head: { sha: HEAD_SHA }, body: TIER2_BODY, user: { login: PR_AUTHOR } },
+      ],
       reviews: { 21: [] },
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -349,11 +443,12 @@ describe("runSweep", () => {
 
   test("mismatch: bot review at old commit_id → still flagged", async () => {
     const deps = makeFakeDeps({
-      openPRs: [{ number: 30, head: { sha: HEAD_SHA }, body: TIER3_BODY }],
+      openPRs: [
+        { number: 30, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
       reviews: {
-        30: [{ user: { login: BOT_LOGIN }, commit_id: OLD_SHA }],
+        30: [{ user: { login: BOT_LOGIN }, commit_id: OLD_SHA, state: "COMMENTED" }],
       },
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -363,25 +458,40 @@ describe("runSweep", () => {
     expect(result.missing[0]?.headSha).toBe(HEAD_SHA);
   });
 
+  test("dismissed: bot review at HEAD but DISMISSED → still flagged", async () => {
+    const deps = makeFakeDeps({
+      openPRs: [
+        { number: 31, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
+      reviews: {
+        31: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA, state: "DISMISSED" }],
+      },
+    });
+
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0]?.reason).toBe(REASON_NO_REVIEW);
+  });
+
   test("multiple PRs: mix of reviewed, missing, and skipped", async () => {
     const deps = makeFakeDeps({
       openPRs: [
         // Tier 3, no review → missing
-        { number: 1, head: { sha: HEAD_SHA }, body: TIER3_BODY },
+        { number: 1, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
         // Tier 3, reviewed at HEAD → OK
-        { number: 2, head: { sha: HEAD_SHA }, body: TIER3_BODY },
+        { number: 2, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
         // Tier 1 → skipped regardless of review state
-        { number: 3, head: { sha: HEAD_SHA }, body: TIER1_BODY },
+        { number: 3, head: { sha: HEAD_SHA }, body: TIER1_BODY, user: { login: PR_AUTHOR } },
         // Tier 3, reviewed at old SHA → commit_id mismatch
-        { number: 4, head: { sha: HEAD_SHA }, body: TIER3_BODY },
+        { number: 4, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
       ],
       reviews: {
         1: [],
-        2: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA }],
+        2: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA, state: "COMMENTED" }],
         3: [],
-        4: [{ user: { login: BOT_LOGIN }, commit_id: OLD_SHA }],
+        4: [{ user: { login: BOT_LOGIN }, commit_id: OLD_SHA, state: "COMMENTED" }],
       },
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -394,25 +504,29 @@ describe("runSweep", () => {
 
   test("cycle metrics: startedAt, prsScanned, retriggeredCount populated", async () => {
     const prNumber = 5;
-    const deliveryId = 999;
-    const deps = makeFakeDeps({
-      openPRs: [{ number: prNumber, head: { sha: HEAD_SHA }, body: TIER3_BODY }],
-      reviews: { [prNumber]: [] },
-      deliveries: [
-        {
-          id: deliveryId,
-          event: "pull_request",
-          delivered_at: new Date().toISOString(),
-        },
-      ],
-      deliveryDetails: {
-        [deliveryId]: {
-          request: {
-            payload: JSON.stringify({ pull_request: { number: prNumber } }),
+    const runReviewFn = mock(() =>
+      Promise.resolve({
+        status: "reviewed" as const,
+        reason: "Posted review",
+        tier: 3 as const,
+      })
+    );
+
+    const deps = makeFakeDeps(
+      {
+        openPRs: [
+          {
+            number: prNumber,
+            head: { sha: HEAD_SHA },
+            body: TIER3_BODY,
+            user: { login: PR_AUTHOR },
           },
-        },
+        ],
+        reviews: { [prNumber]: [] },
       },
-    });
+      BOT_LOGIN,
+      runReviewFn
+    );
 
     const before = Date.now();
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -425,13 +539,21 @@ describe("runSweep", () => {
 
     expect(result.prsScanned).toBe(1);
     expect(result.retriggeredCount).toBe(1);
+    // runReview should have been called with the right args
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    expect(runReviewFn).toHaveBeenCalledWith(
+      BASE_CONFIG,
+      SWEEPER_CONFIG.owner,
+      SWEEPER_CONFIG.repo,
+      prNumber,
+      PR_AUTHOR
+    );
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {
     const deps = makeFakeDeps({
       openPRs: [],
       reviews: {},
-      deliveries: [],
     });
 
     const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
@@ -439,5 +561,29 @@ describe("runSweep", () => {
     expect(result.prsScanned).toBe(0);
     expect(result.missing).toHaveLength(0);
     expect(result.retriggeredCount).toBe(0);
+  });
+
+  test("runReview error is caught and logged, does not abort sweep", async () => {
+    const runReviewFn = mock(() => Promise.reject(new Error("runReview boom")));
+
+    const deps = makeFakeDeps(
+      {
+        openPRs: [
+          { number: 10, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+          { number: 11, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: { 10: [], 11: [] },
+      },
+      BOT_LOGIN,
+      runReviewFn
+    );
+
+    // Should not throw even though runReview errors
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.prsScanned).toBe(2);
+    expect(result.missing).toHaveLength(2);
+    // Both PRs are counted as retriggered (scheduling succeeded even if runReview threw)
+    expect(result.retriggeredCount).toBe(2);
   });
 });

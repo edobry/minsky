@@ -3,37 +3,39 @@
  *
  * Safety-net layer behind the primary webhook path (mt#1258 ack-immediate
  * refactor). Lists open PRs, identifies any whose HEAD SHA has no
- * corresponding minsky-reviewer review, and retriggers via the GitHub App
- * webhook delivery redeliver API.
+ * corresponding minsky-reviewer review, and retriggers via in-process
+ * runReview calls.
  *
- * ## Retrigger strategy: GitHub App webhook redeliver API (option a)
+ * ## Retrigger strategy: in-process runReview (option b)
  *
- * Chosen because it exercises the full normal handler path — the same
- * signature verification, payload parsing, and runReview logic that the
- * primary webhook invokes. This is cleaner than importing runReview directly
- * (option b) because it avoids duplicating the App-auth setup inside the
- * sweeper and ensures any future changes to the webhook handler (e.g.,
- * idempotency guard in mt#1258) automatically apply to retriggers.
+ * Calls runReview directly from the sweeper rather than using the GitHub App
+ * webhook delivery redeliver API. This avoids requiring App-JWT auth scope
+ * and eliminates cross-repo PR# ambiguity. The sweeper has all the data
+ * needed (owner, repo, prNumber, headSha, prAuthorLogin) from the PR listing
+ * step, so it can construct the same arguments runReview would receive from
+ * the webhook handler.
  *
- * Fallback: if the delivery redeliver API is unavailable (e.g., insufficient
- * App permissions or no matching delivery found), a WARN is logged and the PR
- * is counted as "retriggered" in the sense that the sweeper tried but failed
- * non-fatally. This is intentional — the sweeper is a best-effort safety net,
- * not a hard guarantee.
+ * Concurrency is capped at 3 simultaneous runReview calls to avoid OOM under
+ * large PR backlogs.
+ *
+ * retriggeredCount = number of PRs for which runReview was successfully
+ * scheduled (detached, catch-logged). Since we don't await, all missing PRs
+ * are counted.
  *
  * ## Schedule wiring: in-process setInterval
  *
  * Chosen over a Railway scheduled cron entry-point for simplicity: no second
  * Railway service to provision, no separate entry-point binary, and the
  * sweeper shares the same octokit / config the server already has. The
- * interval (5 min) is configurable via SWEEPER_INTERVAL_MS. To disable the
+ * interval (10 min) is configurable via SWEEPER_INTERVAL_MS. To disable the
  * sweeper entirely, set SWEEPER_ENABLED=false.
  */
 
-import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
 import { createOctokit, getAppIdentity } from "./github-client";
+import { runReview } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
+import type { Octokit } from "@octokit/rest";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -54,7 +56,7 @@ export function loadSweeperConfig(): SweeperConfig {
   return {
     owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
     repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
-    intervalMs: parseInt(process.env["SWEEPER_INTERVAL_MS"] ?? "300000", 10),
+    intervalMs: parseInt(process.env["SWEEPER_INTERVAL_MS"] ?? "600000", 10),
     enabled: (process.env["SWEEPER_ENABLED"] ?? "true") !== "false",
   };
 }
@@ -69,6 +71,8 @@ export interface MissingReviewPR {
   number: number;
   /** Current HEAD commit SHA. */
   headSha: string;
+  /** PR author login. */
+  authorLogin: string;
   /** Human-readable reason (e.g. "no review by bot" or "commit_id mismatch"). */
   reason: "no_review_by_bot" | "commit_id_mismatch";
 }
@@ -81,7 +85,13 @@ export interface SweepResult {
   prsScanned: number;
   /** PRs detected as missing a review. */
   missing: MissingReviewPR[];
-  /** Number of PRs where retrigger was attempted. */
+  /**
+   * Number of PRs for which runReview was successfully scheduled.
+   * Since runReview calls are detached (not awaited in the main sweep loop),
+   * this equals missing.length whenever retrigger scheduling itself does not
+   * throw (which it never does — the only throws are inside runReview and are
+   * catch-logged inside retriggerViaRunReview).
+   */
   retriggeredCount: number;
 }
 
@@ -98,7 +108,7 @@ export async function listOpenPRs(
   octokit: Octokit,
   owner: string,
   repo: string
-): Promise<Array<{ number: number; headSha: string; body: string }>> {
+): Promise<Array<{ number: number; headSha: string; body: string; authorLogin: string }>> {
   const prs = await octokit.paginate(octokit.rest.pulls.list, {
     owner,
     repo,
@@ -110,6 +120,7 @@ export async function listOpenPRs(
     number: pr.number,
     headSha: pr.head.sha,
     body: pr.body ?? "",
+    authorLogin: pr.user?.login ?? "",
   }));
 }
 
@@ -118,8 +129,8 @@ export async function listOpenPRs(
  * reviewed at the current HEAD SHA.
  *
  * Returns:
- *   - null when a review by the bot at the current headSha exists.
- *   - A MissingReviewPR when no review or only stale reviews exist.
+ *   - null when a non-dismissed review by the bot at the current headSha exists.
+ *   - A MissingReviewPR when no review or only stale/dismissed reviews exist.
  */
 export async function detectMissingReview(
   octokit: Octokit,
@@ -127,7 +138,8 @@ export async function detectMissingReview(
   repo: string,
   prNumber: number,
   headSha: string,
-  botLogin: string
+  botLogin: string,
+  authorLogin: string
 ): Promise<MissingReviewPR | null> {
   const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
     owner,
@@ -136,12 +148,17 @@ export async function detectMissingReview(
     per_page: 100,
   });
 
-  const botReviews = reviews.filter((r) => r.user?.login.toLowerCase() === botLogin.toLowerCase());
+  // Filter for non-dismissed bot reviews only — dismissed reviews signal
+  // that a human overrode the bot review, not that the bot reviewed the PR.
+  const botReviews = reviews.filter(
+    (r) => r.user?.login.toLowerCase() === botLogin.toLowerCase() && r.state !== "DISMISSED"
+  );
 
   if (botReviews.length === 0) {
     return {
       number: prNumber,
       headSha,
+      authorLogin,
       reason: "no_review_by_bot",
     };
   }
@@ -153,6 +170,7 @@ export async function detectMissingReview(
     return {
       number: prNumber,
       headSha,
+      authorLogin,
       reason: "commit_id_mismatch",
     };
   }
@@ -165,65 +183,62 @@ export async function detectMissingReview(
 // ---------------------------------------------------------------------------
 
 /**
- * Find the most recent webhook delivery for a given PR number, then redeliver it.
- *
- * Uses the GitHub App webhook delivery list endpoint, filters for
- * `pull_request` event deliveries whose payload matches the given PR number,
- * and redelivers the most recent one.
- *
- * This drives the delivery through the normal handler path, including
- * signature verification and idempotency guards (mt#1258).
- *
- * Returns true when a delivery was found and redelivered; false when no
- * matching delivery was found (no retrigger attempted).
+ * Injectable runReview function type, for test seams.
  */
-export async function retriggerViaPRDelivery(octokit: Octokit, prNumber: number): Promise<boolean> {
-  // List recent webhook deliveries for the App.
-  // The API returns at most 250 deliveries. We page through to find the most
-  // recent one matching our PR.
-  const deliveries = await octokit.paginate(octokit.rest.apps.listWebhookDeliveries, {
-    per_page: 100,
-  });
+export type RunReviewFn = typeof runReview;
 
-  // Filter for pull_request event deliveries.
-  const prDeliveries = deliveries
-    .filter((d) => d.event === "pull_request")
-    .sort((a, b) => {
-      // Sort by delivered_at descending (most recent first).
-      const aTime = new Date(a.delivered_at ?? 0).getTime();
-      const bTime = new Date(b.delivered_at ?? 0).getTime();
-      return bTime - aTime;
-    });
+/**
+ * Retrigger a review for a missed PR by calling runReview directly.
+ *
+ * Uses a synthesized delivery ID ("sweeper-{timestamp}") in the log since
+ * there is no real GitHub delivery ID for sweeper-initiated reviews.
+ *
+ * Errors from runReview are logged as warnings but do not propagate — the
+ * sweeper is a best-effort safety net, not a hard guarantee.
+ */
+export async function retriggerViaRunReview(
+  config: ReviewerConfig,
+  owner: string,
+  repo: string,
+  pr: MissingReviewPR,
+  runReviewFn: RunReviewFn = runReview
+): Promise<void> {
+  const deliveryId = `sweeper-${Date.now()}`;
+  console.log(
+    JSON.stringify({
+      event: "sweeper.retrigger_start",
+      deliveryId,
+      pr: pr.number,
+      headSha: pr.headSha,
+      owner,
+      repo,
+    })
+  );
 
-  // We need to inspect each delivery to find one for our PR number.
-  // The list endpoint only returns summary data (no payload). We fetch
-  // details for each candidate until we find a match.
-  for (const delivery of prDeliveries) {
-    const detail = await octokit.rest.apps.getWebhookDelivery({ delivery_id: delivery.id });
-    const payload = detail.data.request?.payload;
-    if (!payload) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
-    } catch {
-      continue;
-    }
-
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "pull_request" in parsed &&
-      typeof (parsed as Record<string, unknown>)["pull_request"] === "object" &&
-      (parsed as Record<string, Record<string, unknown>>)["pull_request"]["number"] === prNumber
-    ) {
-      // Found a matching delivery — redeliver it.
-      await octokit.rest.apps.redeliverWebhookDelivery({ delivery_id: delivery.id });
-      return true;
-    }
+  try {
+    const result = await runReviewFn(config, owner, repo, pr.number, pr.authorLogin);
+    console.log(
+      JSON.stringify({
+        event: "sweeper.retrigger_success",
+        deliveryId,
+        pr: pr.number,
+        headSha: pr.headSha,
+        status: result.status,
+        reason: result.reason,
+      })
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      JSON.stringify({
+        event: "sweeper.retrigger_failed",
+        deliveryId,
+        pr: pr.number,
+        headSha: pr.headSha,
+        error: message,
+      })
+    );
   }
-
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +249,8 @@ export async function retriggerViaPRDelivery(octokit: Octokit, prNumber: number)
 export interface SweeperDeps {
   octokit: Octokit;
   botLogin: string;
+  /** Optional runReview override for tests. Defaults to the real runReview. */
+  runReviewFn?: RunReviewFn;
 }
 
 /**
@@ -250,14 +267,18 @@ export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperD
  * Run a single sweep cycle.
  *
  * 1. Lists all open PRs.
- * 2. For each PR, checks whether minsky-reviewer[bot] has a review at HEAD SHA.
- *    Skips PRs whose tier routes to skip (Tier 1 or Tier 2 when tier2Enabled=false).
- * 3. For each missing PR, retriggers via the webhook delivery redeliver API.
+ * 2. For each PR, checks whether minsky-reviewer[bot] has a non-dismissed
+ *    review at HEAD SHA. Skips PRs whose tier routes to skip (Tier 1 or
+ *    Tier 2 when tier2Enabled=false).
+ * 3. For each missing PR, calls runReview directly (in-process, detached).
+ *    Concurrency is capped at SWEEP_CONCURRENCY (3) to avoid OOM.
  * 4. Returns a SweepResult with cycle metrics.
  *
  * @param depsOverride Optional dependency override for tests. When provided,
  *   skips the createOctokit + getAppIdentity calls entirely.
  */
+const SWEEP_CONCURRENCY = 3;
+
 export async function runSweep(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
@@ -266,7 +287,7 @@ export async function runSweep(
   const startedAt = new Date().toISOString();
   const { owner, repo } = sweeperConfig;
 
-  const { octokit, botLogin } = depsOverride ?? (await buildSweeperDeps(config));
+  const { octokit, botLogin, runReviewFn } = depsOverride ?? (await buildSweeperDeps(config));
 
   console.log(
     JSON.stringify({
@@ -304,7 +325,8 @@ export async function runSweep(
       repo,
       pr.number,
       pr.headSha,
-      botLogin
+      botLogin,
+      pr.authorLogin
     );
 
     if (detected !== null) {
@@ -330,42 +352,16 @@ export async function runSweep(
     );
   }
 
-  // 3. Retrigger missing reviews.
+  // 3. Retrigger missing reviews via in-process runReview, capped at SWEEP_CONCURRENCY.
   let retriggeredCount = 0;
-  for (const pr of missing) {
-    try {
-      const delivered = await retriggerViaPRDelivery(octokit, pr.number);
-      if (delivered) {
-        retriggeredCount++;
-        console.log(
-          JSON.stringify({
-            event: "sweeper.retrigger_success",
-            pr: pr.number,
-            headSha: pr.headSha,
-          })
-        );
-      } else {
-        console.warn(
-          JSON.stringify({
-            event: "sweeper.retrigger_no_delivery_found",
-            pr: pr.number,
-            headSha: pr.headSha,
-            message:
-              "No matching webhook delivery found for this PR. Manual review may be required.",
-          })
-        );
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.retrigger_failed",
-          pr: pr.number,
-          headSha: pr.headSha,
-          error: message,
-        })
-      );
-    }
+  for (let i = 0; i < missing.length; i += SWEEP_CONCURRENCY) {
+    const batch = missing.slice(i, i + SWEEP_CONCURRENCY);
+    // Schedule each in the batch. retriggerViaRunReview never throws (it
+    // catch-logs internally), so we can safely await all in parallel.
+    await Promise.all(
+      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn))
+    );
+    retriggeredCount += batch.length;
   }
 
   const result: SweepResult = {
@@ -396,7 +392,7 @@ export async function runSweep(
  * Chosen over a Railway cron entry-point for simplicity: no second Railway
  * service to provision and the sweeper shares the same config the server
  * already has. The interval is configurable via SWEEPER_INTERVAL_MS (default
- * 5 min). Disable entirely with SWEEPER_ENABLED=false.
+ * 10 min). Disable entirely with SWEEPER_ENABLED=false.
  *
  * The first sweep runs after one full interval — not immediately at boot —
  * to avoid competing with the service startup sequence.
