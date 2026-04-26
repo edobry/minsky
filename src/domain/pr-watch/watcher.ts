@@ -173,6 +173,7 @@ async function processWatch(
   let matched = false;
   let notifyTitle = "";
   let notifyBody = "";
+  let nextLastSeen: Record<string, unknown> | undefined;
 
   switch (watch.event) {
     case "merged": {
@@ -180,6 +181,7 @@ async function processWatch(
       matched = result.matched;
       notifyTitle = result.title;
       notifyBody = result.body;
+      nextLastSeen = result.nextLastSeen;
       break;
     }
     case "review-posted": {
@@ -187,6 +189,7 @@ async function processWatch(
       matched = result.matched;
       notifyTitle = result.title;
       notifyBody = result.body;
+      nextLastSeen = result.nextLastSeen;
       break;
     }
     case "check-status-changed": {
@@ -194,6 +197,7 @@ async function processWatch(
       matched = result.matched;
       notifyTitle = result.title;
       notifyBody = result.body;
+      nextLastSeen = result.nextLastSeen;
       break;
     }
     default: {
@@ -219,6 +223,24 @@ async function processWatch(
     pr: `${prOwner}/${prRepo}#${prNumber}`,
     keep: watch.keep,
   });
+
+  // Persist the lastSeen cursor before mutating triggered state so persistent
+  // watches don't re-fire on the same event in subsequent passes. Skipped for
+  // the merged event which has no cursor.
+  if (nextLastSeen) {
+    try {
+      await prWatchRepository.updateLastSeen(watch.id, nextLastSeen);
+    } catch (cursorErr: unknown) {
+      // Cursor-update failure is logged but not fatal: the watch will still
+      // mutate triggered state below, and worst-case will re-fire on the
+      // next pass (which is the prior bug, no regression).
+      const errMsg = cursorErr instanceof Error ? cursorErr.message : String(cursorErr);
+      log.warn("pr-watch: failed to persist lastSeen cursor", {
+        watchId: watch.id,
+        error: errMsg,
+      });
+    }
+  }
 
   // State mutation: delete one-shot watches, markTriggered persistent ones.
   if (watch.keep) {
@@ -252,6 +274,12 @@ interface EventHandlerResult {
   matched: boolean;
   title: string;
   body: string;
+  /**
+   * If matched, the new lastSeen cursor to persist. Used to dedup persistent
+   * watches across passes. Omitted by handlers (like `merged`) that don't
+   * need a cursor.
+   */
+  nextLastSeen?: Record<string, unknown>;
 }
 
 /**
@@ -316,6 +344,7 @@ async function handleReviewPosted(
     matched: true,
     title: "Minsky: PR review posted",
     body: `PR #${watch.prNumber} — ${latest.state} by ${latest.reviewerLogin ?? "unknown"}`,
+    nextLastSeen: { lastReviewId: latest.id },
   };
 }
 
@@ -354,6 +383,7 @@ async function handleCheckStatusChanged(
     matched: true,
     title: "Minsky: PR check status changed",
     body: `PR #${watch.prNumber} — checks: ${currentConclusion}`,
+    nextLastSeen: { lastConclusion: currentConclusion },
   };
 }
 

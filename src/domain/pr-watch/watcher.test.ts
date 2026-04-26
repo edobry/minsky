@@ -276,6 +276,24 @@ describe("review-posted event", () => {
     const note = firstNotification(notify);
     expect(note.body).toContain("CHANGES_REQUESTED");
   });
+
+  it("keep=true: persists lastReviewId so a second pass with no new reviews does not re-fire", async () => {
+    repo._seed(makeBaseWatch({ event: "review-posted", keep: true }));
+    client.setReviews("acme", "monorepo", 42, [
+      { id: 200, state: "APPROVED", reviewerLogin: "alice" },
+    ]);
+
+    // First pass: fires, sets lastSeen.lastReviewId = 200
+    const first = await runWatcher(repo, client, notify);
+    expect(first.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+
+    // Second pass: same review, no new ones — must not re-fire
+    const second = await runWatcher(repo, client, notify);
+    expect(second.fired).toBe(0);
+    expect(second.unchanged).toBe(1);
+    expect(notify.bells).toBe(1); // unchanged
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -352,6 +370,28 @@ describe("check-status-changed event", () => {
     expect(result.fired).toBe(1);
     const note = firstNotification(notify);
     expect(note.body).toContain("success");
+  });
+
+  it("keep=true: persists lastConclusion so a second pass with the same conclusion does not re-fire", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: true,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "failure" }]);
+
+    // First pass: fires (success → failure), persists lastConclusion = "failure"
+    const first = await runWatcher(repo, client, notify);
+    expect(first.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+
+    // Second pass: still failure — must not re-fire
+    const second = await runWatcher(repo, client, notify);
+    expect(second.fired).toBe(0);
+    expect(second.unchanged).toBe(1);
+    expect(notify.bells).toBe(1); // unchanged
   });
 });
 
