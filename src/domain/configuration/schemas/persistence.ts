@@ -8,6 +8,37 @@
 import { z } from "zod";
 
 /**
+ * Returns a Zod schema for a seconds-scale timeout field.
+ *
+ * Validation order inside superRefine (runs after .min(1) passes):
+ * 1. Value >= 1000 → looks like a milliseconds value from the old API; emit a
+ *    migration message with the seconds-equivalent. This takes priority so the
+ *    user sees the actionable hint rather than a generic "too big" message.
+ * 2. Value > maxSeconds (but < 1000) → standard out-of-range message.
+ * 3. Value in [1, maxSeconds] → valid.
+ */
+function secondsTimeoutSchema(fieldName: string, maxSeconds: number) {
+  return z
+    .number()
+    .int()
+    .min(1)
+    .superRefine((val, ctx) => {
+      if (val >= 1000) {
+        const secondsEquiv = Math.round(val / 1000);
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${fieldName} is now in seconds (was milliseconds). ${val} ms ≈ ${secondsEquiv} s — try ${fieldName}: ${secondsEquiv}`,
+        });
+      } else if (val > maxSeconds) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Number must be less than or equal to ${maxSeconds}`,
+        });
+      }
+    });
+}
+
+/**
  * PostgreSQL persistence configuration schema
  */
 const postgresConfigSchema = z.object({
@@ -15,10 +46,10 @@ const postgresConfigSchema = z.object({
   maxConnections: z.number().min(1).max(100).optional(),
   // connectTimeout: seconds (1–300). Passed directly to postgres-js connect_timeout
   // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
-  connectTimeout: z.number().min(1).max(300).optional(), // 1s - 5min
+  connectTimeout: secondsTimeoutSchema("connectTimeout", 300).optional(), // 1s - 5min
   // idleTimeout: seconds (1–600). Passed directly to postgres-js idle_timeout
   // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
-  idleTimeout: z.number().min(1).max(600).optional(), // 1s - 10min
+  idleTimeout: secondsTimeoutSchema("idleTimeout", 600).optional(), // 1s - 10min
   prepareStatements: z.boolean().optional(),
 });
 

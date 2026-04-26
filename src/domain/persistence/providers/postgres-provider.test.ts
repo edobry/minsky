@@ -3,7 +3,10 @@
  * Test that persistence providers work correctly with mocked database connections
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { PostgresPersistenceProvider } from "./postgres-provider";
+import {
+  PostgresPersistenceProvider,
+  PostgresVectorPersistenceProvider,
+} from "./postgres-provider";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 import { first } from "../../../utils/array-safety";
@@ -301,5 +304,73 @@ describe("PostgresPersistenceProvider", () => {
       expect(opts.connect_timeout).toBe(10);
     }
     expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+});
+
+describe("PostgresVectorPersistenceProvider", () => {
+  test("initialize() accepts deps parameter with same shape as parent", async () => {
+    // Build a mock SQL client that also satisfies the pgvector extension check
+    const vectorSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
+      const queryString = (strings as unknown as string[])[0] ?? "";
+      if (queryString.includes("pg_extension") && queryString.includes("vector")) {
+        return Promise.resolve([{ exists: true }]);
+      }
+      return Promise.resolve([]);
+    });
+    const vectorSql = Object.assign(vectorSqlFunction, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: mock(() => Promise.resolve()),
+    });
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        connectTimeout: 15,
+        idleTimeout: 60,
+      },
+    };
+    const provider = new PostgresVectorPersistenceProvider(config);
+
+    // Should accept the same deps shape without TypeScript error and initialize correctly
+    await provider.initialize({ sqlClient: vectorSql as any });
+
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
+  test("initialize() accepts postgresFactory in deps parameter", async () => {
+    // Build a vector-aware postgres factory mock (passes pgvector extension check)
+    const vectorAwareFactory = mock((connStr: string, opts: Record<string, unknown>) => {
+      const sqlFn = mock((strings: TemplateStringsArray, ...values: any[]) => {
+        const queryString = (strings as unknown as string[])[0] ?? "";
+        if (queryString.includes("pg_extension") && queryString.includes("vector")) {
+          return Promise.resolve([{ exists: true }]);
+        }
+        return Promise.resolve([]);
+      });
+      return Object.assign(sqlFn, {
+        options: { parsers: {}, serializers: {} },
+        query: mock(() => Promise.resolve([])),
+        end: mock(() => Promise.resolve()),
+        _connStr: connStr,
+        _opts: opts,
+      });
+    });
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        connectTimeout: 10,
+        idleTimeout: 30,
+      },
+    };
+    const provider = new PostgresVectorPersistenceProvider(config);
+
+    // Should not throw TypeScript error — same shape as parent's deps
+    await provider.initialize({ postgresFactory: vectorAwareFactory as any });
+
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 });

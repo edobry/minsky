@@ -298,9 +298,12 @@ export class PostgresVectorPersistenceProvider
     migrations: true,
   };
 
-  async initialize(): Promise<void> {
+  async initialize(deps?: {
+    sqlClient?: ReturnType<typeof postgres>;
+    postgresFactory?: typeof postgres;
+  }): Promise<void> {
     // Initialize base PostgreSQL functionality first
-    await super.initialize();
+    await super.initialize(deps);
 
     // Verify pgvector extension is available (should have been checked by factory)
     if (!this.sql) {
