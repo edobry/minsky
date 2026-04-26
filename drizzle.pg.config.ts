@@ -51,6 +51,8 @@ export default {
     "./src/domain/storage/schemas/task-relationships.ts",
     "./src/domain/storage/schemas/provenance-schema.ts",
     "./src/domain/storage/schemas/transcript-schema.ts",
+    "./src/domain/storage/schemas/ask-schema.ts",
+    "./src/domain/storage/schemas/pr-watch-schema.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",

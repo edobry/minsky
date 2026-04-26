@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
-import type { ReviewerToolContext } from "./tools";
+import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -89,6 +89,53 @@ export async function callReviewer(
 /** Maximum number of tool-use rounds before forcing the model to finalize. */
 const MAX_TOOL_ROUNDS = 10;
 
+/**
+ * Envelope shapes returned to the model for each tool call (mt#1216).
+ *
+ * Previously, tool results were returned as either a raw string (for text),
+ * a JSON-stringified array (for directory listings), or the literal string
+ * `"null"` for not-found — requiring the model to disambiguate a missing
+ * file from a file whose content is the four characters `null`. The envelope
+ * disambiguates structurally: `ok: true/false`, with domain fields on the
+ * success branch and `error` on the failure branch.
+ */
+export type ReadFileEnvelope =
+  | { ok: true; content: string; truncated: boolean }
+  | { ok: true; content: string; truncated: boolean; binary: true; size: number }
+  | { ok: false; error: string };
+
+export type ListDirectoryEnvelope =
+  | { ok: true; entries: DirEntry[] }
+  | { ok: false; error: string };
+
+/**
+ * Map a ReadFileResult from `readFileAtRef` to the JSON envelope the model
+ * sees. Exported for tests.
+ */
+export function buildReadFileEnvelope(result: ReadFileResult | null): ReadFileEnvelope {
+  if (result === null) return { ok: false, error: "not_found" };
+  if (result.kind === "binary") {
+    const suffix = result.truncated ? ", truncated snippet" : "";
+    return {
+      ok: true,
+      content: `[BINARY FILE: ${result.size} bytes${suffix}, not decoded]`,
+      truncated: result.truncated,
+      binary: true,
+      size: result.size,
+    };
+  }
+  return { ok: true, content: result.content, truncated: result.truncated };
+}
+
+/**
+ * Map a `listDirectoryAtRef` result to the JSON envelope the model sees.
+ * Exported for tests.
+ */
+export function buildListDirectoryEnvelope(entries: DirEntry[] | null): ListDirectoryEnvelope {
+  if (entries === null) return { ok: false, error: "not_found" };
+  return { ok: true, entries };
+}
+
 /** OpenAI function definitions for the reviewer tools. */
 const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -96,7 +143,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "read_file",
       description:
-        "Read the content of a file from the PR's HEAD ref. Path is relative to the repository root. Returns null if the file does not exist.",
+        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), {"ok":false,"error":"not_found"} when the file does not exist, or {"ok":false,"error":string} on other failures. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
@@ -114,7 +161,7 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "list_directory",
       description:
-        "List immediate children (files and directories) of a directory at the PR's HEAD ref. Path is relative to the repository root. Returns null if the directory does not exist.",
+        'List immediate children of a directory at the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"entries":[{"name":string,"type":"file"|"dir"|"symlink"|"submodule"},…]} on success, {"ok":false,"error":"not_found"} when the directory does not exist, or {"ok":false,"error":string} on other failures. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
@@ -148,21 +195,33 @@ export async function callOpenAIWithClient(
     { role: "user", content: userPrompt },
   ];
 
+  // When tools are active the model must finish reasoning AND emit structured
+  // tool-call JSON within the same budget. 16384 was too tight — reasoning at
+  // "medium" effort exhausted the budget before the model could emit tool-call
+  // JSON, causing it to narrate "Calling read_file..." into the review body
+  // instead of actually invoking the tool. 32768 gives enough runway for both
+  // steps. The no-tools path is unchanged at 16384 (single-turn, no tool-call
+  // overhead). See mt#1232.
+  const maxCompletionTokens = tools ? 32768 : 16384;
+
+  // When tools are active, default reasoning_effort to "low" so the model
+  // spends budget on structured output (tool calls) rather than hidden CoT.
+  // The no-tools path keeps "medium" as the baseline. Caller-supplied
+  // options.reasoningEffort always takes precedence on both paths. See mt#1232.
+  const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
+
   const baseParams = {
     model,
-    // Reasoning models (GPT-5, o-series) consume this budget for hidden
-    // reasoning tokens as well as output. 8192 was too tight — reasoning
-    // sometimes exhausted the budget before producing any output, yielding
-    // empty reviews. 16384 gives enough runway for both a full adversarial
-    // analysis AND a detailed output. See mt#1125.
-    max_completion_tokens: 16384,
+    max_completion_tokens: maxCompletionTokens,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
     // API — so only include it when the configured model supports it. The
-    // default is "medium"; retries override with "low" to shift the budget
-    // toward visible output when the first attempt returned empty (mt#1131).
+    // default varies by path: "low" when tools are active (preserve budget for
+    // tool-call JSON), "medium" for single-turn no-tools reviews. Retries
+    // override with "low" to shift the budget toward visible output when the
+    // first attempt returned empty (mt#1131).
     ...(isReasoningModel(model)
-      ? { reasoning_effort: options?.reasoningEffort ?? ("medium" as const) }
+      ? { reasoning_effort: options?.reasoningEffort ?? defaultReasoningEffort }
       : {}),
   };
 
@@ -248,15 +307,18 @@ export async function callOpenAIWithClient(
 
         if (fnName === "read_file") {
           const content = await tools.readFile(path);
-          resultContent = content !== null ? content : "null";
+          resultContent = JSON.stringify(buildReadFileEnvelope(content));
         } else if (fnName === "list_directory") {
           const entries = await tools.listDirectory(path);
-          resultContent = entries !== null ? JSON.stringify(entries) : "null";
+          resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
         } else {
-          resultContent = `Unknown tool: ${fnName}`;
+          resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
         }
       } catch (err: unknown) {
-        resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+        resultContent = JSON.stringify({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       messages.push({

@@ -23,11 +23,12 @@
  */
 export function buildCriticConstitution(toolsAvailable: boolean): string {
   const toolAccessSection = toolsAvailable ? TOOL_ACCESS_SECTION : NO_TOOLS_SECTION;
+  const failureModes = buildCriticConstitutionFailureModes(toolsAvailable);
   return `${CRITIC_CONSTITUTION_PREAMBLE}
 
 ${CRITIC_CONSTITUTION_PRINCIPLES}
 
-${CRITIC_CONSTITUTION_FAILURE_MODES}
+${failureModes}
 
 ${toolAccessSection}
 
@@ -52,7 +53,27 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
 
 6. **Prefer REQUEST_CHANGES over APPROVE** when you have any finding that is more than cosmetic. "Non-blocking" is a real category; use it. But use it for actually non-blocking issues — stylistic preferences, minor naming concerns, observability gaps. A behavior change that is undocumented is not non-blocking. A spec criterion that is unmet is not non-blocking.`;
 
-const CRITIC_CONSTITUTION_FAILURE_MODES = `## Failure modes to watch for specifically
+/**
+ * Returns the variant-appropriate carve-out paragraph for in-repo paths within
+ * the "Out-of-repo references" section of the Critic Constitution.
+ *
+ * - toolsAvailable=true: the reviewer can use read_file/list_directory to verify
+ *   in-repo claims, so the original carve-out stands ("may be BLOCKING").
+ * - toolsAvailable=false: the reviewer has no tools, so even in-repo claimed-but-
+ *   not-in-diff cannot be verified beyond what the diff shows. The carve-out must
+ *   be weakened to avoid contradicting the NO_TOOLS_SECTION blanket rule.
+ *   The no-tools exception (diff-vs-description mismatch) is handled separately
+ *   inside the NO_TOOLS_SECTION itself.
+ */
+function buildInRepoCarveOut(toolsAvailable: boolean): string {
+  if (toolsAvailable) {
+    return `This rule does NOT apply to in-repo paths. If the PR description claims it modified \`src/foo.ts\` but that file is not in the diff, that remains a legitimate finding and may be BLOCKING.`;
+  }
+  return `In the no-tools variant, even in-repo paths claimed but not in the diff must be marked NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix — without file-reading tools, the reviewer cannot distinguish a missing file from a description error. See the "Cross-file claims without tool access" section below for the limited diff-vs-description exception.`;
+}
+
+function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
+  return `## Failure modes to watch for specifically
 
 - **Scope creep beyond the stated goal.** The PR's stated purpose is X, but the diff also touches Y in ways that weren't motivated.
 - **Silent behavior changes.** A refactor that was meant to be equivalent but isn't. An extracted function that doesn't quite match the original call site's behavior.
@@ -60,7 +81,21 @@ const CRITIC_CONSTITUTION_FAILURE_MODES = `## Failure modes to watch for specifi
 - **Spec-diff mismatch.** The spec says X, the diff does Y.
 - **System-level incoherence.** The PR modifies a mechanism that interacts with other mechanisms elsewhere in the codebase. Are those other mechanisms now inconsistent? (The most important question the implementer often misses.)
 - **Undocumented assumptions.** The new code assumes X. X isn't asserted, tested, or documented. If X becomes false, what breaks?
-- **Regression risk on paths the PR didn't touch.** Does the change affect a code path the implementer didn't consider?`;
+- **Regression risk on paths the PR didn't touch.** Does the change affect a code path the implementer didn't consider?
+
+## Out-of-repo references
+
+The PR description or task spec may reference paths that are **outside the repository** and therefore outside the diff — for example:
+
+- \`~/.claude/...\` — user memory files or Claude config in the home directory
+- \`$HOME/...\` or \`~/...\` — any env-expanded home path
+- Absolute system paths outside the repo root: \`/etc/...\`, \`/usr/...\`, \`/var/...\`, etc.
+- Session workspace absolute paths (e.g. \`/Users/.../minsky/sessions/...\`)
+
+**You have no local filesystem access.** You cannot verify whether these paths exist, were updated, or match the description. A "claimed-but-not-in-diff" finding for out-of-repo paths is therefore NON-BLOCKING by default — mark it \`[NON-BLOCKING] NEEDS VERIFICATION: out-of-repo path — reviewer cannot verify\` rather than BLOCKING.
+
+${buildInRepoCarveOut(toolsAvailable)}`;
+}
 
 const TOOL_ACCESS_SECTION = `## Tool access
 
@@ -68,6 +103,25 @@ You have access to two tools for verifying cross-file claims:
 
 - **\`read_file(path)\`** — read the content of a specific file at the PR's HEAD ref (path relative to repo root, e.g. \`src/foo/bar.ts\`). Do NOT pass \`""\` — that targets the repo root, which is a directory and will error; use \`list_directory\` instead.
 - **\`list_directory(path)\`** — list immediate children (files and directories) of a directory at HEAD ref. Pass \`""\` for the repository root.
+
+### Tool result format
+
+Both tools return their result as a JSON envelope. Parse the JSON before acting on it — the envelope disambiguates a missing file from a file whose content happens to be the literal string \`null\`.
+
+**\`read_file\` envelope:**
+
+- \`{"ok": true, "content": string, "truncated": boolean}\` — file read successfully. \`truncated: true\` means the file exceeded GitHub's ~1MB Contents API limit and \`content\` holds only a partial snippet; do not make claims about the full file contents — mark any such claim as NEEDS VERIFICATION.
+- \`{"ok": true, "content": "[BINARY FILE: N bytes, not decoded]", "truncated": boolean, "binary": true, "size": N}\` — the file is binary (null byte in the first 8KB) and was not decoded. Do not attempt to reason about its contents from \`content\`; \`content\` is a placeholder, not the real bytes. \`size\` is the authoritative file size reported by GitHub's Contents API; \`truncated: true\` means the binary exceeded the API's ~1MB threshold (the file is still N bytes, but no snippet was returned for decoding since we never decode binary anyway).
+- \`{"ok": false, "error": "not_found"}\` — the file does not exist at HEAD. This is a definitive negative; you may state the file does not exist without a NEEDS VERIFICATION qualifier.
+- \`{"ok": false, "error": "<message>"}\` — an unexpected error occurred (permissions, malformed response, etc.). Treat as "unknown" — do not make claims about the file.
+
+**\`list_directory\` envelope:**
+
+- \`{"ok": true, "entries": [{"name": string, "type": "file"|"dir"|"symlink"|"submodule"}, …]}\` — directory listed. Entries include \`symlink\` and \`submodule\` types in addition to \`file\` and \`dir\`; the real type is surfaced so you can verify claims about repo structure accurately.
+- \`{"ok": false, "error": "not_found"}\` — the directory does not exist at HEAD.
+- \`{"ok": false, "error": "<message>"}\` — unexpected error; treat as unknown.
+
+### When to use the tools
 
 **Before making any claim about a file or directory that is not directly in the diff, USE THE TOOLS to verify it.** If you assert that a file exists, call \`read_file\` first. If you assert that a directory has (or lacks) certain files, call \`list_directory\` first.
 
@@ -77,7 +131,9 @@ const NO_TOOLS_SECTION = `## Cross-file claims without tool access
 
 You do NOT have file-reading tools for this review — only the diff, the PR description, and the task spec are in context. This means you cannot independently verify claims about files outside the diff.
 
-**Any claim about a file or directory that is not directly in the diff MUST be marked non-blocking with a \`NEEDS VERIFICATION\` prefix** (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Do NOT mark such claims as BLOCKING, however confident you are — Chinese-wall isolation plus no tool access is a known false-positive-amplifying combination. Save BLOCKING for issues you can verify from what is in front of you.`;
+**Any claim about a file or directory that is not directly in the diff MUST be marked non-blocking with a \`NEEDS VERIFICATION\` prefix** (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Do NOT mark such claims as BLOCKING, however confident you are — Chinese-wall isolation plus no tool access is a known false-positive-amplifying combination. Save BLOCKING for issues you can verify from what is in front of you.
+
+**Exception — diff-vs-description mismatch on in-repo paths.** If the PR description or task spec claims a specific in-repo path was modified (e.g. \`src/foo.ts\`) and that file is not present in the diff, the absence is verifiable from the diff itself (not from reading the file) and may be BLOCKING. This exception does NOT apply to out-of-repo paths — those are covered by the earlier "Out-of-repo references" clause and remain NON-BLOCKING.`;
 
 const CRITIC_CONSTITUTION_OUTPUT_FORMAT = `## Output format
 
@@ -97,6 +153,87 @@ Your goal is high-signal review, not high approval rate. A reviewer that approve
  * Assumes tools are available (the OpenAI default).
  */
 export const CRITIC_CONSTITUTION = buildCriticConstitution(true);
+
+/**
+ * Structural pre-check for out-of-repo path references.
+ *
+ * The prompt-level out-of-repo clause (in `CRITIC_CONSTITUTION_FAILURE_MODES`)
+ * tells the reviewer the rule. This pre-check supplies the evidence: it scans
+ * the PR body and task spec for paths the reviewer cannot verify and injects
+ * an explicit enumeration into the prompt body. Defense-in-depth — the
+ * reviewer has no cross-round memory, so prompt phrasing drift can erode the
+ * rule in practice; the structural annotation holds regardless.
+ */
+type OutOfRepoKind = "home_tilde" | "env_home" | "absolute_system" | "session_workspace";
+
+export interface OutOfRepoReference {
+  readonly path: string;
+  readonly kind: OutOfRepoKind;
+  readonly source: "PR description" | "task spec";
+}
+
+const OUT_OF_REPO_PATH_PATTERNS: ReadonlyArray<{
+  readonly kind: OutOfRepoKind;
+  readonly regex: RegExp;
+}> = [
+  { kind: "home_tilde", regex: /~\/[\w.\-/]+/g },
+  { kind: "env_home", regex: /\$HOME\/[\w.\-/]+/g },
+  {
+    kind: "absolute_system",
+    regex: /(?<![\w:])\/(?:etc|usr|var|opt|tmp|root)(?:\/[\w.\-/]+)+/g,
+  },
+  // Session workspace absolute paths. Gated on the `minsky/sessions/` sub-path so
+  // the pattern cannot collide with unrelated in-repo absolute paths that also
+  // happen to start with `/Users/` or `/home/` on dev machines.
+  {
+    kind: "session_workspace",
+    regex: /(?<![\w:])\/(?:Users|home)\/[\w.-]+(?:\/\.local\/state)?\/minsky\/sessions\/[\w.\-/]+/g,
+  },
+];
+
+export function extractOutOfRepoReferences(
+  text: string,
+  source: "PR description" | "task spec"
+): OutOfRepoReference[] {
+  if (!text) return [];
+  const seen = new Map<string, OutOfRepoReference>();
+  for (const { kind, regex } of OUT_OF_REPO_PATH_PATTERNS) {
+    for (const match of text.matchAll(regex)) {
+      const path = match[0].replace(/[.,;:)]+$/, "");
+      if (!seen.has(path)) {
+        seen.set(path, { path, kind, source });
+      }
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function buildOutOfRepoSection(prBody: string, taskSpec: string | null): string | null {
+  const perSource = [
+    ...extractOutOfRepoReferences(prBody, "PR description"),
+    ...extractOutOfRepoReferences(taskSpec ?? "", "task spec"),
+  ];
+  if (perSource.length === 0) return null;
+  // Dedupe across sources by path; aggregate source labels for the same path.
+  const merged = new Map<
+    string,
+    { path: string; sources: Array<"PR description" | "task spec"> }
+  >();
+  for (const ref of perSource) {
+    const entry = merged.get(ref.path);
+    if (entry) {
+      if (!entry.sources.includes(ref.source)) entry.sources.push(ref.source);
+    } else {
+      merged.set(ref.path, { path: ref.path, sources: [ref.source] });
+    }
+  }
+  const lines = Array.from(merged.values()).map((r) => `- \`${r.path}\` (${r.sources.join(", ")})`);
+  return `## Out-of-repo references observed
+
+The pre-check scanner found ${lines.length} distinct path reference(s) outside the repository in the PR description and/or task spec. You have no filesystem access to verify these. Per the Critic Constitution, a "claimed-but-not-in-diff" finding for these paths is NON-BLOCKING.
+
+${lines.join("\n")}`;
+}
 
 export interface ReviewPromptInput {
   prNumber: number;
@@ -119,6 +256,9 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     ? `## Task Specification\n\n${input.taskSpec}`
     : `## Task Specification\n\n(No task spec was found. The PR description above is your only source of intent.)`;
 
+  const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
+  const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
+
   return `# PR Review Request
 
 ## PR Metadata
@@ -132,7 +272,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}
+${specSection}${outOfRepoBlock}
 
 ## Diff
 

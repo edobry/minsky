@@ -5,11 +5,14 @@ import {
   buildEmptyOutputSkipNotice,
   decidePostSanitizeOutcome,
   callReviewerWithRetry,
+  decideToolsActive,
+  defaultForkAccessProbe,
+  buildRunReviewStartLog,
   type CallReviewerFn,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
-import type { ReviewerToolContext } from "./tools";
+import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 
 describe("parseReviewEvent", () => {
@@ -366,9 +369,10 @@ describe("callReviewerWithRetry (mt#1131)", () => {
 // (The actual wiring into callReviewer is covered in providers.test.ts.)
 
 describe("ReviewerToolContext shape", () => {
-  test("readFile callback returns string or null", async () => {
-    const readFile = mock(async (path: string): Promise<string | null> => {
-      if (path === "src/exists.ts") return "file content";
+  test("readFile callback returns ReadFileResult or null", async () => {
+    const readFile = mock(async (path: string): Promise<ReadFileResult | null> => {
+      if (path === "src/exists.ts")
+        return { kind: "text", content: "file content", truncated: false };
       return null;
     });
 
@@ -377,7 +381,11 @@ describe("ReviewerToolContext shape", () => {
       listDirectory: mock(async () => null),
     };
 
-    expect(await tools.readFile("src/exists.ts")).toBe("file content");
+    expect(await tools.readFile("src/exists.ts")).toEqual({
+      kind: "text",
+      content: "file content",
+      truncated: false,
+    });
     expect(await tools.readFile("src/missing.ts")).toBeNull();
   });
 
@@ -386,12 +394,10 @@ describe("ReviewerToolContext shape", () => {
       { name: "index.ts", type: "file" as const },
       { name: "lib", type: "dir" as const },
     ];
-    const listDirectory = mock(
-      async (path: string): Promise<Array<{ name: string; type: "file" | "dir" }> | null> => {
-        if (path === "src") return entries;
-        return null;
-      }
-    );
+    const listDirectory = mock(async (path: string) => {
+      if (path === "src") return entries;
+      return null;
+    });
 
     const tools: ReviewerToolContext = {
       readFile: mock(async () => null),
@@ -508,5 +514,197 @@ describe("decidePostSanitizeOutcome", () => {
       attempt: "retry-success",
     });
     expect(outcome.reason).toContain("attempt=retry-success");
+  });
+});
+
+// ----- decideToolsActive (mt#1216 fork-gating + probe) -----
+//
+// Pure helper that decides whether the tool-use loop is active for a given
+// PR + provider combination. Gates on provider capability (OpenAI only) and,
+// for forked PRs, the result of a fork-access probe. Extracted from
+// runReview so the branches can be tested without mocking octokit/auth.
+
+describe("decideToolsActive", () => {
+  const baseConfig = (provider: "openai" | "google" | "anthropic") =>
+    ({ provider }) as unknown as Parameters<typeof decideToolsActive>[0];
+
+  test("OpenAI + in-repo PR → active, no probe call", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 101, isForkedPR: false },
+      probe
+    );
+    expect(result.toolsActive).toBe(true);
+    expect(result.reason).toBeUndefined();
+    // Non-fork: probe is skipped entirely. Paying a network round-trip on the
+    // common case would be wasteful and also make the test mock-sensitive.
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + forked PR + probe succeeds → active", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 200, isForkedPR: true },
+      probe
+    );
+    expect(result.toolsActive).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  test("OpenAI + forked PR + probe fails → inactive with fork reason", async () => {
+    const probe = mock(async () => false);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 201, isForkedPR: true },
+      probe
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("fork-access probe failed");
+    expect(result.reason).toContain("201");
+  });
+
+  test("Google → inactive with provider reason, probe NOT called", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("google"),
+      { number: 300, isForkedPR: false },
+      probe
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("provider google");
+    expect(result.reason).toContain("OpenAI-only");
+    // Non-OpenAI short-circuits before the fork check — probe must never fire.
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("Anthropic + forked PR → inactive with provider reason (provider check wins)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("anthropic"),
+      { number: 400, isForkedPR: true },
+      probe
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("provider anthropic");
+    expect(probe).not.toHaveBeenCalled();
+  });
+});
+
+// ----- defaultForkAccessProbe (mt#1216) -----
+//
+// Tries README.md first, falls back to package.json, treats any throw as a
+// probe miss. Returns true iff at least one probe file resolves to a
+// non-null result.
+
+describe("defaultForkAccessProbe", () => {
+  type FakeOctokit = Parameters<typeof defaultForkAccessProbe>[0];
+  const prCoords = { headOwner: "fork-owner", headRepo: "fork-repo", headSha: "deadbeef" };
+
+  function makeOctokit(
+    getContentImpl: (params: { owner: string; repo: string; path: string; ref: string }) => unknown
+  ): FakeOctokit {
+    return {
+      rest: { repos: { getContent: mock(getContentImpl) } },
+    } as unknown as FakeOctokit;
+  }
+
+  test("README.md present → true, package.json not fetched", async () => {
+    let calls = 0;
+    const octokit = makeOctokit((params) => {
+      calls++;
+      expect(params.path).toBe("README.md");
+      const content = Buffer.from("# hello").toString("base64");
+      return { data: { type: "file", content, encoding: "base64" } };
+    });
+    await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  test("README.md returns null, package.json present → true", async () => {
+    const paths: string[] = [];
+    const octokit = makeOctokit((params) => {
+      paths.push(params.path);
+      if (params.path === "README.md") {
+        const err = new Error("Not Found") as Error & { status: number };
+        err.status = 404;
+        throw err;
+      }
+      const content = Buffer.from('{"name":"pkg"}').toString("base64");
+      return { data: { type: "file", content, encoding: "base64" } };
+    });
+    await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(true);
+    expect(paths).toEqual(["README.md", "package.json"]);
+  });
+
+  test("both null → false", async () => {
+    const octokit = makeOctokit(() => {
+      const err = new Error("Not Found") as Error & { status: number };
+      err.status = 404;
+      throw err;
+    });
+    await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(false);
+  });
+
+  test("README.md throws 403, package.json resolves → true (permission errors swallowed)", async () => {
+    const octokit = makeOctokit((params) => {
+      if (params.path === "README.md") {
+        const err = new Error("Forbidden") as Error & { status: number };
+        err.status = 403;
+        throw err;
+      }
+      const content = Buffer.from("{}").toString("base64");
+      return { data: { type: "file", content, encoding: "base64" } };
+    });
+    await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(true);
+  });
+
+  test("both throw → false", async () => {
+    const octokit = makeOctokit(() => {
+      const err = new Error("Forbidden") as Error & { status: number };
+      err.status = 403;
+      throw err;
+    });
+    await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(false);
+  });
+});
+
+// ----- buildRunReviewStartLog (mt#1256) -----
+//
+// Pure helper that constructs the runReview_start structured log object.
+// Extracted from runReview so the log shape can be tested via a pure function
+// without module-level mocking (custom/no-global-module-mocks rule).
+// runReview calls JSON.stringify(buildRunReviewStartLog(...)) at its entry
+// point, before any network calls, so the log fires for every review attempt.
+
+describe("buildRunReviewStartLog (mt#1256)", () => {
+  test("includes event=runReview_start with all required fields", () => {
+    const log = buildRunReviewStartLog("delivery-abc123", "owner1", "repo1", 42, "sha1234");
+    expect(log["event"]).toBe("runReview_start");
+    expect(log["delivery_id"]).toBe("delivery-abc123");
+    expect(log["owner"]).toBe("owner1");
+    expect(log["repo"]).toBe("repo1");
+    expect(log["pr"]).toBe(42);
+    expect(log["sha"]).toBe("sha1234");
+  });
+
+  test("accepts 'unknown' as the delivery_id default sentinel", () => {
+    const log = buildRunReviewStartLog("unknown", "owner", "repo", 1, "unknown");
+    expect(log["delivery_id"]).toBe("unknown");
+    expect(log["sha"]).toBe("unknown");
+  });
+
+  test("serialises cleanly as JSON (no undefined values or circular refs)", () => {
+    const log = buildRunReviewStartLog("del-999", "o", "r", 5, "abc");
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const parsed = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(parsed["delivery_id"]).toBe("del-999");
+  });
+
+  test("all six keys are present, no extra keys", () => {
+    const log = buildRunReviewStartLog("d", "o", "r", 1, "s");
+    const keys = Object.keys(log).sort();
+    expect(keys).toEqual(["delivery_id", "event", "owner", "pr", "repo", "sha"]);
   });
 });

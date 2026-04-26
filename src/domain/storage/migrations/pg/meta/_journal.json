@@ -169,6 +169,27 @@
       "when": 1776931200000,
       "tag": "0023_session_transcripts",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1777017600000,
+      "tag": "0024_memory_phase_1",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777104000000,
+      "tag": "0025_add_asks_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777190400000,
+      "tag": "0026_add_pr_watches_table",
+      "breakpoints": true
     }
   ]
 }

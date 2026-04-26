@@ -22,20 +22,26 @@ interface PullRequestPayload {
     number: number;
     user: { login: string };
     draft: boolean;
+    head: { sha: string };
   };
   repository: { owner: { login: string }; name: string };
 }
 
-async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void> {
+async function handlePullRequestEvent(
+  payload: PullRequestPayload,
+  deliveryId: string
+): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const prNumber = payload.pull_request.number;
   const prAuthor = payload.pull_request.user.login;
+  const headSha = payload.pull_request.head.sha;
 
   if (payload.pull_request.draft) {
     console.log(
       JSON.stringify({
         event: "skip_draft",
+        delivery_id: deliveryId,
         pr: prNumber,
         owner,
         repo,
@@ -44,7 +50,7 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
     return;
   }
 
-  const result = await runReview(config, owner, repo, prNumber, prAuthor);
+  const result = await runReview(config, owner, repo, prNumber, prAuthor, deliveryId, headSha);
   // Note: runReview is NOT wrapped in try/catch here. Errors propagate to
   // webhooks.verifyAndReceive → HTTP 500 → GitHub retries the delivery.
   // This is load-bearing for the Tier-3 mandatory-review guarantee: a
@@ -56,6 +62,8 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
   console.log(
     JSON.stringify({
       event: "review_result",
+      delivery_id: deliveryId,
+      sha: headSha,
       pr: prNumber,
       owner,
       repo,
@@ -71,16 +79,16 @@ async function handlePullRequestEvent(payload: PullRequestPayload): Promise<void
   );
 }
 
-webhooks.on("pull_request.opened", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.opened", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
-webhooks.on("pull_request.synchronize", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.synchronize", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
-webhooks.on("pull_request.reopened", async ({ payload }) => {
-  await handlePullRequestEvent(payload as PullRequestPayload);
+webhooks.on("pull_request.reopened", async ({ id, payload }) => {
+  await handlePullRequestEvent(payload as PullRequestPayload, id);
 });
 
 const server = Bun.serve({
@@ -104,7 +112,37 @@ const server = Bun.serve({
       const signature = request.headers.get("x-hub-signature-256");
       const deliveryId = request.headers.get("x-github-delivery") ?? "unknown";
       const eventName = request.headers.get("x-github-event");
+
+      // Read body BEFORE the missing-headers check so we can include `action`
+      // in the webhook_received log. Body reads are cheap for legitimate
+      // payloads; malicious-volume attacks are handled downstream by signature
+      // verification rejecting invalid payloads.
       const body = await request.text();
+
+      // Best-effort extract `action` from the JSON body for observability.
+      // If the body is not valid JSON or has no `action` field, we emit null.
+      let action: string | null = null;
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        if (typeof parsed["action"] === "string") {
+          action = parsed["action"];
+        }
+      } catch {
+        // Non-JSON or malformed body — action stays null.
+      }
+
+      // Log webhook_received BEFORE the missing-headers check so that requests
+      // with absent headers (signature_present: false) still produce a log line.
+      // This is the primary diagnostic signal for bad-actor or misconfigured senders.
+      console.log(
+        JSON.stringify({
+          event: "webhook_received",
+          delivery_id: deliveryId,
+          github_event: eventName ?? null,
+          action,
+          signature_present: Boolean(signature),
+        })
+      );
 
       if (!signature || !eventName) {
         return new Response("missing signature or event headers", { status: 400 });
@@ -128,8 +166,10 @@ const server = Bun.serve({
         console.error(
           JSON.stringify({
             event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
-            deliveryId,
-            eventName,
+            delivery_id: deliveryId,
+            deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
+            github_event: eventName,
+            eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
             error: message,
           })
         );

@@ -36,6 +36,15 @@ Minsky implements an interface-agnostic command architecture that separates conc
 - `src/adapters/mcp/` — MCP-specific adapters
 - Responsibilities: convert interface input → domain params, call domain function, format result, catch typed errors and translate to interface-appropriate presentation
 
+### MCP bridge conventions
+
+The shared-command → MCP bridge at `src/adapters/mcp/shared-command-integration.ts` enforces the structured-data contract documented in `src/adapters/mcp/README.md`. Command authors should know:
+
+- **`ctx.format` is always `"json"` for MCP calls.** The bridge hardcodes this; don't gate command behavior on `args.json` or other client-supplied formatting flags.
+- **`params.json = true` is auto-injected.** The bridge strips `json` from the MCP-facing schema (clients can't set it) and re-injects `true` before execute, so commands that gate on `params.json` still return structured data. Injection fires only when the `json` parameter's schema is boolean-compatible, so omitting the parameter from a new command is fine — the bridge simply skips the injection.
+- **Don't name a non-formatting parameter `json`.** If a command legitimately needs a parameter called `json` (e.g., a JSON payload string), use a namespaced key — `jsonPayload`, `jsonBody`. The boolean-compatibility probe will skip a non-boolean `json`, but avoid the name collision regardless; it's confusing for readers and puts the bridge's sanity check on the hot path.
+- **Return structured data from the JSON branch of `formatResult()`.** The text branch exists for CLI use; MCP will never take it. Collapsing structured data into a `message` string in the JSON branch is the bug mt#1174 fixed — don't reintroduce it.
+
 ### Command Entry Points (`src/commands/`)
 
 - `src/commands/mcp/` — MCP command entry points

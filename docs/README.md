@@ -21,6 +21,7 @@ This directory contains comprehensive documentation for the Minsky development w
 
 - [**SessionDB Migration Guide**](./sessiondb-migration-guide.md) - Migrate between SQLite and PostgreSQL backends
 - [**SessionDB Troubleshooting Guide**](./sessiondb-troubleshooting.md) - Solutions for common SessionDB issues across all backends
+- [**Postgres Persistence Configuration**](./persistence-configuration.md) - Pool sizing, retry policy, and graceful shutdown for the Postgres backend
 
 ### Task Management
 

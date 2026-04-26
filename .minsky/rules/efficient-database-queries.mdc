@@ -182,7 +182,7 @@ const taskDetails = await Promise.allSettled(getByIds()); // 1 query equivalent
 ## Integration with Existing Rules
 
 - Cross-reference with `robust-error-handling` for database error handling
-- See `testable-design` for mocking bulk operations in tests
+- See `testing-standards` for mocking bulk operations in tests
 - Follow `meaningful-output-principles` for progress reporting during bulk operations
 
 ## Violations Response
