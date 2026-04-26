@@ -199,7 +199,9 @@ export function registerAuthorshipCommands(
 
         // Import domain services
         const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
-        const { TranscriptService } = await import("../../../domain/provenance/transcript-service");
+        const { AgentTranscriptService } = await import(
+          "../../../domain/provenance/transcript-service"
+        );
         const { AuthorshipJudge } = await import("../../../domain/provenance/authorship-judge");
         const { createCompletionService } = await import("../../../domain/ai/service-factory");
         const { requireAIProviders } = await import("../../../domain/ai/provider-operations");
@@ -214,7 +216,7 @@ export function registerAuthorshipCommands(
         const provenanceService = new ProvenanceService(
           db as import("drizzle-orm/postgres-js").PostgresJsDatabase
         );
-        const transcriptService = new TranscriptService(
+        const transcriptService = new AgentTranscriptService(
           db as import("drizzle-orm/postgres-js").PostgresJsDatabase
         );
         const judge = new AuthorshipJudge(completionService);
