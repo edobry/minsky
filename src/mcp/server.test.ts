@@ -15,6 +15,9 @@ import { log } from "../utils/logger";
 const CONTENT_TYPE_JSON = "application/json";
 const ACCEPT_MCP = "application/json, text/event-stream";
 
+// Shared response body constants
+const SESSION_NOT_FOUND_MSG = "Session not found";
+
 describe("MCP Server", () => {
   beforeEach(() => {
     setupTestMocks();
@@ -420,6 +423,84 @@ describe("MCP Server", () => {
         error: { code: -32001, message: "Session not found" },
         id: null,
       });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("HTTP transport GET: missing mcp-session-id header returns 404 plain text", async () => {
+    // GET /mcp without an mcp-session-id header has no session to attach to;
+    // the resource does not exist — the correct response is 404, not 405.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, { method: "GET" });
+
+      expect(res.status).toBe(404);
+      const body = await res.text();
+      expect(body).toBe(SESSION_NOT_FOUND_MSG);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("HTTP transport GET: unknown mcp-session-id returns 404 plain text", async () => {
+    // GET /mcp with an unrecognised session ID must return 404 (not 405).
+    // GET is a valid method when a session exists; the error is a missing
+    // resource, not a disallowed method.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, {
+        method: "GET",
+        headers: { "mcp-session-id": "00000000-0000-0000-0000-000000000000" },
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.text();
+      expect(body).toBe(SESSION_NOT_FOUND_MSG);
     } finally {
       await new Promise<void>((resolve, reject) =>
         httpServer.close((err) => (err ? reject(err) : resolve()))

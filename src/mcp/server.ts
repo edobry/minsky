@@ -431,8 +431,12 @@ export class MinskyMCPServer {
    */
   private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
     if (!sessionId || !this.httpSessions.has(sessionId)) {
-      // Return 405 Method Not Allowed if no SSE stream available
-      res.status(405).set("Allow", "POST").send("Method Not Allowed");
+      // Return 404 Not Found — GET is a valid method on this endpoint, but only
+      // when a session exists. A missing or unknown session-id means the resource
+      // does not exist, not that the method is disallowed. Plain text body (no
+      // JSON-RPC envelope) because SSE GET is a streaming connection, not a
+      // JSON-RPC message exchange.
+      res.status(404).send("Session not found");
       return;
     }
 
