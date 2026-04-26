@@ -9,11 +9,13 @@ import {
   defaultForkAccessProbe,
   buildRunReviewStartLog,
   type CallReviewerFn,
+  type ReviewResult,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
+import type { PRScope } from "./pr-scope";
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -706,5 +708,44 @@ describe("buildRunReviewStartLog (mt#1256)", () => {
     const log = buildRunReviewStartLog("d", "o", "r", 1, "s");
     const keys = Object.keys(log).sort();
     expect(keys).toEqual(["delivery_id", "event", "owner", "pr", "repo", "sha"]);
+  });
+});
+
+// ----- ReviewResult.scope field (mt#1188) -----
+//
+// The scope field carries the PR scope classification from runReview back to
+// the server for the review_result log. Verified via the TypeScript type shape
+// (structural check) so no network mocking is required — the field is already
+// integration-tested via the full pr-scope.test.ts suite.
+
+describe("ReviewResult.scope type (mt#1188)", () => {
+  test("ReviewResult.scope accepts all PRScope values or undefined", () => {
+    // Structural type assertion — ensure the scope field is typed correctly.
+    // This test is compile-time only; if it passes tsc it's correct.
+    const scopes: Array<PRScope | undefined> = [
+      "normal",
+      "trivial",
+      "docs-only",
+      "test-only",
+      undefined,
+    ];
+    for (const scope of scopes) {
+      const result: ReviewResult = {
+        status: "reviewed",
+        reason: "ok",
+        tier: 3,
+        scope,
+      };
+      expect(result.scope).toBe(scope);
+    }
+  });
+
+  test("ReviewResult without scope field is valid (skipped reviews omit it)", () => {
+    const result: ReviewResult = {
+      status: "skipped",
+      reason: "tier mismatch",
+      tier: 1,
+    };
+    expect(result.scope).toBeUndefined();
   });
 });

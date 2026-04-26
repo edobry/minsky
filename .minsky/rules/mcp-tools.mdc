@@ -24,6 +24,27 @@ GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because 
 
 Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
 
+## session_update and session_pr_create can force-push the branch
+
+`mcp__minsky__session_update` (and `mcp__minsky__session_pr_create`, which calls it internally) merges main onto the **local** session HEAD and force-pushes. If the remote `task/<id>` branch has been advanced beyond the session's local HEAD by another agent, the merge commit's parent is the stale local — NOT the advanced remote — and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning. mt#1304 tracks the tool-level fix; until that lands, the agent must guard.
+
+**Pre-flight before calling `session_update` or `session_pr_create` on any session whose task has an open PR:**
+
+1. Read `mcp__minsky__session_get(task)` → note `lastCommitHash`.
+2. Read `mcp__minsky__session_pr_list(task)` (or `mcp__github__pull_request_read get` and inspect `head.sha`).
+3. If `lastCommitHash !== head.sha`: the remote has advanced. **Do NOT call session_update.** Surface to user, or do the analysis non-mutatively (see below).
+
+**Non-mutating alternatives** when you only need to read the current PR state: use `mcp__github__get_file_contents(ref="task/mt-N")` for files at the PR HEAD, or `mcp__github__pull_request_read(method="get_diff")` for the full diff. Edit the session only when you're actually committing — and only after confirming local-vs-origin parity.
+
+**Recovery if you orphaned commits**: the orphaned SHAs remain accessible on GitHub by SHA for some retention window. Restore via:
+
+```
+gh api -X PATCH /repos/<owner>/<repo>/git/refs/heads/<branch> \
+  -f sha=<orphaned-head-sha> -F force=true
+```
+
+Then surface the incident to the user; do NOT silently re-run session_update on the restored branch. See `feedback_session_update_can_force_push` memory for the failure-mode pattern.
+
 ## Running commands in sessions
 
 Use `mcp__minsky__session_exec` to run shell commands inside a session workspace from the main agent context. The session directory is resolved automatically — no need to look up paths or `cd` into directories.

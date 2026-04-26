@@ -13,6 +13,7 @@ import {
   type CommandParameterMap,
 } from "../shared/command-registry";
 import { log } from "../../utils/logger";
+import { redact } from "../../utils/redaction";
 import { z } from "zod";
 import { guardProjectSetup } from "../../domain/configuration/guard";
 
@@ -176,7 +177,7 @@ export function registerSharedCommandsWithMcp(
         parameters: convertParametersToZodSchema(command.parameters),
         handler: async (args: Record<string, unknown>) => {
           const startTime = Date.now();
-          log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
+          log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
 
           try {
             // Create execution context for shared command.
@@ -185,15 +186,22 @@ export function registerSharedCommandsWithMcp(
             // readable text that discards the underlying payload.
             const context: CommandExecutionContext = {
               interface: "mcp",
-              debug: Boolean(args?.debug),
+              debug: args?.debug === true || args?.debug === "true",
               format: "json",
               container: config.container,
             };
-            log.debug(`[MCP] Created execution context: ${command.id}`, { context });
+            // Omit `container` from debug logs: it holds the full DI container,
+            // which is expensive to walk and produces huge [Circular]-laden output.
+            const { container: _container, ...safeCtx } = context;
+            log.debug(`[MCP] Created execution context: ${command.id}`, {
+              context: redact(safeCtx),
+            });
 
             // Convert MCP args to expected parameter format
             const filteredArgs = { ...args };
-            log.debug(`[MCP] Processing args: ${command.id}`, { filteredArgs });
+            log.debug(`[MCP] Processing args: ${command.id}`, {
+              filteredArgs: redact(filteredArgs),
+            });
 
             const parameters = { ...convertMcpArgsToParameters(filteredArgs, command.parameters) };
             // Force json=true so commands that gate on params.json (rather
@@ -213,7 +221,9 @@ export function registerSharedCommandsWithMcp(
             if (jsonParamDef && isBooleanCompatibleSchema(jsonParamDef.schema)) {
               parameters.json = true;
             }
-            log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
+            log.debug(`[MCP] Converted parameters: ${command.id}`, {
+              parameters: redact(parameters),
+            });
 
             // Guard: verify the project is initialized before executing non-exempt commands
             if (command.requiresSetup !== false) {
@@ -228,8 +238,9 @@ export function registerSharedCommandsWithMcp(
 
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
-            log.debug(`[MCP] Parameters being passed:`, parameters);
-            log.debug(`[MCP] Context being passed:`, { context });
+            log.debug(`[MCP] Parameters being passed:`, redact(parameters));
+            // Re-use safeCtx (container already stripped) for the second log site.
+            log.debug(`[MCP] Context being passed:`, { context: redact(safeCtx) });
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const result = await command.execute(parameters, context, validatedCtx as any);

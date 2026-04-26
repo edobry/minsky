@@ -17,16 +17,28 @@
  * access section in a prompt for a provider that can't call tools would lie
  * to the model (tell it tools exist when they don't) and degrade behavior.
  *
+ * The optional `scope` param (mt#1188) adjusts rigor for trivial / docs-only
+ * and test-only PRs. For `"normal"` (the default) behavior is byte-identical
+ * to the pre-mt#1188 prompt (no extra section appended).
+ *
  * The legacy `CRITIC_CONSTITUTION` export below is kept for backwards
- * compatibility with existing callers; it assumes tools are available.
- * New callers should use `buildCriticConstitution(toolsAvailable)`.
+ * compatibility with existing callers; it assumes tools are available and
+ * normal scope.
+ * New callers should use `buildCriticConstitution(toolsAvailable, scope)`.
  */
-export function buildCriticConstitution(toolsAvailable: boolean): string {
+export function buildCriticConstitution(
+  toolsAvailable: boolean,
+  scope: "trivial-or-docs" | "test-only" | "normal" = "normal"
+): string {
   const toolAccessSection = toolsAvailable ? TOOL_ACCESS_SECTION : NO_TOOLS_SECTION;
   const failureModes = buildCriticConstitutionFailureModes(toolsAvailable);
+  const scopeSection = buildScopeCalibrationSection(scope);
+  const principlesBlock = scopeSection
+    ? `${CRITIC_CONSTITUTION_PRINCIPLES}\n\n${scopeSection}`
+    : CRITIC_CONSTITUTION_PRINCIPLES;
   return `${CRITIC_CONSTITUTION_PREAMBLE}
 
-${CRITIC_CONSTITUTION_PRINCIPLES}
+${principlesBlock}
 
 ${failureModes}
 
@@ -34,6 +46,46 @@ ${toolAccessSection}
 
 ${CRITIC_CONSTITUTION_OUTPUT_FORMAT}`;
 }
+
+/**
+ * Build the optional scope-calibration section that is inserted between
+ * PRINCIPLES and FAILURE_MODES for non-normal scopes (mt#1188).
+ *
+ * Returns an empty string for `"normal"` — preserving byte-identical behavior
+ * to the pre-mt#1188 prompt on the normal code-review path.
+ */
+function buildScopeCalibrationSection(scope: "trivial-or-docs" | "test-only" | "normal"): string {
+  switch (scope) {
+    case "trivial-or-docs":
+      return SCOPE_CALIBRATION_TRIVIAL_OR_DOCS;
+    case "test-only":
+      return SCOPE_CALIBRATION_TEST_ONLY;
+    case "normal":
+      return "";
+  }
+}
+
+const SCOPE_CALIBRATION_TRIVIAL_OR_DOCS = `## Scope-aware calibration
+
+This PR has been classified as **trivial / docs-only**. Apply the Critic Constitution, but reserve BLOCKING severity for findings in these categories only:
+
+(a) **Security** — any change that introduces or exposes a vulnerability.
+(b) **Data-loss / correctness on user-facing behavior** — a change that silently alters observable semantics in a harmful way.
+(c) **Scope creep beyond the stated purpose** — the diff touches areas not justified by the PR description or task spec.
+(d) **License / legal** — incompatible license terms, missing attribution, or SPDX-header violations.
+
+Stylistic concerns, minor documentation nits, test-coverage observations, and cosmetic finding types **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
+
+const SCOPE_CALIBRATION_TEST_ONLY = `## Scope-aware calibration
+
+This PR has been classified as **test-only** (every changed file is a test file). Apply the Critic Constitution, but reserve BLOCKING severity for findings in these categories only:
+
+(a) **Test that does not actually assert the claim** — the test passes unconditionally or the assertion is vacuous.
+(b) **Test that hides a bug by stubbing around it** — a mock or stub removes the code path the test was meant to exercise.
+(c) **Flakiness or race conditions** — the test produces non-deterministic results under realistic conditions.
+(d) **Test deletion without replacement for a covered behavior** — a behavior that was previously tested is now untested with no justification.
+
+Coverage gaps, naming preferences, minor assertion style, and non-behavioral organisational concerns **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
 
 const CRITIC_CONSTITUTION_PREAMBLE = `You are the adversarial reviewer for an agentic software development pipeline. You are reviewing a pull request that was opened by another AI agent. You have no access to that agent's reasoning, chat history, or intermediate artifacts — only the diff, the task specification, and read-only access to the codebase.
 
