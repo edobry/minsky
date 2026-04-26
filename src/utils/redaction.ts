@@ -15,6 +15,10 @@
  *     `apiKey`, `privateKey`, `access_key`, etc. are still caught.
  *   - The snake_case catch-all (`_key` suffix) is handled separately in
  *     SENSITIVE_KEY_REGEX rather than in this list to avoid substring pollution.
+ *   - "authorization" and "credential" are intentionally absent as bare
+ *     substring patterns because they over-match benign keys such as
+ *     `authorizationMode`, `credentialStatus`, `authorizationLevel`. They are
+ *     instead anchored as whole-word exact matches in SENSITIVE_KEY_REGEX.
  *
  * NOTE: Both isSensitiveKey (here) and isSensitivePath in
  * src/adapters/shared/commands/config/helpers.ts share SENSITIVE_KEY_REGEX and
@@ -24,8 +28,6 @@ export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
   "token",
   "password",
   "secret",
-  "authorization",
-  "credential",
   "connectionString",
   // Explicit camelCase credential-key compound words:
   "apiKey",
@@ -53,12 +55,19 @@ export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
  *   2. Ends with "_key" — catches arbitrary snake_case credential keys
  *      (e.g. "refresh_key", "master_key") without a false positive on
  *      "monkey" (no underscore before "key").
+ *   3. Is exactly "authorization" or "authorizationheader" — whole-word
+ *      anchored so that "authorizationmode", "authorizationlevel", etc. are
+ *      NOT matched.
+ *   4. Is exactly "credential", "credentials", or "credentialstring" — same
+ *      reasoning; prevents false positives on "credentialstatus", etc.
  *
  * Does NOT match:
- *   - "monkey"    — ends with "key" but no underscore; not in the explicit list
- *   - "keyboard"  — "key" is a prefix, not a suffix
- *   - "keyPath"   — lowercased to "keypath"; not in list, no "_key" suffix
- *   - "surveyKeyPath" — same reasoning
+ *   - "monkey"             — ends with "key" but no underscore; not in the explicit list
+ *   - "keyboard"           — "key" is a prefix, not a suffix
+ *   - "keyPath"            — lowercased to "keypath"; not in list, no "_key" suffix
+ *   - "surveyKeyPath"      — same reasoning
+ *   - "authorizationMode"  — lowercased to "authorizationmode"; not an exact match
+ *   - "credentialStatus"   — lowercased to "credentialstatus"; not an exact match
  *
  * Exported so that isSensitivePath in helpers.ts can share identical semantics.
  */
@@ -67,7 +76,10 @@ export const SENSITIVE_KEY_REGEX: RegExp = new RegExp(
   `${
     SENSITIVE_KEY_PATTERNS.map((p) => p.toLowerCase()).join("|")
     // Plus generic snake_case suffix
-  }|_key$`
+  }|_key$` +
+    // Whole-word anchored exact matches for authorization and credential variants
+    "|^authorization$|^authorizationheader$" +
+    "|^credential$|^credentials$|^credentialstring$"
   // No flags needed — isSensitiveKey always lowercases before calling .test()
 );
 

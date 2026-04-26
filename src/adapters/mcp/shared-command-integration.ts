@@ -190,8 +190,11 @@ export function registerSharedCommandsWithMcp(
               format: "json",
               container: config.container,
             };
+            // Omit `container` from debug logs: it holds the full DI container,
+            // which is expensive to walk and produces huge [Circular]-laden output.
+            const { container: _container, ...safeCtx } = context;
             log.debug(`[MCP] Created execution context: ${command.id}`, {
-              context: redact(context),
+              context: redact(safeCtx),
             });
 
             // Convert MCP args to expected parameter format
@@ -236,7 +239,8 @@ export function registerSharedCommandsWithMcp(
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
             log.debug(`[MCP] Parameters being passed:`, redact(parameters));
-            log.debug(`[MCP] Context being passed:`, { context: redact(context) });
+            // Re-use safeCtx (container already stripped) for the second log site.
+            log.debug(`[MCP] Context being passed:`, { context: redact(safeCtx) });
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const result = await command.execute(parameters, context, validatedCtx as any);

@@ -485,5 +485,44 @@ describe("MCP shared-command bridge", () => {
         spy.mockRestore();
       }
     });
+
+    // mt#1181 Finding 3: DI container must not appear in debug logs
+    test("DI container is not included in debug log context", async () => {
+      const id = "tasks.__mcp_bridge_no_container_log__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#1181 Finding 3: container omission test",
+        requiresSetup: false,
+        parameters: {},
+        execute: async () => ({ success: true }),
+      });
+
+      // Simulate a config with a container (the sentinel value lets us verify
+      // the container field does not bleed into the serialised log output).
+      const fakeContainer = { _containerSentinel: "SHOULD_NOT_APPEAR_IN_LOGS" };
+
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        container: fakeContainer as never,
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      const spy = spyOn(log, "debug");
+      try {
+        await handler({});
+        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
+        // The sentinel inside fakeContainer must never appear in logs
+        expect(allCallsJson).not.toContain("SHOULD_NOT_APPEAR_IN_LOGS");
+        // The "container" key itself must not appear in the logged context
+        expect(allCallsJson).not.toContain('"container"');
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });

@@ -9,6 +9,36 @@ import { DefaultCredentialResolver } from "../../../../domain/configuration/cred
 import { SENSITIVE_KEY_REGEX } from "../../../../utils/redaction";
 
 /**
+ * Recursively masks sensitive values in a plain config object using
+ * SENSITIVE_KEY_REGEX — the same regex used by maskCredentialsInEffectiveValues
+ * and isSensitiveKey in redaction.ts, so both helpers share identical matching
+ * semantics (mt#1181 Finding 1).
+ *
+ * @param value  Any config value (object, array, or primitive)
+ * @returns      A new value with sensitive keys replaced by the masked sentinel
+ */
+function maskConfigValue(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(maskConfigValue);
+  }
+  if (typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_KEY_REGEX.test(k.toLowerCase()) && v !== null && v !== undefined) {
+        result[k] = typeof v === "string" ? `${"*".repeat(20)} (configured)` : "[MASKED]";
+      } else {
+        result[k] = maskConfigValue(v);
+      }
+    }
+    return result;
+  }
+  return value;
+}
+
+/**
  * Masks sensitive credential values in configuration
  * @param config Configuration object
  * @param showSecrets Whether to show actual secret values
@@ -22,36 +52,7 @@ export function maskCredentials(
     return config;
   }
 
-  const masked = JSON.parse(JSON.stringify(config)) as Record<string, unknown>; // Deep clone
-
-  // Mask AI provider API keys
-  const maskedAi = masked.ai as Record<string, unknown> | undefined;
-  if (maskedAi?.providers) {
-    for (const [_provider, providerConfig] of Object.entries(
-      maskedAi.providers as Record<string, unknown>
-    )) {
-      if (providerConfig && typeof providerConfig === "object") {
-        const cfg = providerConfig as Record<string, unknown>;
-        if (cfg.apiKey) {
-          cfg.apiKey = `${"*".repeat(20)} (configured)`;
-        }
-      }
-    }
-  }
-
-  // Mask GitHub token
-  const maskedGithub = masked.github as Record<string, unknown> | undefined;
-  if (maskedGithub?.token) {
-    maskedGithub.token = `${"*".repeat(20)} (configured)`;
-  }
-
-  // Mask any other potential credential fields
-  const maskedSessiondb = masked.sessiondb as Record<string, unknown> | undefined;
-  if (maskedSessiondb?.connectionString) {
-    maskedSessiondb.connectionString = `${"*".repeat(20)} (configured)`;
-  }
-
-  return masked;
+  return maskConfigValue(config) as Record<string, unknown>;
 }
 
 export function maskCredentialsInEffectiveValues(

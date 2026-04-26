@@ -155,4 +155,47 @@ describe("redact", () => {
     expect(result.keyboard).toBe("qwerty");
     expect(result.keyPath).toBe("/foo/bar");
   });
+
+  // mt#1181 Finding 2: authorization/credential word-boundary anchoring
+  test("'authorization' exact key is redacted", () => {
+    const input: Record<string, unknown> = { authorization: "Bearer xyz" };
+    const result = redact(input);
+    expect(result.authorization).toBe("[REDACTED]");
+  });
+
+  test("'authorizationMode' is NOT redacted (substring over-match guard)", () => {
+    const input: Record<string, unknown> = { authorizationMode: "Bearer" };
+    const result = redact(input);
+    expect(result.authorizationMode).toBe("Bearer");
+  });
+
+  test("'authorizationLevel' is NOT redacted (substring over-match guard)", () => {
+    const input: Record<string, unknown> = { authorizationLevel: 3 };
+    const result = redact(input);
+    expect(result.authorizationLevel).toBe(3);
+  });
+
+  test("'credential' exact key is redacted", () => {
+    const input: Record<string, unknown> = { credential: "s3cr3t" };
+    const result = redact(input);
+    expect(result.credential).toBe("[REDACTED]");
+  });
+
+  test("'credentials' exact key is redacted", () => {
+    const input: Record<string, unknown> = { credentials: "multi-cred" };
+    const result = redact(input);
+    expect(result.credentials).toBe("[REDACTED]");
+  });
+
+  test("'credentialStatus' is NOT redacted (substring over-match guard)", () => {
+    const input: Record<string, unknown> = { credentialStatus: "valid" };
+    const result = redact(input);
+    expect(result.credentialStatus).toBe("valid");
+  });
+
+  test("authorizationHeader exact key is redacted", () => {
+    const input: Record<string, unknown> = { authorizationHeader: "Bearer tok" };
+    const result = redact(input);
+    expect(result.authorizationHeader).toBe("[REDACTED]");
+  });
 });
