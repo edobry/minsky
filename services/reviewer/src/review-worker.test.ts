@@ -7,6 +7,7 @@ import {
   callReviewerWithRetry,
   decideToolsActive,
   defaultForkAccessProbe,
+  buildRunReviewStartLog,
   type CallReviewerFn,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
@@ -666,5 +667,44 @@ describe("defaultForkAccessProbe", () => {
       throw err;
     });
     await expect(defaultForkAccessProbe(octokit, prCoords)).resolves.toBe(false);
+  });
+});
+
+// ----- buildRunReviewStartLog (mt#1256) -----
+//
+// Pure helper that constructs the runReview_start structured log object.
+// Extracted from runReview so the log shape can be tested via a pure function
+// without module-level mocking (custom/no-global-module-mocks rule).
+// runReview calls JSON.stringify(buildRunReviewStartLog(...)) at its entry
+// point, before any network calls, so the log fires for every review attempt.
+
+describe("buildRunReviewStartLog (mt#1256)", () => {
+  test("includes event=runReview_start with all required fields", () => {
+    const log = buildRunReviewStartLog("delivery-abc123", "owner1", "repo1", 42, "sha1234");
+    expect(log["event"]).toBe("runReview_start");
+    expect(log["delivery_id"]).toBe("delivery-abc123");
+    expect(log["owner"]).toBe("owner1");
+    expect(log["repo"]).toBe("repo1");
+    expect(log["pr"]).toBe(42);
+    expect(log["sha"]).toBe("sha1234");
+  });
+
+  test("accepts 'unknown' as the delivery_id default sentinel", () => {
+    const log = buildRunReviewStartLog("unknown", "owner", "repo", 1, "unknown");
+    expect(log["delivery_id"]).toBe("unknown");
+    expect(log["sha"]).toBe("unknown");
+  });
+
+  test("serialises cleanly as JSON (no undefined values or circular refs)", () => {
+    const log = buildRunReviewStartLog("del-999", "o", "r", 5, "abc");
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const parsed = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(parsed["delivery_id"]).toBe("del-999");
+  });
+
+  test("all six keys are present, no extra keys", () => {
+    const log = buildRunReviewStartLog("d", "o", "r", 1, "s");
+    const keys = Object.keys(log).sort();
+    expect(keys).toEqual(["delivery_id", "event", "owner", "pr", "repo", "sha"]);
   });
 });

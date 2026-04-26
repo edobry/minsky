@@ -71,7 +71,26 @@ For each file changed, understand:
 
 Only include verified findings in the GitHub review. Drop false positives entirely rather than padding the review.
 
-### 5a. Behavioral residue search (removal PRs only)
+### 5a. Live-target verification check (verify/probe/smoke scripts)
+
+**Required when the PR modifies any verify, probe, smoke, or live-system-check script.** The author should have run the script against the live target and pasted redacted output into the PR body — see `.claude/skills/prepare-pr/SKILL.md` step 1a for what's required of authors.
+
+Cues that this step applies:
+
+- Diff touches files matching `verify`, `probe`, `smoke`, `health-check`, `e2e` patterns.
+- The script's assertions reference an external system (production URL, hosted API, deployed service).
+- The script's value is "catch drift between code and the live system."
+
+If applicable, confirm the PR body contains one of:
+
+1. **Redacted live-run output** under a `## Test plan` or `## Live verification` section. The output should show structural assertions matched (status codes, well-known field presence) without raw secrets, raw response bodies, or unredacted URLs.
+2. **A documented override exception** explaining why a live run wasn't possible: target not yet deployed, author lacks access per policy (with maintainer tagged for run-on-behalf), or maintenance-window/rate-limit constraint with alternative validation noted.
+
+If neither is present, this is a **blocking finding**: request the live-run output (or a documented override) before approving. Mention `mt#1267` / mt#1194 lineage so the author understands why this is enforced — the failure mode is "the code looks right but the live system disagrees," and only running the script catches that.
+
+This check exists because mt#1194 shipped probe assertions that never matched production; the defect was found ~5 hours post-merge. The reviewer-side check ensures author compliance with `prepare-pr` step 1a.
+
+### 5b. Behavioral residue search (removal PRs only)
 
 **Required when `deletions >> additions` or the PR removes a feature/module/backend.** Symbol-level grep catches dangling imports but misses semantic dead code — code that serves removed functionality without importing removed modules.
 

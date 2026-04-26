@@ -25,6 +25,7 @@ import { registerMcpCommands } from "./mcp";
 import { registerKnowledgeCommands } from "./knowledge";
 import { registerMemoryCommands } from "./memory";
 import { registerProvenanceCommands } from "./provenance";
+import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -91,6 +92,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register provenance commands
   registerProvenanceCommands(container);
 
+  // Register authorship commands
+  registerAuthorshipCommands(container);
+
   // Register compile commands
   registerCompileCommands(sharedCommandRegistry);
 
@@ -119,5 +123,6 @@ export {
   registerMemoryCommands,
   registerRepoCommands,
   registerProvenanceCommands,
+  registerAuthorshipCommands,
   registerCompileCommands,
 };

@@ -146,7 +146,7 @@ describe("resolveTier", () => {
   });
 
   test("falls through to body marker when MCP config is missing (no lookup override)", async () => {
-    // Without mcpUrl/mcpToken, callProvenanceGet returns null immediately,
+    // Without mcpUrl/mcpToken, callAuthorshipGet returns null immediately,
     // so lookupTierFromMCP returns undefined — body marker takes over.
     // This test exercises the real default mcpLookupFn with a no-MCP config.
     const tier = await resolveTier(99, "<!-- minsky:tier=3 -->", tier2On);
