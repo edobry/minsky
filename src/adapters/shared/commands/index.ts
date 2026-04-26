@@ -19,6 +19,7 @@ import { registerPersistenceCommands } from "./persistence";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerAsksCommands } from "./asks";
+import { registerPrWatchCommands } from "./pr-watch";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
@@ -73,6 +74,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
   registerAsksCommands(container);
 
+  // Register pr-watch commands (PR-state watcher — mt#1295)
+  registerPrWatchCommands(container);
+
   // Register changeset commands
   registerChangesetCommands();
 
@@ -112,6 +116,7 @@ export {
   registerAiCommands,
   registerToolsCommands,
   registerAsksCommands,
+  registerPrWatchCommands,
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,
