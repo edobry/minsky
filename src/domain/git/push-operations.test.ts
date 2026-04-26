@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { pushImpl, type PushDependencies } from "./push-operations";
 
 const WORKDIR = "/tmp/work";
-const CMD_SYMREF = `git -C ${WORKDIR} symbolic-ref --short HEAD`;
+const CMD_REV_PARSE = `git -C ${WORKDIR} rev-parse --abbrev-ref HEAD`;
 const CMD_REMOTE = `git -C ${WORKDIR} remote`;
 const CMD_PUSH_PREFIX = `git -C ${WORKDIR} push`;
 
@@ -35,9 +35,9 @@ describe("pushImpl", () => {
     expect(pushImpl.length).toBe(2);
   });
 
-  test("throws actionable error on detached HEAD (canonical 'not a symbolic ref')", async () => {
+  test("throws actionable error on detached HEAD (rev-parse returns literal 'HEAD')", async () => {
     const { deps, calls } = makeDeps({
-      [CMD_SYMREF]: new Error("fatal: ref HEAD is not a symbolic ref"),
+      [CMD_REV_PARSE]: { stdout: "HEAD\n" },
     });
 
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
@@ -48,10 +48,10 @@ describe("pushImpl", () => {
     expect(calls.every((c) => !c.command.includes(CMD_PUSH_PREFIX))).toBe(true);
   });
 
-  test("propagates unrelated git errors instead of mislabeling as detached", async () => {
+  test("propagates unrelated rev-parse errors instead of mislabeling as detached", async () => {
     const notARepoErr = new Error("fatal: not a git repository (or any of the parent directories)");
     const { deps } = makeDeps({
-      [CMD_SYMREF]: notARepoErr,
+      [CMD_REV_PARSE]: notARepoErr,
     });
 
     const promise = pushImpl({ repoPath: WORKDIR }, deps);
@@ -61,7 +61,7 @@ describe("pushImpl", () => {
 
   test("error message does not reference product-specific branch naming", async () => {
     const { deps } = makeDeps({
-      [CMD_SYMREF]: new Error("fatal: ref HEAD is not a symbolic ref"),
+      [CMD_REV_PARSE]: { stdout: "HEAD\n" },
     });
 
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.not.toThrow(/task\/mt-/);
@@ -69,7 +69,7 @@ describe("pushImpl", () => {
 
   test("succeeds for normal attached HEAD on a fresh branch", async () => {
     const { deps, calls } = makeDeps({
-      [CMD_SYMREF]: { stdout: "task/mt-994\n" },
+      [CMD_REV_PARSE]: { stdout: "task/mt-994\n" },
       [CMD_REMOTE]: { stdout: "origin\n" },
       [CMD_PUSH_PREFIX]: { stdout: "" },
     });
@@ -83,7 +83,7 @@ describe("pushImpl", () => {
 
   test("appends --force when options.force is true", async () => {
     const { deps, calls } = makeDeps({
-      [CMD_SYMREF]: { stdout: "task/mt-994\n" },
+      [CMD_REV_PARSE]: { stdout: "task/mt-994\n" },
       [CMD_REMOTE]: { stdout: "origin\n" },
       [CMD_PUSH_PREFIX]: { stdout: "" },
     });
@@ -96,7 +96,7 @@ describe("pushImpl", () => {
 
   test("targets the configured remote when options.remote is non-default", async () => {
     const { deps, calls } = makeDeps({
-      [CMD_SYMREF]: { stdout: "feature/x\n" },
+      [CMD_REV_PARSE]: { stdout: "feature/x\n" },
       [CMD_REMOTE]: { stdout: "origin\nupstream\n" },
       [CMD_PUSH_PREFIX]: { stdout: "" },
     });
@@ -109,12 +109,22 @@ describe("pushImpl", () => {
 
   test("throws when configured remote does not exist", async () => {
     const { deps } = makeDeps({
-      [CMD_SYMREF]: { stdout: "task/mt-994\n" },
+      [CMD_REV_PARSE]: { stdout: "task/mt-994\n" },
       [CMD_REMOTE]: { stdout: "upstream\n" },
     });
 
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
       /Remote 'origin' does not exist/
+    );
+  });
+
+  test("throws when rev-parse returns an empty branch name", async () => {
+    const { deps } = makeDeps({
+      [CMD_REV_PARSE]: { stdout: "\n" },
+    });
+
+    await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
+      /rev-parse returned an empty branch name/
     );
   });
 });

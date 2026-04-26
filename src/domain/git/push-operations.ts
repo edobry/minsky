@@ -38,27 +38,29 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   const remote = options.remote || "origin";
   const workdir = options.repoPath ?? validateProcess(process).cwd();
 
-  // Resolve current branch via symbolic-ref. On detached HEAD, git exits
-  // non-zero with stderr "fatal: ref HEAD is not a symbolic ref" — use that
-  // canonical signal to surface an actionable error. Unrelated failures
-  // (not a repo, missing git binary, permission errors) propagate their
-  // original stderr/message instead of being mislabeled as detached.
-  // See mt#994; mt#1217 fixed the upstream session_update path that was
-  // leaving sessions detached.
+  // Resolve current branch via rev-parse --abbrev-ref HEAD. The literal
+  // string "HEAD" is git's machine-readable signal for detached HEAD —
+  // locale-independent across git versions. Surface an actionable error
+  // for that case; let unrelated rev-parse failures (not a git repo,
+  // missing git binary, permission errors) propagate with original
+  // stderr/message context. See mt#994; mt#1217 fixed the upstream
+  // session_update path that was leaving sessions detached.
   let branch: string;
   try {
-    const { stdout } = await deps.execAsync(`git -C ${workdir} symbolic-ref --short HEAD`);
+    const { stdout } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
     branch = stdout.trim();
   } catch (err: unknown) {
     const gitError = validateGitError(err);
-    const haystack = `${gitError.stderr ?? ""} ${gitError.message ?? ""}`;
-    if (haystack.includes("not a symbolic ref")) {
-      throw new Error(
-        `Cannot push: HEAD is detached in ${workdir}. ` +
-          `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
-      );
-    }
     throw new Error(gitError.stderr || gitError.message || String(err));
+  }
+  if (branch === "HEAD") {
+    throw new Error(
+      `Cannot push: HEAD is detached in ${workdir}. ` +
+        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
+    );
+  }
+  if (!branch) {
+    throw new Error(`Cannot push: rev-parse returned an empty branch name for ${workdir}.`);
   }
 
   // 2. Validate remote exists
