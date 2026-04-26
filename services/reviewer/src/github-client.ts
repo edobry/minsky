@@ -12,6 +12,7 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { log } from "./logger";
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
   const auth = createAppAuth({
@@ -83,7 +84,7 @@ export async function fetchPullRequestContext(
       .listFiles({ owner, repo, pull_number: prNumber, per_page: 300 })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(
+        log.warn(
           `[mt#1188] pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal): ${message}`
         );
         return { data: [] as Array<{ filename: string }> };

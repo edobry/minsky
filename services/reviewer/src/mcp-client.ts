@@ -13,6 +13,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { log } from "./logger";
 
 /** Narrow shape returned by the authorship.get MCP tool. */
 export interface AuthorshipResult {
@@ -118,14 +119,14 @@ export async function callAuthorshipGet(
       });
     } catch (fetchErr) {
       const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.error(`[mcp-client] fetch failed for authorship.get(${artifactId}): ${msg}`);
+      log.error(`[mcp-client] fetch failed for authorship.get(${artifactId}): ${msg}`);
       return null;
     }
 
     if (!response.ok) {
       // Drain body to avoid connection leaks before returning.
       await response.text().catch(() => undefined);
-      console.error(
+      log.error(
         `[mcp-client] authorship.get(${artifactId}) HTTP ${response.status} ${response.statusText}`
       );
       return null;
@@ -137,7 +138,7 @@ export async function callAuthorshipGet(
       raw = await response.text();
     } catch (readErr) {
       const msg = readErr instanceof Error ? readErr.message : String(readErr);
-      console.error(`[mcp-client] failed to read response body: ${msg}`);
+      log.error(`[mcp-client] failed to read response body: ${msg}`);
       return null;
     }
 
@@ -145,7 +146,7 @@ export async function callAuthorshipGet(
     // Extract the first JSON object from the body.
     const jsonText = extractJsonFromBody(raw);
     if (!jsonText) {
-      console.error(`[mcp-client] authorship.get(${artifactId}): unparseable response body`);
+      log.error(`[mcp-client] authorship.get(${artifactId}): unparseable response body`);
       return null;
     }
 
@@ -153,12 +154,12 @@ export async function callAuthorshipGet(
     try {
       parsed = JSON.parse(jsonText) as McpCallToolResponse;
     } catch {
-      console.error(`[mcp-client] authorship.get(${artifactId}): JSON parse error`);
+      log.error(`[mcp-client] authorship.get(${artifactId}): JSON parse error`);
       return null;
     }
 
     if (parsed.error) {
-      console.error(
+      log.error(
         `[mcp-client] authorship.get(${artifactId}) MCP error ${parsed.error.code}: ${parsed.error.message}`
       );
       return null;
@@ -166,7 +167,7 @@ export async function callAuthorshipGet(
 
     // Tool-level error: result.isError === true means the tool itself failed.
     if (parsed.result?.isError === true) {
-      console.error(`[mcp-client] authorship.get(${artifactId}) tool-level error in result`);
+      log.error(`[mcp-client] authorship.get(${artifactId}) tool-level error in result`);
       return null;
     }
 
@@ -200,7 +201,7 @@ export async function callAuthorshipGet(
         .map((b) => b.text);
 
       if (textChunks.length === 0) {
-        console.error(`[mcp-client] authorship.get(${artifactId}): no parseable content entries`);
+        log.error(`[mcp-client] authorship.get(${artifactId}): no parseable content entries`);
         return null;
       }
 
@@ -208,7 +209,7 @@ export async function callAuthorshipGet(
       try {
         record = JSON.parse(joined);
       } catch {
-        console.error(`[mcp-client] authorship.get(${artifactId}): could not parse content text`);
+        log.error(`[mcp-client] authorship.get(${artifactId}): could not parse content text`);
         return null;
       }
     }
