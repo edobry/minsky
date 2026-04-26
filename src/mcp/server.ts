@@ -153,6 +153,11 @@ export class MinskyMCPServer {
   private draining = false;
   private nextRequestId = 0;
 
+  // Staleness signal tracking
+  private hasTriggeredStaleSignal = false;
+  /** Indirection for process.exit so tests can intercept without spawning a process. */
+  private exit = (code: number) => process.exit(code);
+
   /**
    * Create a new MinskyMCPServer
    * @param options Configuration options for the server
@@ -306,14 +311,16 @@ export class MinskyMCPServer {
       session = this.httpSessions.get(sessionId)!;
       session.lastActiveAt = Date.now();
     } else if (sessionId && !this.httpSessions.has(sessionId)) {
-      // Session ID provided but not found — reject with 400 JSON-RPC -32600.
-      // This is a protocol violation: the client claims an existing session that
-      // this server instance does not know about (e.g. stale ID after a restart).
-      res.status(400).json({
+      // Session ID provided but not found — reject with 404 JSON-RPC -32001
+      // "Session not found". This matches the MCP Streamable HTTP spec and the
+      // SDK's own webStandardStreamableHttp behavior: the session resource does
+      // not exist on this instance (e.g. stale ID after a restart). 404 tells
+      // compliant clients the condition is retryable via a fresh initialize.
+      res.status(404).json({
         jsonrpc: "2.0",
         error: {
-          code: -32600,
-          message: "Invalid Request: session not found",
+          code: -32001,
+          message: "Session not found",
         },
         id: null,
       });
@@ -431,8 +438,13 @@ export class MinskyMCPServer {
    */
   private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
     if (!sessionId || !this.httpSessions.has(sessionId)) {
-      // Return 405 Method Not Allowed if no SSE stream available
-      res.status(405).set("Allow", "POST").send("Method Not Allowed");
+      // Return 404 Not Found — GET is a valid method on this endpoint, but only
+      // when a session exists. A missing or unknown session-id means the resource
+      // does not exist, not that the method is disallowed. Plain text body (no
+      // JSON-RPC envelope) because SSE GET is a streaming connection, not a
+      // JSON-RPC message exchange. Explicit text/plain Content-Type to match
+      // documented behavior — Express defaults string bodies to text/html.
+      res.status(404).type("text/plain").send("Session not found");
       return;
     }
 
@@ -545,6 +557,13 @@ export class MinskyMCPServer {
             responseText = String(result);
           }
 
+          // Check for staleness after building the response — trigger fires
+          // notification + clean exit after the current response is returned.
+          const staleWarning = this.stalenessDetector.getStaleWarning();
+          if (staleWarning !== null && !this.hasTriggeredStaleSignal) {
+            this.triggerStaleSignal(server);
+          }
+
           // Return MCP-compliant tool response
           return {
             content: [
@@ -559,6 +578,14 @@ export class MinskyMCPServer {
             tool: request.params.name,
             error: getErrorMessage(error),
           });
+
+          // Check for staleness on error path too — trigger fires notification
+          // + clean exit after the error is thrown to the caller.
+          const staleWarning = this.stalenessDetector.getStaleWarning();
+          if (staleWarning !== null && !this.hasTriggeredStaleSignal) {
+            this.triggerStaleSignal(server);
+          }
+
           throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
@@ -734,6 +761,48 @@ export class MinskyMCPServer {
     ) as import("../domain/session/types").SessionProviderInterface;
     await sessionProvider.updateSession(sessionName, { agentId });
     log.debug("agentId written to session record", { session: sessionName, agentId });
+  }
+
+  /**
+   * Emit a notifications/message at level=alert and schedule a clean process.exit(0)
+   * after 200ms to give the notification time to flush to the client.
+   *
+   * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
+   * The tool call's response/error is already returned to the caller by the
+   * time this method runs — the 200ms delay is the spike-derived buffer from
+   * mt#1315 (response → exit measured at ~102ms at delayMs=100).
+   */
+  private triggerStaleSignal(server: Server): void {
+    if (this.hasTriggeredStaleSignal) return;
+    this.hasTriggeredStaleSignal = true;
+
+    // Extract 8-char head slices from the detector's cached stale message.
+    // The detector already has startupHead/currentHead as private fields used
+    // to build staleMessage; we re-derive them by reading the stale message
+    // text rather than adding new public surface to StalenessDetector.
+    const staleMessage = this.stalenessDetector.getStaleWarning() ?? "";
+    const startupHeadMatch = /commit ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const currentHeadMatch = /now at ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const startupHead = startupHeadMatch ? startupHeadMatch[1] : "unknown";
+    const currentHead = currentHeadMatch ? currentHeadMatch[1] : "unknown";
+
+    server
+      .sendLoggingMessage({
+        level: "alert",
+        logger: "minsky-staleness",
+        data: {
+          text: "Minsky source has changed since this server started; reconnect via /mcp.",
+          startupHead,
+          currentHead,
+        },
+      })
+      .catch((err) => {
+        log.debug("Failed to send staleness notification (non-blocking)", {
+          error: getErrorMessage(err),
+        });
+      });
+
+    setTimeout(() => this.exit(0), 200);
   }
 
   /**
