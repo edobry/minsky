@@ -39,23 +39,19 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   const workdir = options.repoPath ?? validateProcess(process).cwd();
 
   // Resolve current branch via symbolic-ref. A non-zero exit means HEAD is
-  // detached or unborn — neither is pushable, both produce git's cryptic
-  // "destination is not a full refname" error if we try `push origin HEAD`.
-  // Surface an actionable message instead. See mt#994; mt#1217 fixed the
-  // upstream session_update path that was leaving sessions detached.
+  // detached — pushing a detached HEAD produces git's cryptic "destination
+  // is not a full refname" error. Surface an actionable message instead.
+  // See mt#994; mt#1217 fixed the upstream session_update path that was
+  // leaving sessions detached. (Unborn HEAD is out of scope: symbolic-ref
+  // succeeds in that case and returns the would-be branch name, so the
+  // remote-validation / push step will surface its own error.)
   let branch: string;
   try {
     const { stdout } = await deps.execAsync(`git -C ${workdir} symbolic-ref -q --short HEAD`);
     branch = stdout.trim();
   } catch {
     throw new Error(
-      `Cannot push: HEAD is detached or unborn in ${workdir}. ` +
-        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
-    );
-  }
-  if (!branch) {
-    throw new Error(
-      `Cannot push: HEAD is detached or unborn in ${workdir}. ` +
+      `Cannot push: HEAD is detached in ${workdir}. ` +
         `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
     );
   }

@@ -41,24 +41,11 @@ describe("pushImpl", () => {
     });
 
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
-      /Cannot push: HEAD is detached or unborn in \/tmp\/work/
-    );
-    await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
-      /git switch|git checkout -b/
+      /Cannot push: HEAD is detached in \/tmp\/work.*git switch|git checkout -b/s
     );
 
     expect(calls.every((c) => !c.command.includes(CMD_REMOTE))).toBe(true);
     expect(calls.every((c) => !c.command.includes(CMD_PUSH_PREFIX))).toBe(true);
-  });
-
-  test("throws actionable error when symbolic-ref returns empty (unborn HEAD)", async () => {
-    const { deps } = makeDeps({
-      [CMD_SYMREF]: { stdout: "\n" },
-    });
-
-    await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
-      /Cannot push: HEAD is detached or unborn in \/tmp\/work/
-    );
   });
 
   test("error message does not reference product-specific branch naming", async () => {
