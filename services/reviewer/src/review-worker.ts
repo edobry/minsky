@@ -431,11 +431,18 @@ export async function runReview(
   // structured service-error notice (when the leak is the entire body).
   const sanitized = sanitizeReviewBody(output.text);
   if (sanitized.action !== "passthrough") {
+    // `sha` uses the webhook payload SHA (the `headSha` parameter passed from
+    // server.ts) rather than `pr.headSha` (freshly fetched). Both should be
+    // equal on the happy path, but using the payload SHA keeps this log field
+    // semantically consistent with `review_result.sha` in server.ts — both
+    // record "what triggered this review delivery", enabling log correlation
+    // by delivery_id + sha without cross-referencing two different SHA sources.
+    const payloadSha = headSha ?? pr.headSha;
     console.log(
       JSON.stringify({
         event: "reviewer.cot_leak_detected",
         prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-        sha: pr.headSha, // canonical field name (aligned with review_result log)
+        sha: payloadSha, // canonical field name (aligned with review_result log)
         commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
         originalLength: sanitized.meta.originalLength,
         cleanedLength: sanitized.meta.cleanedLength,
