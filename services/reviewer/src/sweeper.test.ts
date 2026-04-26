@@ -330,6 +330,37 @@ describe("detectMissingReview", () => {
 
     expect(result).toBeNull();
   });
+
+  test("null user in review list → review is filtered out (not counted as bot review), PR flagged as missing", async () => {
+    // GitHub returns user=null for deleted accounts or certain system reviews.
+    // The filter must not throw TypeError when user is null — it should simply
+    // exclude the review from the bot review set.
+    const octokit = makeFakeOctokit({
+      reviews: {
+        42: [
+          {
+            user: null, // Deleted account or system review
+            commit_id: HEAD_SHA,
+            state: "COMMENTED",
+          },
+        ],
+      },
+    });
+
+    const result = await detectMissingReview(
+      octokit,
+      "edobry",
+      "minsky",
+      42,
+      HEAD_SHA,
+      BOT_LOGIN,
+      PR_AUTHOR
+    );
+
+    // Null-user review should be ignored; PR is flagged as having no bot review.
+    expect(result).not.toBeNull();
+    expect(result?.reason).toBe(REASON_NO_REVIEW);
+  });
 });
 
 // ---------------------------------------------------------------------------

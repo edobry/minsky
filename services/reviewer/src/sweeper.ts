@@ -153,8 +153,12 @@ export async function detectMissingReview(
 
   // Filter for non-dismissed bot reviews only — dismissed reviews signal
   // that a human overrode the bot review, not that the bot reviewed the PR.
+  // Use optional chaining on both user and login: GitHub can return user=null
+  // for deleted accounts or certain system reviews; ?? "" ensures the
+  // comparison yields false rather than throwing TypeError.
   const botReviews = reviews.filter(
-    (r) => r.user?.login.toLowerCase() === botLogin.toLowerCase() && r.state !== "DISMISSED"
+    (r) =>
+      (r.user?.login?.toLowerCase() ?? "") === botLogin.toLowerCase() && r.state !== "DISMISSED"
   );
 
   if (botReviews.length === 0) {
@@ -276,6 +280,14 @@ export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperD
  * 3. For each missing PR, calls runReview directly (in-process, detached).
  *    Concurrency is capped at SWEEP_CONCURRENCY (3) to avoid OOM.
  * 4. Returns a SweepResult with cycle metrics.
+ *
+ * NOTE: This sweeper deliberately uses extractTierFromPRBody (body-only) instead
+ * of resolveTier (MCP-aware). MCP lookups would add 1-3s per PR, ballooning
+ * sweep duration on repos with many open PRs. The webhook handler is the
+ * authoritative tier-resolution path; the sweeper is a body-marker safety net.
+ * PRs without body markers default to Tier 2 routing here, which may be
+ * skipped if tier2Enabled=false. If you need MCP-fail-closed parity, ensure
+ * PR templates always include the tier marker.
  *
  * @param depsOverride Optional dependency override for tests. When provided,
  *   skips the createOctokit + getAppIdentity calls entirely.
