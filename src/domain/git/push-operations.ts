@@ -35,34 +35,28 @@ export interface PushDependencies {
  * Session resolution must happen at the adapter boundary before calling this.
  */
 export async function pushImpl(options: PushOptions, deps: PushDependencies): Promise<PushResult> {
-  let workdir: string;
-  let branch: string;
   const remote = options.remote || "origin";
+  const workdir = options.repoPath ?? validateProcess(process).cwd();
 
-  // Resolve workdir
-  if (options.repoPath) {
-    workdir = options.repoPath;
-    const { stdout: branchOut } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-    );
-    branch = branchOut.trim();
-  } else {
-    workdir = validateProcess(process).cwd();
-    const { stdout: branchOut } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-    );
-    branch = branchOut.trim();
-  }
-
-  // Detached HEAD preflight: rev-parse --abbrev-ref returns the literal
-  // "HEAD" when no branch is checked out. Pushing that produces git's cryptic
-  // "destination is not a full refname" error. Surface a clear actionable
-  // message instead. See mt#994; mt#1217 fixed the upstream session_update
-  // path that was leaving sessions detached.
-  if (branch === "HEAD") {
+  // Resolve current branch via symbolic-ref. A non-zero exit means HEAD is
+  // detached or unborn — neither is pushable, both produce git's cryptic
+  // "destination is not a full refname" error if we try `push origin HEAD`.
+  // Surface an actionable message instead. See mt#994; mt#1217 fixed the
+  // upstream session_update path that was leaving sessions detached.
+  let branch: string;
+  try {
+    const { stdout } = await deps.execAsync(`git -C ${workdir} symbolic-ref -q --short HEAD`);
+    branch = stdout.trim();
+  } catch {
     throw new Error(
-      `Cannot push: HEAD is detached in ${workdir}. ` +
-        `Checkout your task branch before pushing (e.g. 'git checkout task/mt-XXX').`
+      `Cannot push: HEAD is detached or unborn in ${workdir}. ` +
+        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
+    );
+  }
+  if (!branch) {
+    throw new Error(
+      `Cannot push: HEAD is detached or unborn in ${workdir}. ` +
+        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
     );
   }
 
