@@ -34,10 +34,10 @@ export class PersistenceProviderFactory {
               "MINSKY_PERSISTENCE_POSTGRES_URL (or legacy MINSKY_POSTGRES_URL) as an env var."
           );
         }
-        if (!config.postgres.connectionString) {
+        if (!config.postgres.connectionString || !config.postgres.connectionString.trim()) {
           throw new Error(
-            "PostgreSQL configuration incomplete: persistence.postgres.connectionString is empty. " +
-              "Set it in config or export MINSKY_PERSISTENCE_POSTGRES_URL."
+            "PostgreSQL configuration incomplete: persistence.postgres.connectionString is empty or whitespace. " +
+              "Set it in config or export MINSKY_PERSISTENCE_POSTGRES_URL (or legacy MINSKY_POSTGRES_URL)."
           );
         }
         // Use factory to create appropriate PostgreSQL provider based on runtime capabilities
