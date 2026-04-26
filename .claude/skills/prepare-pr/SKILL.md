@@ -48,6 +48,8 @@ If in scope:
 4. **Redact before pasting.** Output may contain bearer tokens, session IDs (capability tokens — treat like passwords), Authorization headers, internal hostnames/IPs, user data, or other sensitive fields. Before pasting:
    - Replace bearer tokens / API keys with `<REDACTED>` or `Bearer ****`.
    - Replace session IDs and cookies with length-only summaries (`session-id-len=36`).
+   - Strip credentials embedded in URLs (a `<scheme>://<user>:<pw>@host/db`-style URL becomes `<scheme>://<REDACTED>@host/db`) and any sensitive query-string parameters (`?token=…`, `?api_key=…`).
+   - Strip request/response headers beyond Authorization that may carry sensitive identifiers (`Set-Cookie`, `X-Amzn-Trace-Id`, internal trace headers).
    - Strip raw response bodies that may contain stack traces, config fragments, or PII — paste structural assertions only (`status=200, mcp-session-id present`) rather than full response bodies.
    - When in doubt, paste a clearly-attributed summary instead of raw output.
 5. **Paste into the PR body** under a `## Test plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
@@ -59,7 +61,7 @@ If in scope:
 - The target has a maintenance window or rate-limit constraint that makes ad-hoc runs harmful. Document the constraint and the alternative validation.
 - "I read the code carefully" is NOT a valid override.
 
-**Why:** mt#1194 shipped probe assertions that never matched production because no one ran the script before merging. The defect was discovered ~5 hours post-merge and required a follow-up PR (mt#1267) to fix. See `feedback_run_end_to_end_verify_end_to_end` for the underlying lesson.
+**Why:** mt#1194 shipped probe assertions that never matched production because no one ran the script before merging. The defect was discovered ~5 hours post-merge and required a follow-up PR (mt#1267, [PR #791](https://github.com/edobry/minsky/pull/791) — see its body for the live-verify output that should have run pre-merge) to fix. The agent-memory entry `feedback_run_end_to_end_verify_end_to_end` captures the lesson; PR #791 is the in-repo evidence trail for human readers without access to that memory store.
 
 This is a checklist item, not a hard gate. The override exceptions exist for legitimate cases. The failure mode this guards against is "the code looks right but the live system disagrees" — and the cost of a five-hour post-merge discovery is much higher than the cost of one extra `bun scripts/...` invocation per PR.
 
