@@ -209,7 +209,7 @@ export const CRITIC_CONSTITUTION = buildCriticConstitution(true);
 /**
  * Structural pre-check for out-of-repo path references.
  *
- * The prompt-level out-of-repo clause (in `CRITIC_CONSTITUTION_FAILURE_MODES`)
+ * The prompt-level out-of-repo clause (in `buildCriticConstitutionFailureModes`)
  * tells the reviewer the rule. This pre-check supplies the evidence: it scans
  * the PR body and task spec for paths the reviewer cannot verify and injects
  * an explicit enumeration into the prompt body. Defense-in-depth — the
