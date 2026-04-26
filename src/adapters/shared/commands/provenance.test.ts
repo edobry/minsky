@@ -5,12 +5,14 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { createSharedCommandRegistry } from "../command-registry";
+import { z } from "zod";
+import { createSharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { ProvenanceRecord } from "../../../domain/provenance/types";
 import { AuthorshipTier } from "../../../domain/provenance/types";
 import { ProvenanceService } from "../../../domain/provenance/provenance-service";
+import { log } from "../../../utils/logger";
 
 // Type alias — keeps the "getProvenanceForArtifact" string literal in one place.
 type GetProvenanceFn = InstanceType<typeof ProvenanceService>["getProvenanceForArtifact"];
@@ -175,5 +177,83 @@ describe("provenance.get shared command", () => {
     await expect(
       cmd.execute({ artifactId: "1", artifactType: "pr" }, { container: emptyContainer })
     ).rejects.toThrow("DI container missing 'persistence'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// provenance.recompute — deprecated alias for authorship.recompute
+// ---------------------------------------------------------------------------
+
+const PROVENANCE_RECOMPUTE_ID = "provenance.recompute";
+
+describe("provenance.recompute deprecated alias", () => {
+  test("provenance.recompute is registered when provenance commands are registered", async () => {
+    const registry = createSharedCommandRegistry();
+    const { registerProvenanceCommands } = await import("./provenance");
+    registerProvenanceCommands(undefined, registry);
+
+    const cmd = registry.getCommand(PROVENANCE_RECOMPUTE_ID);
+    expect(cmd).toBeDefined();
+    expect(cmd?.name).toBe("recompute");
+    expect(cmd?.category).toBeDefined();
+    expect(cmd?.description).toContain("DEPRECATED");
+  });
+
+  test("provenance.recompute emits a deprecation warning and delegates to authorship.recompute", async () => {
+    const registry = createSharedCommandRegistry();
+
+    // Register a spy command in place of authorship.recompute so we can
+    // verify delegation without pulling in the full DI stack.
+    const recomputeResult = { processed: 5, updated: 3, skipped: 2, dryRun: false };
+    const authorshipRecomputeExecute = mock(() => Promise.resolve(recomputeResult));
+    registry.registerCommand({
+      id: "authorship.recompute",
+      category: CommandCategory.AUTHORSHIP,
+      name: "recompute",
+      description: "Stub",
+      parameters: {
+        dryRun: { schema: z.boolean(), required: false, defaultValue: false },
+      },
+      execute: authorshipRecomputeExecute,
+    });
+
+    const { registerProvenanceCommands } = await import("./provenance");
+    registerProvenanceCommands(undefined, registry);
+
+    // Capture log.warn calls by replacing it with a typed spy that stores messages.
+    const warnMessages: string[] = [];
+    const originalWarn = log.warn;
+    log.warn = (message: string) => {
+      warnMessages.push(message);
+    };
+
+    try {
+      const cmd = requireCommand(registry, PROVENANCE_RECOMPUTE_ID);
+      const result = await cmd.execute({ dryRun: false }, {});
+
+      // Alias must have delegated to authorship.recompute
+      expect(authorshipRecomputeExecute).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(recomputeResult);
+
+      // And must have emitted a deprecation warning through log.warn.
+      expect(warnMessages.length).toBeGreaterThan(0);
+      expect(warnMessages.some((m) => m.includes("provenance.recompute is deprecated"))).toBe(true);
+      expect(warnMessages.some((m) => m.includes("authorship.recompute"))).toBe(true);
+    } finally {
+      log.warn = originalWarn;
+    }
+  });
+
+  test("provenance.recompute throws when authorship.recompute is not registered", async () => {
+    // Verify the alias fails cleanly if authorship commands were never registered.
+    const registry = createSharedCommandRegistry();
+    const { registerProvenanceCommands } = await import("./provenance");
+    registerProvenanceCommands(undefined, registry);
+
+    const cmd = requireCommand(registry, PROVENANCE_RECOMPUTE_ID);
+
+    await expect(cmd.execute({ dryRun: false }, {})).rejects.toThrow(
+      "authorship.recompute is not registered"
+    );
   });
 });

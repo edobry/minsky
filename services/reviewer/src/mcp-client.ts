@@ -170,32 +170,47 @@ export async function callAuthorshipGet(
       return null;
     }
 
-    // The MCP tool returns the record in result.content[0].
-    // The MCP SDK allows two content shapes:
-    //   { type: "text", text: "<JSON string>" }  — current server emits this
-    //   { type: "json", json: <value> }           — future-proof defensive support
+    // The MCP tool returns the record in result.content.
+    // The MCP SDK allows two content shapes, and may emit multi-chunk content:
+    //   { type: "text", text: "<JSON string>" }  — current server emits this; multiple
+    //                                               chunks are concatenated before parsing
+    //   { type: "json", json: <value> }           — pre-parsed; use the first json entry
     const content = parsed.result?.content;
     if (!content || content.length === 0) {
       return null;
     }
 
-    const first = content[0];
-    if (!first) {
-      return null;
-    }
+    // Prefer a type:"json" entry (pre-parsed by the SDK) over text chunks.
+    const jsonEntry = content.find(
+      (b): b is { type: "json"; json: unknown } =>
+        b?.type === "json" && "json" in (b as { json?: unknown })
+    );
 
     let record: unknown;
-    if (first.type === "json" && "json" in first) {
-      record = (first as { type: "json"; json: unknown }).json;
-    } else if (first.type === "text" && "text" in first && (first as { text?: string }).text) {
+    if (jsonEntry) {
+      record = jsonEntry.json;
+    } else {
+      // Collect all text chunks and concatenate before parsing — handles multi-chunk
+      // responses for large payloads (aligns with callTasksSpecGet pattern).
+      const textChunks = content
+        .filter(
+          (b): b is { type: "text"; text: string } =>
+            b?.type === "text" && typeof (b as { text?: unknown }).text === "string"
+        )
+        .map((b) => b.text);
+
+      if (textChunks.length === 0) {
+        console.error(`[mcp-client] authorship.get(${artifactId}): no parseable content entries`);
+        return null;
+      }
+
+      const joined = textChunks.join("");
       try {
-        record = JSON.parse((first as { text: string }).text);
+        record = JSON.parse(joined);
       } catch {
         console.error(`[mcp-client] authorship.get(${artifactId}): could not parse content text`);
         return null;
       }
-    } else {
-      return null;
     }
 
     if (record === null || typeof record !== "object") {

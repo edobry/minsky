@@ -330,6 +330,62 @@ describe("callAuthorshipGet", () => {
     expect(result).not.toBeNull();
     expect(result?.tier).toBe(2);
   });
+
+  test("handles multi-chunk text content by concatenating before parse", async () => {
+    // The MCP server may emit the JSON payload split across multiple text chunks.
+    // callAuthorshipGet must concatenate all type:"text" entries before JSON.parse.
+    const authorshipRecord = { tier: 1, rationale: "human-authored", policyVersion: "2.0.0" };
+    const fullJson = JSON.stringify(authorshipRecord);
+    const mid = Math.floor(fullJson.length / 2);
+
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          { type: "text", text: fullJson.slice(0, mid) },
+          { type: "text", text: fullJson.slice(mid) },
+        ],
+      },
+    };
+
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("11", "pr", CONFIG_WITH_MCP);
+
+    expect(result).not.toBeNull();
+    expect(result?.tier).toBe(1);
+    expect(result?.rationale).toBe("human-authored");
+    expect(result?.policyVersion).toBe("2.0.0");
+  });
+
+  test("prefers type:'json' entry and ignores extra type:'text' chunks", async () => {
+    // When a type:"json" entry is present alongside type:"text" chunks, the json
+    // entry takes priority and the text chunks are ignored entirely.
+    const authorshipRecord = { tier: 3, rationale: "agent-authored", policyVersion: "1.0.0" };
+
+    const mcpResponse = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          { type: "json", json: authorshipRecord },
+          // These text chunks contain a different (wrong) value — they must be ignored.
+          { type: "text", text: JSON.stringify({ tier: 9, rationale: "should be ignored" }) },
+        ],
+      },
+    };
+
+    setFetch(() => Promise.resolve(mockJsonResponse(mcpResponse)));
+
+    const { callAuthorshipGet } = await import("./mcp-client");
+    const result = await callAuthorshipGet("22", "commit", CONFIG_WITH_MCP);
+
+    expect(result).not.toBeNull();
+    expect(result?.tier).toBe(3);
+    expect(result?.rationale).toBe("agent-authored");
+  });
 });
 
 describe("callTasksSpecGet", () => {
