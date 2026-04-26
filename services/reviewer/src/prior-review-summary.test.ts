@@ -8,12 +8,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   CHINESE_WALL_MARKER,
+  countAcknowledgedFindings,
   countBlockingFindings,
   extractFindings,
   isBotReviewerEntry,
   summarizePriorReviews,
   type PriorReview,
 } from "./prior-review-summary";
+import { sanitizeReviewBody } from "./sanitize";
 
 // Shared fixtures
 const HEAD_SHA = "abc123def456789012345678901234567890abcd";
@@ -386,5 +388,115 @@ describe("countBlockingFindings", () => {
     // that received null at runtime and coalesced before calling countBlockingFindings.
     const nullableBody: string | null = null;
     expect(countBlockingFindings(nullableBody ?? "")).toBe(0);
+  });
+});
+
+// ─── SC-2: sanitizeReviewBody pipeline (mt#1189) ──────────────────────────────
+//
+// Integration test verifying that CoT-leaked prior review bodies are stripped
+// before being summarized. In review-worker.ts, each prior review body is
+// passed through sanitizeReviewBody() before being fed to summarizePriorReviews.
+// This test documents the expected pipeline behavior: leaked scratch in a prior
+// review body must not appear in the summary injected into the next prompt.
+
+// CoT-leaked review body: starts with scratch then has a real Findings section.
+const COT_LEAKED_BODY =
+  "Calling read_file on src/worker.ts.\n" +
+  "Let me analyze the findings.\n" +
+  "Go.\n\n" +
+  "**Independent adversarial review (Chinese-wall)**\n" +
+  `Reviewer: \`${MINSKY_REVIEWER_LOGIN}\` via \`openai:gpt-5\`\n\n` +
+  "---\n\n" +
+  "### Findings\n\n" +
+  "- **[BLOCKING]** src/worker.ts:42 — missing null check\n" +
+  "- **[NON-BLOCKING]** src/config.ts:5 — add a comment\n\n" +
+  "Event: REQUEST_CHANGES";
+
+describe("SC-2: sanitizeReviewBody before summarizePriorReviews", () => {
+  test("sanitizeReviewBody strips CoT prefix, leaving only the Findings section", () => {
+    const result = sanitizeReviewBody(COT_LEAKED_BODY);
+    expect(result.action).toBe("stripped");
+    expect(result.body).not.toContain("Calling read_file");
+    expect(result.body).not.toContain("Let me analyze");
+    expect(result.body).not.toContain("Go.");
+    expect(result.body).toContain("**[BLOCKING]** src/worker.ts:42");
+    expect(result.body).toContain("**[NON-BLOCKING]** src/config.ts:5");
+  });
+
+  test("pipeline: sanitized body injected into summarizePriorReviews excludes CoT scratch", () => {
+    const reviewWithCoT: PriorReview = {
+      id: 1,
+      state: STATE_CHANGES_REQUESTED,
+      submittedAt: "2026-04-01T10:00:00Z",
+      commitId: HEAD_SHA,
+      userLogin: MINSKY_REVIEWER_LOGIN,
+      body: COT_LEAKED_BODY,
+    };
+    // Simulate the SC-2 pipeline: sanitize first, then summarize.
+    const sanitizedBody = sanitizeReviewBody(reviewWithCoT.body).body;
+    const sanitizedReview = { ...reviewWithCoT, body: sanitizedBody };
+    const summary = summarizePriorReviews([sanitizedReview], HEAD_SHA);
+
+    expect(summary.markdown).not.toContain("Calling read_file");
+    expect(summary.markdown).not.toContain("Let me analyze");
+    expect(summary.markdown).toContain("**[BLOCKING]** src/worker.ts:42");
+  });
+
+  test("passthrough body (no CoT) is unchanged after sanitize + summarize pipeline", () => {
+    const cleanBody =
+      "**Independent adversarial review (Chinese-wall)**\n" +
+      `Reviewer: \`${MINSKY_REVIEWER_LOGIN}\` via \`openai:gpt-5\`\n\n` +
+      "---\n\n" +
+      "### Findings\n\n" +
+      "- **[BLOCKING]** src/index.ts:10 — missing error handler\n\n" +
+      "Event: REQUEST_CHANGES";
+
+    const review: PriorReview = {
+      id: 2,
+      state: STATE_CHANGES_REQUESTED,
+      submittedAt: "2026-04-02T10:00:00Z",
+      commitId: HEAD_SHA,
+      userLogin: MINSKY_REVIEWER_LOGIN,
+      body: cleanBody,
+    };
+
+    const sanitized = sanitizeReviewBody(review.body);
+    expect(sanitized.action).toBe("passthrough");
+
+    const sanitizedReview = { ...review, body: sanitized.body };
+    const summary = summarizePriorReviews([sanitizedReview], HEAD_SHA);
+    expect(summary.markdown).toContain("**[BLOCKING]** src/index.ts:10");
+  });
+});
+
+// ─── countAcknowledgedFindings ────────────────────────────────────────────────
+
+describe("countAcknowledgedFindings", () => {
+  test("returns 0 for empty body", () => {
+    expect(countAcknowledgedFindings("")).toBe(0);
+  });
+
+  test("returns 0 for body with no acknowledgement phrases", () => {
+    const body = "**[BLOCKING]** src/foo.ts:1 — bad thing\n**[NON-BLOCKING]** src/bar.ts:5 — minor";
+    expect(countAcknowledgedFindings(body)).toBe(0);
+  });
+
+  test("detects 'acknowledged as addressed' phrase", () => {
+    const body = "The previous concern about missing null check is acknowledged as addressed.";
+    expect(countAcknowledgedFindings(body)).toBeGreaterThan(0);
+  });
+
+  test("detects 'prior finding now resolved' phrase", () => {
+    const body = "Prior finding about error handling is now resolved in this commit.";
+    expect(countAcknowledgedFindings(body)).toBeGreaterThan(0);
+  });
+
+  test("returns 0 for body with only non-blocking findings and no acknowledgements", () => {
+    const body =
+      "**Independent adversarial review (Chinese-wall)**\n\n" +
+      "### Findings\n\n" +
+      "- **[NON-BLOCKING]** src/foo.ts:1 — style issue\n\n" +
+      "Event: COMMENT";
+    expect(countAcknowledgedFindings(body)).toBe(0);
   });
 });

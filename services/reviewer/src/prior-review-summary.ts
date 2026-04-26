@@ -197,6 +197,47 @@ export function countBlockingFindings(body: string): number {
   return matches?.length ?? 0;
 }
 
+/**
+ * Best-effort count of prior findings acknowledged as addressed in a review body.
+ *
+ * Looks for lines or phrases indicating the reviewer acknowledged that a prior
+ * finding is now resolved. Matches common patterns the model uses when following
+ * the SC-3 convergence-discipline instruction ("use Prior Reviews to bound findings").
+ *
+ * Heuristic — matches phrases like:
+ *   - "previously raised ... now addressed"
+ *   - "acknowledged as addressed"
+ *   - "prior finding ... resolved"
+ *   - "finding from iteration ... has been addressed"
+ *   - "concern ... addressed in this commit"
+ *
+ * Returns 0 on extraction failure. Non-throwing.
+ */
+export function countAcknowledgedFindings(body: string): number {
+  if (!body.trim()) return 0;
+  // Match lines or sentence fragments that explicitly acknowledge prior findings as resolved.
+  // Uses multiple simpler patterns joined for readability and correctness.
+  // Pattern classes:
+  //   A) "acknowledged as addressed" (direct acknowledgement phrase)
+  //   B) "prior finding[s] ... now resolved/addressed" (with arbitrary words in between)
+  //   C) "finding[s] from iteration/prior N has been addressed"
+  //   D) "previously raised ... is now resolved/addressed/fixed"
+  //   E) "concern ... addressed/resolved/fixed in this/the commit"
+  const patterns = [
+    /\backnowledge[ds]?\s+as\s+addressed\b/i,
+    /\bprior\s+finding[s]?.{0,60}(?:now\s+)?(?:resolved|addressed)\b/i,
+    /\bfinding[s]?\s+from\s+(?:iteration|prior|previous)\s+\d+\s+(?:has\s+been|have\s+been|(?:is|are))\s+addressed\b/i,
+    /\bpreviously\s+raised\b.{0,80}(?:is\s+now|now\s+)(?:resolved|addressed|fixed)\b/i,
+    /\bconcern\b.{0,80}(?:addressed|resolved|fixed)\s+in\s+(?:this|the)\s+commit\b/i,
+  ];
+  let count = 0;
+  for (const pattern of patterns) {
+    const matches = body.match(new RegExp(pattern.source, "gi"));
+    count += matches?.length ?? 0;
+  }
+  return count;
+}
+
 /** Max total characters the rendered markdown summary may occupy. */
 const MAX_SUMMARY_CHARS = 3000;
 

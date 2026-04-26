@@ -21,7 +21,11 @@ import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import type { PriorReview } from "./prior-review-summary";
-import { countBlockingFindings, summarizePriorReviews } from "./prior-review-summary";
+import {
+  countAcknowledgedFindings,
+  countBlockingFindings,
+  summarizePriorReviews,
+} from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
@@ -342,6 +346,42 @@ export function buildRunReviewStartLog(
 }
 
 /**
+ * Build the structured convergence-metric log object emitted after each
+ * successful review (SC-5, mt#1189).
+ *
+ * Extracted as a pure function so tests can assert the 6-field shape without
+ * mocking the full runReview stack.
+ *
+ * Fields per spec:
+ *   - pr: PR number
+ *   - sha: HEAD commit SHA
+ *   - iterationIndex: current iteration number (priorCount + 1)
+ *   - priorBlockerCount: sum of BLOCKING findings across all prior reviews
+ *   - newBlockerCount: BLOCKING findings in the current review body
+ *   - acknowledgedAsAddressedCount: best-effort count from review body text
+ *
+ * Exported for tests.
+ */
+export function buildConvergenceMetricLog(
+  prNumber: number,
+  headSha: string,
+  iterationIndex: number,
+  priorBlockerCount: number,
+  newBlockerCount: number,
+  acknowledgedAsAddressedCount: number
+): Record<string, unknown> {
+  return {
+    event: "reviewer.convergence_metric",
+    pr: prNumber,
+    sha: headSha,
+    iterationIndex,
+    priorBlockerCount,
+    newBlockerCount,
+    acknowledgedAsAddressedCount,
+  };
+}
+
+/**
  * Optional injectable dependencies for runReview. All fields are optional;
  * defaults to real production implementations when absent.
  */
@@ -411,7 +451,14 @@ export async function runReview(
   let priorReviewIngestion: PriorReviewIngestionResult;
   let priorReviewsMarkdown = "";
   try {
-    const priorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
+    const rawPriorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
+    // SC-2 (mt#1189): sanitize each prior review body before ingestion so that
+    // CoT scratch leaked into a prior review cannot contaminate this iteration's
+    // prompt. sanitizeReviewBody is non-throwing — it always returns a result.
+    const priorReviews = rawPriorReviews.map((r) => ({
+      ...r,
+      body: sanitizeReviewBody(r.body).body,
+    }));
     const summary = summarizePriorReviews(priorReviews, pr.headSha);
     priorReviewIngestion = {
       iterationCount: summary.iterationCount,
@@ -600,6 +647,26 @@ export async function runReview(
   // Enables "prior-blocker count / new-blocker count" convergence metric in logs.
   // Shares countBlockingFindings with the prior-review counts above.
   const blockingCount: number = countBlockingFindings(sanitized.body);
+
+  // SC-5 (mt#1189): emit structured convergence metric per review.
+  // Fields: PR number, head SHA, iteration index (this is iteration N+1 where N
+  // is the count of prior reviews), prior-blocker count (sum of all prior BLOCKING
+  // counts), new-blocker count (BLOCKING count in current review body),
+  // acknowledged-as-addressed count (best-effort from review body text).
+  const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce((acc, n) => acc + n, 0);
+  const acknowledgedCount = countAcknowledgedFindings(sanitized.body);
+  console.log(
+    JSON.stringify(
+      buildConvergenceMetricLog(
+        pr.number,
+        pr.headSha,
+        priorReviewIngestion.iterationCount + 1,
+        priorBlockerTotal,
+        blockingCount,
+        acknowledgedCount
+      )
+    )
+  );
 
   return {
     status: outcome.status,
