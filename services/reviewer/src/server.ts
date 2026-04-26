@@ -112,33 +112,24 @@ const server = Bun.serve({
       const signature = request.headers.get("x-hub-signature-256");
       const deliveryId = request.headers.get("x-github-delivery") ?? "unknown";
       const eventName = request.headers.get("x-github-event");
-      const body = await request.text();
+
+      // Log webhook_received BEFORE the missing-headers check so that requests
+      // with absent headers (signature_present: false) still produce a log line.
+      // This is the primary diagnostic signal for bad-actor or misconfigured senders.
+      console.log(
+        JSON.stringify({
+          event: "webhook_received",
+          delivery_id: deliveryId,
+          github_event: eventName ?? null,
+          signature_present: Boolean(signature),
+        })
+      );
 
       if (!signature || !eventName) {
         return new Response("missing signature or event headers", { status: 400 });
       }
 
-      // Attempt to extract action from the raw body before signature verification.
-      // This is best-effort: body may not be valid JSON or may not have an action field.
-      let webhookAction: string | undefined;
-      try {
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-        if (typeof parsed["action"] === "string") {
-          webhookAction = parsed["action"];
-        }
-      } catch {
-        // Non-JSON body — leave action undefined.
-      }
-
-      console.log(
-        JSON.stringify({
-          event: "webhook_received",
-          delivery_id: deliveryId,
-          github_event: eventName,
-          action: webhookAction,
-          signature_present: Boolean(signature),
-        })
-      );
+      const body = await request.text();
 
       try {
         await webhooks.verifyAndReceive({
@@ -159,7 +150,9 @@ const server = Bun.serve({
           JSON.stringify({
             event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
             delivery_id: deliveryId,
+            deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
             github_event: eventName,
+            eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
             error: message,
           })
         );
