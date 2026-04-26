@@ -9,6 +9,7 @@
 import { getDefaultSqliteDbPath } from "../../utils/paths";
 import { log } from "../../utils/logger";
 import type { Configuration } from "./schemas";
+import type { PostgresConfig, SqliteConfig } from "./schemas/persistence";
 
 let sessiondbDeprecationWarned = false;
 
@@ -32,11 +33,23 @@ export function _resetSessiondbDeprecationWarnedForTests(): void {
 /**
  * Normalized persistence configuration resolved from either the modern
  * `persistence` key or the legacy `sessiondb` key.
+ *
+ * The top-level `connectionString` and `dbPath` fields are convenience
+ * aliases preserved for backward compatibility. The full `postgres` and
+ * `sqlite` sub-objects carry all configured fields (including pool settings)
+ * so callers that construct a `PersistenceConfig` can pass them through
+ * without silently dropping `maxConnections`, `connectTimeout`, etc.
  */
 export interface EffectivePersistenceConfig {
   backend: "sqlite" | "postgres" | string;
+  /** Convenience alias for `postgres.connectionString`. */
   connectionString?: string;
+  /** Convenience alias for `sqlite.dbPath`. */
   dbPath?: string;
+  /** Full resolved postgres sub-config (present when backend is "postgres"). */
+  postgres?: PostgresConfig;
+  /** Full resolved sqlite sub-config (present when backend is "sqlite"). */
+  sqlite?: SqliteConfig;
 }
 
 /**
@@ -63,12 +76,23 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
   const backend: string = modernBackend ?? legacyBackend ?? "sqlite";
 
   // ── connectionString (postgres) ──────────────────────────────────────────
-  const modernConnString = config.persistence?.postgres?.connectionString;
+  const modernPostgres = config.persistence?.postgres;
+  const modernConnString = modernPostgres?.connectionString;
   const legacyConnString =
     (legacyPostgres?.connectionString as string | undefined) ??
     (legacy?.connectionString as string | undefined);
   const connectionString: string | undefined =
     modernConnString ?? legacyConnString ?? process.env.MINSKY_POSTGRES_URL;
+
+  // ── postgres sub-config (full) ────────────────────────────────────────────
+  // Merge the modern postgres block (which carries maxConnections etc.) with the
+  // resolved connectionString so callers do not have to re-derive it.
+  const resolvedPostgres: PostgresConfig | undefined = connectionString
+    ? {
+        ...(modernPostgres ?? {}),
+        connectionString,
+      }
+    : undefined;
 
   // ── dbPath (sqlite) ──────────────────────────────────────────────────────
   const modernDbPath = config.persistence?.sqlite?.dbPath;
@@ -76,6 +100,9 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
     (legacySqlite?.path as string | undefined) ?? (legacy?.dbPath as string | undefined);
   const dbPath: string | undefined =
     modernDbPath ?? legacyDbPath ?? (backend === "sqlite" ? getDefaultSqliteDbPath() : undefined);
+
+  // ── sqlite sub-config (full) ─────────────────────────────────────────────
+  const resolvedSqlite: SqliteConfig | undefined = dbPath ? { dbPath } : undefined;
 
   // ── deprecation warning ──────────────────────────────────────────────────
   // Warn only when legacy values actually *contribute* to the effective config —
@@ -93,5 +120,11 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
     warnLegacySessiondbOnce(`sessiondb.{${sources.join(", ")}}`);
   }
 
-  return { backend, connectionString, dbPath };
+  return {
+    backend,
+    connectionString,
+    dbPath,
+    postgres: resolvedPostgres,
+    sqlite: resolvedSqlite,
+  };
 }

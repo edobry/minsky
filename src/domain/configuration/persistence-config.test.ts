@@ -135,4 +135,50 @@ describe("getEffectivePersistenceConfig", () => {
     expect(result.dbPath).toBe("/tmp/legacy.db");
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
+
+  test("postgres.maxConnections is preserved on the returned postgres sub-object", () => {
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        postgres: { connectionString: POSTGRES_URL, maxConnections: 5 },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres?.connectionString).toBe(POSTGRES_URL);
+    expect(result.postgres?.maxConnections).toBe(5);
+  });
+
+  test("postgres extras (maxConnections, connectTimeout, idleTimeout, prepareStatements) all preserved", () => {
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        postgres: {
+          connectionString: POSTGRES_URL,
+          maxConnections: 7,
+          connectTimeout: 15,
+          idleTimeout: 60,
+          prepareStatements: false,
+        },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres).toEqual({
+      connectionString: POSTGRES_URL,
+      maxConnections: 7,
+      connectTimeout: 15,
+      idleTimeout: 60,
+      prepareStatements: false,
+    });
+  });
+
+  test("sqlite sub-object is populated with dbPath when backend is sqlite", () => {
+    const config = makeConfig({
+      persistence: {
+        backend: "sqlite",
+        sqlite: { dbPath: "/tmp/explicit.db" },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.sqlite?.dbPath).toBe("/tmp/explicit.db");
+  });
 });
