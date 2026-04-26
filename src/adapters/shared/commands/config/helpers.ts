@@ -6,7 +6,7 @@
  */
 
 import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
-import { SENSITIVE_KEY_PATTERNS } from "../../../../utils/redaction";
+import { SENSITIVE_KEY_REGEX } from "../../../../utils/redaction";
 
 /**
  * Masks sensitive credential values in configuration
@@ -64,9 +64,16 @@ export function maskCredentialsInEffectiveValues(
 
   const masked: Record<string, { value: unknown; source: string; path: string }> = {};
 
-  // Helper to check if a path contains sensitive information
+  // Helper to check if a path contains sensitive information.
+  // NOTE: shares SENSITIVE_KEY_REGEX with isSensitiveKey in redaction.ts —
+  // both must use case-insensitive matching so that paths like
+  // "github.Token", "ai.providers.OpenAI.apiKEY", "SESSIONDB.ConnectionString"
+  // are masked just as their key-only counterparts would be.
   const isSensitivePath = (path: string): boolean => {
-    return SENSITIVE_KEY_PATTERNS.some((pattern) => path.includes(pattern));
+    // Test each dot-separated segment so that only the actual key part is
+    // matched (e.g. "providers" in "ai.providers.openai.apiKey" is not
+    // flagged, but "apiKey" is).
+    return path.split(".").some((segment) => SENSITIVE_KEY_REGEX.test(segment.toLowerCase()));
   };
 
   // Helper to mask value (but don't re-mask already masked values)

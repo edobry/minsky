@@ -6,29 +6,80 @@
  */
 
 /**
- * Substring patterns used to identify sensitive keys.
- * Case-insensitive substring match — any key whose name contains one of these
- * strings is considered sensitive.
+ * Case-insensitive substring patterns that identify sensitive keys.
  *
- * Mirrors the set used in src/adapters/shared/commands/config/helpers.ts
- * (isSensitivePath) so there is a single source of truth.
+ * Design rationale (mt#1181):
+ *   - The bare "key" substring was removed because it matched benign keys like
+ *     `monkey`, `keyboard`, `keyPath`, `surveyKeyPath`.
+ *   - Credential-type *Key / *_key compound words are listed explicitly so that
+ *     `apiKey`, `privateKey`, `access_key`, etc. are still caught.
+ *   - The snake_case catch-all (`_key` suffix) is handled separately in
+ *     SENSITIVE_KEY_REGEX rather than in this list to avoid substring pollution.
+ *
+ * NOTE: Both isSensitiveKey (here) and isSensitivePath in
+ * src/adapters/shared/commands/config/helpers.ts share SENSITIVE_KEY_REGEX and
+ * MUST use the same case-insensitive matching semantics.
  */
 export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
   "token",
-  "apiKey",
   "password",
   "secret",
-  "key",
+  "authorization",
+  "credential",
   "connectionString",
+  // Explicit camelCase credential-key compound words:
+  "apiKey",
+  "secretKey",
+  "privateKey",
+  "accessKey",
+  "authKey",
+  "signingKey",
+  "encryptionKey",
+  // Explicit snake_case credential-key compound words:
+  "private_key",
+  "access_key",
+  "auth_key",
+  "signing_key",
+  "encryption_key",
+  "api_key",
+  "secret_key",
 ];
 
 /**
- * Returns true if the given key name contains any of the sensitive patterns
- * (case-insensitive substring match).
+ * Regex that identifies a sensitive key name after lowercasing the input.
+ *
+ * Matches if the lowercase key:
+ *   1. Is in SENSITIVE_KEY_PATTERNS (substring match), OR
+ *   2. Ends with "_key" — catches arbitrary snake_case credential keys
+ *      (e.g. "refresh_key", "master_key") without a false positive on
+ *      "monkey" (no underscore before "key").
+ *
+ * Does NOT match:
+ *   - "monkey"    — ends with "key" but no underscore; not in the explicit list
+ *   - "keyboard"  — "key" is a prefix, not a suffix
+ *   - "keyPath"   — lowercased to "keypath"; not in list, no "_key" suffix
+ *   - "surveyKeyPath" — same reasoning
+ *
+ * Exported so that isSensitivePath in helpers.ts can share identical semantics.
+ */
+export const SENSITIVE_KEY_REGEX: RegExp = new RegExp(
+  // Patterns from SENSITIVE_KEY_PATTERNS, lowercased for the regex
+  `${
+    SENSITIVE_KEY_PATTERNS.map((p) => p.toLowerCase()).join("|")
+    // Plus generic snake_case suffix
+  }|_key$`
+  // No flags needed — isSensitiveKey always lowercases before calling .test()
+);
+
+/**
+ * Returns true if the given key name is considered sensitive (case-insensitive).
+ *
+ * Uses SENSITIVE_KEY_REGEX for precise matching. isSensitivePath in
+ * src/adapters/shared/commands/config/helpers.ts uses the same regex so that
+ * both functions share identical semantics.
  */
 export function isSensitiveKey(key: string): boolean {
-  const lower = key.toLowerCase();
-  return SENSITIVE_KEY_PATTERNS.some((pattern) => lower.includes(pattern.toLowerCase()));
+  return SENSITIVE_KEY_REGEX.test(key.toLowerCase());
 }
 
 const REDACTED = "[REDACTED]";

@@ -10,8 +10,28 @@ describe("isSensitiveKey", () => {
     expect(isSensitiveKey("apiKey")).toBe(true);
     expect(isSensitiveKey("password")).toBe(true);
     expect(isSensitiveKey("secret")).toBe(true);
-    expect(isSensitiveKey("key")).toBe(true);
     expect(isSensitiveKey("connectionString")).toBe(true);
+  });
+
+  test("matches compound *Key and *_key suffix patterns", () => {
+    expect(isSensitiveKey("apiKey")).toBe(true);
+    expect(isSensitiveKey("secretKey")).toBe(true);
+    expect(isSensitiveKey("privateKey")).toBe(true);
+    expect(isSensitiveKey("accessKey")).toBe(true);
+    expect(isSensitiveKey("authKey")).toBe(true);
+    expect(isSensitiveKey("signingKey")).toBe(true);
+    expect(isSensitiveKey("encryptionKey")).toBe(true);
+    expect(isSensitiveKey("private_key")).toBe(true);
+    expect(isSensitiveKey("access_key")).toBe(true);
+    expect(isSensitiveKey("api_key")).toBe(true);
+  });
+
+  test("does NOT match benign keys that contain 'key' as a prefix or mid-word", () => {
+    // These were false positives with the old bare 'key' substring match.
+    expect(isSensitiveKey("monkey")).toBe(false);
+    expect(isSensitiveKey("keyboard")).toBe(false);
+    expect(isSensitiveKey("keyPath")).toBe(false);
+    expect(isSensitiveKey("surveyKeyPath")).toBe(false);
   });
 
   test("does not match non-sensitive key names", () => {
@@ -37,8 +57,9 @@ describe("isSensitiveKey", () => {
     expect(SENSITIVE_KEY_PATTERNS).toContain("apiKey");
     expect(SENSITIVE_KEY_PATTERNS).toContain("password");
     expect(SENSITIVE_KEY_PATTERNS).toContain("secret");
-    expect(SENSITIVE_KEY_PATTERNS).toContain("key");
     expect(SENSITIVE_KEY_PATTERNS).toContain("connectionString");
+    // 'key' as a bare substring is intentionally absent — see SENSITIVE_KEY_REGEX
+    expect(SENSITIVE_KEY_PATTERNS).not.toContain("key");
   });
 });
 
@@ -117,5 +138,21 @@ describe("redact", () => {
     const input = { config: { ai: { providers: { openai: { apiKey: "sk-abc" } } } } };
     const result = redact(input);
     expect(result.config.ai.providers.openai.apiKey).toBe("[REDACTED]");
+  });
+
+  test("private_key and accessKey are redacted", () => {
+    const input = { private_key: "pk-value", accessKey: "ak-value", normal: "ok" };
+    const result = redact(input);
+    expect(result.private_key).toBe("[REDACTED]");
+    expect(result.accessKey).toBe("[REDACTED]");
+    expect(result.normal).toBe("ok");
+  });
+
+  test("monkey, keyboard, keyPath are NOT redacted (false-positive guard)", () => {
+    const input = { monkey: "banana", keyboard: "qwerty", keyPath: "/foo/bar" };
+    const result = redact(input);
+    expect(result.monkey).toBe("banana");
+    expect(result.keyboard).toBe("qwerty");
+    expect(result.keyPath).toBe("/foo/bar");
   });
 });
