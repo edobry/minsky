@@ -8,7 +8,7 @@
 /**
  * Case-insensitive patterns that identify sensitive keys.
  *
- * Design rationale (mt#1181 / R4 Findings A+B):
+ * Design rationale (mt#1181 / R4 + R5 findings):
  *   - Generic English words ("token", "password", "secret", "connectionString")
  *     are matched only as whole words/segments, NOT as substrings. This prevents
  *     false positives like `secretary` (contains "secret"), `tokenize` (contains
@@ -16,9 +16,10 @@
  *     not a credential value.
  *   - Credential-type *Key / *_key compound words are listed explicitly so that
  *     `apiKey`, `privateKey`, `access_key`, etc. are still caught.
- *   - The catch-all (`[-_]key` suffix) is handled in SENSITIVE_KEY_REGEX to
- *     catch `refresh_key`, `refresh-key`, etc. without false positives on
- *     `monkey` or `keyboard`.
+ *   - There is intentionally NO bare `[-_]key$` catch-all (R5 finding):
+ *     `public-key`, `primary-key`, `host-key` are not credentials. Only the
+ *     explicit COMPOUND_SEP list redacts hyphen/underscore variants
+ *     (e.g. `api-key`, `private-key`).
  *   - "authorization" and "credential" are intentionally absent as bare
  *     substring patterns because they over-match benign keys such as
  *     `authorizationMode`, `credentialStatus`, `authorizationLevel`. They are
@@ -80,6 +81,9 @@ const COMPOUND_CAMEL = [
 
 // Compound separator terms with [-_] to match both snake_case and kebab-case.
 // e.g. "api[-_]key" matches "api_key" and "api-key" (so "x-api-key" is caught natively).
+// R5 note: there is intentionally NO bare `[-_]key$` catch-all alongside this
+// list. `public-key`, `primary-key`, `host-key` are not credentials and must
+// NOT be redacted; only the credential-prefixed variants in this list match.
 const COMPOUND_SEP = [
   "private[-_]key",
   "access[-_]key",
@@ -108,23 +112,24 @@ const CRED_VARIANTS = ["credential", "credentials", "credentialstring"];
  *      key or as a trailing segment. `[-_]` accepts either `-` or `_` so that
  *      `x-api-key`, `x-auth-token`, `proxy-authorization` are caught natively
  *      without any input normalization.
- *   3. Catch-all: `[-_]key$` — catches `refresh_key`, `refresh-key`, etc.
- *      The separator before "key" prevents false positives on `monkey`.
- *   4. Authorization variants ("authorization", "authorizationheader"):
+ *   3. Authorization variants ("authorization", "authorizationheader"):
  *      whole segment only; `authorizationMode` is NOT matched.
- *   5. Credential variants ("credential", "credentials", "credentialstring"):
+ *   4. Credential variants ("credential", "credentials", "credentialstring"):
  *      whole segment only; `credentialStatus` is NOT matched.
  *
  * Does NOT match:
- *   - "monkey"             — ends with "key" but no separator; not in explicit list
+ *   - "monkey"             — ends with "key" but not in any explicit list
  *   - "keyboard"           — "key" is a prefix, not a suffix
- *   - "keyPath"            — lowercased to "keypath"; no [-_]key suffix
+ *   - "keyPath"            — lowercased to "keypath"; not in any list
  *   - "surveyKeyPath"      — same reasoning
  *   - "secretary"          — ends with "secretary", not "secret"
  *   - "tokenize"           — ends with "tokenize", not "token"
  *   - "passwordHash"       — metadata field; ends with "passwordhash", not "password"
  *   - "authorizationMode"  — lowercased to "authorizationmode"; not a whole segment
  *   - "credentialStatus"   — lowercased to "credentialstatus"; not a whole segment
+ *   - "public-key"         — not in COMPOUND_SEP; public keys are not credentials
+ *   - "primary-key"        — same; database column metadata, not a credential
+ *   - "host-key"           — SSH host key fingerprint metadata, not the key value
  *
  * Exported so that isSensitivePath in helpers.ts can share identical semantics.
  */
@@ -136,8 +141,6 @@ export const SENSITIVE_KEY_REGEX: RegExp = new RegExp(
     ...COMPOUND_CAMEL.map((t) => `(?:^|[-_a-z])${t}$`),
     // Compound separator terms with [-_] support: exact-or-suffix
     ...COMPOUND_SEP.map((t) => `(?:^|[-_a-z])${t}$`),
-    // Generic catch-all: any key ending with [-_]key (separator required before "key")
-    "[-_]key$",
     // Authorization variants: whole segment only
     ...AUTH_VARIANTS.map((v) => `(?:^|[-_a-z])${v}$`),
     // Credential variants: whole segment only

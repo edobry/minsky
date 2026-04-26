@@ -51,7 +51,10 @@ export function maskCredentials(
   if (showSecrets) {
     // Deep-clone so callers that mutate the returned object do not corrupt the
     // original config reference (mt#1181 Finding 1 — mutation hazard).
-    return structuredClone(config);
+    // Uses JSON-clone (matching the pre-refactor behavior) instead of
+    // structuredClone, which throws DataCloneError on functions, class
+    // instances, or unsupported value types (R5 finding).
+    return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   }
 
   return maskConfigValue(config) as Record<string, unknown>;

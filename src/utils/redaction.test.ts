@@ -327,4 +327,47 @@ describe("redact", () => {
     expect(result.keyPath).toBe("/foo/bar");
     expect(result.surveyKeyPath).toBe("/survey/key/path");
   });
+
+  // mt#1181 R5 finding: bare [-_]key$ catch-all dropped — public keys are not credentials
+  test("public-key, public_key, publicKey are NOT redacted (R5: not credentials)", () => {
+    const input: Record<string, unknown> = {
+      "public-key": "ssh-rsa AAAA...",
+      public_key: "ssh-rsa BBBB...",
+      publicKey: "ssh-rsa CCCC...",
+    };
+    const result = redact(input);
+    expect(result["public-key"]).toBe("ssh-rsa AAAA...");
+    expect(result.public_key).toBe("ssh-rsa BBBB...");
+    expect(result.publicKey).toBe("ssh-rsa CCCC...");
+  });
+
+  test("primary-key, primary_key are NOT redacted (R5: db column metadata)", () => {
+    const input: Record<string, unknown> = {
+      "primary-key": "id",
+      primary_key: "id",
+    };
+    const result = redact(input);
+    expect(result["primary-key"]).toBe("id");
+    expect(result.primary_key).toBe("id");
+  });
+
+  test("host-key is NOT redacted (R5: SSH host-key fingerprint metadata)", () => {
+    const input: Record<string, unknown> = { "host-key": "SHA256:abc123" };
+    const result = redact(input);
+    expect(result["host-key"]).toBe("SHA256:abc123");
+  });
+
+  test("api-key, private-key, secret-key, access-key ARE still redacted (explicit list)", () => {
+    const input: Record<string, unknown> = {
+      "api-key": "secret-1",
+      "private-key": "secret-2",
+      "secret-key": "secret-3",
+      "access-key": "secret-4",
+    };
+    const result = redact(input);
+    expect(result["api-key"]).toBe("[REDACTED]");
+    expect(result["private-key"]).toBe("[REDACTED]");
+    expect(result["secret-key"]).toBe("[REDACTED]");
+    expect(result["access-key"]).toBe("[REDACTED]");
+  });
 });
