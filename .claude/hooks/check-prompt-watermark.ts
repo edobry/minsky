@@ -17,7 +17,7 @@ const prompt = (input.tool_input.prompt as string) ?? "";
 const subagentType = (input.tool_input.subagent_type as string) ?? "";
 
 // Read-only subagent types are exempt — they cannot modify session state
-const readOnlyTypes = new Set(["Explore", "claude-code-guide", "verify-completion", "Plan"]);
+const readOnlyTypes = new Set(["Explore", "claude-code-guide", "auditor", "Plan"]);
 if (readOnlyTypes.has(subagentType)) {
   process.exit(0);
 }

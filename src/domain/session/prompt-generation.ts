@@ -18,7 +18,7 @@ export interface GeneratePromptParams {
 
 export interface GeneratePromptResult {
   prompt: string;
-  suggestedSubagentType?: string;
+  agentType?: string;
   suggestedModel?: string;
   scopeWarning?: string;
   batches?: GeneratePromptResult[]; // populated when scope > SCOPE_WARNING_THRESHOLD
@@ -264,7 +264,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
         scopeWarning,
       };
       if (type === "refactor") {
-        batchResult.suggestedSubagentType = "refactor";
+        batchResult.agentType = "refactorer";
       }
       return batchResult;
     });
@@ -277,7 +277,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     };
 
     if (type === "refactor") {
-      result.suggestedSubagentType = "refactor";
+      result.agentType = "refactorer";
     }
 
     return result;
@@ -296,7 +296,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     return {
       prompt,
       suggestedModel: "sonnet",
-      suggestedSubagentType: "verify-completion",
+      agentType: "auditor",
     };
   }
 
@@ -306,7 +306,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
   };
 
   if (type === "refactor") {
-    result.suggestedSubagentType = "refactor";
+    result.agentType = "refactorer";
   }
 
   return result;
