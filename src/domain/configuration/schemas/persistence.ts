@@ -13,8 +13,12 @@ import { z } from "zod";
 const postgresConfigSchema = z.object({
   connectionString: z.string(),
   maxConnections: z.number().min(1).max(100).optional(),
-  connectTimeout: z.number().min(1000).max(300000).optional(), // 1s - 5min
-  idleTimeout: z.number().min(1000).max(600000).optional(), // 1s - 10min
+  // connectTimeout: seconds (1–300). Passed directly to postgres-js connect_timeout
+  // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
+  connectTimeout: z.number().min(1).max(300).optional(), // 1s - 5min
+  // idleTimeout: seconds (1–600). Passed directly to postgres-js idle_timeout
+  // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
+  idleTimeout: z.number().min(1).max(600).optional(), // 1s - 10min
   prepareStatements: z.boolean().optional(),
 });
 
