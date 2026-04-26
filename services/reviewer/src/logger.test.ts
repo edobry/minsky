@@ -327,6 +327,29 @@ describe("logger", () => {
       expect(allOutput).not.toContain("secret-access-123");
     });
 
+    test("does not crash on cyclic context objects", () => {
+      // Regression guard: a context with a cycle would previously crash
+      // JSON.stringify (HUMAN) or winston.format.json() (STRUCTURED). The
+      // visited-WeakSet in redact() now returns "[Circular]" instead of
+      // recursing infinitely.
+      const logger = createLogger({ mode: "STRUCTURED", level: "info" });
+      type Cyclic = { name: string; self?: Cyclic };
+      const cyclic: Cyclic = { name: "loop" };
+      cyclic.self = cyclic;
+      const { lines, restore } = captureLines();
+      try {
+        // Must not throw.
+        logger.info("cyclic.test", { ctx: cyclic, plain: "ok" });
+      } finally {
+        restore();
+      }
+      const allOutput = lines.join("\n");
+      // Plain field survived.
+      expect(allOutput).toContain("ok");
+      // Cycle was caught.
+      expect(allOutput).toContain("[Circular]");
+    });
+
     test("logger rewrites Bearer-style strings even outside known sensitive keys", () => {
       // If a Bearer token leaks into a free-form field (e.g., an error message),
       // redactFormat must still scrub it.

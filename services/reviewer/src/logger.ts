@@ -111,16 +111,24 @@ const REDACTED = "***";
  * Recursively scrub a non-info value: replace values of sensitive keys with "***"
  * and rewrite Bearer-style strings. Returns a new value — does not mutate input.
  */
-function redact(value: unknown, depth = 0): unknown {
-  // Cap recursion depth defensively to avoid runaway costs on cyclic structures.
+function redact(value: unknown, depth = 0, visited: WeakSet<object> = new WeakSet()): unknown {
+  // Cap recursion depth defensively to avoid runaway costs on deeply-nested objects.
   if (depth > 8) return value;
+
+  // Cycle guard: if we've already walked this object on the current path, return
+  // a sentinel so JSON.stringify in HUMAN mode and winston.format.json() in
+  // STRUCTURED mode don't throw a TypeError on circular references.
+  if (value !== null && typeof value === "object" && visited.has(value)) {
+    return "[Circular]";
+  }
 
   if (typeof value === "string") {
     // Catch `Bearer <token>` anywhere in a string value.
     return value.replace(/Bearer\s+\S+/gi, "Bearer ***");
   }
   if (Array.isArray(value)) {
-    return value.map((v) => redact(v, depth + 1));
+    visited.add(value);
+    return value.map((v) => redact(v, depth + 1, visited));
   }
   // Special-case Error: replacing it with a plain object via Object.entries
   // would drop the prototype and lose `stack`/`message` (which are typically
@@ -133,12 +141,13 @@ function redact(value: unknown, depth = 0): unknown {
     };
   }
   if (value !== null && typeof value === "object") {
+    visited.add(value);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (isSensitiveKey(k)) {
         out[k] = REDACTED;
       } else {
-        out[k] = redact(v, depth + 1);
+        out[k] = redact(v, depth + 1, visited);
       }
     }
     return out;
