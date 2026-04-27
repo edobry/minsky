@@ -47,9 +47,12 @@ export interface ReviewComment {
 /**
  * Validate a ReviewComment's multi-line range fields before forwarding to the GitHub API.
  *
- * Rules (from GitHub API docs):
+ * Rules (from GitHub API docs:
+ *   https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request):
  *  - If startLine is present, line must be strictly greater than startLine.
- *  - If startSide is present and side is provided, they must be equal.
+ *  - If startSide is present and side is provided, they must be equal — GitHub
+ *    requires both sides of a multi-line range to anchor on the same diff side.
+ *    Mismatched sides return 422 Unprocessable Entity.
  *
  * @throws MinskyError with a descriptive message when a constraint is violated.
  */
