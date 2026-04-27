@@ -4,7 +4,10 @@
  * Covers:
  *  - validateReviewComment: reject invalid startLine/startSide combos
  *  - Octokit payload mapping: start_line/start_side present for multi-line, absent for single-line
- *  - submitReview integration: multi-line comment reaches Octokit shaped correctly
+ *  - Side inference: when only startSide is provided, side inherits from it
+ *
+ * Mapping is tested via a local helper that mirrors production logic. submitReview
+ * itself is exercised end-to-end through the MCP tool layer, not in this file.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -112,15 +115,16 @@ describe("validateReviewComment", () => {
  * so we can test the mapping logic without mocking Octokit or the GitHub API.
  */
 function buildApiComment(c: ReviewComment): Record<string, unknown> {
+  const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
   return {
     path: c.path,
     line: c.line,
     body: c.body,
-    side: (c.side ?? "RIGHT") as "LEFT" | "RIGHT",
+    side: resolvedSide,
     ...(c.startLine !== undefined
       ? {
           start_line: c.startLine,
-          start_side: (c.startSide ?? c.side ?? "RIGHT") as "LEFT" | "RIGHT",
+          start_side: (c.startSide ?? resolvedSide) as "LEFT" | "RIGHT",
         }
       : {}),
   };
@@ -165,6 +169,23 @@ describe("Octokit payload mapping", () => {
 
     expect(payload.start_line).toBe(67);
     expect(payload.start_side).toBe("RIGHT"); // inherits from side
+  });
+
+  test("multi-line comment: side inherits from startSide when only startSide is provided", () => {
+    // Reviewer-bot finding on PR #831 — without inference, this case produced
+    // side: "RIGHT", start_side: "LEFT" which GitHub rejects with 422.
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 78,
+      body: "deletion range",
+      startLine: 67,
+      startSide: "LEFT",
+      // side omitted — should inherit "LEFT" from startSide
+    });
+
+    expect(payload.side).toBe("LEFT");
+    expect(payload.start_side).toBe("LEFT");
+    expect(payload.start_line).toBe(67);
   });
 
   test("multi-line comment: startSide defaults to RIGHT when both side and startSide omitted", () => {

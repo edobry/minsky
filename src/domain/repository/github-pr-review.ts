@@ -27,7 +27,7 @@ export interface ReviewComment {
   line: number;
   /** Review comment body */
   body: string;
-  /** Which side of a diff hunk to attach the comment to (default: RIGHT) */
+  /** Which side of a diff hunk to attach the comment to (default: RIGHT, or startSide when only startSide is provided) */
   side?: "LEFT" | "RIGHT";
   /**
    * First line of a multi-line comment range (1-based, inclusive).
@@ -36,8 +36,10 @@ export interface ReviewComment {
   startLine?: number;
   /**
    * Diff side for the start of a multi-line range.
-   * GitHub requires startSide === side when both are provided.
-   * Defaults to RIGHT when startLine is set and startSide is omitted.
+   * GitHub requires startSide === side when both are provided
+   * (https://docs.github.com/en/rest/pulls/comments).
+   * When startLine is set and side is omitted, side is inferred from startSide
+   * (and vice versa) so the resulting payload is always consistent.
    */
   startSide?: "LEFT" | "RIGHT";
 }
@@ -133,21 +135,32 @@ export async function submitReview(
 
     // Map our ReviewComment[] to the shape expected by the Octokit REST API.
     // The API accepts { path, line, body, side, start_line, start_side }.
+    //
+    // Side defaulting:
+    //   - If side is provided, use it.
+    //   - Else if startSide is provided (multi-line range), use it — this keeps
+    //     side and start_side consistent so callers can't accidentally produce
+    //     a mismatched payload by setting only startSide.
+    //   - Else default to RIGHT.
+    //
     // Multi-line fields are spread conditionally so they are absent (not undefined)
     // on single-line comments — Octokit serializes undefined as null on some
     // endpoints, and GitHub rejects null start_line.
-    const apiComments = options.comments?.map((c) => ({
-      path: c.path,
-      line: c.line,
-      body: c.body,
-      side: (c.side ?? "RIGHT") as "LEFT" | "RIGHT",
-      ...(c.startLine !== undefined
-        ? {
-            start_line: c.startLine,
-            start_side: (c.startSide ?? c.side ?? "RIGHT") as "LEFT" | "RIGHT",
-          }
-        : {}),
-    }));
+    const apiComments = options.comments?.map((c) => {
+      const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+      return {
+        path: c.path,
+        line: c.line,
+        body: c.body,
+        side: resolvedSide,
+        ...(c.startLine !== undefined
+          ? {
+              start_line: c.startLine,
+              start_side: (c.startSide ?? resolvedSide) as "LEFT" | "RIGHT",
+            }
+          : {}),
+      };
+    });
 
     const reviewResponse = await octokit.rest.pulls.createReview({
       owner: gh.owner,

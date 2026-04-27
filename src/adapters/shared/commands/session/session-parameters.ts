@@ -689,8 +689,9 @@ export const sessionPrReviewSubmitCommandParams = {
         startLine: z.number().int().positive().optional(),
         /**
          * Diff side for the start of a multi-line range.
-         * Must equal `side` when both are provided. Defaults to RIGHT when
-         * startLine is set and startSide is omitted.
+         * Must equal `side` when both are provided. When only startSide is
+         * provided, `side` is inferred from it (and vice versa) — see the
+         * comments description for full defaulting rules.
          */
         startSide: z.enum(["LEFT", "RIGHT"]).optional(),
       })
@@ -698,7 +699,9 @@ export const sessionPrReviewSubmitCommandParams = {
     description:
       "Optional inline line-level comments. Each comment may span a range by providing " +
       "startLine (first line, inclusive) in addition to line (last line, inclusive). " +
-      "When startLine is set, startSide must equal side (or omit startSide to default to RIGHT).",
+      "Side defaulting: when both side and startSide are provided they must match (or " +
+      "the comment is rejected); when only one is provided the other inherits from it; " +
+      "when both are omitted, side defaults to RIGHT.",
     required: false,
   },
   json: commonSessionParams.json,
