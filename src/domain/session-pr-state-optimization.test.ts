@@ -220,7 +220,7 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Set up session without PR state
       mockSessionDB._setSession(sessionId, {
-        session: sessionId,
+        sessionId: sessionId,
       });
 
       // Should not throw error

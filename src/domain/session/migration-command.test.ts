@@ -81,7 +81,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       sessions.push(record);
     }),
     updateSession: mock(
-      async (sessionId: string, updates: Partial<Omit<SessionRecord, "session">>) => {
+      async (sessionId: string, updates: Partial<Omit<SessionRecord, "sessionId">>) => {
         const sessionIndex = sessions.findIndex((s) => s.sessionId === sessionId);
         if (sessionIndex !== -1) {
           sessions[sessionIndex] = {
