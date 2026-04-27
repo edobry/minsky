@@ -550,6 +550,48 @@ describe("check-status-changed event", () => {
     expect(note.body).toContain("action_required");
   });
 
+  it("aggregation: cancelled outranks action_required", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // cancelled + action_required → overall should be cancelled (rule 3 > rule 4)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "cancelled" },
+      { name: "lint", conclusion: "action_required" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("cancelled");
+  });
+
+  it("aggregation: neutral-only fresh runs → neutral", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // neutral + neutral → overall should be neutral (rule 6: neutral/success/skipped mix)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "neutral" },
+      { name: "lint", conclusion: "neutral" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("neutral");
+  });
+
   // ---------------------------------------------------------------------------
   // Stale-as-non-contributing aggregation
   // ---------------------------------------------------------------------------
