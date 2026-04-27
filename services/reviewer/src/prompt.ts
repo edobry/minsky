@@ -116,16 +116,23 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
  * - toolsAvailable=true: the reviewer can use read_file/list_directory to verify
  *   in-repo claims, so the original carve-out stands ("may be BLOCKING").
  * - toolsAvailable=false: the reviewer has no tools, so even in-repo claimed-but-
- *   not-in-diff cannot be verified beyond what the diff shows. The carve-out must
- *   be weakened to avoid contradicting the NO_TOOLS_SECTION blanket rule.
- *   The no-tools exception (diff-vs-description mismatch) is handled separately
- *   inside the NO_TOOLS_SECTION itself.
+ *   not-in-diff cannot be verified beyond what the diff shows. The carve-out
+ *   weakens the general rule to NON-BLOCKING, but includes the diff-vs-description
+ *   exception INLINE so the rule and its exception are contiguous. The blanket rule
+ *   and the exception must stay in the same section — separating them (rule in
+ *   Out-of-repo, exception in a later section) risks the model applying the strong
+ *   "must" and missing the exception. NO_TOOLS_SECTION back-references this exception
+ *   rather than re-stating it.
  */
 function buildInRepoCarveOut(toolsAvailable: boolean): string {
   if (toolsAvailable) {
     return `This rule does NOT apply to in-repo paths. If the PR description claims it modified \`src/foo.ts\` but that file is not in the diff, that remains a legitimate finding and may be BLOCKING.`;
   }
-  return `In the no-tools variant, even in-repo paths claimed but not in the diff must be marked NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix — without file-reading tools, the reviewer cannot distinguish a missing file from a description error. See the "Cross-file claims without tool access" section below for the limited diff-vs-description exception.`;
+  // No-tools variant: the general rule is NON-BLOCKING for in-repo paths, but the
+  // diff-vs-description exception is stated inline here so the rule and its exception
+  // are contiguous — separating them across sections risks the model applying the
+  // "must NON-BLOCKING" rule and missing the exception.
+  return `In the no-tools variant, even in-repo paths claimed but not in the diff must be marked NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix — without file-reading tools, the reviewer cannot distinguish a missing file from a description error. **Exception — diff-vs-description mismatch on in-repo paths:** if the PR description or task spec claims a specific in-repo path was modified (e.g. \`src/foo.ts\`) and that file is not present in the diff, the absence is verifiable from the diff itself (not from reading the file) and may be BLOCKING. This exception does NOT apply to out-of-repo paths — those remain NON-BLOCKING.`;
 }
 
 function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
@@ -145,8 +152,8 @@ The PR description or task spec may reference paths that are **outside the repos
 
 - \`~/.claude/...\` — user memory files or Claude config in the home directory
 - \`$HOME/...\` or \`~/...\` — any env-expanded home path
-- Absolute system paths outside the repo root: \`/etc/...\`, \`/usr/...\`, \`/var/...\`, etc.
-- Session workspace absolute paths (e.g. \`/Users/.../minsky/sessions/...\`)
+- Absolute system paths: \`/etc/...\`, \`/usr/...\`, \`/var/...\`, \`/opt/...\`, \`/tmp/...\`, \`/root/...\` (this list is exhaustive — \`/home/...\` and \`/Users/...\` are NOT included here; those paths are routinely in-repo on developer and CI machines and are detected only when they contain \`minsky/sessions/\` — see next bullet)
+- Session workspace absolute paths (e.g. \`/Users/.../minsky/sessions/...\` or \`/home/.../.local/state/minsky/sessions/...\`)
 
 **You have no local filesystem access.** You cannot verify whether these paths exist, were updated, or match the description. A "claimed-but-not-in-diff" finding for out-of-repo paths is therefore NON-BLOCKING by default — mark it \`[NON-BLOCKING] NEEDS VERIFICATION: out-of-repo path — reviewer cannot verify\` rather than BLOCKING.
 
@@ -189,7 +196,7 @@ You do NOT have file-reading tools for this review — only the diff, the PR des
 
 **Any claim about a file or directory that is not directly in the diff MUST be marked non-blocking with a \`NEEDS VERIFICATION\` prefix** (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Do NOT mark such claims as BLOCKING, however confident you are — Chinese-wall isolation plus no tool access is a known false-positive-amplifying combination. Save BLOCKING for issues you can verify from what is in front of you.
 
-**Exception — diff-vs-description mismatch on in-repo paths.** If the PR description or task spec claims a specific in-repo path was modified (e.g. \`src/foo.ts\`) and that file is not present in the diff, the absence is verifiable from the diff itself (not from reading the file) and may be BLOCKING. This exception does NOT apply to out-of-repo paths — those are covered by the earlier "Out-of-repo references" clause and remain NON-BLOCKING.`;
+The diff-vs-description exception for in-repo paths (described in the "Out-of-repo references" section above) still applies here — if the PR description claims a specific in-repo file was modified but it is absent from the diff, that absence is verifiable from the diff itself and may be BLOCKING. Out-of-repo paths remain NON-BLOCKING regardless.`;
 
 const CRITIC_CONSTITUTION_OUTPUT_FORMAT = `## Output format
 
