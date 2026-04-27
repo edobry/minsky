@@ -2,13 +2,15 @@
 
 ## Status
 
-**ACCEPTED** — Documented 2026-04-27. Builds on [ADR-005](./adr-005-forgebackend-subinterfaces.md) (`ReviewOperations` sub-interface) and [ADR-006](./adr-006-agent-identity.md) (bot identity for review submission). Tracks the cluster of work under [mt#1335](../../process/tasks/mt%231335.md).
+**ACCEPTED** — Documented 2026-04-27. Builds on [ADR-005](./adr-005-forgebackend-subinterfaces.md) (`ReviewOperations` sub-interface) and [ADR-006](./adr-006-agent-identity.md) (bot identity for review submission). Tracks the cluster of work under task `mt#1335` (parent RFC; sibling tasks `mt#1336` through `mt#1348`). Tasks live in the Minsky DB, not the filesystem — query via `mcp__minsky__tasks_get`.
+
+> **Convention note:** ADRs live under `docs/architecture/`, not `docs/adr/`. Some PR descriptions in this cluster reference `docs/adr/` informally; the canonical location is `docs/architecture/` (see ADR-005, ADR-006).
 
 ## Context
 
 ### What we observe today
 
-The `minsky-reviewer[bot]` agent posts findings as Markdown text in the body of a PR review. Each finding follows a pattern like `**[BLOCKING]** \`file:line[-range]\` — body`. PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line`or`file:line-range`, **zero** anchored review comments (`get_review_comments`totalCount: 0). The`submitReview`tool already accepts a`comments[]` array of line-anchored comments end-to-end (`src/domain/repository/github-pr-review.ts:23-32, 89-96`), and the MCP tool schema exposes the same shape (`src/adapters/shared/commands/session/session-parameters.ts:664-691`). The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
+The `minsky-reviewer[bot]` agent posts findings as Markdown text in the body of a PR review. Each finding follows a pattern like `**[BLOCKING]** \`file:line[-range]\` — body`. PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line`or`file:line-range`, **zero** anchored review comments (`get_review_comments`totalCount: 0). The`submitReview`tool already accepts a`comments[]`array of line-anchored comments end-to-end — see the`ReviewComment`interface and the Octokit mapping in`src/domain/repository/github-pr-review.ts`, and the matching tool-schema entries under `comments`in`src/adapters/shared/commands/session/session-parameters.ts`. The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
 
 1. **The reviewer prompt** (`.claude/agents/reviewer.md`) teaches an output format of `[BLOCKING] file:line — body` as Markdown text, never `comments[]`.
 2. **The context tool** (`session_pr_review_context`) returns the diff as a single unified-diff string. To produce a valid `comments[]` entry, the reviewer must parse `@@` hunk headers, pick a line that lies in a hunk, and pick a matching `side`. GitHub rejects the _entire_ `createReview` call with 422 if a single comment is off-diff. That foot-gun makes attempts costly and pushes the model back to body-Markdown output.
@@ -101,6 +103,11 @@ mt#1335 (parent)
 - **Dual review surfaces.** Posting both a review (with `comments[]`) and a check run on every review is two writes per round. The duplication is intentional (review comments are the human-facing thread surface; check annotations are the machine-facing severity-aware surface) but it does double the write traffic.
 - **Reviewer prompt complexity grows.** The reviewer must now understand thread state, decide reply-vs-new-thread, classify resolve-vs-outdated, and choose between prose / suggestion / check annotation. The prompt update (`mt#1340`, `mt#1345`) is non-trivial and will need calibration alongside `mt#1110`.
 - **Migration cost is per-tool, not per-call-site.** Unlike ADR-005, this isn't a renaming campaign — it's adding new forge methods and a new tool field. Existing consumers continue to work; the new shapes are additive. Reviewer behavior change is one prompt edit gated on the layer-1/2 prerequisites.
+- **Rate limits and per-payload constraints.** The dual-write approach hits two GitHub surfaces per review and exposes new footguns:
+  - `createReview` rejects the entire payload with 422 if any single `comments[]` entry is off-diff (this is the foot-gun mt#1347 mitigates with pre-flight validation).
+  - Suggestion blocks must map to valid patch hunks; multi-line ranges must anchor on the same `side` (mt#1337 enforces this in validation).
+  - Check-run `output.annotations[]` is capped at 50 entries per update — large reviews must page (mt#1346 handles this).
+  - GraphQL mutations (`resolveReviewThread`, mt#1342) and REST writes share rate limits across the GitHub App's installation token; a chatty multi-round review can approach the per-installation cap on busy repos.
 
 ### Negated alternatives
 
@@ -142,4 +149,5 @@ mt#1340 (prompt update) is blocked on mt#1336 and mt#1337. The remaining tasks (
 - `src/domain/repository/github-pr-review.ts` — current forge layer (extended by mt#1337, mt#1342, mt#1346)
 - `src/domain/session/commands/pr-review-context-subcommand.ts` — context tool (extended by mt#1336, mt#1343)
 - `src/adapters/shared/commands/session/session-parameters.ts` — MCP tool schema (extended by mt#1337, mt#1341)
+- `mt#1335` — parent RFC tracking the cluster (queryable via `mcp__minsky__tasks_get`); siblings `mt#1336`–`mt#1348`
 - `mt#1110_calibration` memory — observed cost of body-blob review iteration
