@@ -144,7 +144,7 @@ mt#1340 (prompt update) is blocked on mt#1336 and mt#1337. The remaining tasks (
 
 - [ADR-005: ForgeBackend Sub-Interfaces](./adr-005-forgebackend-subinterfaces.md) — predecessor; established `ReviewOperations`
 - [ADR-006: Agent Identity](./adr-006-agent-identity.md) — bot identity used by `submitReview` and the new GraphQL mutations
-- [mt#1335](../../process/tasks/mt%231335.md) — parent task and sibling cluster
+- `mt#1335` — parent task and sibling cluster (queryable via `mcp__minsky__tasks_get`; tasks are stored in the Minsky DB, not the filesystem)
 - `.claude/agents/reviewer.md` — reviewer subagent prompt (target of mt#1340)
 - `src/domain/repository/github-pr-review.ts` — current forge layer (extended by mt#1337, mt#1342, mt#1346)
 - `src/domain/session/commands/pr-review-context-subcommand.ts` — context tool (extended by mt#1336, mt#1343)
