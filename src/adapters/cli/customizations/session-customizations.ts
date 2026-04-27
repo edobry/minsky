@@ -58,7 +58,7 @@ export function getSessionCustomizations(): {
               // In quiet mode, only output session directory path
               if (result.session) {
                 const session = result.session as Record<string, unknown>;
-                const sessionDir = `${getMinskyStateDir()}/sessions/${session.session}`;
+                const sessionDir = `${getMinskyStateDir()}/sessions/${session.sessionId}`;
                 log.cli(sessionDir);
               }
               return;
@@ -79,8 +79,8 @@ export function getSessionCustomizations(): {
                 log.cli(`🌿 Branch: ${session.branch}`);
               }
 
-              if (session.session) {
-                log.cli(`📁 Session ID: ${session.session}`);
+              if (session.sessionId) {
+                log.cli(`📁 Session ID: ${session.sessionId}`);
               }
 
               if (session.repoName) {

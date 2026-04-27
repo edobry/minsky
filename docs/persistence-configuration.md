@@ -146,3 +146,73 @@ Enable `DEBUG` logging (`MINSKY_LOG_LEVEL=debug`) to see the shutdown sequence:
 If you see this line, the connection was released cleanly. If the process was killed with SIGKILL
 (which bypasses signal handlers), you will not see this line and connections will remain open
 until Postgres times them out.
+
+## Saturation Integration Tests
+
+The files `tests/integration/postgres-pool-saturation.shared.ts` and
+`tests/integration/postgres-pool-saturation.supabase.integration.test.ts` provide an end-to-end
+harness that exercises `withPgPoolRetry` against a **real** Supavisor pool, validating the retry
+path encounters genuine `XX000 "max clients reached"` errors (not synthetic ones produced by unit
+tests).
+
+Four acceptance tests are covered (mt#1205):
+
+1. **Concurrent retry** — `poolSize + 5` clients race to connect; all eventually succeed and at
+   least one retry is observed.
+2. **CRUD idempotency** — a mutating `INSERT … ON CONFLICT DO NOTHING` issued concurrently from
+   saturated clients produces exactly one row.
+3. **Provider recovery** — `PostgresPersistenceProvider.initialize()` succeeds after pool
+   saturation resolves; `getConnectionInfo()` shows `"connected"`.
+4. **Vector search backoff** — `PostgresVectorStorage.search()` returns results under saturation
+   (skipped gracefully when `pgvector` is not installed on the branch).
+
+### Provisioning a Supabase Preview Branch
+
+1. **Via the Supabase dashboard** — open your project, go to _Branches_, click _Create branch_,
+   and select _Micro Compute_ as the compute size. The Micro Compute tier uses a Supavisor
+   session-mode pool with `pool_size = 15` by default.
+
+2. **Via the Supabase MCP tool** (if connected in your agent session):
+
+   ```
+   mcp__supabase__create_branch(name: "saturation-test")
+   ```
+
+   The branch inherits the project's compute tier. No API to override `pool_size` at branch
+   creation time — the Micro Compute default of 15 is the intended target for these tests.
+
+3. **Get the connection string** — in the dashboard, go to _Project Settings → Database → Connection
+   string_ and select the **Session mode** (port 5432) pooler URL for your branch. It looks like:
+
+   ```
+   postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+   ```
+
+### Running the Tests
+
+Set the required environment variables and run:
+
+```bash
+export RUN_INTEGRATION_TESTS=1
+export SUPABASE_INTEGRATION_BRANCH_URL="postgresql://postgres.xxx:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+
+# Optional: override if your branch has a non-default pool_size
+# export SUPABASE_INTEGRATION_BRANCH_POOL_SIZE=15
+
+bun test --preload ./tests/setup.ts --timeout=60000 \
+  tests/integration/postgres-pool-saturation.supabase.integration.test.ts
+```
+
+When either env var is absent the file produces **zero tests and zero failures** — the gate is
+the critical contract that keeps this file safe to include in a broad `bun test` run.
+
+### Cost
+
+| Resource               | Rate          | Estimate                                             |
+| ---------------------- | ------------- | ---------------------------------------------------- |
+| Supabase Micro Compute | $0.01344 / hr | ~$10 / mo (always-on branch)                         |
+| Ephemeral CI branch    | $0.01344 / hr | Sub-dollar / mo for typical nightly or on-label runs |
+
+An always-on saturation branch costs roughly $10/mo. For CI usage where the branch is created and
+destroyed per run, the cost is negligible (a few cents per month at typical nightly cadence).
+Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no longer needed.

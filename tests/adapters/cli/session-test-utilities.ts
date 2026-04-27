@@ -23,7 +23,7 @@ export function createSessionTestData(): SessionTestData {
   // Create test data for all session tests
   const mockSessions = [
     {
-      session: "004",
+      sessionId: "004",
       repoName: "local/minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -34,7 +34,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "task#160",
+      sessionId: "task#160",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -45,7 +45,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "task#170",
+      sessionId: "task#170",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -57,7 +57,7 @@ export function createSessionTestData(): SessionTestData {
     },
     // Add missing sessions that the update tests expect
     {
-      session: "test-existing-session",
+      sessionId: "test-existing-session",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -68,7 +68,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "task#42",
+      sessionId: "task#42",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -79,7 +79,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "task#236",
+      sessionId: "task#236",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -90,7 +90,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "missing-workspace-session",
+      sessionId: "missing-workspace-session",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -101,7 +101,7 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
-      session: "dirty-session",
+      sessionId: "dirty-session",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -127,7 +127,7 @@ export function createSessionTestData(): SessionTestData {
   // Set up mock implementations manually to avoid type issues
   (mockSessionDB.listSessions as any) = mock(() => Promise.resolve(mockSessions));
   (mockSessionDB.getSession as any) = mock((name: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+    return Promise.resolve(mockSessions.find((s) => s.sessionId === name) || null);
   });
   (mockSessionDB.getSessionByTaskId as any) = mock((taskId: string) => {
     return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
@@ -139,7 +139,7 @@ export function createSessionTestData(): SessionTestData {
   (mockSessionDB.updateSession as any) = mock(() => Promise.resolve(undefined));
   (mockSessionDB.deleteSession as any) = mock(() => Promise.resolve(true));
   (mockSessionDB.getSessionWorkdir as any) = mock((sessionId: string) => {
-    const session = mockSessions.find((s) => s.session === sessionId);
+    const session = mockSessions.find((s) => s.sessionId === sessionId);
     return Promise.resolve(session?.repoPath || "/default/workdir");
   });
 
@@ -163,7 +163,7 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 // Helper function to create session records for testing
 export function createSessionRecord(overrides?: any): any {
   return {
-    session: "test-session",
+    sessionId: "test-session",
     repoName: "test-repo",
     repoUrl: "https://github.com/test/repo",
     createdAt: new Date().toISOString(),

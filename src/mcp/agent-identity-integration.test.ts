@@ -23,9 +23,9 @@ const PLACEHOLDER_AGENT_ID = "unknown:hash:abc";
 // Minimal stubs
 // ---------------------------------------------------------------------------
 
-function makeSessionRecord(session: string, taskId?: string): SessionRecord {
+function makeSessionRecord(sessionId: string, taskId?: string): SessionRecord {
   return {
-    session,
+    sessionId,
     repoPath: "/fake/repo",
     createdAt: new Date().toISOString(),
     taskId,
@@ -40,7 +40,7 @@ function makeSessionProvider(records: SessionRecord[] = []): {
   const updates: Array<{ session: string; updates: Partial<SessionRecord> }> = [];
 
   const provider: SessionProviderInterface = {
-    getSession: mock(async (name: string) => records.find((r) => r.session === name) ?? null),
+    getSession: mock(async (name: string) => records.find((r) => r.sessionId === name) ?? null),
     listSessions: mock(async () => records),
     createSession: mock(async (record) => record as SessionRecord),
     updateSession: mock(async (session: string, patch: Partial<SessionRecord>) => {
@@ -150,7 +150,7 @@ describe("MCP server — agent identity integration (ADR-006)", () => {
   // -------------------------------------------------------------------------
 
   describe("writeAgentIdToSession() — session name path", () => {
-    test("calls updateSession with agentId when args.session is provided", async () => {
+    test("calls updateSession with agentId when args.sessionId is provided", async () => {
       const record = makeSessionRecord("my-session");
       const { provider, updates } = makeSessionProvider([record]);
       const container = makeContainer(provider);

@@ -69,7 +69,7 @@ export interface PullRequestInfo {
  * Session record structure
  */
 export interface SessionRecord {
-  session: string;
+  sessionId: string;
   repoName: string;
   repoUrl: string;
   repoPath?: string; // Local path to the repository
@@ -96,7 +96,7 @@ export interface SessionRecord {
   prApproved?: boolean; // Whether this session's PR is approved
 
   // Legacy / compatibility fields
-  /** @deprecated Use `session` instead */
+  /** @deprecated Use `sessionId` instead */
   name?: string;
   workspacePath?: string;
   sessionPath?: string;
@@ -142,7 +142,7 @@ export function listSessionsFn(state: SessionDbState): SessionRecord[] {
  * Get a specific session by name
  */
 export function getSessionFn(state: SessionDbState, sessionId: string): SessionRecord | null {
-  return state.sessions.find((s) => s.session === sessionId) || null;
+  return state.sessions.find((s) => s.sessionId === sessionId) || null;
 }
 
 /**
@@ -173,16 +173,16 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
 export function updateSessionFn(
   state: SessionDbState,
   sessionId: string,
-  updates: Partial<Omit<SessionRecord, "session">>
+  updates: Partial<Omit<SessionRecord, "sessionId">>
 ): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionId);
+  const index = state.sessions.findIndex((s) => s.sessionId === sessionId);
   if (index === -1) {
     return state;
   }
 
-  // Strip 'session' key if present (prevents renaming the primary key)
-  const { session: _sessionKey, ...safeUpdates } = updates as Partial<SessionRecord> & {
-    session?: string;
+  // Strip 'sessionId' key if present (prevents renaming the primary key)
+  const { sessionId: _sessionKey, ...safeUpdates } = updates as Partial<SessionRecord> & {
+    sessionId?: string;
   };
   const updatedSessions = [...state.sessions];
   updatedSessions[index] = {
@@ -200,7 +200,7 @@ export function updateSessionFn(
  * Delete a session by name
  */
 export function deleteSessionFn(state: SessionDbState, sessionId: string): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionId);
+  const index = state.sessions.findIndex((s) => s.sessionId === sessionId);
   if (index === -1) {
     return state;
   }
@@ -223,7 +223,7 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
   }
 
   // Use simplified session-based path structure: /sessions/{sessionId}/
-  return join(state.baseDir, "sessions", record.session);
+  return join(state.baseDir, "sessions", record.sessionId);
 }
 
 /**

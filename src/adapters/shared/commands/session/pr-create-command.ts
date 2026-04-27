@@ -13,13 +13,40 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../../../errors/index";
+import { McpErrorCode } from "../../../../errors/mcp-error-codes";
+import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
 import { log } from "../../../../utils/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
+import type { SessionPrCreateDependencies } from "../../../../domain/session/commands/pr-create-subcommand";
 import { composeConventionalTitle } from "./pr-conventional-title";
 import { DrizzleAskRepository } from "../../../../domain/ask/repository";
 import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
+
+/** Minimal container interface required by buildSessionPrCreateDeps. */
+type PrCreateDepContainer = { has(key: string): boolean; get(key: string): unknown };
+
+/**
+ * Build the SessionPrCreateDependencies shape from the adapter's DI deps and
+ * command execution container. Exported for unit-testing the DI wiring —
+ * see pr-create-status-advance.test.ts (mt#1266).
+ */
+export function buildSessionPrCreateDeps(
+  deps: SessionCommandDependencies,
+  container: PrCreateDepContainer | undefined,
+  askRepository?: DrizzleAskRepository
+): SessionPrCreateDependencies {
+  return {
+    sessionDB: deps.sessionProvider,
+    taskService: deps.taskService,
+    persistenceProvider: container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined,
+    askRepository,
+  };
+}
 
 /**
  * Parameters accepted by the session PR create command.
@@ -139,11 +166,23 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
   const errorMessage = getErrorMessage(error);
 
   if (error instanceof SessionConflictError) {
-    return error;
+    // Structured error: MCP clients can branch on code === "CONFLICT"
+    return mcpStructuredError({
+      code: McpErrorCode.CONFLICT,
+      summary: "Merge conflict detected while creating PR branch",
+      details: {
+        sessionBranch: error.sessionBranch,
+        baseBranch: error.baseBranch,
+        originalMessage: errorMessage,
+      },
+    });
   } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
-    return new MinskyError(
-      `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Use --auto-resolve-delete-conflicts for simple conflicts\n\nTechnical details: ${errorMessage}`
-    );
+    // Structured error for conflict text that is not a SessionConflictError instance
+    return mcpStructuredError({
+      code: McpErrorCode.CONFLICT,
+      summary: "Git merge conflict detected while creating PR branch",
+      details: { originalMessage: errorMessage },
+    });
   } else if (
     errorMessage.includes("Permission denied") ||
     errorMessage.includes("authentication")
@@ -285,6 +324,7 @@ export async function executeSessionPrCreate(
         sessionDB: deps.sessionProvider,
         persistenceProvider,
         askRepository,
+        taskService: deps.taskService,
       },
       {
         interface: interfaceType,
@@ -306,6 +346,7 @@ export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandD
     name: "create",
     description: "Create a pull request for a session",
     parameters: sessionPrCreateCommandParams,
+    mutating: true,
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
