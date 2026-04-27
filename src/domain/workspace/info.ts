@@ -42,6 +42,11 @@ export interface WorkspaceInfo {
 export interface WorkspaceInfoDeps {
   /** Session provider used to resolve taskId from sessionId. */
   sessionProvider?: SessionProviderInterface;
+  /** File-system shim — production uses node:fs; tests inject fakes. */
+  fileSystem?: {
+    existsSync: (path: string) => boolean;
+    readFileSync: (path: string, encoding: BufferEncoding) => string;
+  };
 }
 
 /**
@@ -78,12 +83,15 @@ export function detectSessionWorkspace(cwd: string): {
  * `configPath`.  Returns undefined for either field when parsing fails or
  * the field is absent — never throws.
  */
-function readBackendsFromConfig(configPath: string): {
+function readBackendsFromConfig(
+  configPath: string,
+  read: (path: string, encoding: BufferEncoding) => string
+): {
   tasksBackend?: string;
   repoBackend?: string;
 } {
   try {
-    const content = readFileSync(configPath, "utf8") as string;
+    const content = read(configPath, "utf8");
     const parsed = parse(content) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== "object") {
       return {};
@@ -123,15 +131,18 @@ export async function getWorkspaceInfo(
 ): Promise<WorkspaceInfo> {
   const resolvedCwd = resolve(cwd ?? process.cwd());
 
+  // --- File-system shim ---
+  const fs = deps?.fileSystem ?? { existsSync, readFileSync };
+
   // --- Session detection ---
   const { isSession, sessionId } = detectSessionWorkspace(resolvedCwd);
 
   // --- Config path ---
   const configPath = join(resolvedCwd, ".minsky", "config.yaml");
-  const configExists = existsSync(configPath);
+  const configExists = fs.existsSync(configPath);
 
   // --- Backends ---
-  const backends = configExists ? readBackendsFromConfig(configPath) : {};
+  const backends = configExists ? readBackendsFromConfig(configPath, fs.readFileSync) : {};
 
   // --- Task ID (only relevant for session workspaces) ---
   let taskId: string | undefined;

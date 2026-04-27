@@ -18,6 +18,19 @@ import type { SessionProviderInterface } from "../../../../domain/session/index"
 import { sharedCommandRegistry } from "../../command-registry";
 import { registerWorkspaceCommands } from "./info-command";
 
+/** Build a fake fileSystem shim with explicit "exists" + content lookup. */
+function makeFakeFileSystem(files: Record<string, string>): WorkspaceInfoDeps["fileSystem"] {
+  return {
+    existsSync: (path: string) => Object.prototype.hasOwnProperty.call(files, path),
+    readFileSync: (path: string, _encoding: BufferEncoding) => {
+      if (!Object.prototype.hasOwnProperty.call(files, path)) {
+        throw new Error(`ENOENT: ${path}`);
+      }
+      return files[path] as string;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // detectSessionWorkspace unit tests
 // ---------------------------------------------------------------------------
@@ -174,6 +187,28 @@ describe("getWorkspaceInfo", () => {
     const info = await getWorkspaceInfo("/this-path-does-not-exist-minsky-test-xyz");
     expect(info.isMainWorkspace).toBe(false);
     expect(info.isSessionWorkspace).toBe(false);
+  });
+
+  it("returns isMainWorkspace: true for a directory containing .minsky/config.yaml", async () => {
+    // Use a path outside the mocked sessions dir so isSessionWorkspace stays false.
+    // Inject a fake file system that reports config.yaml exists with backend
+    // declarations — confirms isMainWorkspace=true and configPath populated.
+    const projectDir = "/mock/projects/myapp";
+    const configPath = `${projectDir}/.minsky/config.yaml`;
+    const deps: WorkspaceInfoDeps = {
+      fileSystem: makeFakeFileSystem({
+        [configPath]: "tasks:\n  backend: minsky\nrepository:\n  backend: github\n",
+      }),
+    };
+
+    const info = await getWorkspaceInfo(projectDir, deps);
+
+    expect(info.isMainWorkspace).toBe(true);
+    expect(info.isSessionWorkspace).toBe(false);
+    expect(info.configPath).toBe(configPath);
+    expect(info.cwd).toBe(projectDir);
+    expect(info.tasksBackend).toBe("minsky");
+    expect(info.repoBackend).toBe("github");
   });
 });
 
