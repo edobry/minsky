@@ -2,20 +2,35 @@
  * Unit tests for the production GithubReviewClient adapter (mt#1292).
  *
  * Hermetic — injects a fake TokenProvider and a fake `listReviews` function
- * (via mock module override). No real HTTP calls, no real GitHub API.
+ * via the optional `listReviewsImpl` parameter of `makeProductionGithubReviewClient`.
+ * No real HTTP calls, no real GitHub API. The production module is imported and
+ * exercised directly.
  *
- * Coverage goals:
+ * Coverage:
  *   - Review list maps ReviewListEntry fields to GithubReview correctly
  *     (reviewId, state, reviewerLogin, body all preserved).
- *   - Auth failure (token promise rejects) surfaces a clear error to the caller.
- *   - `htmlUrl` and `submittedAt` are stripped from the returned GithubReview
- *     (reconciler doesn't need them, keeping the interface narrow).
+ *   - Empty list pass-through.
+ *   - Null reviewerLogin pass-through.
+ *   - Auth failure (token promise rejects) surfaces the original error.
+ *   - `getToken` is called with `${owner}/${repo}` scope for least-privilege.
+ *   - `htmlUrl` and `submittedAt` are stripped from the returned GithubReview.
  */
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
+import { makeProductionGithubReviewClient } from "./asks-github-client";
 import type { GithubReview } from "../../../domain/ask/reconciler";
 import type { TokenProvider } from "../../../domain/auth";
 import type { ReviewListEntry } from "../../../domain/repository/index";
+import type { GitHubContext } from "../../../domain/repository/github-pr-operations";
+
+// ---------------------------------------------------------------------------
+// Type alias matching ListReviewsFn (mirrors the private type in the module)
+// ---------------------------------------------------------------------------
+
+type ListReviewsFn = (
+  gh: GitHubContext,
+  prIdentifier: string | number
+) => Promise<ReviewListEntry[]>;
 
 // ---------------------------------------------------------------------------
 // Fake TokenProvider
@@ -23,18 +38,19 @@ import type { ReviewListEntry } from "../../../domain/repository/index";
 
 function makeFakeTokenProvider(opts?: {
   serviceToken?: string;
-  userToken?: string;
   throwOnService?: boolean;
+  onGetServiceToken?: (repo?: string) => void;
 }): TokenProvider {
   return {
-    async getServiceToken(): Promise<string> {
+    async getServiceToken(repo?: string): Promise<string> {
+      opts?.onGetServiceToken?.(repo);
       if (opts?.throwOnService) {
         throw new Error("Token acquisition failed: no credentials configured");
       }
       return opts?.serviceToken ?? "fake-service-token";
     },
     async getUserToken(): Promise<string> {
-      return opts?.userToken ?? "fake-user-token";
+      return "fake-user-token";
     },
     async getServiceIdentity() {
       return null;
@@ -63,8 +79,6 @@ function makeEntry(
     reviewId,
     state: opts?.state ?? "APPROVED",
     // Use explicit check for undefined so passing null preserves null (not replaced by default).
-    // opts.reviewerLogin is string|null|undefined here; when explicitly provided (even as null),
-    // we want to keep it. When absent (undefined), fall back to the default string.
     reviewerLogin:
       opts !== undefined && "reviewerLogin" in opts
         ? (opts.reviewerLogin ?? null)
@@ -80,60 +94,16 @@ function makeEntry(
 // ---------------------------------------------------------------------------
 
 describe("makeProductionGithubReviewClient", () => {
-  // We mock the listReviews module at the github-pr-review level so we don't
-  // need network access. Bun's mock.module replaces it for the duration of the
-  // describe block.
-
-  let mockListReviews: ReturnType<typeof mock>;
-
-  beforeEach(() => {
-    mockListReviews = mock(async () => []);
-  });
-
-  /**
-   * Helper: build the client under test with the mocked listReviews injected.
-   *
-   * Because Bun's module-mock boundary exists only within `mock.module`, we
-   * use a factory approach: pass `listReviews` as a dependency parameter so the
-   * test doesn't need to mock the entire import graph. This also validates the
-   * adapter logic independently of the module-level mock machinery.
-   */
-  async function buildClient(tokenProvider: TokenProvider, fakeLR: typeof mockListReviews) {
-    // Inline the adapter logic to inject the fake listReviews directly.
-    // This mirrors makeProductionGithubReviewClient's implementation exactly,
-    // but with the dependency injected — so we're testing the same logic
-    // without the module boundary.
-    const client = {
-      async listReviews(owner: string, repo: string, prNumber: number): Promise<GithubReview[]> {
-        const gh = {
-          owner,
-          repo,
-          getToken: () => tokenProvider.getServiceToken(),
-          getUserToken: () => tokenProvider.getUserToken(),
-        };
-
-        const entries = (await fakeLR(gh, prNumber)) as ReviewListEntry[];
-
-        return entries.map((e) => ({
-          reviewId: e.reviewId,
-          state: e.state,
-          reviewerLogin: e.reviewerLogin,
-          body: e.body,
-        }));
-      },
-    };
-    return client;
-  }
-
   test("maps ReviewListEntry fields to GithubReview correctly", async () => {
     const entries: ReviewListEntry[] = [
       makeEntry(1001, { state: "APPROVED", reviewerLogin: "alice", body: "LGTM" }),
       makeEntry(1002, { state: "CHANGES_REQUESTED", reviewerLogin: "bob", body: "Please fix X" }),
     ];
-    mockListReviews = mock(() => Promise.resolve(entries));
+
+    const fakeListReviews: ListReviewsFn = async (_gh, _prNumber) => entries;
 
     const tokenProvider = makeFakeTokenProvider();
-    const client = await buildClient(tokenProvider, mockListReviews);
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     const result = await client.listReviews("owner", "repo", 42);
 
@@ -159,10 +129,11 @@ describe("makeProductionGithubReviewClient", () => {
         htmlUrl: "https://github.com/o/r/pull/5#pullrequestreview-2001",
       }),
     ];
-    mockListReviews = mock(() => Promise.resolve(entries));
+
+    const fakeListReviews: ListReviewsFn = async (_gh, _prNumber) => entries;
 
     const tokenProvider = makeFakeTokenProvider();
-    const client = await buildClient(tokenProvider, mockListReviews);
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     const result = await client.listReviews("o", "r", 5);
 
@@ -174,43 +145,57 @@ describe("makeProductionGithubReviewClient", () => {
   });
 
   test("passes owner/repo/prNumber as GitHubContext to listReviews", async () => {
-    let capturedGh: unknown;
-    let capturedPrNumber: unknown;
+    let capturedGh: GitHubContext | undefined;
+    let capturedPrNumber: string | number | undefined;
 
-    mockListReviews = mock(async (gh: unknown, prNumber: unknown) => {
+    const fakeListReviews: ListReviewsFn = async (gh, prNumber) => {
       capturedGh = gh;
       capturedPrNumber = prNumber;
       return [];
-    });
+    };
 
     const tokenProvider = makeFakeTokenProvider({ serviceToken: "svc-token" });
-    const client = await buildClient(tokenProvider, mockListReviews);
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     await client.listReviews("myorg", "myrepo", 77);
 
-    const gh = capturedGh as { owner: string; repo: string; getToken: () => Promise<string> };
-    expect(gh.owner).toBe("myorg");
-    expect(gh.repo).toBe("myrepo");
+    expect(capturedGh?.owner).toBe("myorg");
+    expect(capturedGh?.repo).toBe("myrepo");
     expect(capturedPrNumber).toBe(77);
-
-    // Verify token routing: getToken() should return the service token.
-    const token = await gh.getToken();
-    expect(token).toBe("svc-token");
   });
 
-  test("auth failure surfaces a clear error to the caller", async () => {
-    const tokenProvider = makeFakeTokenProvider({ throwOnService: true });
+  test("calls getServiceToken with owner/repo scope", async () => {
+    let capturedScope: string | undefined;
 
-    // When the fake listReviews calls gh.getToken() and it throws, the error
-    // propagates through to the caller of client.listReviews.
-    mockListReviews = mock(async (gh: unknown) => {
-      const typedGh = gh as { getToken: () => Promise<string> };
-      // Trigger token resolution (simulates what real listReviews does).
-      await typedGh.getToken();
-      return [];
+    const tokenProvider = makeFakeTokenProvider({
+      onGetServiceToken: (repo) => {
+        capturedScope = repo;
+      },
     });
 
-    const client = await buildClient(tokenProvider, mockListReviews);
+    // Simulate what real listReviews does: it resolves the token via gh.getToken().
+    const fakeListReviews: ListReviewsFn = async (gh, _prNumber) => {
+      await gh.getToken();
+      return [];
+    };
+
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
+    await client.listReviews("myorg", "myrepo", 5);
+
+    // Token must be scoped to the repository for least-privilege.
+    expect(capturedScope).toBe("myorg/myrepo");
+  });
+
+  test("auth failure surfaces the original error to the caller", async () => {
+    const tokenProvider = makeFakeTokenProvider({ throwOnService: true });
+
+    // Simulate what real listReviews does: it resolves the token via gh.getToken().
+    const fakeListReviews: ListReviewsFn = async (gh, _prNumber) => {
+      await gh.getToken();
+      return [];
+    };
+
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     await expect(client.listReviews("o", "r", 1)).rejects.toThrow(
       "Token acquisition failed: no credentials configured"
@@ -218,10 +203,10 @@ describe("makeProductionGithubReviewClient", () => {
   });
 
   test("returns empty array when no reviews are present", async () => {
-    mockListReviews = mock(() => Promise.resolve([]));
+    const fakeListReviews: ListReviewsFn = async (_gh, _prNumber) => [];
 
     const tokenProvider = makeFakeTokenProvider();
-    const client = await buildClient(tokenProvider, mockListReviews);
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     const result = await client.listReviews("o", "r", 99);
     expect(result).toEqual([]);
@@ -229,10 +214,11 @@ describe("makeProductionGithubReviewClient", () => {
 
   test("handles null reviewerLogin correctly", async () => {
     const entries: ReviewListEntry[] = [makeEntry(3001, { reviewerLogin: null })];
-    mockListReviews = mock(() => Promise.resolve(entries));
+
+    const fakeListReviews: ListReviewsFn = async (_gh, _prNumber) => entries;
 
     const tokenProvider = makeFakeTokenProvider();
-    const client = await buildClient(tokenProvider, mockListReviews);
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
 
     const result = await client.listReviews("o", "r", 10);
     expect(result[0]?.reviewerLogin).toBeNull();
