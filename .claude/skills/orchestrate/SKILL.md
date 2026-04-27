@@ -1,127 +1,195 @@
 ---
 name: orchestrate
 description: >-
-  Master workflow for Minsky task implementation: task selection, session creation,
-  subagent dispatch, PR creation, review, merge, and task completion.
-  Use when starting work on a task, implementing a feature, or managing the full
-  development lifecycle. Triggers on "start working on", "implement task", "workflow".
+  Multi-task coordination: parent+subtask decomposition, parallel dispatch
+  planning, dependency-graph navigation, and cross-task scope assessment. Use
+  when: 'decompose mt#X', 'break this down into subtasks', 'coordinate mt#A and
+  mt#B', 'dispatch in parallel', 'dependency order', "what's the order for...",
+  'run X Y Z in parallel'. Does NOT own single-task lifecycle transitions —
+  those belong to /plan-task, /implement-task, and /verify-task.
 user-invocable: true
 ---
 
 # Orchestrate
 
-Master workflow for implementing tasks in Minsky. Covers the full lifecycle from task selection through merge and completion.
+Multi-task coordination skill. Handles parent+subtask decomposition, parallel dispatch planning,
+dependency-graph navigation, and cross-task scope assessment.
+
+This skill does NOT own single-task lifecycle transitions:
+
+- Planning and investigation → `/plan-task`
+- Implementation and sessions → `/implement-task`
+- Verification and merge → `/verify-task`
+
+## Triggers
+
+This skill activates on multi-task coordination verbs:
+
+- "decompose mt#X"
+- "break this down into subtasks"
+- "coordinate mt#A and mt#B"
+- "dispatch in parallel"
+- "dependency order"
+- "what's the order for…"
+- "run X Y Z in parallel"
+
+This skill does NOT trigger on single-task verbs: "start working on", "implement mt#X",
+"investigate mt#X" — those belong to the phase skills above.
 
 ## Arguments
 
-Optional: task ID (e.g., `/orchestrate mt#123`). If omitted, lists available tasks first.
+Optional: one or more task IDs (e.g., `/orchestrate mt#123` or `/orchestrate mt#A mt#B mt#C`).
+If no task IDs are given, the skill works from context provided by the user.
 
-## Workflow Sequence
+## Coordination concerns
 
-### 0. Retrieve relevant memory context
+### A. Pre-decomposition: sweep for parallel work
 
-Before any task work, call `memory_search` to retrieve durable context that may affect execution:
+**Before creating any subtasks or sibling tasks**, check whether parallel work already exists.
+This prevents duplicate effort and coordination collisions.
 
-- Call `memory_search` with a query matching the task's domain (e.g., "task orchestration", the task ID, or the technology area)
-- Review any returned memories for constraints, preferences, or prior decisions
-- This replaces the always-loaded MEMORY.md preamble — context is fetched on-demand, not pre-loaded
+Per `feedback_check_parallel_work_before_decomposing`: this sweep is required for ANY
+`tasks_create` call for a bug-fix or decomposition, not just sibling-task creation. Three
+recurrences (mt#1192/mt#1199, mt#1068/mt#1240, mt#1261/mt#1281) established this as a
+mechanical rule.
 
-### 1. Task selection and status verification
+**Sweep procedure:**
 
-- List available tasks: `mcp__minsky__tasks_list` (filter by `status: "TODO"`)
-- Get task details: `mcp__minsky__tasks_get` with the task ID
-- Read task spec: `mcp__minsky__tasks_spec_get` to understand requirements
-- Verify task status: `mcp__minsky__tasks_status_get` — must be TODO or IN-PROGRESS
+1. Call `mcp__minsky__tasks_list` with `status: "IN-PROGRESS"` to find active work.
+2. Call `mcp__minsky__tasks_list` with `status: "TODO"` to find planned work.
+3. Call `mcp__minsky__tasks_search` with keywords from the task title or domain area.
+4. Check `mcp__minsky__tasks_children` if decomposing an existing parent task — subtasks
+   may already be filed.
+5. If overlapping tasks are found, surface them to the user before creating anything:
 
-### 2. Session creation
+```
+Parallel work detected:
+- mt#X (IN-PROGRESS): "<title>" — same domain/files
+- mt#Y (TODO): "<title>" — may conflict
 
-**First check for existing sessions on this task:**
+Recommend: coordinate with mt#X before filing new subtasks, or subsume the scope if
+mt#X's criteria are a strict subset.
+```
 
-- `mcp__minsky__session_list` with `task: "<task-id>"` — returns sessions with their `status` and `liveness` (from mt#951)
-- Interpret liveness before proceeding:
-  - **`healthy`** (active commits within 30 min): Another agent is working on this task. **Do not proceed.** Report back to the user; do not dispatch a competing session.
-  - **`idle`** (30 min – 2 hours inactive): Likely paused. Report back to the user and ask whether to wait, monitor, or force-recover. Do not dispatch without confirmation.
-  - **`stale` / `orphaned`** (>2 hours inactive, no commits): Abandoned. Proceed with `session_start --recover true` (from mt#1044) to delete the stale session and create fresh.
-  - **Status `MERGED` or `CLOSED`**: The previous session is terminal. Either delete it manually (`session_delete`) or pick a different task — `--recover` will not override this.
-  - **No session**: Normal flow, just `session_start` without `recover`.
+### B. Subtask decomposition before dispatch
 
-Then start the session:
+**For any non-trivial multi-phase task, decompose into subtasks first.**
+Never dispatch subagents directly against a monolithic task with multiple phases.
 
-- `mcp__minsky__session_start` with `task: "<task-id>"`, `repo: "https://github.com/edobry/minsky.git"` (add `recover: true` if recovering from a stale session)
-- This automatically sets task status to IN-PROGRESS
-- Note the session ID and directory path for subagent dispatch
+Per `feedback_subagent_decomposition_first`: 5/5 non-trivial subagent dispatches on 2026-04-22
+hit turn limits mid-implementation. Pre-decomposition via `tasks_create --parent` was the only
+reliable fix.
 
-**Running commands in sessions**: Use `mcp__minsky__session_exec(task, command)` to run shell commands in the session workspace from the main agent context (e.g., `git status`, `bun test`, `ls src/`). Don't reach for bash `git -C <session-path>`.
+**Decomposition procedure:**
 
-### 3. Pre-work assessment
+1. Read the task spec: `mcp__minsky__tasks_spec_get` with the parent task ID.
+2. Identify independent phases or components from the spec's Success Criteria and Scope.
+3. For each phase, call `mcp__minsky__tasks_create` with `parent: "<parent-id>"`:
+   - Title: scoped to the phase (e.g., "Implement X for mt#N")
+   - Description: the specific success criteria for this phase
+   - Status: "TODO"
+4. Verify children were created: `mcp__minsky__tasks_children` with the parent ID.
+5. Surface the decomposition to the user before dispatching:
 
-Before dispatching implementation:
+```
+Decomposed mt#N into:
+- mt#N.1: "<phase-1-title>"
+- mt#N.2: "<phase-2-title>" (depends on mt#N.1)
+- mt#N.3: "<phase-3-title>"
 
-- **Check scope**: If the task has multiple phases, create subtasks first (`mcp__minsky__tasks_create` with `parent: "<task-id>"`). Each subtask gets its own session.
-- **Parallel-work guard (required)**: orchestrate's documented flow goes from `session_start` (§2) directly to subagent dispatch (§4) without invoking `/plan-task` or `/implement-task`, so the canonical gate (`/plan-task` gate criterion (g)) and spot-check (`/implement-task` §0a) are NOT guaranteed to have run on this path. Run a minimal local check before dispatch:
+Dependency order: mt#N.1 → mt#N.2 → mt#N.3
 
-  1. `mcp__github__list_pull_requests` with `state: "open"` — scan titles/branches for any PR whose scope plausibly overlaps the task's `## Scope` → `In scope` files. Spot-check suspicious matches with `mcp__github__pull_request_read` method `get_diff`.
-  2. `mcp__minsky__git_log` for the last 24h — check for any merge that touched files this task plans to modify.
-  3. If the task has a parent, walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children`; for each related task ID, check `mcp__minsky__session_pr_list` with `status: "open"` and `task: "<related-id>"`.
+To implement each subtask, use /implement-task mt#N.1
+```
 
-  If any check hits, halt before dispatch and surface findings (task/PR ID, file overlap, recommendation: wait / coordinate / reframe / proceed with explicit acknowledgment). Cite `feedback_check_parallel_work_before_decomposing` for rationale. The full gate lives in `/plan-task` and `/implement-task`; this is the local floor for the orchestrate-direct path.
+**Sizing guideline:** each subtask should be bounded to 8–12 files of change. If a subtask
+touches more than 12 files, decompose it further before dispatch.
 
-- **Verify spec freshness**: Task specs may be stale. Verify file:line references against the current codebase before starting.
+### C. Parallel dispatch: file-overlap analysis
 
-### 4. Implementation dispatch
+**Before dispatching parallel subagents, verify they do not share files.**
+Parallel agents writing to the same file produce merge conflicts that block both branches.
 
-Generate a subagent prompt: `mcp__minsky__session_generate_prompt` with:
+Per `feedback_parallel_subagent_dispatch_pattern`: file-overlap analysis upfront (before any
+parallel dispatch) is mandatory. Failure to do this produces conflicts that burned a session-
+and-a-half in documented cases (e.g., PR #763, mt#1216 mid-iteration).
 
-- `task`: the task ID
-- `type`: `"implementation"` (or `"refactor"`, `"cleanup"` as appropriate)
-- `instructions`: specific guidance for the implementation
+**File-overlap analysis procedure:**
 
-Dispatch the subagent with the generated prompt. The subagent will:
+1. For each candidate parallel task, read its spec and identify the files it will touch.
+   Use `mcp__minsky__tasks_spec_get` + `mcp__minsky__session_grep_search` to map out the
+   expected file set.
+2. Build a file-set matrix:
 
-- Edit code in the session directory
-- Commit using `mcp__minsky__session_commit`
-- Create a PR using `mcp__minsky__session_pr_create`
+| Task | Expected files             |
+| ---- | -------------------------- |
+| mt#A | src/domain/foo.ts, tests/… |
+| mt#B | src/adapters/bar.ts, …     |
+| mt#C | src/domain/foo.ts, …       |
 
-### 5. Review
+3. Check for intersections across rows.
+4. Branch on overlap:
 
-After the subagent creates a PR, review it using the `/review-pr` skill:
+   **No overlap** → dispatch all tasks in parallel. Provide the user with a prompt
+   template for each subagent (use `mcp__minsky__session_generate_prompt`).
 
-- Verify findings against the actual codebase
-- Check spec criteria are met
-- Post the review to GitHub
+   **Overlap detected** → do NOT dispatch in parallel. Present the conflict:
 
-### 6. Merge
+```
+File overlap detected:
+- mt#A and mt#C both touch src/domain/foo.ts
 
-Only after review is posted and all checks pass:
+Safe parallelism: mt#A ∥ mt#B (no shared files)
+Must serialize: mt#C after mt#A (shared: src/domain/foo.ts)
 
-- Wait for CI: `mcp__minsky__session_pr_checks` — all must be `completed` + `success`
-- Merge: `mcp__minsky__session_pr_merge` with `task: "<task-id>"`
-- The local workspace auto-pulls after merge (PostToolUse hook)
+Recommended order: dispatch mt#A ∥ mt#B first, then mt#C after mt#A merges.
+```
 
-### 7. Task completion
+## Dependency graph navigation
 
-- Re-read the task spec: `mcp__minsky__tasks_spec_get`
-- **Execute acceptance tests** — don't just re-read criteria. If the spec says "query returns X", run the query. If an API setting was changed, read it back. If a tool was registered, call it. Action is not verification.
-- Verify every success criterion was delivered by the merged PR, with evidence from the executed tests
-- If scope was reduced, update the spec and create follow-up tasks
-- Mark complete: `mcp__minsky__tasks_status_set` with `status: "DONE"`
+When the user asks "what's the order for mt#A, mt#B, mt#C" or similar, use
+`mcp__minsky__tasks_deps_tree` to read the dependency graph and surface a concrete
+execution order.
 
-## Error recovery
+**Navigation procedure:**
 
-| Error                         | Recovery                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------ |
-| Session tools fail            | Fall back to git CLI with `git fetch origin main && git rebase origin/main` before pushing |
-| Path resolution issue         | All file operations must use absolute paths under the session directory                    |
-| File editing outside session  | Cancel edits, switch to session workspace                                                  |
-| PR has merge conflicts        | Run `mcp__minsky__session_update` to rebase on latest main                                 |
-| CI checks failing             | Investigate failures, fix in session, commit, push — do not merge with failing checks      |
-| Subagent runs out of capacity | Check `git diff` and `git status` in session, finish commit/PR from main agent             |
+1. Call `mcp__minsky__tasks_deps_tree` for each task in the set.
+2. Build a topological sort from the dependency edges.
+3. Surface the ordering as a numbered list with rationale:
 
-## Key principles
+```
+Execution order for mt#A, mt#B, mt#C:
 
-- **All work goes through sessions.** Never edit the main workspace directly.
-- **Subagents do the full workflow.** They edit, commit, and create PRs. The main agent reviews and merges.
-- **Review before merge.** A review that isn't posted to GitHub isn't a review.
-- **Spec defines completeness.** A PR merging is not the same as a task being complete.
-- **Never merge with pending checks.** Wait for all CI checks to pass.
-- **One session, one merge.** After a session's PR is merged, the session is frozen. Use subtasks for multi-phase work.
+1. mt#B — no dependencies, unblocked
+2. mt#A — depends on mt#B (must wait for mt#B to merge)
+3. mt#C — depends on mt#A and mt#B (must be last)
+
+Independent tasks that can run in parallel: none (linear dependency chain)
+```
+
+If no dependencies exist between tasks, confirm they are all unblocked and parallel dispatch
+is safe (subject to file-overlap check in §C above).
+
+## Dispatch handoff
+
+After decomposition and/or ordering, hand off to the appropriate phase skills:
+
+- **For each subtask that is TODO and needs planning:**
+  > "Run `/plan-task mt#N.1` to investigate and bring it to READY."
+- **For each subtask that is READY and needs implementation:**
+  > "Run `/implement-task mt#N.1` to start development."
+- **For each task that is IN-REVIEW:**
+  > "Run `/verify-task mt#N.1` to verify and close out."
+
+Do NOT call `session_start`, `session_pr_create`, or any single-task lifecycle primitive
+directly. This skill's responsibility ends at surfacing the coordination plan and handing off
+to the appropriate phase skill.
+
+## Key constraints
+
+- **Never call `session_start` directly.** Session creation belongs to `/implement-task`.
+- **Never call `session_pr_create` directly.** PR creation belongs to `/implement-task`.
+- **Never set task status directly.** Status transitions belong to the phase skills.
+- **Always sweep for parallel work before decomposing.** This is a mechanical pre-check, not optional.
+- **Always analyze file overlap before parallel dispatch.** Two agents on the same file produce conflicts.
+- **Decompose before dispatch.** Monolithic tasks dispatched to subagents hit turn limits.
