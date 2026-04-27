@@ -32,8 +32,8 @@ The raw MCP server exposes tools as `tasks.create`, `session.commit` (dotted). C
 ### 3. Inconsistent parameter names for the same concept
 
 - `session.commit` takes `sessionId`
-- `session.dir` takes `name` (accepts both UUIDs and aliases — verified empirically)
-- `session.start` returns a session object where the ID field is `session.session`
+- `session.dir` takes `sessionId` (accepts both UUIDs and aliases — verified empirically)
+- `session.start` returns a session object where the ID field is `session.sessionId`
 
 There's no uniform session-identity parameter across tools.
 
