@@ -11,6 +11,8 @@ export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
   persistenceProvider?: import("../../persistence/types").PersistenceProvider;
+  /** Optional — forwarded to sessionPrImpl so the task can be advanced to IN-REVIEW. */
+  taskService?: import("../../tasks/taskService").TaskServiceInterface;
 }
 
 /**
@@ -108,6 +110,7 @@ export async function sessionPr(
         sessionDB,
         gitService,
         persistenceProvider: deps.persistenceProvider,
+        taskService: deps.taskService,
       },
       options
     );
