@@ -294,7 +294,40 @@ export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]):
 }
 
 /**
- * Run the open-PR sweep. Skips the PR for the current task's own branch.
+ * Decide whether a PR's branch should be treated as the task's own branch
+ * (and therefore skipped to avoid self-collision).
+ *
+ * Three modes, in order of preference:
+ *   1. If `currentBranch` is provided (the actual `HEAD` of the session repo),
+ *      exact match wins — the most reliable signal.
+ *   2. Token-based match: the normalized task token (`mt-1362` for `mt#1362`)
+ *      appears as a delimited segment in the branch name. Case-insensitive.
+ *      Matches `task/mt-1362`, `feature/mt-1362`, `bugfix/MT-1362`, etc.
+ *   3. Otherwise, no match — branch is treated as a peer.
+ *
+ * This addresses the round-5 BLOCKING finding that the prior exact `task/<id>`
+ * convention false-blocked authors using non-standard branch naming.
+ */
+export function isOwnBranch(
+  branchName: string,
+  taskId: string,
+  currentBranch?: string | null
+): boolean {
+  if (currentBranch && branchName === currentBranch) {
+    return true;
+  }
+  const normalizedToken = taskId.replace("#", "-").toLowerCase();
+  // Token must appear bounded by non-alphanumeric chars (or string boundaries)
+  // so `mt-1362` doesn't false-match inside `mt-13620` or `mt-1362-extra`.
+  // (The latter IS a legit own-branch shape, so we DO match it via the trailing `-`.)
+  const escaped = normalizedToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tokenRegex = new RegExp(`(^|[/_-])${escaped}($|[/_-])`, "i");
+  return tokenRegex.test(branchName);
+}
+
+/**
+ * Run the open-PR sweep. Skips PRs whose branch matches the task's own branch
+ * (per `isOwnBranch` heuristic) to avoid false self-collision.
  *
  * `fetchPrs` and `fetchFiles` are injectable so tests can exercise the
  * collision/no-collision paths without live `gh` calls.
@@ -304,7 +337,7 @@ export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]):
  */
 export function checkOpenPrs(
   input: ParallelWorkCheckInput,
-  skipBranch?: string,
+  currentBranch?: string | null,
   fetchPrs: (repo: string) => PrInfo[] = fetchOpenPrs,
   fetchFiles: (repo: string, prNumber: number, warnings: string[]) => string[] = fetchPrFiles,
   warnings: string[] = []
@@ -312,9 +345,20 @@ export function checkOpenPrs(
   const prs = fetchPrs(input.repo);
   const collisions: ParallelWorkCollision[] = [];
 
-  for (const pr of prs) {
-    // Skip the task's own branch (if session already existed)
-    if (skipBranch && pr.headRefName === skipBranch) {
+  // Bound the per-PR sweep so we don't blow past the 30s hook timeout in
+  // repos with hundreds of open PRs. 100 covers the realistic working set;
+  // beyond that we warn and stop scanning.
+  const MAX_PRS_TO_SCAN = 100;
+  const prsToScan = prs.slice(0, MAX_PRS_TO_SCAN);
+  if (prs.length > MAX_PRS_TO_SCAN) {
+    warnings.push(
+      `Open-PR sweep capped at ${MAX_PRS_TO_SCAN} of ${prs.length} open PRs (preserves 30s hook budget)`
+    );
+  }
+
+  for (const pr of prsToScan) {
+    // Skip the task's own branch via robust detection (handles non-standard naming)
+    if (isOwnBranch(pr.headRefName, input.taskId, currentBranch)) {
       continue;
     }
 
@@ -345,23 +389,58 @@ interface GitLogEntry {
 }
 
 /**
- * Detect the default remote branch ref (e.g. "origin/main") by reading the
- * symbolic ref for origin/HEAD. Falls back to "origin/main" with a warning
- * if the symbolic ref is unavailable.
+ * Detect the default remote branch ref (e.g. "origin/main"). Tries multiple
+ * sources in order so repos with master, custom defaults, or unset symbolic
+ * refs are all handled correctly. Only warns and falls back when ALL probes
+ * fail — addresses the round-5 BLOCKING finding that the previous single-shot
+ * fallback to "origin/main" silently disabled the recently-merged sweep on
+ * any repo whose default isn't main.
+ *
+ * Probe order:
+ *   1. `git symbolic-ref refs/remotes/origin/HEAD` — fastest, exact answer
+ *   2. `git remote show origin` — parses "HEAD branch: <name>" line
+ *   3. `git rev-parse --verify origin/main` — probe explicit
+ *   4. `git rev-parse --verify origin/master` — probe explicit
+ *
+ * Returns `{ref: null, warning}` if all probes fail; the caller should treat
+ * that as "skip recently-merged sweep" rather than fall back to a wrong ref.
  */
-export function detectDefaultBranch(repoDir: string): { ref: string; warning?: string } {
-  const result = execWithPath(["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"]);
-
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
-    return {
-      ref: "origin/main",
-      warning: `Could not detect default branch via git symbolic-ref (exited ${result.exitCode}); falling back to origin/main`,
-    };
+export function detectDefaultBranch(repoDir: string): { ref: string | null; warning?: string } {
+  // Probe 1: symbolic ref
+  const symbolic = execWithPath(["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"]);
+  if (symbolic.exitCode === 0 && symbolic.stdout.trim()) {
+    return { ref: symbolic.stdout.trim().replace(/^refs\/remotes\//, "") };
   }
 
-  // Output is like "refs/remotes/origin/main" — strip the "refs/remotes/" prefix
-  const stripped = result.stdout.trim().replace(/^refs\/remotes\//, "");
-  return { ref: stripped };
+  // Probe 2: `git remote show origin` — parses "HEAD branch: <name>"
+  const remoteShow = execWithPath(["git", "-C", repoDir, "remote", "show", "origin"]);
+  if (remoteShow.exitCode === 0) {
+    const headMatch = remoteShow.stdout.match(/^\s*HEAD branch:\s*(\S+)\s*$/m);
+    if (headMatch && headMatch[1] !== "(unknown)") {
+      return { ref: `origin/${headMatch[1]}` };
+    }
+  }
+
+  // Probes 3 and 4: try common defaults explicitly
+  for (const candidate of ["main", "master"]) {
+    const probe = execWithPath([
+      "git",
+      "-C",
+      repoDir,
+      "rev-parse",
+      "--verify",
+      `origin/${candidate}`,
+    ]);
+    if (probe.exitCode === 0) {
+      return { ref: `origin/${candidate}` };
+    }
+  }
+
+  return {
+    ref: null,
+    warning:
+      "Could not detect default remote branch via symbolic-ref, `remote show origin`, or `origin/main`/`origin/master` probes; recently-merged sweep skipped",
+  };
 }
 
 /**
@@ -466,12 +545,14 @@ export interface ParallelWorkCheckDeps {
     hours: number,
     defaultBranchRef?: string
   ) => ParallelWorkCollision[];
+  detectDefaultBranch: (repoDir: string) => { ref: string | null; warning?: string };
 }
 
 const DEFAULT_DEPS: ParallelWorkCheckDeps = {
   fetchOpenPrs,
   fetchPrFiles,
   fetchRecentMerges,
+  detectDefaultBranch,
 };
 
 /**
@@ -485,7 +566,7 @@ const DEFAULT_DEPS: ParallelWorkCheckDeps = {
 export function runParallelWorkChecks(
   input: ParallelWorkCheckInput,
   repoDir: string,
-  skipBranch?: string,
+  currentBranch?: string | null,
   deps: ParallelWorkCheckDeps = DEFAULT_DEPS
 ): ParallelWorkCheckResult {
   const collisions: ParallelWorkCollision[] = [];
@@ -501,7 +582,7 @@ export function runParallelWorkChecks(
   try {
     const prCollisions = checkOpenPrs(
       input,
-      skipBranch,
+      currentBranch,
       deps.fetchOpenPrs,
       deps.fetchPrFiles,
       warnings
@@ -514,17 +595,21 @@ export function runParallelWorkChecks(
 
   // Check B: recently merged — detect default branch first
   try {
-    const { ref: defaultBranchRef, warning: branchWarning } = detectDefaultBranch(repoDir);
+    const { ref: defaultBranchRef, warning: branchWarning } = deps.detectDefaultBranch(repoDir);
     if (branchWarning) {
       warnings.push(branchWarning);
     }
-    const mergeCollisions = deps.fetchRecentMerges(
-      repoDir,
-      input.inScopeFiles,
-      input.lookbackHours,
-      defaultBranchRef
-    );
-    collisions.push(...mergeCollisions);
+    if (defaultBranchRef === null) {
+      // All probes failed; skip the sweep rather than running against a wrong ref
+    } else {
+      const mergeCollisions = deps.fetchRecentMerges(
+        repoDir,
+        input.inScopeFiles,
+        input.lookbackHours,
+        defaultBranchRef
+      );
+      collisions.push(...mergeCollisions);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`Recently-merged sweep failed (non-blocking): ${msg}`);
@@ -704,9 +789,12 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Derive the task's own branch name so we skip it in the open-PR sweep
-  const normalizedId = taskId.replace("#", "-").toLowerCase();
-  const skipBranch = `task/${normalizedId}`;
+  // Detect the actual current branch (most reliable own-branch signal). If
+  // the call fails, isOwnBranch falls back to a token-based regex on the
+  // normalized task ID.
+  const branchProbe = execWithPath(["git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const currentBranch =
+    branchProbe.exitCode === 0 && branchProbe.stdout.trim() ? branchProbe.stdout.trim() : null;
 
   const checkInput: ParallelWorkCheckInput = {
     taskId,
@@ -715,7 +803,7 @@ if (import.meta.main) {
     lookbackHours: 24,
   };
 
-  const result = runParallelWorkChecks(checkInput, repoDir, skipBranch);
+  const result = runParallelWorkChecks(checkInput, repoDir, currentBranch);
 
   for (const w of result.warnings) {
     process.stdout.write(`[parallel-work-guard] ${w}\n`);

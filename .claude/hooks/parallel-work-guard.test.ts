@@ -6,6 +6,8 @@ import {
   formatBlockMessage,
   runParallelWorkChecks,
   parseGitHubRemoteUrl,
+  isOwnBranch,
+  detectDefaultBranch,
   type ParallelWorkCheckInput,
   type ParallelWorkCheckDeps,
   type ParallelWorkCollision,
@@ -14,6 +16,22 @@ import {
 // ---------------------------------------------------------------------------
 // Shared test fixtures (extracted to avoid magic-string duplication warnings)
 // ---------------------------------------------------------------------------
+
+/**
+ * Build a deps object for runParallelWorkChecks tests with sane defaults
+ * for fields the test doesn't care about. Specifically, detectDefaultBranch
+ * defaults to returning `origin/main` so the recently-merged sweep runs
+ * during tests without a live git repo. Override per-test as needed.
+ */
+function makeDeps(overrides: Partial<ParallelWorkCheckDeps> = {}): ParallelWorkCheckDeps {
+  return {
+    fetchOpenPrs: () => [],
+    fetchPrFiles: () => [],
+    fetchRecentMerges: () => [],
+    detectDefaultBranch: () => ({ ref: "origin/main" }),
+    ...overrides,
+  };
+}
 
 const FIXTURE_SETTINGS_JSON = ".claude/settings.json";
 const FIXTURE_ASK_TS = "src/domain/ask/ask.ts";
@@ -308,11 +326,7 @@ describe("runParallelWorkChecks — clean path", () => {
       lookbackHours: 24,
     };
 
-    const cleanDeps: ParallelWorkCheckDeps = {
-      fetchOpenPrs: () => [],
-      fetchPrFiles: () => [],
-      fetchRecentMerges: () => [],
-    };
+    const cleanDeps: ParallelWorkCheckDeps = makeDeps({});
 
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, cleanDeps);
     expect(result.blocked).toBe(false);
@@ -335,7 +349,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
 
     // Mock deps simulate the actual mt#1068 scenario:
     // PR #788 (mt#1240) is open and touches src/domain/ask/
-    const collidingDeps: ParallelWorkCheckDeps = {
+    const collidingDeps: ParallelWorkCheckDeps = makeDeps({
       fetchOpenPrs: () => [
         {
           number: 788,
@@ -345,8 +359,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
       ],
       fetchPrFiles: (_repo, prNumber) =>
         prNumber === 788 ? [FIXTURE_ASK_TS, "src/domain/ask/index.ts"] : [],
-      fetchRecentMerges: () => [],
-    };
+    });
 
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, collidingDeps);
     expect(result.blocked).toBe(true);
@@ -367,9 +380,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
       lookbackHours: 24,
     };
 
-    const recentMergeDeps: ParallelWorkCheckDeps = {
-      fetchOpenPrs: () => [],
-      fetchPrFiles: () => [],
+    const recentMergeDeps: ParallelWorkCheckDeps = makeDeps({
       fetchRecentMerges: () => [
         {
           type: "recently-merged",
@@ -378,7 +389,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
           overlappingFiles: [FIXTURE_ASK_TS],
         },
       ],
-    };
+    });
 
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, recentMergeDeps);
     expect(result.blocked).toBe(true);
@@ -398,7 +409,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
     };
 
     // The task's own PR is open and touches the same file — but we should skip it.
-    const ownBranchDeps: ParallelWorkCheckDeps = {
+    const ownBranchDeps: ParallelWorkCheckDeps = makeDeps({
       fetchOpenPrs: () => [
         {
           number: 851,
@@ -407,8 +418,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
         },
       ],
       fetchPrFiles: () => [FIXTURE_HOOK_TS],
-      fetchRecentMerges: () => [],
-    };
+    });
 
     const result = runParallelWorkChecks(
       checkInput,
@@ -541,13 +551,11 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
   };
 
   it("emits a warning when fetchOpenPrs throws, does not block", () => {
-    const throwingOpenPrsDeps: ParallelWorkCheckDeps = {
+    const throwingOpenPrsDeps: ParallelWorkCheckDeps = makeDeps({
       fetchOpenPrs: () => {
         throw new Error("gh: command not found");
       },
-      fetchPrFiles: () => [],
-      fetchRecentMerges: () => [],
-    };
+    });
 
     const result = runParallelWorkChecks(
       baseInput,
@@ -560,13 +568,11 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
   });
 
   it("emits a warning when fetchRecentMerges throws, does not block", () => {
-    const throwingMergesDeps: ParallelWorkCheckDeps = {
-      fetchOpenPrs: () => [],
-      fetchPrFiles: () => [],
+    const throwingMergesDeps: ParallelWorkCheckDeps = makeDeps({
       fetchRecentMerges: () => {
         throw new Error("git: not a git repository");
       },
-    };
+    });
 
     const result = runParallelWorkChecks(baseInput, "/tmp/anywhere", undefined, throwingMergesDeps);
     expect(result.blocked).toBe(false);
@@ -581,13 +587,12 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
       overlappingFiles: [FIXTURE_ASK_TS],
     };
 
-    const resilientDeps: ParallelWorkCheckDeps = {
+    const resilientDeps: ParallelWorkCheckDeps = makeDeps({
       fetchOpenPrs: () => {
         throw new Error("gh: command not found");
       },
-      fetchPrFiles: () => [],
       fetchRecentMerges: () => [mergedCollision],
-    };
+    });
 
     const result = runParallelWorkChecks(baseInput, "/tmp/anywhere", undefined, resilientDeps);
     // Open-PR sweep failed => warning, but recently-merged sweep ran and found collision
@@ -598,5 +603,91 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
     expect(resilientCollision).toBeDefined();
     if (!resilientCollision) throw new Error("expected collision");
     expect(resilientCollision.type).toBe("recently-merged");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isOwnBranch — round-5 BLOCKING fix: robust own-branch detection
+// ---------------------------------------------------------------------------
+
+describe("isOwnBranch", () => {
+  it("matches via exact currentBranch when provided", () => {
+    expect(isOwnBranch("feature/anything", "mt#1362", "feature/anything")).toBe(true);
+  });
+
+  it("does not require currentBranch when token matches", () => {
+    expect(isOwnBranch("task/mt-1362", "mt#1362")).toBe(true);
+    expect(isOwnBranch("feature/mt-1362", "mt#1362")).toBe(true);
+    expect(isOwnBranch("bugfix/mt-1362", "mt#1362")).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    expect(isOwnBranch("task/MT-1362", "mt#1362")).toBe(true);
+    expect(isOwnBranch("Task/Mt-1362-extra", "mt#1362")).toBe(true);
+  });
+
+  it("matches with hyphen suffix (legit own-branch shape)", () => {
+    expect(isOwnBranch("task/mt-1362-extra", "mt#1362")).toBe(true);
+  });
+
+  it("does NOT false-match adjacent task IDs", () => {
+    expect(isOwnBranch("task/mt-13620", "mt#1362")).toBe(false);
+    expect(isOwnBranch("task/mt-1362a", "mt#1362")).toBe(false);
+  });
+
+  it("does NOT match unrelated branches", () => {
+    expect(isOwnBranch("main", "mt#1362")).toBe(false);
+    expect(isOwnBranch("task/mt-1305", "mt#1362")).toBe(false);
+    expect(isOwnBranch("feature/something-else", "mt#1362")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectDefaultBranch — round-5 BLOCKING fix: fallback chain instead of
+// silent fallback to origin/main on every failure
+// ---------------------------------------------------------------------------
+
+describe("detectDefaultBranch", () => {
+  it("returns null with warning when ALL probes fail (non-existent dir)", () => {
+    const result = detectDefaultBranch("/tmp/nonexistent-parallel-work-guard-fixture");
+    expect(result.ref).toBeNull();
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("Could not detect default remote branch");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runParallelWorkChecks — round-5: PR-cap (>100) warning
+// ---------------------------------------------------------------------------
+
+describe("runParallelWorkChecks — round-5 PR cap behaviour", () => {
+  it("caps the per-PR sweep at 100 and emits a warning when exceeded", () => {
+    const HOW_MANY = 150;
+    const manyPrs = Array.from({ length: HOW_MANY }, (_, i) => ({
+      number: i + 1,
+      title: `feat: PR ${i + 1}`,
+      headRefName: `feature/pr-${i + 1}`,
+    }));
+
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#9999",
+      inScopeFiles: [FIXTURE_HOOK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    let fetchPrFilesCalls = 0;
+    const cappedDeps: ParallelWorkCheckDeps = makeDeps({
+      fetchOpenPrs: () => manyPrs,
+      fetchPrFiles: () => {
+        fetchPrFilesCalls += 1;
+        return ["unrelated/file.ts"];
+      },
+    });
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", null, cappedDeps);
+    expect(fetchPrFilesCalls).toBe(100);
+    expect(result.warnings.some((w) => w.includes("capped at 100"))).toBe(true);
+    expect(result.blocked).toBe(false);
   });
 });
