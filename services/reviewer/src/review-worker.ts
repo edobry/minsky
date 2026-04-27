@@ -17,6 +17,8 @@ import {
   type PullRequestContext,
   type SubmittedReview,
 } from "./github-client";
+import type { ReviewerDb } from "./db/client";
+import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -392,6 +394,21 @@ export interface RunReviewDeps {
    * arguments. Throw to simulate a fetch error.
    */
   priorReviewFetcher?: PriorReviewFetcherFn;
+
+  /**
+   * Drizzle DB instance for writing convergence metrics.
+   * When absent, metric persistence is skipped (stdout log still emits).
+   * Accepts a db directly for production; for tests inject a mock or undefined.
+   */
+  db?: ReviewerDb;
+
+  /**
+   * Test seam for convergence metric recording.
+   * When provided, replaces the real recordConvergenceMetric call.
+   * Injected in tests to assert the recorder is called with the right payload
+   * and to verify recorder errors do not propagate.
+   */
+  metricsRecorder?: (db: ReviewerDb, input: ConvergenceMetricInput) => Promise<void>;
 }
 
 export async function runReview(
@@ -670,18 +687,39 @@ export async function runReview(
   // acknowledged-as-addressed count (best-effort from review body text).
   const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce((acc, n) => acc + n, 0);
   const acknowledgedCount = countAcknowledgedFindings(sanitized.body);
+  const iterationIndex = priorReviewIngestion.iterationCount + 1;
   console.log(
     JSON.stringify(
       buildConvergenceMetricLog(
         pr.number,
         pr.headSha,
-        priorReviewIngestion.iterationCount + 1,
+        iterationIndex,
         priorBlockerTotal,
         blockingCount,
         acknowledgedCount
       )
     )
   );
+
+  // mt#1306: persist convergence metric to Postgres alongside stdout log.
+  // Uses injected metricsRecorder if provided (test seam), falls back to
+  // real recordConvergenceMetric. Skipped entirely when no db is injected
+  // in production the db handle is passed from server.ts via RunReviewDeps.
+  const recorder = deps.metricsRecorder ?? recordConvergenceMetric;
+  if (deps.db !== undefined) {
+    const metricInput: ConvergenceMetricInput = {
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      iterationIndex,
+      priorBlockerCount: priorBlockerTotal,
+      newBlockerCount: blockingCount,
+      acknowledgedAddressedCount: acknowledgedCount,
+    };
+    // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
+    await recorder(deps.db, metricInput);
+  }
 
   return {
     status: outcome.status,
