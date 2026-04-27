@@ -44,7 +44,7 @@ describe("Session Approval Repository Backend Bug", () => {
   it("should use session's stored repository configuration for GitHub backend", async () => {
     // Arrange: Session created with GitHub repository configuration
     const githubSessionRecord: SessionRecord = {
-      session: "task335",
+      sessionId: "task335",
       repoName: "github-minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2025-07-30T23:14:24.213Z",
@@ -100,7 +100,7 @@ describe("Session Approval Repository Backend Bug", () => {
   it("should respect session's GitHub backend configuration when explicitly set", async () => {
     // Arrange: Session explicitly configured for GitHub backend
     const githubSessionRecord: SessionRecord = {
-      session: "task336",
+      sessionId: "task336",
       repoName: "github-minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2025-07-30T23:14:24.213Z",

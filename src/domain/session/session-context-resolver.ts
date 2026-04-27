@@ -128,7 +128,7 @@ export async function resolveSessionContext(
       // Provide a more helpful error message with available sessions
       const allSessions = await sessionProvider.listSessions();
       const sessionIds = allSessions
-        .map((s) => (s.taskId ? `${s.taskId} (${s.session})` : s.session))
+        .map((s) => (s.taskId ? `${s.taskId} (${s.sessionId})` : s.sessionId))
         .join(", ");
 
       throw new ResourceNotFoundError(
@@ -140,7 +140,7 @@ export async function resolveSessionContext(
     }
 
     return {
-      sessionId: sessionRecord.session,
+      sessionId: sessionRecord.sessionId,
       taskId: task, // ✅ BACKWARD COMPATIBILITY: Return original task ID format
       resolvedBy: "explicit-task",
       workingDirectory,

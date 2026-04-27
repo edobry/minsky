@@ -21,6 +21,7 @@ export function createSessionPrReviewDismissCommand(getDeps: LazySessionDeps): C
       "Dismiss a GitHub PR review (typically a stale adversarial review after " +
       "the blocker has been addressed) through Minsky using the configured bot identity",
     parameters: sessionPrReviewDismissCommandParams,
+    mutating: true,
     execute: withErrorLogging(
       "session.pr.review.dismiss",
       async (params: Record<string, unknown>) => {

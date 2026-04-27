@@ -97,7 +97,7 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.getSessionByTaskId = (taskId: string) =>
       Promise.resolve({
-        session: `task-${taskId}`, // session ID from qualified id
+        sessionId: `task-${taskId}`, // session ID from qualified id
         repoName: "test-repo",
         repoUrl: "/test/repo",
         createdAt: new Date().toISOString(),
@@ -106,7 +106,7 @@ describe("Session Approve Task Status Commit", () => {
       });
     mockSessionDB.getSession = (sessionId: string) =>
       Promise.resolve({
-        session: sessionId,
+        sessionId: sessionId,
         repoName: "test-repo",
         repoUrl: "/test/repo",
         createdAt: new Date().toISOString(),
@@ -228,7 +228,7 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB = new FakeSessionProvider();
     mockSessionDB.getSessionByTaskId = (taskId: string) =>
       Promise.resolve({
-        session: `task#${taskId}`,
+        sessionId: `task#${taskId}`,
         repoName: "test-repo",
         repoUrl: "/test/repo",
         createdAt: new Date().toISOString(),
@@ -237,7 +237,7 @@ describe("Session Approve Task Status Commit", () => {
       });
     mockSessionDB.getSession = (sessionId: string) =>
       Promise.resolve({
-        session: sessionId,
+        sessionId: sessionId,
         repoName: "test-repo",
         repoUrl: "/test/repo",
         createdAt: new Date().toISOString(),

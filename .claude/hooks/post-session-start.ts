@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // session_start returns { success, session: { session, repoUrl, repoName, taskId }, ... }
+  // session_start returns { success, session: { sessionId, repoUrl, repoName, taskId }, ... }
   const sessionData = toolResult.session as Record<string, unknown> | undefined;
   const taskId = (sessionData?.taskId as string) || "";
   const sessionId = input.session_id;

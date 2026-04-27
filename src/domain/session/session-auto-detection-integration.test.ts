@@ -24,14 +24,14 @@ describe("Session Command Domain Logic", () => {
     mockSessionProvider = new FakeSessionProvider({
       initialSessions: [
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123",
         },
         {
-          session: "task#456",
+          sessionId: "task#456",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-02T00:00:00Z",
@@ -54,7 +54,7 @@ describe("Session Command Domain Logic", () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result?.session).toBe("test-session");
+      expect(result?.sessionId).toBe("test-session");
       expect(result?.taskId).toBe("md#123");
     });
 
@@ -70,7 +70,7 @@ describe("Session Command Domain Logic", () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result?.session).toBe("task#456");
+      expect(result?.sessionId).toBe("task#456");
       expect(result?.taskId).toBe("md#456");
     });
 
@@ -139,7 +139,7 @@ describe("Session Command Domain Logic", () => {
       const mockProviderWithProperDelete = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "test-session",
+            sessionId: "test-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: "2024-01-01T00:00:00Z",
@@ -174,7 +174,7 @@ describe("Session Command Domain Logic", () => {
         { task: taskId, json: false },
         { sessionDB: mockSessionProvider }
       );
-      expect(getResult?.session).toBe(expectedSessionId);
+      expect(getResult?.sessionId).toBe(expectedSessionId);
 
       // Test sessionDelete
       const deleteResult = await sessionDelete(
@@ -222,9 +222,9 @@ describe("Session Command Domain Logic", () => {
       ]);
 
       // All results should be identical
-      expect(results[0]?.session).toBe("test-session");
-      expect(results[1]?.session).toBe("test-session");
-      expect(results[2]?.session).toBe("test-session");
+      expect(results[0]?.sessionId).toBe("test-session");
+      expect(results[1]?.sessionId).toBe("test-session");
+      expect(results[2]?.sessionId).toBe("test-session");
       expect(results[0]?.taskId).toBe("md#123");
       expect(results[1]?.taskId).toBe("md#123");
       expect(results[2]?.taskId).toBe("md#123");

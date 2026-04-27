@@ -144,6 +144,14 @@ export {
   formatNetworkErrorMessage,
 };
 
+// Re-export structured MCP error utilities
+export { McpErrorCode, type McpErrorCodeValue } from "./mcp-error-codes";
+export {
+  StructuredMcpError,
+  mcpStructuredError,
+  type McpErrorPayload,
+} from "./mcp-structured-errors";
+
 // Import and re-export message templates
 export {
   ErrorEmojis,
