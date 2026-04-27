@@ -8,12 +8,18 @@ import {
   decideToolsActive,
   defaultForkAccessProbe,
   buildRunReviewStartLog,
+  buildConvergenceMetricLog,
   type CallReviewerFn,
+  type ReviewResult,
+  type PriorReviewFetcherFn,
+  type PriorReviewIngestionResult,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
+import type { PRScope } from "./pr-scope";
+import type { PriorReview } from "./prior-review-summary";
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -706,5 +712,194 @@ describe("buildRunReviewStartLog (mt#1256)", () => {
     const log = buildRunReviewStartLog("d", "o", "r", 1, "s");
     const keys = Object.keys(log).sort();
     expect(keys).toEqual(["delivery_id", "event", "owner", "pr", "repo", "sha"]);
+  });
+});
+
+// ----- ReviewResult.scope field (mt#1188) -----
+//
+// The scope field carries the PR scope classification from runReview back to
+// the server for the review_result log. Verified via the TypeScript type shape
+// (structural check) so no network mocking is required — the field is already
+// integration-tested via the full pr-scope.test.ts suite.
+
+describe("ReviewResult.scope type (mt#1188)", () => {
+  test("ReviewResult.scope accepts all PRScope values or undefined", () => {
+    // Structural type assertion — ensure the scope field is typed correctly.
+    // This test is compile-time only; if it passes tsc it's correct.
+    const scopes: Array<PRScope | undefined> = [
+      "normal",
+      "trivial",
+      "docs-only",
+      "test-only",
+      undefined,
+    ];
+    for (const scope of scopes) {
+      const result: ReviewResult = {
+        status: "reviewed",
+        reason: "ok",
+        tier: 3,
+        scope,
+      };
+      expect(result.scope).toBe(scope);
+    }
+  });
+
+  test("ReviewResult without scope field is valid (skipped reviews omit it)", () => {
+    const result: ReviewResult = {
+      status: "skipped",
+      reason: "tier mismatch",
+      tier: 1,
+    };
+    expect(result.scope).toBeUndefined();
+  });
+});
+
+// ----- PriorReviewFetcherFn DI seam (mt#1189) -----
+//
+// Verifies the injectable prior-review fetcher type signature works correctly
+// with both a conforming async function and a throwing function, matching the
+// RunReviewDeps interface contract.
+
+// Constants for repeated strings — avoids no-magic-string-duplication warnings.
+const BOT_LOGIN = "minsky-reviewer[bot]";
+const FETCH_ERROR_MSG = "GitHub API unavailable";
+
+const SAMPLE_PRIOR_REVIEW: PriorReview = {
+  id: 1,
+  state: "CHANGES_REQUESTED",
+  submittedAt: "2026-04-01T10:00:00Z",
+  commitId: "abc123",
+  userLogin: BOT_LOGIN,
+  body: "**Independent adversarial review (Chinese-wall)**\n\n### Findings\n\n- **[BLOCKING]** src/foo.ts:1 — issue",
+};
+
+describe("PriorReviewFetcherFn DI seam (mt#1189)", () => {
+  test("a conforming async function satisfies PriorReviewFetcherFn type", async () => {
+    const fetcher: PriorReviewFetcherFn = async () => [SAMPLE_PRIOR_REVIEW];
+    const reviews = await fetcher({} as Parameters<PriorReviewFetcherFn>[0], "owner", "repo", 1);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.userLogin).toBe(BOT_LOGIN);
+  });
+
+  test("a throwing PriorReviewFetcherFn can be used as a test seam for the error path", async () => {
+    const failingFetcher: PriorReviewFetcherFn = async () => {
+      throw new Error(FETCH_ERROR_MSG);
+    };
+    await expect(
+      failingFetcher({} as Parameters<PriorReviewFetcherFn>[0], "owner", "repo", 42)
+    ).rejects.toThrow(FETCH_ERROR_MSG);
+  });
+});
+
+// ----- PriorReviewIngestionResult error path (mt#1189) -----
+//
+// The error path in runReview catches fetchPriorReviews throws and produces a
+// PriorReviewIngestionResult with iterationCount=0, staleCount=0,
+// priorBlockingCounts=[], and the error message captured. Verified structurally
+// since runReview itself requires the full GitHub client stack.
+
+describe("PriorReviewIngestionResult error-path shape (mt#1189)", () => {
+  test("error result has iterationCount=0, staleCount=0, priorBlockingCounts=[], error set", () => {
+    const errorResult: PriorReviewIngestionResult = {
+      iterationCount: 0,
+      staleCount: 0,
+      priorBlockingCounts: [],
+      error: FETCH_ERROR_MSG,
+    };
+    expect(errorResult.iterationCount).toBe(0);
+    expect(errorResult.staleCount).toBe(0);
+    expect(errorResult.priorBlockingCounts).toEqual([]);
+    expect(errorResult.error).toBe(FETCH_ERROR_MSG);
+  });
+
+  test("success result has no error field when fetch succeeded", () => {
+    const successResult: PriorReviewIngestionResult = {
+      iterationCount: 2,
+      staleCount: 1,
+      priorBlockingCounts: [3, 1],
+    };
+    expect(successResult.error).toBeUndefined();
+    expect(successResult.iterationCount).toBe(2);
+    expect(successResult.priorBlockingCounts).toEqual([3, 1]);
+  });
+
+  test("ReviewResult.priorReviewIngestion field is present on a reviewed result", () => {
+    const result: ReviewResult = {
+      status: "reviewed",
+      reason: "Posted APPROVE review as minsky-reviewer[bot]",
+      tier: 3,
+      priorReviewIngestion: {
+        iterationCount: 1,
+        staleCount: 0,
+        priorBlockingCounts: [2],
+      },
+    };
+    expect(result.priorReviewIngestion?.iterationCount).toBe(1);
+    expect(result.priorReviewIngestion?.priorBlockingCounts).toEqual([2]);
+  });
+});
+
+// ----- buildConvergenceMetricLog (SC-5, mt#1189) -----
+//
+// Pure helper that constructs the reviewer.convergence_metric structured log
+// object. Extracted from runReview (same pattern as buildRunReviewStartLog)
+// so the 6-field shape can be verified without mocking octokit + App auth.
+
+// Log field name constants — avoids no-magic-string-duplication warnings on
+// repeated object key string lookups.
+const FIELD_PRIOR_BLOCKER_COUNT = "priorBlockerCount";
+const FIELD_ACKNOWLEDGED_COUNT = "acknowledgedAsAddressedCount";
+const FIELD_ITERATION_INDEX = "iterationIndex";
+const FIELD_NEW_BLOCKER_COUNT = "newBlockerCount";
+
+describe("buildConvergenceMetricLog (SC-5, mt#1189)", () => {
+  test("includes event=reviewer.convergence_metric with all 6 required fields", () => {
+    const log = buildConvergenceMetricLog(769, "abc123def456", 3, 5, 2, 1);
+    expect(log["event"]).toBe("reviewer.convergence_metric");
+    expect(log["pr"]).toBe(769);
+    expect(log["sha"]).toBe("abc123def456");
+    expect(log[FIELD_ITERATION_INDEX]).toBe(3);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(5);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(2);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(1);
+  });
+
+  test("first iteration (no prior reviews): iterationIndex=1, priorBlockerCount=0", () => {
+    const log = buildConvergenceMetricLog(100, "sha001", 1, 0, 3, 0);
+    expect(log[FIELD_ITERATION_INDEX]).toBe(1);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(0);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(3);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(0);
+  });
+
+  test("serialises cleanly as JSON with no undefined values or circular refs", () => {
+    const log = buildConvergenceMetricLog(42, "sha999", 2, 4, 1, 2);
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const parsed = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(parsed["event"]).toBe("reviewer.convergence_metric");
+    expect(parsed["pr"]).toBe(42);
+    expect(parsed["sha"]).toBe("sha999");
+  });
+
+  test("all 7 keys are present (event + 6 metric fields), no extra keys", () => {
+    const log = buildConvergenceMetricLog(1, "s", 1, 0, 0, 0);
+    const keys = Object.keys(log).sort();
+    expect(keys).toEqual([
+      FIELD_ACKNOWLEDGED_COUNT,
+      "event",
+      FIELD_ITERATION_INDEX,
+      FIELD_NEW_BLOCKER_COUNT,
+      "pr",
+      FIELD_PRIOR_BLOCKER_COUNT,
+      "sha",
+    ]);
+  });
+
+  test("convergence stable scenario: prior=3 blockers, new=0 blockers, acknowledged=3", () => {
+    const log = buildConvergenceMetricLog(758, "head123", 4, 3, 0, 3);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(3);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(0);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(3);
+    expect(log[FIELD_ITERATION_INDEX]).toBe(4);
   });
 });

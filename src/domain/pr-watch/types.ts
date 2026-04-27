@@ -79,8 +79,8 @@ export interface PrWatch {
    *
    * Shape is event-dependent:
    *   - merged: unused (null)
-   *   - review-posted: `{ lastReviewId: string | null }`
-   *   - check-status-changed: `{ lastConclusion: string | null }`
+   *   - review-posted: `{ lastReviewId: number | null }`
+   *   - check-status-changed: `{ lastConclusion: "success" | "failure" | "timed_out" | "skipped" | null }`
    *
    * Absent until the first reconciler pass on this watch.
    */
