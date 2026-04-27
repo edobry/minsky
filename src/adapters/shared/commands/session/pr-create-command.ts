@@ -306,6 +306,7 @@ export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandD
     name: "create",
     description: "Create a pull request for a session",
     parameters: sessionPrCreateCommandParams,
+    mutating: true,
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
