@@ -32,7 +32,7 @@ describe("Session Approve Branch Cleanup", () => {
     const mockSessionDB = new FakeSessionProvider({
       initialSessions: [
         {
-          session: TEST_SESSION_NAME,
+          sessionId: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
           taskId: TEST_TASK_ID,
@@ -88,7 +88,7 @@ describe("Session Approve Branch Cleanup", () => {
     const mockSessionDB = new FakeSessionProvider({
       initialSessions: [
         {
-          session: TEST_SESSION_NAME,
+          sessionId: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
           taskId: TEST_TASK_ID,
@@ -144,7 +144,7 @@ describe("Session Approve Branch Cleanup", () => {
     const mockSessionDB = new FakeSessionProvider({
       initialSessions: [
         {
-          session: TEST_SESSION_NAME,
+          sessionId: TEST_SESSION_NAME,
           repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
           taskId: TEST_TASK_ID,

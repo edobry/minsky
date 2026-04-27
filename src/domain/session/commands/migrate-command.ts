@@ -91,7 +91,7 @@ function formatMigrationReport(report: MigrationReport, json: boolean): string {
   if (failures.length > 0) {
     output += `\n❌ **FAILURES:**\n`;
     failures.forEach((failure) => {
-      output += `  ${failure.original.session}: ${failure.error}\n`;
+      output += `  ${failure.original.sessionId}: ${failure.error}\n`;
     });
   }
 

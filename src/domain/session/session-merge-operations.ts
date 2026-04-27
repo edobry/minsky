@@ -156,7 +156,7 @@ export async function mergeSessionPr(
         params.task
       );
     }
-    sessionIdToUse = sessionByTask.session;
+    sessionIdToUse = sessionByTask.sessionId;
   }
 
   if (!sessionIdToUse) {

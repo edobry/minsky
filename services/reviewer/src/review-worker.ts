@@ -419,6 +419,7 @@ export async function runReview(
     diff: pr.diff,
     filesChanged: pr.filesChanged,
     prBody: pr.body,
+    changedFilesCount: pr.changedFilesCount,
   });
 
   // Emit a structured log when the minsky:trivial marker overrides the scope.

@@ -65,7 +65,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge when prBranch is missing", () => {
       // SECURITY TEST: Missing PR branch should block merge
       const sessionRecord: SessionRecord = {
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "test-session",
@@ -87,7 +87,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge when prApproved is false", () => {
       // SECURITY TEST: Unapproved PR should block merge
       const sessionRecord: SessionRecord = {
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "test-session",
@@ -109,7 +109,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge when prApproved is undefined", () => {
       // SECURITY TEST: Undefined approval should block merge
       const sessionRecord: SessionRecord = {
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "test-session",
@@ -131,7 +131,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge when prApproved is truthy but not boolean true", () => {
       // SECURITY TEST: Non-boolean truthy values should be rejected
       const sessionRecord: SessionRecord = {
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "test-session",
@@ -153,7 +153,7 @@ describe("Session Merge Security Validation", () => {
     it("should ALLOW merge only when both prBranch and prApproved are properly set", () => {
       // SECURITY TEST: Only valid approval state should allow merge
       const sessionRecord: SessionRecord = {
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "test-session",
@@ -174,7 +174,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge operation for unapproved session", async () => {
       // SECURITY TEST: Full merge operation should be blocked for unapproved PR
       const unapprovedSession: SessionRecord = {
-        session: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
+        sessionId: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.UNAPPROVED_SESSION,
@@ -206,7 +206,7 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge operation for session with no PR branch", async () => {
       // SECURITY TEST: Session without PR should be blocked
       const noPrSession: SessionRecord = {
-        session: "no-pr-session",
+        sessionId: "no-pr-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "no-pr-session",
@@ -238,7 +238,7 @@ describe("Session Merge Security Validation", () => {
     it("should ALLOW merge operation only for properly approved sessions", async () => {
       // SECURITY TEST: Only properly approved sessions should proceed to merge
       const approvedSession: SessionRecord = {
-        session: SESSION_TEST_PATTERNS.APPROVED_SESSION,
+        sessionId: SESSION_TEST_PATTERNS.APPROVED_SESSION,
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.APPROVED_SESSION,

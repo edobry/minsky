@@ -37,7 +37,7 @@ describe("PR Workflow with Dependencies", () => {
       }),
       getSession: mock(() =>
         Promise.resolve({
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
@@ -101,7 +101,7 @@ describe("PR Workflow with Dependencies", () => {
       }),
       getSession: mock(() =>
         Promise.resolve({
-          session: "task-143-session",
+          sessionId: "task-143-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
@@ -109,7 +109,7 @@ describe("PR Workflow with Dependencies", () => {
       getSessionWorkdir: mock(() => "/test/repo/sessions/task-143-session"),
       getSessionByTaskId: mock(() =>
         Promise.resolve({
-          session: "task-143-session",
+          sessionId: "task-143-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
           taskId: "143",
@@ -194,7 +194,7 @@ describe("PR Workflow with Dependencies", () => {
       }),
       getSession: mock(() =>
         Promise.resolve({
-          session: "direct-session",
+          sessionId: "direct-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
@@ -236,7 +236,7 @@ describe("PR Workflow with Dependencies", () => {
       }),
       getSession: mock(() =>
         Promise.resolve({
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
         })
       ),

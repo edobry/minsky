@@ -9,7 +9,7 @@ import {
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
-import { installDependencies } from "../../utils/package-manager";
+import { installDependencies, installNestedDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "../git";
 import { normalizeRepoName } from "../repo-utils";
 import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
@@ -208,10 +208,10 @@ Navigate to your main workspace and try again:
       // Merged PR — always hard-block (session is frozen)
       if (taskSession.prState?.mergedAt) {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
+          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
             `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
             `delete the old one first:\n\n` +
-            `  minsky session delete ${taskSession.session}\n` +
+            `  minsky session delete ${taskSession.sessionId}\n` +
             `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
         );
       }
@@ -221,8 +221,10 @@ Navigate to your main workspace and try again:
 
       // Stale/orphaned with --recover: delete the old session and proceed
       if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
-        log.cli(`Recovering abandoned session "${taskSession.session}" (liveness: ${liveness})...`);
-        await deps.sessionDB.deleteSession(taskSession.session);
+        log.cli(
+          `Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`
+        );
+        await deps.sessionDB.deleteSession(taskSession.sessionId);
         // Fall through to create new session
       } else {
         // Build a more informative error message based on liveness
@@ -233,25 +235,25 @@ Navigate to your main workspace and try again:
 
         if (liveness === "healthy") {
           throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.session}").${statusInfo}${ageInfo} ` +
+            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
               `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
           );
         }
 
         if (liveness === "idle") {
           throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") and was recently idle.${statusInfo}${ageInfo} ` +
+            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
               `Use the existing session, or delete it before starting a new one.`
           );
         }
 
         // stale or orphaned (without --recover)
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.session}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
+          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
             `To recover and start fresh:\n` +
             `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
             `Or to manually delete:\n` +
-            `  minsky session delete ${taskSession.session}`
+            `  minsky session delete ${taskSession.sessionId}`
         );
       }
     }
@@ -348,7 +350,7 @@ async function executeMutations(
 
   // Prepare session record
   const sessionRecord: SessionRecord = {
-    session: sessionId,
+    sessionId: sessionId,
     repoUrl,
     repoName: normalizeRepoName(repoUrl),
     createdAt: new Date().toISOString(),
@@ -425,6 +427,41 @@ Error: ${getErrorMessage(installError)}`
         );
       }
     }
+
+    // Install nested workspace packages (mt#1379). Sessions clone the full
+    // repo including nested packages under services/ and packages/ that
+    // have their own package.json + lockfile and are NOT root workspaces.
+    // Without this, the first test run for any nested package fails with
+    // misleading "Cannot find module" errors. Best-effort: failures here
+    // never fail session_start.
+    try {
+      const summary = await installNestedDependencies(sessionDir, { quiet });
+      if (summary.attempted > 0 && !quiet) {
+        if (summary.failed === 0) {
+          log.debug(
+            `[mt#1379] Installed ${summary.succeeded} nested package(s) under services/ or packages/`
+          );
+        } else {
+          log.cli(
+            `Warning: ${summary.failed} of ${summary.attempted} nested package install(s) failed. ` +
+              `Run install manually in: ${summary.results
+                .filter((r) => !r.success)
+                .map((r) => r.path)
+                .join(", ")}`
+          );
+        }
+      }
+    } catch (nestedError) {
+      // installNestedDependencies is contracted not to throw, but defend
+      // against future changes — a thrown error here must not fail
+      // session_start.
+      if (!quiet) {
+        log.cli(
+          `Warning: Nested-package install orchestration failed. You may need to run install manually in nested workspaces.
+Error: ${getErrorMessage(nestedError)}`
+        );
+      }
+    }
   }
 
   // Transition task status to IN-PROGRESS
@@ -466,7 +503,7 @@ Error: ${getErrorMessage(installError)}`
   }
 
   return {
-    session: sessionId,
+    sessionId: sessionId,
     repoUrl,
     repoName: normalizedRepoName,
     taskId,

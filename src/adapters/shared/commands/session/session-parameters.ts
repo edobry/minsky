@@ -682,9 +682,26 @@ export const sessionPrReviewSubmitCommandParams = {
         line: z.number().int().positive(),
         body: z.string().min(1),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
+        /**
+         * First line of a multi-line range (1-based, inclusive).
+         * Must be strictly less than `line`. Omit for single-line comments.
+         */
+        startLine: z.number().int().positive().optional(),
+        /**
+         * Diff side for the start of a multi-line range.
+         * Must equal `side` when both are provided. When only startSide is
+         * provided, `side` is inferred from it (and vice versa) — see the
+         * comments description for full defaulting rules.
+         */
+        startSide: z.enum(["LEFT", "RIGHT"]).optional(),
       })
     ),
-    description: "Optional inline line-level comments",
+    description:
+      "Optional inline line-level comments. Each comment may span a range by providing " +
+      "startLine (first line, inclusive) in addition to line (last line, inclusive). " +
+      "Side defaulting: when both side and startSide are provided they must match (or " +
+      "the comment is rejected); when only one is provided the other inherits from it; " +
+      "when both are omitted, side defaults to RIGHT.",
     required: false,
   },
   json: commonSessionParams.json,
