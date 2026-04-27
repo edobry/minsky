@@ -299,6 +299,36 @@ describe("parseUnifiedDiff", () => {
     expect(file.hunks).toHaveLength(0);
   });
 
+  test("classifies empty-file add via 'new file mode' header (no ---/+++)", () => {
+    // git emits this shape when an empty file is created.
+    const diff = [
+      "diff --git a/empty.txt b/empty.txt",
+      "new file mode 100644",
+      "index 0000000..e69de29",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("empty.txt");
+    expect(file.status).toBe("added");
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  test("classifies empty-file delete via 'deleted file mode' header (no ---/+++)", () => {
+    // git emits this shape when an empty file is deleted.
+    const diff = [
+      "diff --git a/gone.txt b/gone.txt",
+      "deleted file mode 100644",
+      "index e69de29..0000000",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("gone.txt");
+    expect(file.status).toBe("deleted");
+    expect(file.hunks).toHaveLength(0);
+  });
+
   test("emitted (path, line, side) tuples are valid GitHub createReview anchors", () => {
     // Round-trip property: every line emitted must satisfy the bounds GitHub
     // enforces on octokit.rest.pulls.createReview comments[] anchors.

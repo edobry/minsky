@@ -93,6 +93,13 @@ const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
 const BINARY_DIFFER_RE = /^Binary files /;
 const BINARY_PATCH_RE = /^GIT binary patch$/;
 
+// Match "new file mode <mode>" / "deleted file mode <mode>" extended headers.
+// These appear without the dashed-prefix header pair when a file is created
+// or deleted with empty content (no diff hunks to emit). Without them, the
+// parser cannot tell an empty-file add from a metadata-only modification.
+const NEW_FILE_MODE_RE = /^new file mode /;
+const DELETED_FILE_MODE_RE = /^deleted file mode /;
+
 // ── Main parser ───────────────────────────────────────────────────────────
 
 /**
@@ -102,6 +109,8 @@ const BINARY_PATCH_RE = /^GIT binary patch$/;
  * Handles:
  * - Pure-add files (--- /dev/null)
  * - Pure-delete files (+++ /dev/null)
+ * - Empty-file adds and deletes (no ---/+++ headers; "new file mode" /
+ *   "deleted file mode" extended headers used as the status signal)
  * - Modified files (single or multi-hunk)
  * - Modified files with no content change (mode-only changes — no ---/+++ headers)
  * - Binary modifications ("Binary files … differ" or "GIT binary patch")
@@ -109,9 +118,10 @@ const BINARY_PATCH_RE = /^GIT binary patch$/;
  * - Renames with content change (has hunks)
  * - "\ No newline at end of file" markers (skipped, not counted as lines)
  *
- * For diffs that omit --- / +++ headers (mode-only and binary diffs), the
- * file path is recovered from the "diff --git a/X b/Y" header itself; the
- * resulting DiffFile carries status "modified" with an empty hunks array.
+ * For diffs that omit --- / +++ headers (mode-only, binary, empty-file
+ * add/delete), the file path is recovered from the "diff --git a/X b/Y"
+ * header itself; the resulting DiffFile carries the inferred status with
+ * an empty hunks array.
  */
 export function parseUnifiedDiff(diffText: string): DiffFile[] {
   const lines = diffText.split("\n");
@@ -130,7 +140,8 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
 
     // ── Parse file header block ──────────────────────────────────────────
     // Capture the a/b paths from the diff --git header itself. These serve
-    // as a fallback when --- / +++ headers are missing (mode-only, binary).
+    // as a fallback when --- / +++ headers are missing (mode-only, binary,
+    // empty-file add/delete).
     const diffGitMatch = DIFF_GIT_RE.exec(line);
     const gitOldPath = diffGitMatch ? diffGitMatch[1] : undefined;
     const gitNewPath = diffGitMatch ? diffGitMatch[2] : undefined;
@@ -141,6 +152,8 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
     let newPath: string | undefined;
     let isRename = false;
     let isBinary = false;
+    let isNewFile = false;
+    let isDeletedFile = false;
     let renameFrom: string | undefined;
     let renameTo: string | undefined;
 
@@ -175,10 +188,24 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
         continue;
       }
 
+      // Empty-file add: "new file mode 100644" with no content diff.
+      // Empty-file delete: "deleted file mode 100644" with no content diff.
+      if (NEW_FILE_MODE_RE.test(hdr)) {
+        isNewFile = true;
+        i++;
+        continue;
+      }
+      if (DELETED_FILE_MODE_RE.test(hdr)) {
+        isDeletedFile = true;
+        i++;
+        continue;
+      }
+
       i++;
     }
 
-    // Read --- and +++ headers (absent for mode-only and binary diffs)
+    // Read --- and +++ headers (absent for mode-only, binary, and empty-file
+    // add/delete diffs).
     const minusLine = lines[i] ?? "";
     if (i < lines.length && minusLine.startsWith("--- ")) {
       oldPath = stripGitPrefix(minusLine.slice(4).split("\t")[0] ?? "");
@@ -190,8 +217,12 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       i++;
     }
 
-    // Determine status. Falls back to the diff --git header paths when
-    // --- / +++ were absent (mode-only changes, binary diffs).
+    // Determine status. Precedence:
+    //   1. rename (extended headers) — wins over everything else.
+    //   2. /dev/null in --- or +++ — explicit add/delete with content.
+    //   3. new file mode / deleted file mode — empty-file add/delete signal,
+    //      used when --- /+++ are absent.
+    //   4. modified — including mode-only and binary cases.
     let status: DiffFileStatus;
     let filePath: string;
     let fileOldPath: string | undefined;
@@ -201,13 +232,17 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       filePath = renameTo;
       fileOldPath = renameFrom;
     } else if (oldPath === "/dev/null") {
-      // New file
       status = "added";
       filePath = newPath ?? gitNewPath ?? "";
     } else if (newPath === "/dev/null") {
-      // Deleted file
       status = "deleted";
       filePath = oldPath ?? gitOldPath ?? "";
+    } else if (isNewFile) {
+      status = "added";
+      filePath = gitNewPath ?? gitOldPath ?? "";
+    } else if (isDeletedFile) {
+      status = "deleted";
+      filePath = gitOldPath ?? gitNewPath ?? "";
     } else {
       // Modified — including mode-only and binary cases where ---/+++ are absent.
       status = "modified";
