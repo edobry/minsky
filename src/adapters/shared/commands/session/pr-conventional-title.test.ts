@@ -18,6 +18,20 @@ describe("stripTaskIdPrefix", () => {
     expect(stripTaskIdPrefix("mt-1265: foo")).toBe("foo");
   });
 
+  // mt#1265 R3 BLOCKING fix: any 2+-letter project prefix is supported, not just mt
+  it("strips md#N: prefix (any 2+-letter project code)", () => {
+    expect(stripTaskIdPrefix("md#409: foo")).toBe("foo");
+  });
+
+  it("strips gh#N: prefix", () => {
+    expect(stripTaskIdPrefix("gh#42: foo")).toBe("foo");
+  });
+
+  it("strips uppercase variants (case-insensitive)", () => {
+    expect(stripTaskIdPrefix("MT#1265: foo")).toBe("foo");
+    expect(stripTaskIdPrefix("MD-409: foo")).toBe("foo");
+  });
+
   it("leaves bare descriptions unchanged", () => {
     expect(stripTaskIdPrefix("foo")).toBe("foo");
   });
@@ -221,5 +235,65 @@ describe("composeConventionalTitle", () => {
     }
     expect(caught).toBeInstanceOf(ValidationError);
     expect((caught as ValidationError).message).toContain("feat:");
+  });
+
+  // mt#1265 R3 BLOCKING fix: regex must support all repo task-ID prefix forms,
+  // not just mt#. Previously md#409 titles slipped past stripping and produced
+  // duplicated prefixes.
+  it("strips md#N: prefix from title to avoid duplication (any 2+-letter project code)", () => {
+    const result = composeConventionalTitle({
+      type: "feat",
+      title: "md#409: implement session pr open",
+      taskId: "md#409",
+    });
+    expect(result).toBe("feat(md#409): implement session pr open");
+  });
+
+  it("rejects mismatched md# title prefix vs supplied taskId", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({
+        type: "feat",
+        title: "md#1266: foo",
+        taskId: "md#409",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const msg = (caught as ValidationError).message;
+    expect(msg).toContain("1266");
+    expect(msg).toContain("md#409");
+  });
+
+  // mt#1265 R3 NON-BLOCKING: error message should echo the user's original
+  // prefix form (e.g. "mt-1265:"), not a normalized "#digits" rendering.
+  it("mismatch error echoes the user's original prefix form", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({
+        type: "feat",
+        title: "mt-9999: foo",
+        taskId: "mt#1265",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const msg = (caught as ValidationError).message;
+    expect(msg).toContain("mt-9999:");
+  });
+
+  // mt#1265 R3 NON-BLOCKING: empty-title error wording adapts to context
+  it("empty-title error mentions trimming when no taskId is supplied", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({ type: "feat", title: "   " });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const msg = (caught as ValidationError).message;
+    expect(msg).toContain("trimming whitespace");
   });
 });

@@ -6,12 +6,22 @@ import { ValidationError } from "../../../../errors/index";
 
 // Allow leading whitespace so titles like `"  mt#1265: foo"` are detected and
 // stripped — without `\s*` the strip + mismatch checks silently fail.
-const TASK_ID_PREFIX_RE = /^\s*(?:mt#|#|mt-)(\d+):\s*/i;
+//
+// Capture groups:
+//   1. The original prefix substring (e.g. "mt#1265:", "md#409:", "#1265:") —
+//      used by mismatch errors to echo the form the user actually supplied.
+//   2. The numeric digits — used to compare against the supplied taskId.
+//
+// The letter-prefix branch accepts ANY 2+-letter project code followed by `#`
+// or `-` (e.g. mt#, md#, gh#, mt-) so the helper isn't hardcoded to a single
+// project namespace. Bare `#N:` is also accepted (project-less task ID form).
+const TASK_ID_PREFIX_RE = /^\s*((?:[a-z]{2,}[#-]|#)(\d+):)\s*/i;
 
 /**
  * Strip a leading task-ID prefix from a title string.
- * Handles forms: `mt#N:`, `#N:`, `mt-N:` (with optional whitespace before
- * the prefix and after the colon).
+ * Handles any 2+-letter project prefix followed by `#` or `-` (mt#, md#, gh#,
+ * mt-, etc.) plus the bare `#N:` form, with optional whitespace before the
+ * prefix and after the colon.
  *
  * Note: this helper always strips. Callers that should preserve user-intended
  * prefix context (e.g. when no taskId is supplied) must guard the call site —
@@ -19,6 +29,7 @@ const TASK_ID_PREFIX_RE = /^\s*(?:mt#|#|mt-)(\d+):\s*/i;
  *
  * @example
  * stripTaskIdPrefix("mt#1265: foo")     // => "foo"
+ * stripTaskIdPrefix("md#409: foo")      // => "foo"
  * stripTaskIdPrefix("  #1265: foo")     // => "foo"
  * stripTaskIdPrefix("mt-1265: foo")     // => "foo"
  * stripTaskIdPrefix("foo")              // => "foo"
@@ -28,13 +39,35 @@ export function stripTaskIdPrefix(title: string): string {
 }
 
 /**
- * Return the numeric digits of a leading task-ID prefix in `title`, or null
- * if there is no such prefix. Used by `composeConventionalTitle` to detect
- * mismatch against the supplied `taskId`.
+ * Result of inspecting a leading task-ID prefix in a title.
+ * - `digits`: the numeric portion (used for taskId-digit-comparison)
+ * - `original`: the matched prefix substring including the colon (e.g.
+ *   `"md#409:"`) — used by error messages so users see the form they typed.
+ */
+export interface TaskIdPrefixMatch {
+  digits: string;
+  original: string;
+}
+
+/**
+ * Return the digits + original-form of a leading task-ID prefix in `title`,
+ * or null if there is no such prefix.
+ */
+export function extractTaskIdPrefix(title: string): TaskIdPrefixMatch | null {
+  const match = title.match(TASK_ID_PREFIX_RE);
+  if (!match) return null;
+  const original = match[1];
+  const digits = match[2];
+  if (!original || !digits) return null;
+  return { digits, original };
+}
+
+/**
+ * Backwards-compatible wrapper that returns just the digits portion.
+ * Prefer `extractTaskIdPrefix` for new callers that need the original form.
  */
 export function extractTaskIdDigits(title: string): string | null {
-  const match = title.match(TASK_ID_PREFIX_RE);
-  return match?.[1] ?? null;
+  return extractTaskIdPrefix(title)?.digits ?? null;
 }
 
 /**
@@ -63,14 +96,16 @@ export function composeConventionalTitle(input: {
   // leading `#1266:` prefix erases potentially intentional context. The
   // conventional-prefix rejection below still fires for `feat: ...`-style
   // titles, just not for `#N: ...` ones.
-  const titlePrefixDigits = extractTaskIdDigits(title);
+  const titlePrefix = extractTaskIdPrefix(title);
   let strippedTitle: string;
   if (taskId) {
-    if (titlePrefixDigits) {
+    if (titlePrefix) {
       const taskIdDigits = taskId.match(/\d+/)?.[0] ?? "";
-      if (titlePrefixDigits !== taskIdDigits) {
+      if (titlePrefix.digits !== taskIdDigits) {
+        // Echo the original prefix form (e.g. "mt-1265:") so the error matches
+        // what the user actually typed, not a normalized "#digits" rendering.
         throw new ValidationError(
-          `Title task-ID prefix (#${titlePrefixDigits}) does not match supplied taskId (${taskId}). ` +
+          `Title task-ID prefix \`${titlePrefix.original}\` does not match supplied taskId (${taskId}). ` +
             `Either remove the prefix from the title or correct the taskId.`
         );
       }
@@ -80,13 +115,13 @@ export function composeConventionalTitle(input: {
     strippedTitle = title.trim();
   }
 
-  // Reject titles that are empty after stripping/trimming — `mt#1265:` and
-  // `mt#1265:    ` would otherwise produce dangling-colon output like
-  // `feat(mt#1265):` with no description.
+  // Reject titles that are empty after stripping/trimming. Tailor the error so
+  // it doesn't claim a prefix was removed when none was (e.g. user supplied
+  // only whitespace and no taskId).
   if (strippedTitle.length === 0) {
-    throw new ValidationError(
-      "Title cannot be empty after removing the task-ID prefix. Provide a description."
-    );
+    const detail =
+      taskId && titlePrefix ? "after removing the task-ID prefix" : "after trimming whitespace";
+    throw new ValidationError(`Title cannot be empty ${detail}. Provide a description.`);
   }
 
   // Compute the prefix that will be auto-added so the error message can name it
