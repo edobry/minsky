@@ -125,6 +125,47 @@ as a blocking gap and propose the decomposition.
 
 Single-phase tasks pass this criterion automatically.
 
+#### Gate criterion (g) — No parallel work in flight
+
+Before a task can be READY, verify no other in-flight work covers the same files, signatures,
+or symptoms. Three required checks; **any hit is a blocking gap** until resolved (the user
+chooses: wait, coordinate, reframe scope, or explicitly acknowledge).
+
+Rationale: this gate operationalizes `feedback_check_parallel_work_before_decomposing`.
+Three recurrences in three days proved memory-only enforcement insufficient (mt#1192/mt#1199,
+mt#1068/mt#1240, mt#1261/mt#1281, plus the meta-incident: mt#1299 vs mt#1305 itself).
+
+Run all three:
+
+1. **Path/file-collision check** — for each file/path listed in the spec's
+   `## Scope` → `In scope` section:
+
+   - Call `mcp__github__list_pull_requests` with `state: "open"` and inspect titles/branches.
+   - For high-suspicion matches, call `mcp__github__pull_request_read` with `method: "get_diff"`
+     to confirm the PR actually touches the path.
+   - Also check recent merges: `mcp__minsky__git_log` with the file path filter for the
+     last 7 days — a fix that just landed on `main` is just as bad as one in flight.
+
+2. **Signature search** — for the spec's signature phrases (specific identifier names,
+   error message strings, env var names, migration slot numbers):
+
+   - Call `mcp__minsky__tasks_search` with each phrase. Inspect any IN-REVIEW, IN-PROGRESS,
+     or recently-DONE matches.
+   - For bug tasks, also `mcp__minsky__git_log` with `--grep=<phrase>` against `main` for
+     recently-merged commits.
+
+3. **Parent/sibling enumeration** — if the task has a parent:
+   - Walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children` to enumerate the
+     full sibling/descendant set.
+   - For each related task ID, call `mcp__minsky__session_pr_list` with `status: "open"`
+     and `task: "mt#X"`; surface any open PR.
+
+If any check hits, surface findings as a blocking gap with task/PR IDs and the specific
+overlap (file, phrase, or sibling). Do NOT promote to READY until the user resolves the
+overlap.
+
+If no check hits, this criterion passes.
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
