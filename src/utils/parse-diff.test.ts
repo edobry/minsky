@@ -254,6 +254,51 @@ describe("parseUnifiedDiff", () => {
     expect(parseUnifiedDiff("")).toEqual([]);
   });
 
+  test("infers path from diff --git header for mode-only changes (no ---/+++)", () => {
+    // git emits this shape when only the file mode changes — no content diff.
+    const diff = [
+      "diff --git a/scripts/run.sh b/scripts/run.sh",
+      "old mode 100644",
+      "new mode 100755",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("scripts/run.sh");
+    expect(file.status).toBe("modified");
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  test("handles binary-files-differ markers and recovers the path", () => {
+    const diff = [
+      "diff --git a/assets/logo.png b/assets/logo.png",
+      FILE_INDEX,
+      "Binary files a/assets/logo.png and b/assets/logo.png differ",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("assets/logo.png");
+    expect(file.status).toBe("modified");
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  test("handles GIT binary patch markers and recovers the path", () => {
+    const diff = [
+      "diff --git a/data.bin b/data.bin",
+      FILE_INDEX,
+      "GIT binary patch",
+      "delta 42",
+      "zcmZpZ4i#deletedeltadata",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("data.bin");
+    expect(file.status).toBe("modified");
+    expect(file.hunks).toHaveLength(0);
+  });
+
   test("emitted (path, line, side) tuples are valid GitHub createReview anchors", () => {
     // Round-trip property: every line emitted must satisfy the bounds GitHub
     // enforces on octokit.rest.pulls.createReview comments[] anchors.

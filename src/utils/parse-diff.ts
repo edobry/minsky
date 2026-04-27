@@ -81,6 +81,18 @@ const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
 const RENAME_FROM_RE = /^rename from (.+)$/;
 const RENAME_TO_RE = /^rename to (.+)$/;
 
+// Match the diff --git header; captures both a- and b-side paths.
+// Used as a fallback when --- / +++ headers are absent (mode-only changes,
+// binary diffs, etc.). Non-greedy on the first capture so paths-with-spaces
+// are split correctly on the " b/" boundary.
+const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
+
+// Match binary-diff markers — two flavors emitted by git:
+//   "Binary files a/foo and b/foo differ"
+//   "GIT binary patch"
+const BINARY_DIFFER_RE = /^Binary files /;
+const BINARY_PATCH_RE = /^GIT binary patch$/;
+
 // ── Main parser ───────────────────────────────────────────────────────────
 
 /**
@@ -91,9 +103,15 @@ const RENAME_TO_RE = /^rename to (.+)$/;
  * - Pure-add files (--- /dev/null)
  * - Pure-delete files (+++ /dev/null)
  * - Modified files (single or multi-hunk)
+ * - Modified files with no content change (mode-only changes — no ---/+++ headers)
+ * - Binary modifications ("Binary files … differ" or "GIT binary patch")
  * - Renames without content change (no hunks)
  * - Renames with content change (has hunks)
  * - "\ No newline at end of file" markers (skipped, not counted as lines)
+ *
+ * For diffs that omit --- / +++ headers (mode-only and binary diffs), the
+ * file path is recovered from the "diff --git a/X b/Y" header itself; the
+ * resulting DiffFile carries status "modified" with an empty hunks array.
  */
 export function parseUnifiedDiff(diffText: string): DiffFile[] {
   const lines = diffText.split("\n");
@@ -111,11 +129,18 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
     }
 
     // ── Parse file header block ──────────────────────────────────────────
+    // Capture the a/b paths from the diff --git header itself. These serve
+    // as a fallback when --- / +++ headers are missing (mode-only, binary).
+    const diffGitMatch = DIFF_GIT_RE.exec(line);
+    const gitOldPath = diffGitMatch ? diffGitMatch[1] : undefined;
+    const gitNewPath = diffGitMatch ? diffGitMatch[2] : undefined;
+
     i++;
 
     let oldPath: string | undefined;
     let newPath: string | undefined;
     let isRename = false;
+    let isBinary = false;
     let renameFrom: string | undefined;
     let renameTo: string | undefined;
 
@@ -142,10 +167,18 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
         continue;
       }
 
+      // Binary diffs emit either "Binary files … differ" or "GIT binary patch"
+      // in the extended-headers region (no --- /+++ follows).
+      if (BINARY_DIFFER_RE.test(hdr) || BINARY_PATCH_RE.test(hdr)) {
+        isBinary = true;
+        i++;
+        continue;
+      }
+
       i++;
     }
 
-    // Read --- and +++ headers
+    // Read --- and +++ headers (absent for mode-only and binary diffs)
     const minusLine = lines[i] ?? "";
     if (i < lines.length && minusLine.startsWith("--- ")) {
       oldPath = stripGitPrefix(minusLine.slice(4).split("\t")[0] ?? "");
@@ -157,7 +190,8 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       i++;
     }
 
-    // Determine status
+    // Determine status. Falls back to the diff --git header paths when
+    // --- / +++ were absent (mode-only changes, binary diffs).
     let status: DiffFileStatus;
     let filePath: string;
     let fileOldPath: string | undefined;
@@ -169,14 +203,31 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
     } else if (oldPath === "/dev/null") {
       // New file
       status = "added";
-      filePath = newPath ?? "";
+      filePath = newPath ?? gitNewPath ?? "";
     } else if (newPath === "/dev/null") {
       // Deleted file
       status = "deleted";
-      filePath = oldPath ?? "";
+      filePath = oldPath ?? gitOldPath ?? "";
     } else {
+      // Modified — including mode-only and binary cases where ---/+++ are absent.
       status = "modified";
-      filePath = newPath ?? oldPath ?? "";
+      filePath = newPath ?? oldPath ?? gitNewPath ?? gitOldPath ?? "";
+    }
+
+    // Binary diffs have no hunks and don't fall through to the hunk-parser
+    // loop. Finalize them here so consumers see a coherent path even though
+    // there's nothing to anchor a comment to.
+    if (isBinary) {
+      const fileEntry: DiffFile = {
+        path: filePath,
+        status,
+        hunks: [],
+      };
+      if (fileOldPath !== undefined) {
+        fileEntry.oldPath = fileOldPath;
+      }
+      files.push(fileEntry);
+      continue;
     }
 
     // ── Parse hunks ──────────────────────────────────────────────────────
