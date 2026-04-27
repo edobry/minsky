@@ -353,10 +353,16 @@ async function handleReviewPosted(
  * `lastSeen.lastConclusion`.
  *
  * Fires when the overall conclusion (derived from all check runs) differs from
- * the last-seen value. Uses a simple majority: "failure" beats "success"; if
- * any check_run has conclusion "failure" or "timed_out", the overall is
- * "failure"; otherwise if all completed runs are "success" or "skipped" the
- * overall is "success"; "pending" means at least one run is still in progress.
+ * the last-seen value and is not `"pending"` or `"unknown"`. The persisted
+ * `lastConclusion` value is always one of: `"success"`, `"failure"`,
+ * `"neutral"`, `"cancelled"`, `"action_required"`, or `"stale"`.
+ *
+ * Note on flattening: `timed_out` check-run conclusions are folded into
+ * `"failure"` by `deriveOverallConclusion`, so `"timed_out"` never surfaces
+ * here. Similarly, `skipped` runs contribute to `"success"` or `"neutral"`
+ * aggregates and never appear as a standalone stored conclusion.
+ *
+ * See `deriveOverallConclusion` for full aggregation precedence rules.
  */
 async function handleCheckStatusChanged(
   watch: PrWatch,
@@ -390,19 +396,58 @@ async function handleCheckStatusChanged(
 /**
  * Derive a single overall conclusion string from a list of check runs.
  *
- * - "pending"  — at least one run has no conclusion yet (still in progress)
- * - "failure"  — at least one run concluded with failure or timed_out
- * - "success"  — all completed runs concluded success or skipped
- * - "unknown"  — no runs present
+ * Handles the full GitHub Checks API `check_run.conclusion` enum. `stale`
+ * entries are filtered out before aggregation — a stale result means "a
+ * re-run was triggered and this result is invalidated"; only the fresh runs
+ * should determine the overall conclusion. Conclusions among the remaining
+ * (fresh) runs are aggregated by precedence (highest priority first):
+ *
+ *  1. No runs present → `"unknown"`
+ *  2. Any `null` conclusion  → `"pending"` (still in progress)
+ *  3. Filter stale entries. If only stale entries remain → `"stale"`.
+ *  4. Any `failure` or `timed_out` among fresh runs → `"failure"`
+ *     (`timed_out` is flattened to `failure`; it is never stored as-is)
+ *  5. Any `cancelled` among fresh runs → `"cancelled"`
+ *  6. Any `action_required` among fresh runs → `"action_required"`
+ *  7. All fresh runs are `success` or `skipped` → `"success"`
+ *     (`skipped` contributes to success; it is never stored as-is)
+ *  8. All fresh runs are `neutral` (or mix of neutral/success/skipped) → `"neutral"`
+ *  9. Anything else → `"unknown"`
+ *
+ * The filter in `handleCheckStatusChanged` only fires on state changes where the
+ * current conclusion is not `"pending"` or `"unknown"`. All other conclusions
+ * (including `cancelled`, `neutral`, `action_required`, `stale`) do fire.
  */
 function deriveOverallConclusion(checkRuns: GithubCheckRun[]): string {
   if (checkRuns.length === 0) return "unknown";
 
   const conclusions = checkRuns.map((r) => r.conclusion);
 
+  // Rule 2: any null → pending (still in progress)
   if (conclusions.some((c) => c === null)) return "pending";
-  if (conclusions.some((c) => c === "failure" || c === "timed_out")) return "failure";
-  if (conclusions.every((c) => c === "success" || c === "skipped")) return "success";
+
+  // Rule 3: filter stale entries — stale means the result is invalidated by a re-run.
+  // Fresh runs determine the overall conclusion.
+  const fresh = conclusions.filter((c) => c !== "stale");
+  if (fresh.length === 0) return "stale"; // all entries were stale
+
+  // Rule 4: any failure or timed_out → failure (timed_out is flattened to failure)
+  if (fresh.some((c) => c === "failure" || c === "timed_out")) return "failure";
+
+  // Rule 5: any cancelled → cancelled
+  if (fresh.some((c) => c === "cancelled")) return "cancelled";
+
+  // Rule 6: any action_required → action_required
+  if (fresh.some((c) => c === "action_required")) return "action_required";
+
+  // Rule 7: all success or skipped → success (skipped contributes to success)
+  if (fresh.every((c) => c === "success" || c === "skipped")) return "success";
+
+  // Rule 8: all neutral (or mix of neutral with success/skipped) → neutral
+  if (fresh.every((c) => c === "neutral" || c === "success" || c === "skipped")) {
+    return "neutral";
+  }
+
   return "unknown";
 }
 
