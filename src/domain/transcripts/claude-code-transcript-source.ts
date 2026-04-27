@@ -30,6 +30,13 @@ const RETAINED_TYPES = new Set(["user", "assistant"]);
 
 const HARNESS = "claude_code";
 
+/**
+ * Default glob matches the Minsky checkout under `~/Projects/minsky` for the
+ * single-developer context (`edobry`); Claude Code derives its per-project
+ * directory name by replacing slashes in the absolute project path with `-`.
+ * Consumers operating from a different checkout location must pass their own
+ * `projectDirGlob` via `ClaudeCodeTranscriptSourceOptions`.
+ */
 const DEFAULT_PROJECT_DIR_GLOB = "-Users-edobry-Projects-minsky*";
 
 const SUBAGENTS_DIR = "subagents";
@@ -48,7 +55,11 @@ interface JsonlLine {
 export interface ClaudeCodeTranscriptSourceOptions {
   /** Parent dir of per-project transcript folders. Defaults to `~/.claude/projects`. */
   claudeProjectsDir?: string;
-  /** Glob (relative to claudeProjectsDir) selecting project dirs to scan. */
+  /**
+   * Glob (relative to `claudeProjectsDir`) selecting project dirs to scan.
+   * Defaults to the Minsky checkout for this codebase's single-developer
+   * context; override when adopting outside that checkout.
+   */
   projectDirGlob?: string;
 }
 
