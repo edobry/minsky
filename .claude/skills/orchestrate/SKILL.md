@@ -58,7 +58,14 @@ Then start the session:
 Before dispatching implementation:
 
 - **Check scope**: If the task has multiple phases, create subtasks first (`mcp__minsky__tasks_create` with `parent: "<task-id>"`). Each subtask gets its own session.
-- **Parallel-work guard**: This is owned by `/plan-task` gate criterion (g) at the PLANNING → READY transition, with a re-check at `/implement-task` §0a before `session_start`. Do **not** duplicate the check here — if the task is READY, `/plan-task` already ran the full gate; if you're about to dispatch `/implement-task`, the §0a spot-check will run. Cite `feedback_check_parallel_work_before_decomposing` for rationale.
+- **Parallel-work guard (required)**: orchestrate's documented flow goes from `session_start` (§2) directly to subagent dispatch (§4) without invoking `/plan-task` or `/implement-task`, so the canonical gate (`/plan-task` gate criterion (g)) and spot-check (`/implement-task` §0a) are NOT guaranteed to have run on this path. Run a minimal local check before dispatch:
+
+  1. `mcp__github__list_pull_requests` with `state: "open"` — scan titles/branches for any PR whose scope plausibly overlaps the task's `## Scope` → `In scope` files. Spot-check suspicious matches with `mcp__github__pull_request_read` method `get_diff`.
+  2. `mcp__minsky__git_log` for the last 24h — check for any merge that touched files this task plans to modify.
+  3. If the task has a parent, walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children`; for each related task ID, check `mcp__minsky__session_pr_list` with `status: "open"` and `task: "<related-id>"`.
+
+  If any check hits, halt before dispatch and surface findings (task/PR ID, file overlap, recommendation: wait / coordinate / reframe / proceed with explicit acknowledgment). Cite `feedback_check_parallel_work_before_decomposing` for rationale. The full gate lives in `/plan-task` and `/implement-task`; this is the local floor for the orchestrate-direct path.
+
 - **Verify spec freshness**: Task specs may be stale. Verify file:line references against the current codebase before starting.
 
 ### 4. Implementation dispatch

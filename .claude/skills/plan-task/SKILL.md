@@ -157,8 +157,8 @@ Run all three:
 3. **Parent/sibling enumeration** — if the task has a parent:
    - Walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children` to enumerate the
      full sibling/descendant set.
-   - For each related task ID, check `mcp__minsky__session_pr_list --status open` (filter
-     by `task: "mt#X"`) and surface any open PR.
+   - For each related task ID, call `mcp__minsky__session_pr_list` with `status: "open"`
+     and `task: "mt#X"`; surface any open PR.
 
 If any check hits, surface findings as a blocking gap with task/PR IDs and the specific
 overlap (file, phrase, or sibling). Do NOT promote to READY until the user resolves the
