@@ -8,7 +8,7 @@
 import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
+import type { ApprovalInfo, ApprovalStatus, RawReviewEntry } from "./approval-types";
 import { handleOctokitError } from "./github-error-handler";
 import {
   type GitHubContext,
@@ -171,22 +171,24 @@ export async function getPullRequestApprovalStatus(
         : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     });
 
-    // Get PR details and reviews in parallel
-    const [prResponse, reviewsResponse] = await Promise.all([
+    // Get PR details and ALL reviews (paginated to avoid the ~30 default cap).
+    // listReviews without pagination silently drops reviews beyond the first page;
+    // a minsky-reviewer[bot] review on page 2+ would be missed by the waiver gate.
+    const [prResponse, reviews] = await Promise.all([
       octokit.rest.pulls.get({
         owner: gh.owner,
         repo: gh.repo,
         pull_number: prNumber,
       }),
-      octokit.rest.pulls.listReviews({
+      octokit.paginate(octokit.rest.pulls.listReviews, {
         owner: gh.owner,
         repo: gh.repo,
         pull_number: prNumber,
+        per_page: 100,
       }),
     ]);
 
     const pr = prResponse.data;
-    const reviews = reviewsResponse.data;
 
     const approvals = reviews.filter((r) => r.state === "APPROVED");
     const rejections = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
@@ -213,6 +215,14 @@ export async function getPullRequestApprovalStatus(
       (requiredApprovals > 0 && approvals.length >= requiredApprovals && rejections.length === 0);
     const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
 
+    const rawReviews: RawReviewEntry[] = reviews.map((review) => ({
+      reviewId: String(review.id),
+      reviewerLogin: review.user?.login || "unknown",
+      state: review.state,
+      submittedAt: review.submitted_at || "",
+      body: review.body || undefined,
+    }));
+
     return {
       isApproved,
       canMerge,
@@ -225,6 +235,7 @@ export async function getPullRequestApprovalStatus(
       })),
       requiredApprovals,
       prState: (pr.state as "open" | "closed" | "merged" | "draft") || "open",
+      rawReviews,
       metadata: {
         github: {
           statusChecks: [],

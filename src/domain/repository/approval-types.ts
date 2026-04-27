@@ -67,6 +67,24 @@ export interface ApprovalInfo {
 }
 
 /**
+ * A single raw review entry as returned by the platform API.
+ * Used by waiver eligibility checks that need to inspect review state
+ * beyond what the summarized ApprovalInfo captures.
+ */
+export interface RawReviewEntry {
+  /** Platform review ID (string for uniformity) */
+  reviewId: string;
+  /** GitHub login of the reviewer */
+  reviewerLogin: string;
+  /** Review state: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING */
+  state: string;
+  /** ISO timestamp when the review was submitted */
+  submittedAt: string;
+  /** Optional review body text */
+  body?: string;
+}
+
+/**
  * Current approval status of a pull request
  */
 export interface ApprovalStatus {
@@ -94,6 +112,13 @@ export interface ApprovalStatus {
    * Current state of the pull request
    */
   prState?: "open" | "closed" | "merged" | "draft";
+
+  /**
+   * Raw review entries from the platform API.
+   * Used by waiver eligibility checks to inspect review state beyond
+   * the summarized approvals list (e.g. COMMENTED, DISMISSED states).
+   */
+  rawReviews?: RawReviewEntry[];
 
   /**
    * Platform-specific data (alternative to metadata for direct platform info)
