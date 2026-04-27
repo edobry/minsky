@@ -125,6 +125,8 @@ The tool automatically:
 
 After PR creation, do NOT continue committing to the session branch. Switch to main workspace if further work is needed.
 
+**Next steps once the PR is open:** the merge flow is owned by `/review-pr` (review submission, including the same-App-identity APPROVE block, stale CHANGES_REQUESTED dismissal, and reviewer-bot webhook-miss diagnosis in step 7/7a) and `/orchestrate` (in-flight branch-divergence checks during multi-round iteration, plus the Error recovery table for `session_update` abort and reviewer-bot silence). If iteration spans multiple rounds, expect to consult those skills.
+
 ## PR types
 
 | Type       | Use for                                |

@@ -161,6 +161,38 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 - Use `event: "COMMENT"` if you are the PR author, if the review is from the same identity that opened the PR, or if there are only non-blocking issues.
 - Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria.
 
+**Self-authored bot PRs (Tier-3 default flow):** When the PR was opened by `minsky-ai[bot]` (label `authorship/co-authored`), the merge will not converge through APPROVE submitted by the same App identity. Plan for this from the start, not as an exception:
+
+- The cross-identity reviewer (`minsky-reviewer[bot]`) is the only in-tool path to a non-self APPROVE.
+- If the reviewer bot's APPROVE never lands within branch protection's required-review window, the merge requires either a human APPROVE in the GitHub UI or a `gh api PUT /repos/.../pulls/N/merge` bypass. See `feedback_self_authored_pr_merge_constraints` and `feedback_gh_api_bypass` in memory for the bypass pattern (use `merge_method=merge`, never `squash`).
+- mt#1065 is the planned fix for review-time token routing that will make this automatic.
+
+**Stale CHANGES_REQUESTED dismissal:** When `minsky-reviewer[bot]` (or any prior reviewer) left a `CHANGES_REQUESTED` review on a commit that is no longer HEAD and the BLOCKING finding has been addressed in a subsequent commit, dismiss the stale review with:
+
+```
+mcp__minsky__session_pr_review_dismiss(reviewId, message)
+```
+
+The `message` must name what fixed the finding and which commit landed it ("addressed in commit `<sha>`: <one-line summary>"). The pre-merge gate counts dismissed reviews as resolved. Note: GitHub's dismiss endpoint returns `422 "Can not dismiss a commented pull request review"` for `COMMENT`-event reviews — only `APPROVE` and `REQUEST_CHANGES` reviews can be dismissed. For COMMENT reviews, no action is needed (they don't gate the merge).
+
+### 7a. Reviewer-bot silence on subsequent commits
+
+After pushing a follow-up commit that addresses BLOCKING findings, `minsky-reviewer[bot]` should fire a new review within ~5 minutes. If it doesn't, that's almost certainly the **webhook-miss-on-subsequent-push** reliability class (mt#1110-tracked; instances on mt#677, mt#748, PR #763).
+
+**Diagnosis steps:**
+
+1. Confirm the latest push reached GitHub: `mcp__minsky__session_pr_get` and check `head.sha` matches your local HEAD.
+2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks`. If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue.
+3. Wait at most 5 minutes. Do not loop indefinitely.
+
+**Unblock options** (in preference order):
+
+- **Empty commit to wake the webhook**: push an empty commit (`session_commit` with `noFiles: true` and `noStage: true`) and wait again. Often resolves the miss.
+- **Bypass merge** via `gh api PUT /repos/.../pulls/N/merge` (`merge_method=merge`, with audit message naming the substantive fixes that landed). Only after BLOCKING findings are addressed and the remaining gap is the missing reviewer signal.
+- **Track the instance** in `project_mt1110_calibration_data.md` so the calibration work has data points.
+
+The webhook-miss class is distinct from the same-App-identity APPROVE block above: same-App is a _structural_ gate (when `minsky-ai[bot]` is both author and reviewer, GitHub rejects the APPROVE — see step 7 event selection), webhook-miss is a _reliability_ gate against the cross-identity `minsky-reviewer[bot]` failing to fire. Recognize which one you're hitting before choosing a recovery path.
+
 ### 8. Review body format
 
 ```markdown
