@@ -104,6 +104,65 @@ describe("classifyPRScope — test-only", () => {
   });
 });
 
+describe("classifyPRScope — test-only (expanded TEST_FILE_PATTERN, mt#1188 BLOCKING 2)", () => {
+  test("__tests__/ directory anywhere in path is test-only", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["src/__tests__/foo.ts", "src/__tests__/bar.ts"],
+      })
+    ).toBe("test-only");
+  });
+
+  test("nested __tests__/ (e.g. packages/core/__tests__/util.ts) is test-only", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["packages/core/__tests__/util.ts"],
+      })
+    ).toBe("test-only");
+  });
+
+  test("test/ at root (not nested) is test-only", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["test/integration/foo.ts"],
+      })
+    ).toBe("test-only");
+  });
+
+  test("case-insensitive: .TEST.ts extension is test-only", () => {
+    // Unlikely in practice but the pattern now carries the i flag.
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["src/foo.TEST.ts"],
+      })
+    ).toBe("test-only");
+  });
+
+  test(".test.mjs file is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["scripts/util.test.mjs"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test(".spec.cjs file is test-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["scripts/util.spec.cjs"] })).toBe(
+      "test-only"
+    );
+  });
+
+  test("__tests__/ file mixed with code file is NOT test-only", () => {
+    const result = classifyPRScope({
+      diff: NORMAL_DIFF,
+      filesChanged: ["src/__tests__/foo.ts", "src/foo.ts"],
+    });
+    expect(result).not.toBe("test-only");
+  });
+});
+
 describe("classifyPRScope — trivial", () => {
   test("2 changed lines, 1 file, non-docs/test → trivial", () => {
     expect(classifyPRScope({ diff: TRIVIAL_DIFF, filesChanged: ["src/foo.ts"] })).toBe("trivial");
