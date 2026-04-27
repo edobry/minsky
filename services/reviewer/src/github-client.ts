@@ -54,6 +54,14 @@ export interface PullRequestContext {
    * Fetched from the pulls.listFiles endpoint alongside the diff.
    */
   filesChanged: string[];
+  /**
+   * Authoritative changed-files count from the PR API (`pulls.get` →
+   * `changed_files`). The classifier compares this against
+   * `filesChanged.length` to detect listFiles truncation (cap exceeded, error
+   * fallback, etc.) and downgrade to `normal` rather than classify on a
+   * partial view.
+   */
+  changedFilesCount: number;
 }
 
 /**
@@ -164,6 +172,7 @@ export async function fetchPullRequestContext(
     diff,
     headSha: pr.head.sha,
     filesChanged,
+    changedFilesCount: pr.changed_files,
   };
 }
 

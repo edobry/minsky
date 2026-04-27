@@ -40,16 +40,31 @@ const TEST_FILE_PATTERN =
 const TRIVIAL_MARKER = "<!-- minsky:trivial -->";
 
 /**
+ * Match a unified-diff file header line.
+ *
+ * Real headers always have the form `+++ a/path`, `+++ b/path`, or
+ * `+++ /dev/null` (and the `---` equivalents for the removed side). Anchoring
+ * on the `[ab]/` or `/dev/null` suffix prevents the previous `startsWith("+++")`
+ * check from accidentally skipping content lines whose payload itself begins
+ * with `+++` or `---` (e.g., Hugo frontmatter, fenced metadata, ASCII rules)
+ * — those would render as `++++++` / `++++…` in unified diff and undercount.
+ */
+const ADDED_HEADER_RE = /^\+\+\+ (?:[ab]\/|\/dev\/null)/;
+const REMOVED_HEADER_RE = /^--- (?:[ab]\/|\/dev\/null)/;
+
+/**
  * Count changed lines (additions + deletions) from a unified diff string.
  *
- * Only counts lines that start with `+` or `-` (but not `+++`/`---` file
- * header lines). This matches the same set of lines `git diff --stat` counts.
+ * Only counts lines that start with `+` or `-` and are NOT file-header lines.
+ * Header detection uses ADDED_HEADER_RE / REMOVED_HEADER_RE so synthetic
+ * content lines starting with `+++`/`---` are counted correctly. Matches the
+ * same set of lines `git diff --stat` counts.
  */
 function countChangedLines(diff: string): number {
   let count = 0;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) count++;
-    else if (line.startsWith("-") && !line.startsWith("---")) count++;
+    if (line.startsWith("+") && !ADDED_HEADER_RE.test(line)) count++;
+    else if (line.startsWith("-") && !REMOVED_HEADER_RE.test(line)) count++;
   }
   return count;
 }
@@ -64,8 +79,16 @@ export function classifyPRScope(input: {
   diff: string;
   filesChanged: string[];
   prBody?: string;
+  /**
+   * The PR API's `changed_files` count, surfaced from `pulls.get`. When
+   * present and greater than `filesChanged.length`, the listFiles fetch was
+   * truncated (cap exceeded, error fallback, or upstream pagination edge)
+   * and classifying on the partial view is unsafe — we fall through to
+   * `normal`. Optional so existing callers without the count remain valid.
+   */
+  changedFilesCount?: number;
 }): PRScope {
-  const { diff, filesChanged, prBody } = input;
+  const { diff, filesChanged, prBody, changedFilesCount } = input;
 
   // Opt-out marker: override everything else.
   if (prBody && prBody.includes(TRIVIAL_MARKER)) {
@@ -74,6 +97,14 @@ export function classifyPRScope(input: {
 
   // With no files, default to normal — we can't make a reliable call.
   if (filesChanged.length === 0) {
+    return "normal";
+  }
+
+  // Pagination/truncation safeguard: if we received fewer files than the PR
+  // API reports, the listFiles view is partial. A docs-only or test-only
+  // verdict on a truncated list could mis-classify a PR whose later pages
+  // contain code. Fall through to conservative `normal`.
+  if (typeof changedFilesCount === "number" && filesChanged.length < changedFilesCount) {
     return "normal";
   }
 
