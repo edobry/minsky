@@ -45,7 +45,7 @@ const WORKDIR = "/mock/session/workdir";
 
 function makeSessionRecord(): SessionRecord {
   return {
-    session: SESSION_ID,
+    sessionId: SESSION_ID,
     repoName: "minsky",
     repoUrl: "https://github.com/edobry/minsky.git",
     createdAt: new Date().toISOString(),
