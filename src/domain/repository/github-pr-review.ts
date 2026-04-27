@@ -27,7 +27,16 @@ export interface ReviewComment {
   line: number;
   /** Review comment body */
   body: string;
-  /** Which side of a diff hunk to attach the comment to (default: RIGHT, or startSide when only startSide is provided) */
+  /**
+   * Which side of a diff hunk to attach the comment to.
+   *
+   * Defaulting:
+   *  - If startSide is provided alone, side inherits from startSide.
+   *  - Otherwise side defaults to RIGHT (the head/incoming side).
+   *
+   * Use side: "LEFT" to comment on a deletion or pre-change code; the default
+   * RIGHT will not anchor to a deleted line and GitHub may reject the payload.
+   */
   side?: "LEFT" | "RIGHT";
   /**
    * First line of a multi-line comment range (1-based, inclusive).
