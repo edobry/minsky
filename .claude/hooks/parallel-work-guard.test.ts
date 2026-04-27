@@ -5,7 +5,7 @@ import {
   findOverlappingFiles,
   formatBlockMessage,
   runParallelWorkChecks,
-  type ParallelWorkCheckDeps,
+  parseGitHubRemoteUrl,
   type ParallelWorkCheckInput,
   type ParallelWorkCollision,
 } from "./parallel-work-guard";
@@ -464,5 +464,62 @@ Implement a PreToolUse hook...
     expect(warnings).toHaveLength(0);
     expect(files).toContain(".claude/skills/plan-task/SKILL.md");
     expect(files).toContain(".claude/skills/implement-task/SKILL.md");
+  });
+
+  it("handles ## Scope: heading with trailing colon", () => {
+    // Some specs use `## Scope:` with a trailing colon. The loosened regex
+    // (mt#1362 reviewer fix) tolerates this variant.
+    const colonHeadingSpec = `
+## Scope:
+
+**In scope:**
+- \`src/foo.ts\`
+
+**Out of scope:**
+- nothing
+`;
+    const { files, warnings } = extractInScopeFiles(colonHeadingSpec);
+    expect(warnings).toHaveLength(0);
+    expect(files).toContain("src/foo.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseGitHubRemoteUrl — pure URL-parsing branches
+// ---------------------------------------------------------------------------
+
+describe("parseGitHubRemoteUrl", () => {
+  it("parses SSH form with .git suffix", () => {
+    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("parses SSH form without .git suffix", () => {
+    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS form with .git suffix", () => {
+    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS form without .git suffix", () => {
+    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS form with trailing slash", () => {
+    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky/")).toBe("edobry/minsky");
+  });
+
+  it("trims surrounding whitespace from input", () => {
+    expect(parseGitHubRemoteUrl("  git@github.com:edobry/minsky.git\n")).toBe("edobry/minsky");
+  });
+
+  it("returns null for non-GitHub URLs", () => {
+    expect(parseGitHubRemoteUrl("git@gitlab.com:owner/repo.git")).toBeNull();
+    expect(parseGitHubRemoteUrl("https://bitbucket.org/owner/repo")).toBeNull();
+  });
+
+  it("returns null for empty or malformed input", () => {
+    expect(parseGitHubRemoteUrl("")).toBeNull();
+    expect(parseGitHubRemoteUrl("not a url")).toBeNull();
   });
 });

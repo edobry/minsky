@@ -19,8 +19,39 @@
 // @see mt#1305 — Tier-2 skill-step enforcement (floor)
 // @see feedback_check_parallel_work_before_decomposing — four-incident history
 
-import { execSync, readInput, writeOutput } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+
+// ---------------------------------------------------------------------------
+// PATH-augmented execSync
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrapper around Bun.spawnSync that prepends common homebrew/system binary
+ * directories to PATH so that `gh` and `git` resolve correctly regardless of
+ * the shell PATH that launched Claude Code. Used for all gh/git calls in this
+ * hook (fetchOpenPrs, fetchRecentMerges, detectDefaultBranch, detectRepoSlug).
+ */
+function execWithPath(
+  cmd: string[],
+  options?: { cwd?: string; timeout?: number }
+): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+  const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
+  const result = Bun.spawnSync(cmd, {
+    cwd: options?.cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: options?.timeout,
+    env: { ...process.env, PATH: pathPrefix },
+  });
+  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
+  return {
+    exitCode: result.exitCode ?? 1,
+    stdout: result.stdout.toString().trim(),
+    stderr: result.stderr.toString().trim(),
+    timedOut,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,8 +97,10 @@ export function extractInScopeFiles(specContent: string): {
 } {
   const warnings: string[] = [];
 
-  // Find ## Scope section
-  const scopeMatch = specContent.match(/^##\s+Scope\s*$/m);
+  // Find ## Scope section. Loosened from strict `^##\s+Scope\s*$` to allow an
+  // optional trailing colon (`## Scope:`) since some specs in this repo use
+  // that variant. Still anchors at start-of-line and requires `## ` prefix.
+  const scopeMatch = specContent.match(/^##\s+Scope:?\s*$/m);
   if (!scopeMatch) {
     warnings.push("No '## Scope' section found in spec — parallel-work check skipped");
     return { files: [], warnings };
@@ -157,39 +190,53 @@ interface PrInfo {
 }
 
 /**
- * Fetch open PRs from the repository. Returns a list of {number, title, headRefName}.
+ * Fetch open PRs from the repository using paginated gh api calls.
+ * The --paginate flag fetches all pages; jq decomposes the array into one
+ * JSON object per line so we can parse them individually.
+ *
+ * Throws on non-zero exit so the caller (runParallelWorkChecks) can surface
+ * the failure as a warning rather than silently returning [].
  */
 export function fetchOpenPrs(repo: string): PrInfo[] {
-  const result = execSync([
+  const result = execWithPath([
     "gh",
-    "pr",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--json",
-    "number,title,headRefName",
-    "--limit",
-    "50",
+    "api",
+    `/repos/${repo}/pulls?state=open&per_page=100`,
+    "--paginate",
+    "--jq",
+    ".[] | {number, title, headRefName: .head.ref}",
   ]);
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
+  if (result.exitCode !== 0) {
+    throw new Error(`gh api /pulls exited ${result.exitCode}: ${result.stderr || result.stdout}`);
+  }
+
+  if (!result.stdout.trim()) {
     return [];
   }
 
-  try {
-    return JSON.parse(result.stdout) as PrInfo[];
-  } catch {
-    return [];
+  const prs: PrInfo[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      prs.push(JSON.parse(trimmed) as PrInfo);
+    } catch {
+      // Skip malformed lines
+    }
   }
+  return prs;
 }
 
 /**
  * Fetch the list of changed files for a PR number.
+ *
+ * Unlike fetchOpenPrs, this function does NOT throw on non-zero exit — a
+ * single PR lookup failure should not abort the whole sweep. Instead it
+ * pushes to the provided warnings array and returns [].
  */
-export function fetchPrFiles(repo: string, prNumber: number): string[] {
-  const result = execSync([
+export function fetchPrFiles(repo: string, prNumber: number, warnings: string[] = []): string[] {
+  const result = execWithPath([
     "gh",
     "pr",
     "view",
@@ -202,7 +249,14 @@ export function fetchPrFiles(repo: string, prNumber: number): string[] {
     ".files[].path",
   ]);
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
+  if (result.exitCode !== 0) {
+    warnings.push(
+      `Could not fetch files for PR #${prNumber}: gh exited ${result.exitCode}: ${result.stderr || result.stdout}`
+    );
+    return [];
+  }
+
+  if (!result.stdout.trim()) {
     return [];
   }
 
@@ -244,12 +298,16 @@ export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]):
  *
  * `fetchPrs` and `fetchFiles` are injectable so tests can exercise the
  * collision/no-collision paths without live `gh` calls.
+ *
+ * The `warnings` array is threaded through to fetchFiles so that individual
+ * per-PR lookup failures are surfaced without aborting the sweep.
  */
 export function checkOpenPrs(
   input: ParallelWorkCheckInput,
   skipBranch?: string,
   fetchPrs: (repo: string) => PrInfo[] = fetchOpenPrs,
-  fetchFiles: (repo: string, prNumber: number) => string[] = fetchPrFiles
+  fetchFiles: (repo: string, prNumber: number, warnings: string[]) => string[] = fetchPrFiles,
+  warnings: string[] = []
 ): ParallelWorkCollision[] {
   const prs = fetchPrs(input.repo);
   const collisions: ParallelWorkCollision[] = [];
@@ -260,7 +318,7 @@ export function checkOpenPrs(
       continue;
     }
 
-    const prFiles = fetchFiles(input.repo, pr.number);
+    const prFiles = fetchFiles(input.repo, pr.number, warnings);
     const overlapping = findOverlappingFiles(input.inScopeFiles, prFiles);
 
     if (overlapping.length > 0) {
@@ -289,6 +347,14 @@ interface GitLogEntry {
 /**
  * Fetch commits on main in the last `hours` hours that touch any of the
  * in-scope paths. Uses `git log --name-only` for file list.
+ *
+ * Strategy: follow main's first-parent lineage (so we don't recurse into
+ * merged branches' individual commits) AND include merge commits with
+ * `-m --diff-merges=first-parent` so the merge commit reports the file set
+ * brought in by the merged PR. The repo's policy is to use merge-method
+ * merges (see docs/pr-workflow.md §Merge method policy), so excluding
+ * merges (`--no-merges`) was missing exactly the just-landed PR commits
+ * this sweep is meant to catch.
  */
 export function fetchRecentMerges(
   repoDir: string,
@@ -306,9 +372,11 @@ export function fetchRecentMerges(
     "log",
     "origin/main",
     `--since=${since}`,
+    "--first-parent",
+    "-m",
+    "--diff-merges=first-parent",
     "--name-only",
     "--format=COMMIT:%H %s",
-    "--no-merges",
   ]);
 
   if (result.exitCode !== 0 || !result.stdout.trim()) {
@@ -486,6 +554,48 @@ export function fetchTaskSpec(taskId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Repo derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an `owner/repo` slug out of a GitHub remote URL. Returns null if the
+ * URL doesn't look like a GitHub remote.
+ *
+ * Supports both SSH (`git@github.com:owner/repo.git`) and HTTPS
+ * (`https://github.com/owner/repo[.git]`) forms. Pure function — no I/O.
+ */
+export function parseGitHubRemoteUrl(url: string): string | null {
+  const trimmed = url.trim();
+
+  // SSH form: git@github.com:owner/repo[.git]
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+
+  // HTTPS form: https://github.com/owner/repo[.git]
+  const httpsMatch = trimmed.match(/^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  if (httpsMatch) {
+    return httpsMatch[1];
+  }
+
+  return null;
+}
+
+/**
+ * Derive the GitHub `owner/repo` slug from the `origin` remote of the given
+ * git working directory. Returns null if the remote can't be read or doesn't
+ * look like a GitHub URL.
+ */
+export function deriveRepoFromGit(repoDir: string): string | null {
+  const result = execSync(["git", "-C", repoDir, "remote", "get-url", "origin"]);
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    return null;
+  }
+  return parseGitHubRemoteUrl(result.stdout);
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
@@ -538,8 +648,18 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const repo = "edobry/minsky";
   const repoDir = input.cwd;
+
+  // Derive repo slug from git remote rather than hardcoding. If derivation
+  // fails (non-github remote, or no remote), warn and allow — this is the
+  // same fail-open posture as the rest of the hook.
+  const repo = deriveRepoFromGit(repoDir);
+  if (!repo) {
+    process.stdout.write(
+      `[parallel-work-guard] Could not derive owner/repo from git remote — check skipped\n`
+    );
+    process.exit(0);
+  }
 
   // Derive the task's own branch name so we skip it in the open-PR sweep
   const normalizedId = taskId.replace("#", "-").toLowerCase();
