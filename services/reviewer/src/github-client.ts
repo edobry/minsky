@@ -56,13 +56,78 @@ export interface PullRequestContext {
   filesChanged: string[];
 }
 
+/**
+ * Hard limit on the number of changed files fetched per PR to avoid runaway
+ * pagination on PRs that touch thousands of files (GitHub caps at 3000 files
+ * per PR but the classifier's heuristics work on far fewer). When the cap is
+ * hit we return [] so the scope classifier falls through to conservative
+ * `normal` scope rather than classifying on partial data.
+ */
+export const MAX_FILES_FETCHED = 1000;
+
+/**
+ * Fetch the list of files changed by a PR, following Link headers via
+ * octokit.paginate. Returns an array of filename strings.
+ *
+ * Safety cap: if more than MAX_FILES_FETCHED files are returned the cap is
+ * exceeded and [] is returned (scope classifier falls through to normal).
+ * On any error an empty array is also returned; both cases emit a structured
+ * JSON log so the failure is observable in the service logs.
+ *
+ * Exported for tests.
+ */
+export async function fetchListFiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<string[]> {
+  let allFiles: Array<{ filename: string }>;
+  try {
+    allFiles = await octokit.paginate(octokit.rest.pulls.listFiles, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_listfiles_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+      })
+    );
+    return [];
+  }
+
+  if (allFiles.length > MAX_FILES_FETCHED) {
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_files_cap_exceeded",
+        owner,
+        repo,
+        pr: prNumber,
+        fileCount: allFiles.length,
+        cap: MAX_FILES_FETCHED,
+      })
+    );
+    return [];
+  }
+
+  return allFiles.map((f) => f.filename);
+}
+
 export async function fetchPullRequestContext(
   octokit: Octokit,
   owner: string,
   repo: string,
   prNumber: number
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, filesResponse] = await Promise.all([
+  const [prResponse, diffResponse, filesChanged] = await Promise.all([
     octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
     octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
       owner,
@@ -70,25 +135,7 @@ export async function fetchPullRequestContext(
       pull_number: prNumber,
       mediaType: { format: "diff" },
     }),
-    // Fetch changed file paths for the scope classifier (mt#1188).
-    // per_page=300 covers the vast majority of PRs; GitHub caps at 3000 files
-    // per PR, but the classifier's heuristics work well enough on the first
-    // 300 — the scope check is advisory, not security-critical.
-    //
-    // Fall back to an empty list on failure (rare 422 on >3000-file PRs,
-    // transient 5xx). The classifier then produces conservative `normal`
-    // scope and the review still runs — matching the "advisory, not
-    // security-critical" framing above. The failure is observable via the
-    // warning log.
-    octokit.rest.pulls
-      .listFiles({ owner, repo, pull_number: prNumber, per_page: 300 })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[mt#1188] pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal): ${message}`
-        );
-        return { data: [] as Array<{ filename: string }> };
-      }),
+    fetchListFiles(octokit, owner, repo, prNumber),
   ]);
 
   const pr = prResponse.data;
@@ -96,7 +143,6 @@ export async function fetchPullRequestContext(
   // string at runtime even though the typed response is PullRequest. String()
   // safely coerces the runtime value without the as-unknown double cast.
   const diff = String(diffResponse.data);
-  const filesChanged = filesResponse.data.map((f) => f.filename);
 
   // Head repository coords may differ from base coords for forked PRs.
   // pr.head.repo is null in rare cases (deleted fork); fall back to base.

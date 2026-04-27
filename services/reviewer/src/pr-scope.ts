@@ -33,7 +33,8 @@ export type ScopeBucket = "trivial-or-docs" | "test-only" | "normal";
 const DOCS_FILE_PATTERN =
   /^(docs\/|.*\.md$|.*\.mdx$|README(\.[a-z]+)?$|CHANGELOG(\.[a-z]+)?$|LICENSE(\.[a-z]+)?$)/i;
 
-const TEST_FILE_PATTERN = /^(tests\/|.*\.test\.(ts|tsx|js|jsx)$|.*\.spec\.(ts|tsx|js|jsx)$)/;
+const TEST_FILE_PATTERN =
+  /^(tests\/|test\/|.*__tests__\/|.*\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$)/i;
 
 /** Opt-out marker in PR body: force the result to `trivial`. */
 const TRIVIAL_MARKER = "<!-- minsky:trivial -->";

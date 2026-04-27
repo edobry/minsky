@@ -18,7 +18,7 @@
 import { describe, test, expect, mock, spyOn } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
-import { fetchPriorReviews } from "./github-client";
+import { fetchPriorReviews, fetchListFiles, MAX_FILES_FETCHED } from "./github-client";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -241,5 +241,123 @@ describe("fetchPriorReviews", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchListFiles tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal fake Octokit for fetchListFiles tests.
+ * fetchListFiles calls octokit.paginate(octokit.rest.pulls.listFiles, ...).
+ */
+function buildListFilesOctokit(
+  paginateImpl: (endpoint: unknown, options: unknown) => Promise<Array<{ filename: string }>>
+): Octokit {
+  return {
+    paginate: mock(paginateImpl),
+    rest: {
+      pulls: {
+        listFiles: mock(async () => ({ data: [] })),
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchListFiles", () => {
+  test("calls octokit.paginate (not listFiles directly) to follow Link headers", async () => {
+    const octokit = buildListFilesOctokit(async () => [{ filename: "src/foo.ts" }]);
+
+    await fetchListFiles(octokit, "owner", "repo", 42);
+
+    expect((octokit.paginate as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+    // listFiles itself must NOT be called directly
+    expect((octokit.rest.pulls.listFiles as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+  });
+
+  test("returns filenames from all pages on success", async () => {
+    const octokit = buildListFilesOctokit(async () => [
+      { filename: "src/foo.ts" },
+      { filename: "src/bar.ts" },
+      { filename: "README.md" },
+    ]);
+
+    const result = await fetchListFiles(octokit, "owner", "repo", 1);
+    expect(result).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
+  });
+
+  test("returns [] and emits pr_scope_listfiles_error structured log on paginate error", async () => {
+    const octokit = buildListFilesOctokit(async () => {
+      throw new Error("API rate limit exceeded");
+    });
+
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const result = await fetchListFiles(octokit, "owner", "repo", 7);
+
+      expect(result).toEqual([]);
+      // Must emit a structured JSON log with event: pr_scope_listfiles_error
+      const logCalls = logSpy.mock.calls;
+      const errorLog = logCalls
+        .map((args) => {
+          try {
+            return JSON.parse(args[0] as string);
+          } catch {
+            return null;
+          }
+        })
+        .find((obj) => obj?.event === "pr_scope_listfiles_error");
+      expect(errorLog).not.toBeNull();
+      expect(errorLog?.pr).toBe(7);
+      expect(errorLog?.error).toContain("rate limit");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("returns [] and emits pr_scope_files_cap_exceeded when file count exceeds MAX_FILES_FETCHED", async () => {
+    // Create MAX_FILES_FETCHED + 1 files to exceed the cap.
+    const tooManyFiles = Array.from({ length: MAX_FILES_FETCHED + 1 }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+    }));
+    const octokit = buildListFilesOctokit(async () => tooManyFiles);
+
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const result = await fetchListFiles(octokit, "owner", "repo", 99);
+
+      expect(result).toEqual([]);
+      // Must emit pr_scope_files_cap_exceeded structured log
+      const logCalls = logSpy.mock.calls;
+      const capLog = logCalls
+        .map((args) => {
+          try {
+            return JSON.parse(args[0] as string);
+          } catch {
+            return null;
+          }
+        })
+        .find((obj) => obj?.event === "pr_scope_files_cap_exceeded");
+      expect(capLog).not.toBeNull();
+      expect(capLog?.pr).toBe(99);
+      expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
+      expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("returns filenames (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
+    // MAX_FILES_FETCHED files — exactly at the limit, not over it.
+    const exactlyAtCap = Array.from({ length: MAX_FILES_FETCHED }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+    }));
+    const octokit = buildListFilesOctokit(async () => exactlyAtCap);
+
+    const result = await fetchListFiles(octokit, "owner", "repo", 1);
+    // Should return filenames, not fall back to []
+    expect(result).toHaveLength(MAX_FILES_FETCHED);
+    expect(result[0]).toBe("src/file0.ts");
   });
 });
