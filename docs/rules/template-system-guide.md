@@ -40,7 +40,7 @@ Generates rules with CLI command syntax:
 
 ```bash
 minsky tasks list [--all <value>] [--status <value>] [--filter <value>]
-minsky session start [--name <value>] [--task <value>] [--description <value>]
+minsky session start [--sessionId <value>] [--task <value>] [--description <value>]
 ```
 
 **Use when:**

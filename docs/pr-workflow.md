@@ -45,13 +45,13 @@ minsky git summary [options]
 - `--repo <path>`: Path to the repository (defaults to current directory)
 - `--branch <branch>`: Base branch to compare against (defaults to main/master)
 - `--debug`: Enable debug output
-- `--session <session>`: Session to create PR for
+- `--sessionId <session>`: Session to create PR for
 - `--json`: Output as JSON
 
 **Example:**
 
 ```bash
-minsky git summary --session my-feature
+minsky git summary --sessionId my-feature
 ```
 
 This will generate a formatted PR description with:
@@ -108,12 +108,12 @@ minsky git prepare-pr [options]
 - `--title <title>`: PR title (if not provided, will be generated)
 - `--body <body>`: PR body (if not provided, will be generated)
 - `--debug`: Enable debug output
-- `--session <session>`: Session to create PR for
+- `--sessionId <session>`: Session to create PR for
 
 **Example:**
 
 ```bash
-minsky git prepare-pr --session my-feature --title "Add new feature X"
+minsky git prepare-pr --sessionId my-feature --title "Add new feature X"
 ```
 
 This command:
@@ -137,7 +137,7 @@ minsky git merge-pr [options]
 - `--repo <path>`: Path to the repository
 - `--pr-branch <branch>`: PR branch to merge (required)
 - `--base-branch <branch>`: Base branch to merge into (defaults to main)
-- `--session <session>`: Session the PR branch is for
+- `--sessionId <session>`: Session the PR branch is for
 
 **Example:**
 
@@ -162,14 +162,14 @@ minsky session approve [options]
 
 **Options:**
 
-- `--session <session>`: Name of the session to approve
+- `--sessionId <session>`: Name of the session to approve
 - `--task <taskId>`: Task ID associated with the session
 - `--repo <path>`: Repository path
 
 **Example:**
 
 ```bash
-minsky session approve --session my-feature
+minsky session approve --sessionId my-feature
 ```
 
 This command:
@@ -224,13 +224,13 @@ If you prefer more control:
 1. Generate a PR summary:
 
    ```bash
-   minsky git summary --session my-feature
+   minsky git summary --sessionId my-feature
    ```
 
 2. Manually create a PR branch:
 
    ```bash
-   minsky git prepare-pr --session my-feature --title "Custom PR title"
+   minsky git prepare-pr --sessionId my-feature --title "Custom PR title"
    ```
 
 3. Manually merge when ready:
