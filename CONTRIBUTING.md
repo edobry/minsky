@@ -376,7 +376,7 @@ pattern, and the DI container design.
 There is no `CHANGELOG.md` in this repo. The project's record stack lives in
 the following surfaces, each with a different scope:
 
-- **Tasks** (Minsky DB) — every change is scoped to a task with a spec, success
+- **Tasks** (Minsky DB) — every change is scoped to a task, with a spec, success
   criteria, acceptance tests, and status history. Browse via
   `mcp__minsky__tasks_list` / `mcp__minsky__tasks_get` or the CLI equivalent.
 - **Pull requests** (GitHub) — per-change reviewer audit and merge events,
