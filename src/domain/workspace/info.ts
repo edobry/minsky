@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve, sep, relative, isAbsolute } from "path";
 import { parse } from "yaml";
 import { readFileSync } from "fs";
 import { getSessionsDir } from "../../utils/paths";
@@ -64,18 +64,25 @@ export function detectSessionWorkspace(cwd: string): {
   const normalizedCwd = resolve(cwd);
   const normalizedSessionsDir = resolve(sessionsDir);
 
-  // Check if cwd is directly a session directory or a subdirectory of one
-  if (
-    normalizedCwd.startsWith(`${normalizedSessionsDir}/`) ||
-    normalizedCwd === normalizedSessionsDir
-  ) {
-    // Extract the session ID — it is the first path segment after the sessions dir
-    const relative = normalizedCwd.slice(normalizedSessionsDir.length + 1);
-    const sessionId = relative.split("/")[0];
-    return { isSession: true, sessionId: sessionId || undefined };
+  // Use path.relative for separator-agnostic membership check.
+  // If `relative` starts with ".." or is absolute, cwd is outside the sessions dir.
+  const rel = relative(normalizedSessionsDir, normalizedCwd);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    return { isSession: false };
   }
 
-  return { isSession: false };
+  // Empty rel means cwd === sessionsDir — that's the root, not a session workspace.
+  if (rel === "") {
+    return { isSession: false };
+  }
+
+  // Extract first segment as sessionId using the platform path separator.
+  const sessionId = rel.split(sep)[0];
+  if (!sessionId) {
+    return { isSession: false };
+  }
+
+  return { isSession: true, sessionId };
 }
 
 /**
