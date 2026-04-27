@@ -86,6 +86,13 @@ export interface ToolDefinition {
   description: string;
   inputSchema?: object;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * When true, this tool performs external side effects (e.g. GitHub PR
+   * create/edit/merge, force-push, session-update). The server will refuse
+   * to execute it when drift is detected (loaded commit !== workspace HEAD).
+   * Read-only tools leave this unset or set it to false.
+   */
+  mutating?: boolean;
 }
 
 interface ResourceDefinition {
@@ -534,6 +541,21 @@ export class MinskyMCPServer {
         }
 
         try {
+          // Drift gate: refuse mutating tools when the server is stale.
+          // Read-only tools (mutating === false or unset) are allowed through.
+          if (tool.mutating && this.stalenessDetector.isCurrentlyStale()) {
+            const staleMessage = this.stalenessDetector.getStaleWarning() ?? "";
+            // Extract commit hashes from the stale message for a clear error
+            const loadedMatch = /commit ([0-9a-f]{7,8})/i.exec(staleMessage);
+            const headMatch = /now at ([0-9a-f]{7,8})/i.exec(staleMessage);
+            const loaded = loadedMatch ? loadedMatch[1] : "unknown";
+            const head = headMatch ? headMatch[1] : "unknown";
+            throw new Error(
+              `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
+                `Reconnect via /mcp before retrying mutating operations.`
+            );
+          }
+
           const result = await tool.handler(request.params.arguments || {});
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)

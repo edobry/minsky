@@ -39,6 +39,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
     name: "commit",
     description: "Commit and push changes within a session workspace",
     parameters: sessionCommitCommandParams,
+    mutating: true,
     execute: withErrorLogging("session.commit", async (params: Record<string, unknown>) => {
       const { sessionCommit } = await import("../../../../domain/session/session-commands");
       const deps = await getDeps();
@@ -332,6 +333,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     name: "approve",
     description: "Approve a session pull request (does not merge)",
     parameters: sessionApproveCommandParams,
+    mutating: true,
     execute: withErrorLogging(
       "session.pr.approve",
       async (params: Record<string, unknown>, _context) => {
@@ -380,6 +382,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
     name: "merge",
     description: "Merge an approved session pull request",
     parameters: sessionApproveCommandParams, // Reuse same params
+    mutating: true,
     execute: withErrorLogging(
       "session.pr.merge",
       async (params: Record<string, unknown>, context) => {

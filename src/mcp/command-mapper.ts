@@ -120,6 +120,11 @@ export class CommandMapper {
       args: Record<string, unknown>,
       context?: ProjectContext
     ) => Promise<string | Record<string, unknown>>;
+    /**
+     * When true, the tool performs external side effects and will be refused
+     * by the server when drift is detected (loaded commit !== workspace HEAD).
+     */
+    mutating?: boolean;
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -143,6 +148,7 @@ export class CommandMapper {
       name: normalizedName,
       description: command.description,
       inputSchema,
+      mutating: command.mutating,
       handler: async (args) => {
         try {
           log.debug("Executing MCP command", {
