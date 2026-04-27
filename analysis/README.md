@@ -1,3 +1,11 @@
+**Historical research (Sept 2025).** This directory captures the strategic
+backend-architecture analysis that produced the GitHub Issues interim
+decision. The current project state has evolved since (multi-backend
+task system with Minsky DB + GitHub Issues, Postgres persistence on
+Railway). Read these files as a snapshot of design reasoning at the
+time, not as a description of how the system works today. For current
+architecture, see `docs/architecture.md` and `docs/architecture/`.
+
 # Task Backend Architecture Analysis - Executive Summary
 
 ## 🎯 The Final Decision
