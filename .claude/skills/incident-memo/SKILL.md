@@ -26,9 +26,9 @@ Invoke at the **end** of a working session, AFTER the per-incident retrospective
 
 - **Volume threshold**: the session produced 2 or more retrospectives, OR merged 3 or more PRs, OR closed/filed 5 or more tasks in a single working window.
 - **Explicit user request**: "write incident memo", "synthesize today", "meta-retrospective", "what's the lesson from today", "day postmortem".
-- **Cross-pattern signal**: even with 1 retrospective, if the day had multiple incidents that share a structural property (e.g., all three were silent-failure operations), the synthesis is worth capturing.
+- **Cross-pattern signal (explicit invocation only)**: even with 1 retrospective, if the day had 2 or more incidents that share a structural property (e.g., they were all silent-failure operations), the synthesis is worth capturing — but only when the user invokes the skill explicitly. Do not auto-trigger on this signal alone, since one retrospective rarely produces enough evidence to confirm the pattern.
 
-Do NOT auto-trigger this skill on a single retrospective; that's the retrospective skill's domain. Do NOT skip per-incident retrospectives in favor of an end-of-day memo — both layers are needed.
+Do NOT auto-trigger this skill on a single retrospective with the volume threshold unmet — that's the retrospective skill's domain. Do NOT skip per-incident retrospectives in favor of an end-of-day memo — both layers are needed.
 
 ## Distinction from retrospective skill
 
