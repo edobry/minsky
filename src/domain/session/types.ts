@@ -274,6 +274,12 @@ export interface SessionPrResult {
   title?: string;
   body?: string;
   url?: string; // PR URL from repository backend
+  /**
+   * Receipt of the IN-REVIEW status transition attempted post-PR-create.
+   * See `StatusTransitionReceipt` in `session-pr-operations.ts` for the
+   * full taxonomy of skip/success/failure cases (mt#1378).
+   */
+  statusTransition: import("./session-pr-operations").StatusTransitionReceipt;
   // Session information for CLI formatting
   session?: {
     sessionId: string;

@@ -171,6 +171,79 @@ export async function updateSessionImpl(
       await deps.gitService.fetchLatest!(workdir, remote || "origin");
       log.debug("Latest changes fetched");
 
+      // Pre-push safety check: detect if origin/<currentBranch> has advanced beyond local.
+      // If it has, a push would silently orphan the remote commits.
+      // We refuse with a clear message rather than allow silent data loss.
+      // Skip when force=true (caller accepts the risk) or noPush=true (no push will happen anyway).
+      if (!force && !noPush) {
+        // Resolve the actual upstream ref. If the branch has an upstream configured (via
+        // `git branch --set-upstream-to`), use it directly. Fall back to
+        // `${remote || "origin"}/${currentBranch}` only when no upstream is set.
+        let remoteRef: string;
+        try {
+          const upstreamOutput = await deps.gitService.execInRepository(
+            workdir,
+            "git rev-parse --abbrev-ref --symbolic-full-name @{u}"
+          );
+          remoteRef = upstreamOutput.trim();
+          log.debug("Resolved upstream ref from branch tracking config", { remoteRef });
+        } catch (_upstreamError) {
+          // No upstream configured — fall back to the conventional ref name
+          remoteRef = `${remote || "origin"}/${currentBranch}`;
+          log.debug("No upstream configured, using conventional remote ref", { remoteRef });
+        }
+
+        // Use an explicit existence check instead of relying on rev-list error messages.
+        // `git show-ref --verify` exits non-zero when the ref does not exist.
+        // This avoids fragility around git-version-specific error message wording.
+        let remoteRefExists = false;
+        try {
+          // Convert tracking ref (e.g. "origin/branch") to the full refspec for show-ref
+          const refspecForShowRef = remoteRef.includes("/")
+            ? `refs/remotes/${remoteRef}`
+            : `refs/remotes/origin/${remoteRef}`;
+          await deps.gitService.execInRepository(
+            workdir,
+            `git show-ref --verify --quiet ${refspecForShowRef}`
+          );
+          remoteRefExists = true;
+        } catch (_existenceError) {
+          // Non-zero exit means the ref does not exist — this is the new-branch / first-push path.
+          remoteRefExists = false;
+          log.debug("Remote ref does not exist yet (new branch / first push), skipping check", {
+            remoteRef,
+          });
+        }
+
+        if (remoteRefExists) {
+          // The remote ref exists — check whether it has advanced beyond local.
+          // Any rev-list error here is genuinely unexpected, so we rethrow.
+          const divergenceOutput = await deps.gitService.execInRepository(
+            workdir,
+            `git rev-list --left-right --count ${currentBranch}...${remoteRef}`
+          );
+          const parts = divergenceOutput.trim().split(/\s+/);
+          const remoteAheadPart = parts.length >= 2 ? parts[1] : undefined;
+          const remoteAheadCount =
+            remoteAheadPart !== undefined ? parseInt(remoteAheadPart, 10) : 0;
+          if (!isNaN(remoteAheadCount) && remoteAheadCount > 0) {
+            // Remote has commits the local does not — pushing would orphan them.
+            const localSha = await deps.gitService.execInRepository(workdir, "git rev-parse HEAD");
+            const remoteSha = await deps.gitService.execInRepository(
+              workdir,
+              `git rev-parse ${remoteRef}`
+            );
+            throw new MinskyError(
+              `Remote branch ${remoteRef} has advanced ${remoteAheadCount} commit(s) beyond ` +
+                `local ${currentBranch}. ` +
+                `Local HEAD: ${localSha.trim()}, remote HEAD: ${remoteSha.trim()}. ` +
+                `Pushing now would orphan those ${remoteAheadCount} commit(s). ` +
+                `Fetch and integrate the remote commits before re-running session_update.`
+            );
+          }
+        }
+      }
+
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
@@ -204,9 +277,10 @@ export async function updateSessionImpl(
       // ConflictDetectionService expects plain branch names and adds origin/ internally
       const normalizedBaseBranch = branchToMerge;
 
-      // Use smart session update for enhanced conflict handling (only if not forced)
+      // Use smart session update for enhanced conflict handling (only if not forced).
+      // Route through deps.gitService so tests can inject a fake implementation.
       if (!force) {
-        const updateResult = await ConflictDetectionService.smartSessionUpdate(
+        const updateResult = await deps.gitService.smartSessionUpdate(
           workdir,
           currentBranch,
           normalizedBaseBranch,
