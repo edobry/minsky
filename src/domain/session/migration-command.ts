@@ -187,7 +187,7 @@ export class SessionMigrationService {
 
     if (filter.sessionPattern) {
       const pattern = new RegExp(filter.sessionPattern);
-      filtered = filtered.filter((session) => pattern.test(session.session));
+      filtered = filtered.filter((session) => pattern.test(session.sessionId));
     }
 
     return filtered;
@@ -220,11 +220,11 @@ export class SessionMigrationService {
       }
 
       // If session ID is already a UUID, skip rename — it's already in the new format
-      if (isUuidSessionId(session.session)) {
+      if (isUuidSessionId(session.sessionId)) {
         // No rename needed
       } else if (migrated.taskId && /^[a-z-]+#\d+$/.test(migrated.taskId)) {
         // Session is legacy format; assign a new UUID as session ID
-        migrated.session = generateSessionId();
+        migrated.sessionId = generateSessionId();
         sessionIdChanged = true;
       }
 
@@ -370,8 +370,8 @@ export class SessionMigrationService {
             if (result.changes.sessionIdChanged) {
               // Primary key changed — can't use updateSession (it strips the session field).
               // Use create-new + rename-directory + delete-old pattern instead.
-              const oldId = result.original.session;
-              const newId = result.migrated.session;
+              const oldId = result.original.sessionId;
+              const newId = result.migrated.sessionId;
               const oldDir = join(sessionsDir, oldId);
               const newDir = join(sessionsDir, newId);
 
@@ -393,7 +393,7 @@ export class SessionMigrationService {
               log.debug(`Migrated DB record: ${oldId} → ${newId}`);
             } else {
               // No ID change — safe to use updateSession for other field updates
-              await this.sessionDB.updateSession(result.original.session, result.migrated);
+              await this.sessionDB.updateSession(result.original.sessionId, result.migrated);
             }
           } catch (error) {
             // Mark this result as failed if database/filesystem update fails

@@ -44,7 +44,7 @@ const MockDatabaseConstructor = mock((_path: string) =>
 const _VALID_JSON_DATA = {
   sessions: [
     {
-      session: "test-session-1",
+      sessionId: "test-session-1",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/repo.git",
       createdAt: "2023-01-01T00:00:00.000Z",

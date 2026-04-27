@@ -56,25 +56,25 @@ export class SessionWorkspaceService {
       }
 
       // Get the session directory from the session provider
-      const sessionDir = await this.sessionProvider.getSessionWorkdir(session.session);
+      const sessionDir = await this.sessionProvider.getSessionWorkdir(session.sessionId);
 
       if (!sessionDir) {
         throw new SessionNotFoundError(
           sessionId,
-          `Session directory not found for session: ${session.session}`
+          `Session directory not found for session: ${session.sessionId}`
         );
       }
 
       log.debug("Retrieved session workspace info", {
         sessionId,
-        session: session.session,
+        session: session.sessionId,
         workspaceDir: sessionDir,
         taskId: session.taskId,
       });
 
       return {
         sessionId,
-        session: session.session,
+        session: session.sessionId,
         workspaceDir: sessionDir,
         taskId: session.taskId,
       };

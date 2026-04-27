@@ -45,7 +45,7 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
-      session: "test-session",
+      sessionId: "test-session",
       repoName: "test/repo",
       createdAt: new Date().toISOString(),
       name: "test-session",
@@ -76,7 +76,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.session).toBe("test-session");
+    expect(result.sessionId).toBe("test-session");
   });
 
   test("should handle session with missing directory", async () => {
@@ -86,7 +86,7 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
-      session: "missing-session",
+      sessionId: "missing-session",
       repoName: "test/repo",
       createdAt: new Date().toISOString(),
       name: "missing-session",
@@ -114,7 +114,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.session).toBeTruthy();
+    expect(result.sessionId).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -128,7 +128,7 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
-      session: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
+      sessionId: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
       repoName: "test/repo",
       createdAt: new Date().toISOString(),
       name: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
@@ -160,7 +160,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.session).toBeTruthy();
+    expect(result.sessionId).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -171,7 +171,7 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
-      session: "force-session",
+      sessionId: "force-session",
       repoName: "test/repo",
       createdAt: new Date().toISOString(),
       name: "force-session",
@@ -199,6 +199,6 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.session).toBeTruthy();
+    expect(result.sessionId).toBeTruthy();
   });
 });

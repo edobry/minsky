@@ -156,7 +156,7 @@ The task exists but has no associated session to approve.
         taskIdToUse
       );
     }
-    sessionIdToUse = session.session;
+    sessionIdToUse = session.sessionId;
   }
 
   // Try to auto-detect session from repo path if no session ID or task is provided
