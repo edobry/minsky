@@ -127,8 +127,8 @@ mt#1335 (parent)
 
 In progress as of 2026-04-27:
 
-- **PR [#831](https://github.com/edobry/minsky/pull/831)** (mt#1337) — multi-line review comments — IN-REVIEW. Initial review flagged a side-defaulting hole (caller passing `{ startLine, startSide: "LEFT", no side }` produced a mismatched payload that GitHub would reject); fix landed in commit `2416acde5` to infer `side` from `startSide` when only one is provided.
-- **PR [#835](https://github.com/edobry/minsky/pull/835)** (mt#1336) — `parsedDiff` in context — IN-REVIEW.
+- **PR [#831](https://github.com/edobry/minsky/pull/831)** (mt#1337) — multi-line review comments — IN-REVIEW. Initial review flagged a side-defaulting hole (caller passing `{ startLine, startSide: "LEFT", no side }` produced a mismatched payload that GitHub would reject); fix landed in commit `2416acde5` to infer `side` from `startSide` when only one is provided. Subsequent commits added a GitHub API doc citation and documented the LEFT-side requirement for deletions.
+- **PR [#835](https://github.com/edobry/minsky/pull/835)** (mt#1336) — `parsedDiff` in context — IN-REVIEW. Initial review flagged two BLOCKING bugs: missing path inference for mode-only changes and binary diffs that omit the unified-diff header pair. Fix in commit `d5f3097fe` extracts paths from the `diff --git` header line as a fallback and recognizes binary-diff markers, with three new tests covering the variants.
 - **PR [#838](https://github.com/edobry/minsky/pull/838)** (this ADR) — IN-REVIEW.
 
 mt#1340 (prompt update) is blocked on mt#1336 and mt#1337. The remaining tasks (mt#1341–mt#1348) are READY-able once mt#1340 is in flight; they're independently schedulable across the four layers.
