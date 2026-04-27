@@ -310,6 +310,20 @@ export const log = new Proxy({} as ReturnType<typeof createLogger>, {
   },
 }) as ReturnType<typeof createLogger>;
 
+/**
+ * TEST-ONLY: reset the cached default logger singleton so the next access
+ * re-initializes it from the current environment variables (e.g. MINSKY_LOG_MODE).
+ *
+ * Call this in test `beforeEach` hooks after mutating process.env to ensure the
+ * STRUCTURED-mode (or other mode) tests don't reuse a cached HUMAN-mode logger
+ * from earlier test suites in the same process.
+ *
+ * Do NOT call this in production code.
+ */
+export function _resetDefaultLoggerForTests(): void {
+  defaultLogger = null;
+}
+
 export const isStructuredMode = () => getDefaultLogger().isStructuredMode();
 export const isHumanMode = () => getDefaultLogger().isHumanMode();
 
