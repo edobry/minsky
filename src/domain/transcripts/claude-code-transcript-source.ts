@@ -96,7 +96,8 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
     const path = await this.locateSessionFile(agentSessionId);
     if (!path) return;
 
-    const raw = String(await fs.readFile(path, "utf-8"));
+    const raw = await safeReadFile(path);
+    if (raw === null) return;
     for (const line of raw.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -187,5 +188,18 @@ async function safeGlob(pattern: string, cwd: string): Promise<string[]> {
     return await glob(pattern, { cwd, absolute: true });
   } catch {
     return [];
+  }
+}
+
+/**
+ * Wraps `fs.readFile` in the same swallow-and-return-null pattern. A file that
+ * is deleted, rotated, or temporarily unreadable between discovery and read
+ * yields `null` instead of throwing.
+ */
+async function safeReadFile(path: string): Promise<string | null> {
+  try {
+    return String(await fs.readFile(path, "utf-8"));
+  } catch {
+    return null;
   }
 }

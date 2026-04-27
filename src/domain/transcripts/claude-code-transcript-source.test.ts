@@ -228,3 +228,28 @@ describe("ClaudeCodeTranscriptSource.discoverSessions — defensive", () => {
     expect(sessions).toEqual([]);
   });
 });
+
+describe("ClaudeCodeTranscriptSource.readSession — defensive", () => {
+  test("yields nothing when the session file is missing or unreadable", async () => {
+    // Construct a source that would resolve any agentSessionId by faking
+    // discoverSessions, then point at a path that does not exist on disk.
+    const fakePath = join(tmpdir(), "mt1350-readsession-missing-file-test.jsonl");
+    class StubSource extends ClaudeCodeTranscriptSource {
+      async *discoverSessions() {
+        yield {
+          agentSessionId: "fake",
+          jsonlPath: fakePath,
+          harness: "claude_code",
+          isSubagent: false,
+          mtime: new Date(),
+        };
+      }
+    }
+    const src = new StubSource();
+    const lines: unknown[] = [];
+    for await (const line of src.readSession("fake")) {
+      lines.push(line);
+    }
+    expect(lines).toEqual([]);
+  });
+});
