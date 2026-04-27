@@ -226,6 +226,32 @@ export class MinskyMCPServer {
   }
 
   /**
+   * Refuse a mutating tool call when the server source is stale relative to the
+   * workspace. Read-only tools (mutating false or unset) pass through.
+   *
+   * Public so unit tests can exercise the real check without going through the
+   * full MCP transport. The dispatcher in createConfiguredServer's
+   * setRequestHandler(CallToolRequestSchema, ...) calls this before invoking
+   * the registered tool handler, so removing the call site there is the only
+   * way to break the gate at the dispatch layer (covered by a separate
+   * dispatcher-level test).
+   *
+   * @throws Error with the loaded vs workspace commits and reconnect guidance
+   */
+  public checkDriftGate(tool: { mutating?: boolean }): void {
+    if (!tool.mutating || !this.stalenessDetector.isCurrentlyStale()) return;
+    const staleMessage = this.stalenessDetector.getStaleWarning() ?? "";
+    const loadedMatch = /commit ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const headMatch = /now at ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const loaded = loadedMatch ? loadedMatch[1] : "unknown";
+    const head = headMatch ? headMatch[1] : "unknown";
+    throw new Error(
+      `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
+        `Reconnect via /mcp before retrying mutating operations.`
+    );
+  }
+
+  /**
    * Construct a new Server with all request handlers and diagnostic capture
    * wired up. Each HTTP session gets its own instance; stdio uses the singleton
    * created in the constructor. Tools/resources/prompts are owned by
@@ -543,18 +569,7 @@ export class MinskyMCPServer {
         try {
           // Drift gate: refuse mutating tools when the server is stale.
           // Read-only tools (mutating === false or unset) are allowed through.
-          if (tool.mutating && this.stalenessDetector.isCurrentlyStale()) {
-            const staleMessage = this.stalenessDetector.getStaleWarning() ?? "";
-            // Extract commit hashes from the stale message for a clear error
-            const loadedMatch = /commit ([0-9a-f]{7,8})/i.exec(staleMessage);
-            const headMatch = /now at ([0-9a-f]{7,8})/i.exec(staleMessage);
-            const loaded = loadedMatch ? loadedMatch[1] : "unknown";
-            const head = headMatch ? headMatch[1] : "unknown";
-            throw new Error(
-              `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
-                `Reconnect via /mcp before retrying mutating operations.`
-            );
-          }
+          this.checkDriftGate(tool);
 
           const result = await tool.handler(request.params.arguments || {});
 

@@ -5,7 +5,7 @@
  * (loaded commit !== workspace HEAD), and read-only tools are unaffected.
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import type { MinskyMCPServer } from "./server";
 
@@ -302,74 +302,133 @@ describe("Drift gate — command definitions have correct mutating flags", () =>
   });
 });
 
-describe("Drift gate — server.ts inline gate logic", () => {
+describe("Drift gate — server.checkDriftGate() (real method)", () => {
   beforeEach(() => {
     setupTestMocks();
   });
 
-  /**
-   * This test exercises the exact same gate logic as the CallToolRequestSchema
-   * handler in server.ts, extracted here for direct unit-level verification:
-   *
-   *   if (tool.mutating && stalenessDetector.isCurrentlyStale()) { throw ... }
-   *
-   * We replicate the gate inline so we can test the behavior precisely without
-   * spinning up a full MCP transport.
-   */
-  function runDriftGate(
-    toolMutating: boolean | undefined,
-    isStale: boolean
-  ): { refused: boolean; errorMessage?: string } {
-    const staleMessage =
-      "⚠️ The Minsky MCP server was loaded from commit abc12345 but the workspace is now at def67890.";
-    const detector = {
-      isCurrentlyStale: () => isStale,
-      getStaleWarning: () => (isStale ? staleMessage : null),
-    };
-
-    if (toolMutating && detector.isCurrentlyStale()) {
-      const warning = detector.getStaleWarning() ?? "";
-      const loadedMatch = /commit ([0-9a-f]{7,8})/i.exec(warning);
-      const headMatch = /now at ([0-9a-f]{7,8})/i.exec(warning);
-      const loaded = loadedMatch ? loadedMatch[1] : "unknown";
-      const head = headMatch ? headMatch[1] : "unknown";
-      const message =
-        `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
-        `Reconnect via /mcp before retrying mutating operations.`;
-      return { refused: true, errorMessage: message };
+  test("mutating=true + stale=true => throws drift error", async () => {
+    const server = await makeTestServer(true);
+    expect(() => server.checkDriftGate({ mutating: true })).toThrow(/MCP server is stale/);
+    try {
+      server.checkDriftGate({ mutating: true });
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain("abc12345");
+      expect(msg).toContain("def67890");
+      expect(msg).toContain("/mcp");
+      expect(msg).toContain("mutating operations");
     }
-    return { refused: false };
-  }
-
-  test("mutating=true + stale=true => refused with drift error", () => {
-    const result = runDriftGate(true, true);
-    expect(result.refused).toBe(true);
-    expect(result.errorMessage).toContain("MCP server is stale");
-    expect(result.errorMessage).toContain("abc12345");
-    expect(result.errorMessage).toContain("def67890");
-    expect(result.errorMessage).toContain("/mcp");
-    expect(result.errorMessage).toContain("mutating operations");
   });
 
-  test("mutating=true + stale=false => allowed through", () => {
-    const result = runDriftGate(true, false);
-    expect(result.refused).toBe(false);
-    expect(result.errorMessage).toBeUndefined();
+  test("mutating=true + stale=false => no throw", async () => {
+    const server = await makeTestServer(false);
+    expect(() => server.checkDriftGate({ mutating: true })).not.toThrow();
   });
 
-  test("mutating=false + stale=true => allowed through", () => {
-    const result = runDriftGate(false, true);
-    expect(result.refused).toBe(false);
+  test("mutating=false + stale=true => no throw", async () => {
+    const server = await makeTestServer(true);
+    expect(() => server.checkDriftGate({ mutating: false })).not.toThrow();
   });
 
-  test("mutating=undefined + stale=true => allowed through", () => {
-    const result = runDriftGate(undefined, true);
-    expect(result.refused).toBe(false);
+  test("mutating=undefined + stale=true => no throw", async () => {
+    const server = await makeTestServer(true);
+    expect(() => server.checkDriftGate({})).not.toThrow();
   });
 
-  test("mutating=false + stale=false => allowed through", () => {
-    const result = runDriftGate(false, false);
-    expect(result.refused).toBe(false);
+  test("mutating=false + stale=false => no throw", async () => {
+    const server = await makeTestServer(false);
+    expect(() => server.checkDriftGate({ mutating: false })).not.toThrow();
+  });
+});
+
+describe("Drift gate — dispatcher integration (gate is wired into the request handler)", () => {
+  beforeEach(() => {
+    setupTestMocks();
+  });
+
+  // This test catches the reviewer's concern: if checkDriftGate is removed
+  // from the CallToolRequestSchema handler in server.ts, the gate becomes
+  // dead code. We capture the registered request handler via a spy on the
+  // SDK's setRequestHandler and invoke it directly, asserting that:
+  //   - the gate fires (drift error thrown)
+  //   - the registered tool's handler is NOT called
+  test("CallToolRequestSchema dispatcher invokes checkDriftGate before tool.handler", async () => {
+    const server = await makeTestServer(true);
+
+    let toolHandlerCalled = false;
+    server.addTool({
+      name: "test.mutating.dispatch",
+      description: "Mutating tool whose handler must NOT run when stale",
+      mutating: true,
+      handler: async () => {
+        toolHandlerCalled = true;
+        return { ok: true };
+      },
+    });
+
+    // Spy on checkDriftGate to confirm the dispatcher actually calls it
+    const spy = mock(server.checkDriftGate.bind(server));
+    server.checkDriftGate = spy as typeof server.checkDriftGate;
+
+    // Build the same request shape the SDK would dispatch
+    const request = {
+      method: "tools/call",
+      params: { name: "test.mutating.dispatch", arguments: {} },
+    } as const;
+
+    // The SDK exposes registered request handlers via _requestHandlers (Map).
+    // We pull the CallToolRequestSchema handler out by name.
+    const sdkServer = (server as unknown as { server: { _requestHandlers: Map<string, unknown> } })
+      .server;
+    const handlers = sdkServer._requestHandlers;
+    const callToolHandler = handlers.get("tools/call") as (
+      req: typeof request,
+      extra?: unknown
+    ) => Promise<unknown>;
+    expect(callToolHandler).toBeDefined();
+
+    let threw = false;
+    try {
+      await callToolHandler(request, {});
+    } catch (err) {
+      threw = true;
+      expect((err as Error).message).toContain("MCP server is stale");
+    }
+    expect(threw).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(toolHandlerCalled).toBe(false);
+  });
+
+  test("dispatcher allows mutating tool through when fresh", async () => {
+    const server = await makeTestServer(false);
+
+    let toolHandlerCalled = false;
+    server.addTool({
+      name: "test.mutating.fresh.dispatch",
+      description: "Mutating tool that should run when fresh",
+      mutating: true,
+      handler: async () => {
+        toolHandlerCalled = true;
+        return { ok: true };
+      },
+    });
+
+    const request = {
+      method: "tools/call",
+      params: { name: "test.mutating.fresh.dispatch", arguments: {} },
+    } as const;
+
+    const sdkServer = (server as unknown as { server: { _requestHandlers: Map<string, unknown> } })
+      .server;
+    const handlers = sdkServer._requestHandlers;
+    const callToolHandler = handlers.get("tools/call") as (
+      req: typeof request,
+      extra?: unknown
+    ) => Promise<unknown>;
+
+    await callToolHandler(request, {});
+    expect(toolHandlerCalled).toBe(true);
   });
 });
 
