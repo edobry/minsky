@@ -17,13 +17,13 @@ jobs:
         with:
           bun-version: "1.2.21"
 
-      - name: Cache Bun install (root)
+      - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
         with:
-          path: ~/.bun/install/cache
-          key: bun-install-${{ runner.os }}-root-${{ hashFiles('bun.lock') }}
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
           restore-keys: |
-            bun-install-${{ runner.os }}-root-
+            bun-install-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --no-progress
@@ -37,15 +37,11 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
-      - name: Cache Bun install (services/reviewer)
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-install-${{ runner.os }}-reviewer-${{ hashFiles('services/reviewer/bun.lock') }}
-          restore-keys: |
-            bun-install-${{ runner.os }}-reviewer-
-
+      # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
+      # ("step always runs regardless of which paths changed or which
+      # earlier checks fail") hold structurally, not just by step ordering.
       - name: Type check (services/reviewer)
+        if: ${{ always() }}
         working-directory: services/reviewer
         run: |
           bun install --frozen-lockfile --no-progress
