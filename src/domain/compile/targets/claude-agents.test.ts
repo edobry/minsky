@@ -59,6 +59,10 @@ function makeFakeFs(files: FileMap): MinskyCompileFsDeps {
 
 const WORKSPACE = "/workspace";
 
+/** MCP tool names used in fixtures — declared as constants to avoid magic-string duplication. */
+const MCP_TASKS_GET = "mcp__minsky__tasks_get";
+const MCP_TASKS_SPEC_GET = "mcp__minsky__tasks_spec_get";
+
 function agentSourcePath(agentName: string): string {
   return `${WORKSPACE}/.minsky/agents/${agentName}/agent.ts`;
 }
@@ -370,94 +374,6 @@ describe("claudeAgentsTarget.compile (dryRun)", () => {
   });
 });
 
-// ─── suggestedSubagentType — schema + compile ─────────────────────────────────
-
-/** Frontmatter key as authored in TypeScript (camelCase) — must NOT appear in compiled output. */
-const SUGGESTED_SUBAGENT_TYPE_CAMEL = "suggestedSubagentType";
-/** Frontmatter key as kebab-case — must NOT appear in compiled output. */
-const SUGGESTED_SUBAGENT_TYPE_KEBAB = "suggested-subagent-type";
-/** Shared skill name used across both refactorer and cleaner fixtures. */
-const SKILL_CODE_ORGANIZATION = "code-organization";
-/** MCP tool names used in fixtures — declared as constants to avoid magic-string duplication. */
-const MCP_TASKS_GET = "mcp__minsky__tasks_get";
-const MCP_TASKS_SPEC_GET = "mcp__minsky__tasks_spec_get";
-
-describe("suggestedSubagentType — schema acceptance and compile omission", () => {
-  it("agentDefinitionSchema accepts suggestedSubagentType", () => {
-    const { agentDefinitionSchema } = require("../../definitions/schemas");
-    const result = agentDefinitionSchema.safeParse({
-      name: "test-agent",
-      description: "A test agent.",
-      model: "sonnet",
-      suggestedSubagentType: "refactor",
-      prompt: "# Test\n",
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.suggestedSubagentType).toBe("refactor");
-    }
-  });
-
-  it("agentDefinitionSchema accepts an agent without suggestedSubagentType", () => {
-    const { agentDefinitionSchema } = require("../../definitions/schemas");
-    const result = agentDefinitionSchema.safeParse({
-      name: "test-agent",
-      description: "A test agent.",
-      model: "sonnet",
-      prompt: "# Test\n",
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.suggestedSubagentType).toBeUndefined();
-    }
-  });
-
-  it("buildAgentMd does NOT emit suggestedSubagentType in frontmatter", () => {
-    const agentWithSubagentType: AgentDefinition = {
-      ...sampleAgent,
-      suggestedSubagentType: "refactor",
-    };
-    const md = buildAgentMd(agentWithSubagentType);
-    const frontmatter = extractFrontmatter(md);
-    expect(frontmatter).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
-    expect(frontmatter).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
-    // Scoped to frontmatter to avoid false positives if prompt/description mentions "refactor"
-    expect(frontmatter).not.toContain("refactor");
-  });
-
-  it("compile does NOT emit suggestedSubagentType in compiled .md output", async () => {
-    const written: Record<string, string> = {};
-    const fakeFs: MinskyCompileFsDeps = {
-      ...makeAgentFs("refactorer"),
-      async writeFile(path: string, data: string): Promise<void> {
-        written[path] = data;
-      },
-    };
-
-    const refactorerAgent: AgentDefinition = {
-      name: "refactorer",
-      description: "Structural refactoring agent.",
-      model: "sonnet",
-      skills: [SKILL_CODE_ORGANIZATION, "testing-guide"],
-      suggestedSubagentType: "refactor",
-      prompt: "# Refactorer\n\nDo refactoring.\n",
-    };
-
-    const importStub = makeImportStub({ [agentSourcePath("refactorer")]: refactorerAgent });
-    const target = makeClaudeAgentsTarget(importStub);
-
-    const result = await target.compile({}, WORKSPACE, fakeFs);
-
-    expect(result.definitionsIncluded).toEqual(["refactorer"]);
-    const outPath = result.filesWritten[0];
-    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
-    const content = written[outPath];
-    if (content === undefined) throw new Error("expected written content to be defined");
-    expect(content).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
-    expect(content).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
-  });
-});
-
 // ─── 5 core agent definitions — compile correctness ───────────────────────────
 
 describe("5 core agent definitions — compile correctness", () => {
@@ -481,15 +397,14 @@ describe("5 core agent definitions — compile correctness", () => {
       name: "refactorer",
       description: "Structural refactoring agent.",
       model: "sonnet",
-      skills: [SKILL_CODE_ORGANIZATION, "testing-guide"],
-      suggestedSubagentType: "refactor",
+      skills: ["code-organization", "testing-guide"],
       prompt: "# Refactorer\n\nRefactor code.\n",
     },
     {
       name: "cleaner",
       description: "Technical debt cleanup agent.",
       model: "sonnet",
-      skills: [SKILL_CODE_ORGANIZATION, "fix-skipped-tests"],
+      skills: ["code-organization", "fix-skipped-tests"],
       prompt: "# Cleaner\n\nClean up code.\n",
     },
     {
@@ -505,7 +420,6 @@ describe("5 core agent definitions — compile correctness", () => {
         "mcp__minsky__tasks_get",
         "mcp__minsky__tasks_spec_get",
       ],
-      suggestedSubagentType: "verify-completion",
       prompt: "# Auditor\n\nVerify specs.\n",
     },
   ];
@@ -538,12 +452,6 @@ describe("5 core agent definitions — compile correctness", () => {
     it(`${agentName}: compiled frontmatter contains correct name`, async () => {
       const md = buildAgentMd(agent);
       expect(md).toContain(`name: ${agentName}`);
-    });
-
-    it(`${agentName}: compiled frontmatter does NOT contain suggestedSubagentType`, async () => {
-      const md = buildAgentMd(agent);
-      expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_CAMEL);
-      expect(md).not.toContain(SUGGESTED_SUBAGENT_TYPE_KEBAB);
     });
 
     if (agent.skills !== undefined && agent.skills.length > 0) {
@@ -618,10 +526,10 @@ describe("buildAgentMd — tools serialization", () => {
 // ─── cross-file reference integrity ───────────────────────────────────────────
 
 /**
- * Some prompt.md files reference sibling agent files (e.g., refactorer routes to
- * refactor.md; auditor routes to verify-completion.md). When those references drift
- * (target file renamed or removed), the Minsky agents silently document a dead link
- * in the compiled Claude Code prompt. This suite asserts that every cross-reference
+ * If any prompt.md under `.minsky/agents/` references a sibling agent file (e.g.,
+ * by path `.claude/agents/<name>.md`), that target must exist on disk. When references
+ * drift (target file renamed or removed), the Minsky agents silently document a dead
+ * link in the compiled Claude Code prompt. This suite asserts that every cross-reference
  * of the form `.claude/agents/<name>.md` actually resolves to a file on disk.
  *
  * Legitimately uses the real filesystem — the whole point is to verify real repo state.

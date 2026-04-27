@@ -230,7 +230,8 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
                 "PostgreSQL connection string not found in configuration or MINSKY_POSTGRES_URL."
               );
             }
-            sourceConfig.postgres = { connectionString };
+            // Use the full postgres sub-object so pool settings (maxConnections, etc.) are preserved.
+            sourceConfig.postgres = effectivePersistence.postgres ?? { connectionString };
             sourceDescription = "PostgreSQL backend (configured)";
             sourceBackendKind = "postgres";
           }
@@ -349,7 +350,8 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
             dbPath: targetSqlitePath,
           };
         } else if (to === "postgres") {
-          const connectionString = getEffectivePersistenceConfig(config).connectionString;
+          const effectiveTarget = getEffectivePersistenceConfig(config);
+          const connectionString = effectiveTarget.connectionString;
 
           if (!connectionString) {
             throw new Error(
@@ -362,7 +364,8 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
             `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
           );
           _targetPostgresConn = connectionString;
-          targetConfig.postgres = { connectionString: connectionString };
+          // Use the full postgres sub-object so pool settings are preserved.
+          targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
         }
 
         // Use SessionProviderInterface for data migration via DI closure

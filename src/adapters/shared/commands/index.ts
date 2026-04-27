@@ -19,12 +19,14 @@ import { registerPersistenceCommands } from "./persistence";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerAsksCommands } from "./asks";
+import { registerPrWatchCommands } from "./pr-watch";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
 import { registerKnowledgeCommands } from "./knowledge";
 import { registerMemoryCommands } from "./memory";
 import { registerProvenanceCommands } from "./provenance";
+import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -73,6 +75,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
   registerAsksCommands(container);
 
+  // Register pr-watch commands (PR-state watcher — mt#1295)
+  registerPrWatchCommands(container);
+
   // Register changeset commands
   registerChangesetCommands();
 
@@ -90,6 +95,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register provenance commands
   registerProvenanceCommands(container);
+
+  // Register authorship commands
+  registerAuthorshipCommands(container);
 
   // Register compile commands
   registerCompileCommands(sharedCommandRegistry);
@@ -112,6 +120,7 @@ export {
   registerAiCommands,
   registerToolsCommands,
   registerAsksCommands,
+  registerPrWatchCommands,
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,
@@ -119,5 +128,6 @@ export {
   registerMemoryCommands,
   registerRepoCommands,
   registerProvenanceCommands,
+  registerAuthorshipCommands,
   registerCompileCommands,
 };
