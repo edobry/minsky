@@ -3,7 +3,7 @@
 **Task:** mt#1035
 **Type:** Research / Design
 **Status:** Draft (2026-04-22)
-**Parent:** mt#1034 (Attention-Allocation Subsystem / ADR-006)
+**Parent:** mt#1034 (Attention-Allocation Subsystem / ADR-008)
 
 ## Summary
 
@@ -19,11 +19,11 @@ This is Beer's variety-matching recursion: a System 3\* audit channel one level 
 
 ### Theory placement
 
-`docs/theory-of-operation.md` flags System 3\* as the structured audit/probe channel that is currently missing. Lines 283–295 of that doc describe it as "a gap." The detector is the instrument that fills that gap. The ADR-006 Ask subsystem (mt#1034) consumes the detector's output: each detected gap becomes a `direction.decide` or `authorization.approve` Ask, classified, routed, and accounted for per ADR-006.
+`docs/theory-of-operation.md` flags System 3\* as the structured audit/probe channel that is currently missing. Lines 101–104 (as of merge) of that doc describe it as "a gap." The detector is the instrument that fills that gap. The ADR-008 Ask subsystem (mt#1034) consumes the detector's output: each detected gap becomes a `direction.decide` or `authorization.approve` Ask, classified, routed, and accounted for per ADR-008.
 
 ### Input contract
 
-The detector produces **Ask intents** (pre-classification) that flow into the mt#1034 router. Intents have the shape described in ADR-006 §Detection. This task does **not** own the Ask entity, the router, or any transport — it owns only the detection mechanism.
+The detector produces **Ask intents** (pre-classification) that flow into the mt#1034 router. Intents have the shape described in ADR-008 §Detection. This task does **not** own the Ask entity, the router, or any transport — it owns only the detection mechanism.
 
 ## The four detector surfaces
 
@@ -33,7 +33,7 @@ Each surface is evaluated on: mechanism, cost, leverage, false-positive risk, im
 
 **Mechanism.** Pre-execution hook. Before any preference-encoding action (edit to a new file, introduction of an abstraction, addition of a dependency, change to a config default, renaming of a user-facing symbol), the detector mechanically checks whether existing policy covers the decision. Policy sources in order: task spec → CLAUDE.md → project rules (`.claude/rules/*`) → long-lived memories → future `.minsky/policy/*`.
 
-Coverage rule (from ADR-006 §Router): an action is covered if policy **names the action or its category AND names the authority**. Name-match alone is insufficient.
+Coverage rule (from ADR-008 §Router): an action is covered if policy **names the action or its category AND names the authority**. Name-match alone is insufficient.
 
 If uncovered, the detector emits an `AskIntent(kind: "direction.decide")` and the agent blocks until the Ask is resolved.
 
@@ -117,12 +117,12 @@ Finds unasked directions that shipped. **These findings don't block merge** (too
 
 ## Comparison matrix
 
-| Surface            | Cost        | Leverage                  | FP risk             | Complexity  | Dep on #1068/1069            | Standalone value                           |
-| ------------------ | ----------- | ------------------------- | ------------------- | ----------- | ---------------------------- | ------------------------------------------ |
-| 1 Policy-coverage  | Low         | High                      | Moderate-high at v1 | Medium      | Strong                       | Yes                                        |
-| 2 Diff signature   | Low-med     | Medium-high               | Higher              | Medium-high | Strong                       | Yes                                        |
-| 3 Trajectory probe | High        | High (conditional)        | Low-mod             | High        | Strong, plus mt#441          | Low at v1 (redundant with 1+2 initially)   |
-| 4 Post-mortem      | Low per-run | Observational (long-term) | Moderate            | Low-medium  | None direct; mt#926 + mt#969 | Yes, different value (rule-library feeder) |
+| Surface            | Cost        | Leverage                  | FP risk             | Complexity  | Dep on entity (mt#1068) / router (mt#1069) | Standalone value                           |
+| ------------------ | ----------- | ------------------------- | ------------------- | ----------- | ------------------------------------------ | ------------------------------------------ |
+| 1 Policy-coverage  | Low         | High                      | Moderate-high at v1 | Medium      | Strong                                     | Yes                                        |
+| 2 Diff signature   | Low-med     | Medium-high               | Higher              | Medium-high | Strong                                     | Yes                                        |
+| 3 Trajectory probe | High        | High (conditional)        | Low-mod             | High        | Strong, plus mt#441                        | Low at v1 (redundant with 1+2 initially)   |
+| 4 Post-mortem      | Low per-run | Observational (long-term) | Moderate            | Low-medium  | None direct; mt#926 + mt#969               | Yes, different value (rule-library feeder) |
 
 ## Recommendation
 
@@ -160,7 +160,7 @@ export interface DetectionSignal {
   evidence: Evidence[]; // concrete pointers: file:line, tool call, diff snippet
   suggestedQuestion?: string; // prompt the operator would answer; optional
   suggestedOptions?: AskOption[]; // decision frame; optional
-  contextRefs: ContextRef[]; // from ADR-006
+  contextRefs: ContextRef[]; // from ADR-008
 }
 
 export interface Evidence {
@@ -190,9 +190,11 @@ export interface DetectionContext {
 }
 ```
 
-### Integration with the Ask router (ADR-006)
+### Integration with the Ask router (ADR-008)
 
 Each `DetectionSignal` is converted to an `AskIntent` at the boundary:
+
+> **Note:** The types `AskIntent`, `AskOption`, and `ContextRef` are specified in ADR-008 (mt#1034), which this detector consumes. They are not yet present in source code pending ADR-008 merge.
 
 ```typescript
 // src/domain/detectors/router-bridge.ts
@@ -216,7 +218,7 @@ export function signalToAskIntent(signal: DetectionSignal, ctx: DetectionContext
 }
 ```
 
-The router then applies policy-first resolution per ADR-006 §Router. Detection is "suggest," not "decide" — the router has final say on whether to escalate or resolve from policy.
+The router then applies policy-first resolution per ADR-008 §Router. Detection is "suggest," not "decide" — the router has final say on whether to escalate or resolve from policy.
 
 ## Hook-pipeline integration
 
@@ -273,7 +275,7 @@ This is the System 4 loop: observational data (surface 4) → rule evolution (su
 
 ## Relationship to mt#503 (premature-completion guardrails)
 
-mt#503's spec is currently empty (pre-existing data issue; noted in ADR-006). The conceptual relationship:
+mt#503's spec is currently empty (pre-existing data issue; noted in ADR-008). The conceptual relationship:
 
 - **Same shape as this detector**: a meta-cognitive pattern that surfaces an agent failure mode the agent itself cannot reliably notice.
 - **Different failure mode**: mt#503 targets "declaring a task done before it's actually done." Concrete example: the agent finishes 4 of 5 success criteria and declares victory. This is an `authorization.approve` kind of failure (acting — declaring completion — without the authority to do so) AND a `quality.review` kind (the self-review was inadequate).
@@ -308,7 +310,7 @@ Surfaces 2 and 3 are deliberately not made into tasks yet — they're gated on v
 
 ## Connects to
 
-- **Parent: mt#1034** — ADR-006 attention-allocation subsystem (Ask entity, router, transport bindings)
+- **Parent: mt#1034** — ADR-008 attention-allocation subsystem (Ask entity, router, transport bindings)
 - **mt#503** — premature-completion guardrails (adjacent detector; follow-up when spec is written)
 - **mt#969** — `AuthorshipJudge` (precedent for Surface 4 implementation)
 - **mt#926** — transcript storage (dependency for Surface 4)
@@ -321,7 +323,7 @@ Surfaces 2 and 3 are deliberately not made into tasks yet — they're gated on v
 - **Hook ordering when multiple detectors overlap.** If surface 1 passes a tool call and surface 2 (future) flags the resulting diff, do we emit two Asks or merge into one? Proposal: dedupe on evidence overlap; merge summaries. Revisit when surface 2 ships.
 - **Cross-project dismissal transfer.** Per-project is simplest; is there demand for "dismiss globally"? Defer — wait for per-project to generate data.
 - **Detector-to-detector confidence combination.** If two detectors fire on the same action, the signals' severities aren't automatically combined. v0.1 doesn't need this, but surface 3 (trajectory probe) will likely want it.
-- **Operator-attention budget enforcement.** If the detector fires 20 times in an hour, is that a user-experience failure worth throttling? ADR-006 leaves budgets observational at v1; if surface 1 produces too many asks, the fix is tightening policy-coverage semantics (ADR-006 §9), not budget caps.
+- **Operator-attention budget enforcement.** If the detector fires 20 times in an hour, is that a user-experience failure worth throttling? ADR-008 leaves budgets observational at v1; if surface 1 produces too many asks, the fix is tightening policy-coverage semantics (ADR-008 §9), not budget caps.
 
 ## Success criteria (mt#1035)
 
