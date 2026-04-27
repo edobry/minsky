@@ -101,9 +101,20 @@ export function composeConventionalTitle(input: {
   if (taskId) {
     if (titlePrefix) {
       const taskIdDigits = taskId.match(/\d+/)?.[0] ?? "";
-      if (titlePrefix.digits !== taskIdDigits) {
-        // Echo the original prefix form (e.g. "mt-1265:") so the error matches
-        // what the user actually typed, not a normalized "#digits" rendering.
+      // Compare project code (letter portion) too — without this, "md#409"
+      // in title with "mt#409" as taskId would silently strip and produce
+      // "feat(mt#409): foo", a cross-project reassignment that almost
+      // certainly hides a user error. Bare "#N:" (no project code) is
+      // permissive: it matches any taskId since the user supplied no project
+      // hint of their own.
+      const titleProject = titlePrefix.original.match(/^([a-z]{2,})/i)?.[1]?.toLowerCase() ?? "";
+      const taskIdProject = taskId.match(/^([a-z]+)/i)?.[1]?.toLowerCase() ?? "";
+      const projectMismatch =
+        titleProject !== "" && taskIdProject !== "" && titleProject !== taskIdProject;
+      const digitsMismatch = titlePrefix.digits !== taskIdDigits;
+      if (projectMismatch || digitsMismatch) {
+        // Echo the original prefix form (e.g. "mt-1265:" or "md#409:") so the
+        // error matches what the user actually typed, not a normalized rendering.
         throw new ValidationError(
           `Title task-ID prefix \`${titlePrefix.original}\` does not match supplied taskId (${taskId}). ` +
             `Either remove the prefix from the title or correct the taskId.`

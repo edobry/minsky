@@ -296,4 +296,49 @@ describe("composeConventionalTitle", () => {
     const msg = (caught as ValidationError).message;
     expect(msg).toContain("trimming whitespace");
   });
+
+  // PR #806 R4 BLOCKING fix: cross-project same-digits must reject
+  // (the bot caught: "md#409" title vs "mt#409" taskId — different project,
+  // same digits — was silently stripping and reassigning the project code).
+  it("rejects cross-project same-digits mismatch (md# title vs mt# taskId)", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({
+        type: "feat",
+        title: "md#409: foo",
+        taskId: "mt#409",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const msg = (caught as ValidationError).message;
+    expect(msg).toContain("md#409:");
+    expect(msg).toContain("mt#409");
+  });
+
+  it("permissively matches bare #N: title against any project taskId", () => {
+    // Bare "#N:" carries no project hint — match by digits only is intentional.
+    const result = composeConventionalTitle({
+      type: "feat",
+      title: "#1265: foo",
+      taskId: "mt#1265",
+    });
+    expect(result).toBe(EXPECTED_MT1265_FEAT_FOO);
+  });
+
+  it("rejects cross-project mismatch even when one side uses hyphen separator", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({
+        type: "feat",
+        title: "md-409: foo",
+        taskId: "mt#409",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).message).toContain("md-409:");
+  });
 });
