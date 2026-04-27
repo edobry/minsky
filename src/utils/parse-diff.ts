@@ -8,6 +8,27 @@
  *
  * The output shape mirrors the parsedDiff field in SessionPrReviewContextResult.
  *
+ * Supported diff variants:
+ *  - Pure-add files (--- /dev/null)
+ *  - Pure-delete files (+++ /dev/null)
+ *  - Empty-file adds and deletes (no ---/+++ headers; new file mode /
+ *    deleted file mode extended headers used as the status signal)
+ *  - Modified files (single or multi-hunk)
+ *  - Modified files with no content change (mode-only changes — no ---/+++ headers)
+ *  - Binary modifications (Binary files differ or GIT binary patch)
+ *  - Binary adds/deletes (Binary files X and Y differ with /dev/null on either side)
+ *  - Renames without content change (no hunks)
+ *  - Renames with content change (has hunks)
+ *  - "\ No newline at end of file" markers (skipped, not counted as lines)
+ *
+ * Out of scope (treated as modified or skipped if path cannot be inferred):
+ *  - Copy operations (copy from / copy to extended headers). Per mt#1336 spec
+ *    scope was add/delete/modify/rename only; copies are uncommon enough on
+ *    GitHub PRs that explicit handling can be added in a follow-up if needed.
+ *  - CRLF line endings. Input is assumed LF (matches GitHub diff API output).
+ *  - Provider-specific variants that omit standard rename-from / rename-to
+ *    extended headers when paths differ.
+ *
  * Side semantics (relevant to anchor selection):
  *  - RIGHT lines (newLine set, oldLine null) anchor on the head/incoming side.
  *  - LEFT lines (oldLine set, newLine null) anchor on the base/old side
@@ -88,22 +109,23 @@ const DIFF_GIT_PREFIX = "diff --git a/";
 /**
  * Extract the a-side and b-side paths from a diff --git header line.
  *
- * The naive regex approach (non-greedy first capture, looking for the
- * literal " b/" delimiter) can mis-split when the a-side path itself
- * contains the literal " b/" sequence (e.g. a directory named foo-b
- * with children). To avoid that, this function:
+ * Only handles the symmetric case: non-rename, non-copy headers where git
+ * emits "P b/P" with the same path P on both sides. If the line ends with
+ * " b/" + first-half, we have a clean split.
  *
- *  1. Tries the symmetric-split fast path — for non-rename headers, git
- *     emits "P b/P" where the same path P appears on both sides. If the
- *     line ends with " b/" + first-half, we have a clean split.
- *  2. Falls back to lastIndexOf(" b/") — for rename headers where the two
- *     paths differ, this picks the rightmost separator. It is still
- *     ambiguous if the b-side path also contains " b/", but renames are
- *     also recognized by the rename-from / rename-to extended headers
- *     (RENAME_FROM_RE / RENAME_TO_RE) which take precedence in caller logic.
+ * For asymmetric headers (paths differ), this function returns undefined.
+ * Asymmetric handling lives in the caller via the rename-from / rename-to
+ * extended headers (RENAME_FROM_RE / RENAME_TO_RE). Copy operations are
+ * out of scope for this parser (see module docstring); files with only
+ * "copy from / copy to" extended headers will not have their paths
+ * recovered here and will be skipped downstream by the empty-path guard.
  *
- * Returns undefined for both paths when the line does not start with the
- * expected prefix — caller treats that as "no diff --git header on this line".
+ * The function does not implement an asymmetric heuristic (e.g. the rightmost
+ * " b/" as delimiter) because no such heuristic is correct in general — for
+ * example a header "diff --git a/aa b/cc b/dd b/ee" with old="aa b/cc" and
+ * new="dd b/ee" cannot be unambiguously split without external information.
+ * Returning undefined forces explicit handling rather than emitting wrong
+ * paths silently.
  */
 function splitDiffGitHeader(line: string): {
   oldPath: string | undefined;
