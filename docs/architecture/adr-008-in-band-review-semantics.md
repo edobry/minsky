@@ -155,5 +155,4 @@ mt#1340 (prompt update) is blocked on mt#1336 and mt#1337. The remaining tasks (
 - `src/domain/repository/github-pr-review.ts` — current forge layer (extended by mt#1337, mt#1342, mt#1346)
 - `src/domain/session/commands/pr-review-context-subcommand.ts` — context tool (extended by mt#1336, mt#1343)
 - `src/adapters/shared/commands/session/session-parameters.ts` — MCP tool schema (extended by mt#1337, mt#1341)
-- `mt#1335` — parent RFC tracking the cluster (queryable via `mcp__minsky__tasks_get`); siblings `mt#1336`–`mt#1348`
 - `mt#1110_calibration` memory — observed cost of body-blob review iteration
