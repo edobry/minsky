@@ -38,10 +38,12 @@
  */
 
 import fs from "fs";
+import os from "os";
+import path from "path";
 import { createPrivateKey, createSign } from "crypto";
 
 const APP_ID = 3470137;
-const APP_PEM = "/Users/edobry/.config/minsky/minsky-reviewer.pem";
+const APP_PEM = path.join(os.homedir(), ".config/minsky/minsky-reviewer.pem");
 const APP_BOT_LOGIN = "minsky-reviewer[bot]";
 const REPO_OWNER = "edobry";
 const REPO_NAME = "minsky";
