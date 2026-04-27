@@ -256,7 +256,10 @@ Please provide a title for your pull request:
       dryRun: false,
       skipConflictCheck: params.skipConflictCheck ?? false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
-      skipIfAlreadyMerged: true, // Automatically skip if changes already merged
+      // In PR-create context: must merge even when session files appear in base, because sibling
+      // PRs may have committed identical compile artifacts. Setting true causes phantom conflicts
+      // on GitHub merge — see mt#1334.
+      skipIfAlreadyMerged: false,
     };
     await updateSessionImpl(updateParams, {
       sessionDB: deps.sessionDB,

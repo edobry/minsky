@@ -371,6 +371,25 @@ See [docs/architecture.md](docs/architecture.md) for a full description of the
 layered architecture (Domain → Adapters → Infrastructure), the command registry
 pattern, and the DI container design.
 
+## Project records
+
+There is no `CHANGELOG.md` in this repo. The project's record stack lives in
+the following surfaces, each with a different scope:
+
+- **Tasks** (Minsky DB) — every change is scoped to a task, with a spec, success
+  criteria, acceptance tests, and status history. Browse via
+  `mcp__minsky__tasks_list` / `mcp__minsky__tasks_get` or the CLI equivalent.
+- **Pull requests** (GitHub) — per-change reviewer audit and merge events,
+  authoritative for what code shipped when.
+- **Memories** (`~/.claude/projects/.../memory/`) — durable cross-conversation
+  feedback and context for AI agents working in this repo.
+- **Notion** — strategic memos, position papers, and incident logs (e.g., the
+  2026-04-26 mitigation-tier incident memo).
+
+A user-facing release notes surface (e.g., GitHub Releases) is a separate
+concern; if one is added later it should be sourced from PR titles + task
+metadata, not from a hand-maintained changelog.
+
 ## Further Reading
 
 - [README.md](README.md) — project overview and quick-start
