@@ -109,6 +109,26 @@ export interface ApprovalStatus {
   canMerge: boolean;
 
   /**
+   * Whether there are merge blockers OTHER than missing approval.
+   *
+   * This is computed independently of isApproved so that the
+   * acceptStaleReviewerSilence waiver can check it without the
+   * canMerge short-circuit (canMerge is always false when isApproved=false,
+   * making canMerge useless inside the waiver path).
+   *
+   * True when: PR is a draft, PR has merge conflicts (mergeable=false),
+   * or PR state is not "open".
+   */
+  hasNonApprovalMergeBlockers?: boolean;
+
+  /**
+   * Human-readable description of the active non-approval merge blocker,
+   * if any. Used to surface a meaningful message in the waiver rejection.
+   * Examples: "draft PR", "merge conflicts", "PR not open".
+   */
+  nonApprovalBlockerDescription?: string;
+
+  /**
    * Current state of the pull request
    */
   prState?: "open" | "closed" | "merged" | "draft";

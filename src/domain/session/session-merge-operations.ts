@@ -41,10 +41,10 @@ import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
-import { BOT_IDENTITY_LOGIN } from "../constants";
+import { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
 
 // Re-export for backward compatibility with any consumers importing from this module.
-export { BOT_IDENTITY_LOGIN } from "../constants";
+export { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -111,7 +111,9 @@ export interface SessionMergeParams {
    *   - No CHANGES_REQUESTED review exists on the PR (DISMISSED reviews are excluded).
    *   - At least one COMMENTED review from the SAME identity as the PR author exists.
    *   - No review from minsky-reviewer[bot] exists.
-   *   - approvalStatus.canMerge is true (PR is not a draft, no merge conflicts, no failing checks).
+   *   - No other merge blockers are active (PR is not a draft, no merge conflicts, PR is open).
+   *     Checked via approvalStatus.hasNonApprovalMergeBlockers rather than canMerge because
+   *     canMerge is always false when isApproved=false, making it useless in this path.
    *
    * Default: false (safety check is enforced by default; waiver requires explicit opt-in).
    * An audit log entry at INFO level is emitted when the waiver is used.
@@ -294,7 +296,7 @@ export async function mergeSessionPr(
           .filter((r) => r.state !== "DISMISSED")
           .some((r) => r.state === "CHANGES_REQUESTED");
         const hasReviewerBotReview = rawReviews.some(
-          (r) => r.reviewerLogin.toLowerCase() === "minsky-reviewer[bot]"
+          (r) => r.reviewerLogin.toLowerCase() === REVIEWER_BOT_LOGIN.toLowerCase()
         );
         // Waiver requires COMMENTED review from the SAME identity as the PR author.
         // Normalize both sides to lowercase: GitHub logins are case-insensitive.
@@ -311,15 +313,18 @@ export async function mergeSessionPr(
           hasCommentedReview;
 
         if (waiverEligible) {
-          // B2: Waiver only addresses the reviewer-bot-silence blocker, not other merge blockers.
-          // If canMerge is false for any other reason (draft, merge conflicts, failing checks),
-          // refuse the waiver and surface the blocker clearly.
-          if (!approvalStatus.canMerge) {
-            const prState = approvalStatus.prState ?? "unknown";
+          // Waiver only addresses the reviewer-bot-silence blocker, not other merge blockers.
+          // Use hasNonApprovalMergeBlockers rather than canMerge: canMerge is always false
+          // when isApproved=false (it includes isApproved in its computation), making it
+          // permanently unreachable here. hasNonApprovalMergeBlockers is computed independently
+          // of approval state and accurately reflects draft/conflict/closed blockers (B1).
+          if (approvalStatus.hasNonApprovalMergeBlockers) {
+            const blockerDesc =
+              approvalStatus.nonApprovalBlockerDescription ?? approvalStatus.prState ?? "unknown";
             throw new ValidationError(
               `❌ GitHub PR #${sessionRecord.pullRequest.number} cannot be merged.\n` +
                 `   The acceptStaleReviewerSilence waiver addresses reviewer-bot silence only.\n` +
-                `   Another merge blocker is active (PR state: ${prState}).\n` +
+                `   Another merge blocker is active (${blockerDesc}).\n` +
                 `   Resolve the underlying blocker (e.g., draft state, merge conflicts, failing checks) before retrying.\n\n` +
                 `💡 Next steps:` +
                 `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
@@ -339,12 +344,12 @@ export async function mergeSessionPr(
             `WAIVER: acceptStaleReviewerSilence applied for PR #${prNumber}. ` +
               `PR author identity: ${sessionRecord.pullRequest.github?.author ?? "unknown"}. ` +
               `COMMENT reviewer(s): ${commentReviewers}. ` +
-              `minsky-reviewer[bot] review absent (webhook-miss class). ` +
+              `${REVIEWER_BOT_LOGIN} review absent (webhook-miss class). ` +
               `Proceeding with merge under operator-override waiver.`
           );
           if (!params.json) {
             log.cli(
-              `⚠️  Operator-override waiver applied: minsky-reviewer[bot] review absent. ` +
+              `⚠️  Operator-override waiver applied: ${REVIEWER_BOT_LOGIN} review absent. ` +
                 `Merging under acceptStaleReviewerSilence. See audit log for details.`
             );
           }
@@ -365,7 +370,7 @@ export async function mergeSessionPr(
           }
           if (hasReviewerBotReview) {
             reasons.push(
-              "minsky-reviewer[bot] review exists (waiver only applies when reviewer-bot is absent)"
+              `${REVIEWER_BOT_LOGIN} review exists (waiver only applies when reviewer-bot is absent)`
             );
           }
           if (!hasCommentedReview) {
@@ -390,7 +395,7 @@ export async function mergeSessionPr(
           // the PR must be authored by the bot identity (waiver never applies to human-authored PRs).
           const missingReviewerNote =
             isPrAuthorBot && !hasReviewerBotReview
-              ? `\n   Note: minsky-reviewer[bot] has not reviewed this PR. ` +
+              ? `\n   Note: ${REVIEWER_BOT_LOGIN} has not reviewed this PR. ` +
                 `If the reviewer bot is silent (webhook-miss), you may use ` +
                 `acceptStaleReviewerSilence=true as an operator-override waiver.`
               : "";

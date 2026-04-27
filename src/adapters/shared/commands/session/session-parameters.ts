@@ -282,10 +282,11 @@ export const sessionMergeCommandParams = {
     schema: z.boolean(),
     description:
       "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). " +
-      "All four constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; " +
+      "All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; " +
       "(2) at least one COMMENTED review from the same identity as the PR author must exist; " +
       "(3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); " +
-      "(4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted. " +
+      "(4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; " +
+      "(5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. " +
       "Emits an audit log entry at INFO level when the waiver is applied. Default: false.",
     required: false,
     defaultValue: false,

@@ -427,12 +427,15 @@ describe("Session Merge Security Validation", () => {
 
     // Acceptance test 1 (flag-allowed):
     // Same-identity COMMENT review, no minsky-reviewer[bot], no CHANGES_REQUESTED.
-    // canMerge=true: no other blockers.
+    // hasNonApprovalMergeBlockers=false: no draft, no merge conflicts, PR is open.
+    // NOTE: canMerge=false here (realistic: isApproved=false means canMerge is always false).
+    // The waiver check correctly uses hasNonApprovalMergeBlockers, NOT canMerge (B1 fix).
     // With acceptStaleReviewerSilence=true: merges successfully.
-    it("Acceptance 1 (waiver): allows merge with flag when conditions hold and canMerge=true", async () => {
+    it("Acceptance 1 (waiver): allows merge with flag when conditions hold and hasNonApprovalMergeBlockers=false", async () => {
       const approvalStatus = {
         isApproved: false,
-        canMerge: true, // No other blockers: branch is clean, not draft
+        canMerge: false, // Realistic: always false when isApproved=false
+        hasNonApprovalMergeBlockers: false, // No draft/conflict/closed blockers
         approvals: [],
         requiredApprovals: 1,
         prState: "open" as const,
@@ -501,6 +504,7 @@ describe("Session Merge Security Validation", () => {
       const approvalStatus = {
         isApproved: true,
         canMerge: true,
+        hasNonApprovalMergeBlockers: false,
         approvals: [
           {
             reviewId: "r2",
@@ -639,16 +643,20 @@ describe("Session Merge Security Validation", () => {
       ).rejects.toThrow(/same-identity COMMENT review/);
     });
 
-    // B2 acceptance test (round-4 NEW -- canMerge check):
-    // Waiver conditions (reviews) hold, but PR has canMerge=false due to a non-approval blocker
-    // (e.g. draft state, merge conflicts, failing checks). Waiver must be refused.
-    it("B2-canMerge: blocks merge when waiver conditions hold but canMerge=false", async () => {
+    // B2 acceptance test (round-4 NEW -- hasNonApprovalMergeBlockers check):
+    // Waiver conditions (reviews) hold, but PR has hasNonApprovalMergeBlockers=true due to a
+    // non-approval blocker (e.g. draft state, merge conflicts). Waiver must be refused.
+    // NOTE: canMerge=false here, but that is not what the implementation checks (B1 fix).
+    //       The implementation checks hasNonApprovalMergeBlockers which is true for draft PRs.
+    it("B2-canMerge: blocks merge when waiver conditions hold but hasNonApprovalMergeBlockers=true", async () => {
       const approvalStatus = {
         isApproved: false,
-        canMerge: false, // Non-approval blocker (e.g. merge conflicts or draft state)
+        canMerge: false, // Realistic: always false when isApproved=false
+        hasNonApprovalMergeBlockers: true, // Draft PR is a non-approval blocker
+        nonApprovalBlockerDescription: "draft PR",
         approvals: [],
         requiredApprovals: 1,
-        prState: "draft" as const, // PR is a draft
+        prState: "draft" as const, // PR is a draft (B3: correctly surfaced)
         rawReviews: [
           {
             reviewId: "r1",
@@ -682,7 +690,8 @@ describe("Session Merge Security Validation", () => {
     it("Non-blocking: dismissed CHANGES_REQUESTED does not block waiver", async () => {
       const approvalStatus = {
         isApproved: false,
-        canMerge: true, // No other blockers
+        canMerge: false, // Realistic: always false when isApproved=false
+        hasNonApprovalMergeBlockers: false, // No draft/conflict blockers
         approvals: [],
         requiredApprovals: 1,
         prState: "open" as const,
