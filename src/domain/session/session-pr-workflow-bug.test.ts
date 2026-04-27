@@ -11,7 +11,7 @@ describe("Session PR inner update — sessionId param wiring (mt#1281)", () => {
   // on every PR create. Fix: pass `sessionId` directly.
   it("does not throw 'Session ID is required' when session exists", async () => {
     const sessionRecord = {
-      session: "test-session-mt-1281",
+      sessionId: "test-session-mt-1281",
       taskId: "mt#9999",
       repoUrl: "https://github.com/test/repo.git",
       repoName: "test/repo",

@@ -220,9 +220,9 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("~/.claude/projects/foo/memory/MEMORY.md");
-    expect(refs[0].kind).toBe("home_tilde");
-    expect(refs[0].source).toBe("PR description");
+    expect(refs[0]?.path).toBe("~/.claude/projects/foo/memory/MEMORY.md");
+    expect(refs[0]?.kind).toBe("home_tilde");
+    expect(refs[0]?.source).toBe("PR description");
   });
 
   test("matches $HOME/... paths (env_home)", () => {
@@ -231,9 +231,9 @@ describe("extractOutOfRepoReferences", () => {
       "task spec"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("$HOME/.config/minsky/settings.json");
-    expect(refs[0].kind).toBe("env_home");
-    expect(refs[0].source).toBe("task spec");
+    expect(refs[0]?.path).toBe("$HOME/.config/minsky/settings.json");
+    expect(refs[0]?.kind).toBe("env_home");
+    expect(refs[0]?.source).toBe("task spec");
   });
 
   test("matches /etc, /usr, /var system paths", () => {
@@ -299,8 +299,8 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("/Users/edobry/.local/state/minsky/sessions/abc123-def456");
-    expect(refs[0].kind).toBe("session_workspace");
+    expect(refs[0]?.path).toBe("/Users/edobry/.local/state/minsky/sessions/abc123-def456");
+    expect(refs[0]?.kind).toBe("session_workspace");
   });
 
   test("matches Linux session workspace path under /home/.../minsky/sessions/...", () => {
@@ -309,8 +309,8 @@ describe("extractOutOfRepoReferences", () => {
       "task spec"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("/home/runner/.local/state/minsky/sessions/xyz");
-    expect(refs[0].kind).toBe("session_workspace");
+    expect(refs[0]?.path).toBe("/home/runner/.local/state/minsky/sessions/xyz");
+    expect(refs[0]?.kind).toBe("session_workspace");
   });
 
   test("deduplicates repeated references within the same source", () => {
@@ -319,7 +319,7 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("~/.claude/foo.md");
+    expect(refs[0]?.path).toBe("~/.claude/foo.md");
   });
 
   test("strips trailing sentence punctuation", () => {

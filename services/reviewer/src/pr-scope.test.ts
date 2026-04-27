@@ -262,6 +262,154 @@ describe("classifyPRScope — opt-out marker", () => {
   });
 });
 
+describe("classifyPRScope — countChangedLines header anchoring (mt#1270)", () => {
+  // Header anchoring: the previous startsWith("+++")/startsWith("---") check
+  // skipped any added line whose payload itself started with `+++`/`---`
+  // (Hugo frontmatter, fenced metadata, ASCII rules). Tightened anchoring on
+  // `+++ a/`/`+++ b/`/`+++ /dev/null` (and `---` equivalents) means only real
+  // file-header lines are skipped.
+
+  test("frontmatter-style `++++` content lines (added with payload `+++`) are counted", () => {
+    // Hugo frontmatter delimiter: an added line whose content is the literal
+    // three-plus delimiter renders as `++++` in unified diff (marker `+` +
+    // payload `+++`). Build a diff with 12 such lines on a single non-docs
+    // file. Under old startsWith("+++") logic these would all be skipped →
+    // count=0 → classified `trivial`. With anchored regex they are counted
+    // → 12 ≥ 10 → classified `normal`. Sharp old-vs-new distinction.
+    const header = "--- a/src/post.ts\n+++ b/src/post.ts\n@@ -1,1 +1,13 @@\n";
+    const body = Array.from({ length: 12 }, () => "++++").join("\n");
+    const diff = header + body;
+    expect(classifyPRScope({ diff, filesChanged: ["src/post.ts"] })).toBe("normal");
+  });
+
+  test("`----` content lines (removed with payload `---`) are counted", () => {
+    // Symmetric case for the removed side: a removed line whose content is
+    // the literal three-dash delimiter renders as `----` (marker `-` + `---`).
+    const header = "--- a/src/post.ts\n+++ b/src/post.ts\n@@ -1,13 +1,1 @@\n";
+    const body = Array.from({ length: 12 }, () => "----").join("\n");
+    const diff = header + body;
+    expect(classifyPRScope({ diff, filesChanged: ["src/post.ts"] })).toBe("normal");
+  });
+
+  test("spec acceptance test diff: synthetic `+++ ---`/`+++data`/`---data` lines all counted", () => {
+    // Exactly the diff from mt#1270's acceptance test:
+    //   `+++ ---\n+content\n+++data\n-removed\n---data`
+    // None of these are real file headers (line 1 lacks [ab]/|/dev/null;
+    // lines 3 and 5 lack the trailing space). All 5 must count.
+    //
+    // Verification via the threshold: 5 lines on 1 file → trivial under both
+    // old and new. To make the count observable, replicate the diff 3 times
+    // (15 lines) — that crosses the trivial threshold (10) only if the
+    // anchoring is correct. Under the old logic, only `+content` and
+    // `-removed` count (2 per repetition), so 6 lines → still trivial.
+    const repeated = Array(3).fill("+++ ---\n+content\n+++data\n-removed\n---data").join("\n");
+    expect(classifyPRScope({ diff: repeated, filesChanged: ["src/foo.ts"] })).toBe("normal");
+  });
+
+  test("real file-header lines are still skipped (regression guard)", () => {
+    // Two-file diff with proper `--- a/` and `+++ b/` headers plus 1 added
+    // line in each. Total counted = 2 (just the `+x` payload lines), not 6
+    // (would have included headers if anchoring broke).
+    const diff =
+      "--- a/file1.ts\n+++ b/file1.ts\n@@ -1,1 +1,2 @@\n+x\n" +
+      "--- a/file2.ts\n+++ b/file2.ts\n@@ -1,1 +1,2 @@\n+y";
+    // 2 changed lines, 2 files → trivial (boundary: <10 lines, <3 files).
+    expect(classifyPRScope({ diff, filesChanged: ["file1.ts", "file2.ts"] })).toBe("trivial");
+  });
+
+  test("/dev/null header (new-file diff) is still skipped", () => {
+    // New-file diff has `--- /dev/null` instead of `--- a/path`.
+    const diff = "--- /dev/null\n+++ b/new.ts\n@@ -0,0 +1,1 @@\n+content";
+    // 1 changed line, 1 file → trivial.
+    expect(classifyPRScope({ diff, filesChanged: ["new.ts"] })).toBe("trivial");
+  });
+});
+
+describe("classifyPRScope — pagination/truncation safeguard (mt#1270)", () => {
+  // When the listFiles fetch returns fewer files than `pr.changed_files`, the
+  // view is partial. A docs-only or test-only verdict on a truncated list
+  // could mis-classify a PR whose later pages contain code. The classifier
+  // must downgrade to `normal` regardless of the patterns in the partial view.
+
+  test("filesChanged truncated below changedFilesCount → normal even when all visible files are docs", () => {
+    // Hypothetical: 500 files changed but only 300 visible, all README.md-like.
+    // Without the safeguard this would classify as `docs-only` → lower-rigor
+    // prompt → reviewer might miss code findings on pages 4+.
+    const filesChanged = Array.from({ length: 300 }, (_, i) => `docs/page-${i}.md`);
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged,
+        changedFilesCount: 500,
+      })
+    ).toBe("normal");
+  });
+
+  test("filesChanged truncated below changedFilesCount → normal even when all visible files are tests", () => {
+    const filesChanged = Array.from({ length: 300 }, (_, i) => `tests/spec-${i}.test.ts`);
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged,
+        changedFilesCount: 1500,
+      })
+    ).toBe("normal");
+  });
+
+  test("filesChanged matches changedFilesCount → classifier proceeds normally (docs-only)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["README.md", "CHANGELOG.md"],
+        changedFilesCount: 2,
+      })
+    ).toBe("docs-only");
+  });
+
+  test("filesChanged length GREATER than changedFilesCount → classifier proceeds normally (count is not strict mismatch)", () => {
+    // Defense-in-depth: if upstream returns more than the count claims (it
+    // shouldn't, but APIs drift), do NOT downgrade. The safeguard is one-way:
+    // truncation only.
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["README.md", "CHANGELOG.md", "docs/extra.md"],
+        changedFilesCount: 2,
+      })
+    ).toBe("docs-only");
+  });
+
+  test("changedFilesCount omitted → classifier proceeds normally (back-compat)", () => {
+    // Existing callers without the new field must keep working unchanged.
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["README.md"] })).toBe("docs-only");
+  });
+
+  test("opt-out marker takes precedence over truncation safeguard", () => {
+    // The user's explicit opt-out signal wins over the technical truncation
+    // check — preserves the marker's role as the most authoritative input.
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["src/foo.ts"],
+        changedFilesCount: 9999,
+        prBody: "<!-- minsky:trivial -->",
+      })
+    ).toBe("trivial");
+  });
+
+  test("empty filesChanged with changedFilesCount > 0 → normal (existing empty-files path)", () => {
+    // Already covered by the empty-files early return, but verifying the
+    // truncation check doesn't break it.
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [],
+        changedFilesCount: 50,
+      })
+    ).toBe("normal");
+  });
+});
+
 describe("scopeBucketFor", () => {
   const cases: Array<[PRScope, ReturnType<typeof scopeBucketFor>]> = [
     ["docs-only", "trivial-or-docs"],

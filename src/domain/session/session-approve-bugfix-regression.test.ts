@@ -22,7 +22,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = {
         getSessionByTaskId: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -33,7 +33,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         ),
         getSession: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -131,7 +131,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = {
         getSessionByTaskId: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -142,7 +142,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         ),
         getSession: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -209,7 +209,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = {
         getSessionByTaskId: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -220,7 +220,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         ),
         getSession: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -294,7 +294,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = {
         getSessionByTaskId: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,
@@ -304,7 +304,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         ),
         getSession: mock(() =>
           Promise.resolve({
-            session: SESSION_NAME,
+            sessionId: SESSION_NAME,
             repoName: REPO_NAME,
             repoUrl: REPO_PATH,
             taskId: TASK_ID,

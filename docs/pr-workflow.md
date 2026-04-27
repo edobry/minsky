@@ -162,14 +162,14 @@ minsky session approve [options]
 
 **Options:**
 
-- `--session <session>`: Name of the session to approve
+- `<session>`: Name of the session to approve (positional argument)
 - `--task <taskId>`: Task ID associated with the session
 - `--repo <path>`: Repository path
 
 **Example:**
 
 ```bash
-minsky session approve --session my-feature
+minsky session approve my-feature
 ```
 
 This command:

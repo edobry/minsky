@@ -46,7 +46,7 @@ describe("Session PR Approval Bug", () => {
       getSession: (name: string) => {
         if (name === TEST_SESSION) {
           return Promise.resolve({
-            session: TEST_SESSION,
+            sessionId: TEST_SESSION,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
@@ -63,7 +63,7 @@ describe("Session PR Approval Bug", () => {
           });
         } else if (name === sessionId) {
           return Promise.resolve({
-            session: sessionId,
+            sessionId: sessionId,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
@@ -79,7 +79,7 @@ describe("Session PR Approval Bug", () => {
           });
         } else if (name === SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR) {
           return Promise.resolve({
-            session: SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR,
+            sessionId: SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
@@ -100,7 +100,7 @@ describe("Session PR Approval Bug", () => {
 
     // This test should fail until the Drizzle mapping bug is fixed
     expect(session).not.toBeNull();
-    expect(session?.session).toBe(TEST_SESSION);
+    expect(session?.sessionId).toBe(TEST_SESSION);
     expect(session?.taskId).toBe("md#357");
   });
 

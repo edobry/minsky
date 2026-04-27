@@ -85,9 +85,11 @@ describe("fetchPriorReviews", () => {
     await fetchPriorReviews(octokit, "owner", "repo", 1);
 
     // paginate must be called exactly once
-    expect((octokit.paginate as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+    expect((octokit.paginate as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
     // listReviews itself should NOT be called directly
-    expect((octokit.rest.pulls.listReviews as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+    expect(
+      (octokit.rest.pulls.listReviews as unknown as ReturnType<typeof mock>).mock.calls
+    ).toHaveLength(0);
   });
 
   test("returns bot reviews that contain the Chinese-wall marker", async () => {
@@ -271,9 +273,11 @@ describe("fetchListFiles", () => {
 
     await fetchListFiles(octokit, "owner", "repo", 42);
 
-    expect((octokit.paginate as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+    expect((octokit.paginate as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
     // listFiles itself must NOT be called directly
-    expect((octokit.rest.pulls.listFiles as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+    expect(
+      (octokit.rest.pulls.listFiles as unknown as ReturnType<typeof mock>).mock.calls
+    ).toHaveLength(0);
   });
 
   test("returns filenames from all pages on success", async () => {

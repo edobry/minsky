@@ -17,7 +17,7 @@ The `session.edit_file` tool now supports a `dryRun` parameter that allows you t
 ```javascript
 // MCP tool call
 await tools.session_edit_file({
-  sessionName: "my-session",
+  sessionId: "my-session",
   path: "src/utils/helper.ts",
   instructions: "Add error handling to the parseData function",
   content: `// ... existing code ...
@@ -40,7 +40,7 @@ function parseData(input: string): ParsedData {
   "success": true,
   "timestamp": "2025-01-18T19:00:00.000Z",
   "path": "src/utils/helper.ts",
-  "session": "my-session",
+  "sessionId": "my-session",
   "resolvedPath": "/session/workspace/src/utils/helper.ts",
   "dryRun": true,
   "proposedContent": "function parseData(input: string): ParsedData {\n  try {\n    return JSON.parse(input);\n  } catch (error) {\n    throw new Error(`Failed to parse data: ${error.message}`);\n  }\n}",
@@ -61,7 +61,7 @@ function parseData(input: string): ParsedData {
 ```javascript
 // MCP tool call
 await tools.session_edit_file({
-  sessionName: "my-session",
+  sessionId: "my-session",
   path: "src/types/api.ts",
   instructions: "Create TypeScript interface definitions for API responses",
   content: `export interface ApiResponse<T = any> {
@@ -88,7 +88,7 @@ export interface UserData {
   "success": true,
   "timestamp": "2025-01-18T19:00:00.000Z",
   "path": "src/types/api.ts",
-  "session": "my-session",
+  "sessionId": "my-session",
   "resolvedPath": "/session/workspace/src/types/api.ts",
   "dryRun": true,
   "proposedContent": "export interface ApiResponse<T = any> {\n  success: boolean;\n  data?: T;\n  error?: string;\n  timestamp: string;\n}\n\nexport interface UserData {\n  id: string;\n  username: string;\n  email: string;\n  createdAt: string;\n}",
@@ -111,7 +111,7 @@ export interface UserData {
 ```javascript
 // Preview changes first
 const preview = await tools.session_edit_file({
-  sessionName: "my-session",
+  sessionId: "my-session",
   path: "config.json",
   instructions: "Update the API endpoint URL",
   content: `{
@@ -131,7 +131,7 @@ console.log("Lines changed:", preview.diffSummary);
 ```javascript
 // Apply changes after reviewing
 const result = await tools.session_edit_file({
-  sessionName: "my-session",
+  sessionId: "my-session",
   path: "config.json",
   instructions: "Update the API endpoint URL",
   content: `{
@@ -149,10 +149,10 @@ console.log("Changes applied:", result.success);
 ### Pattern 1: Conditional Application
 
 ```javascript
-async function safeEdit(sessionName, path, instructions, content) {
+async function safeEdit(sessionId, path, instructions, content) {
   // Always preview first
   const preview = await tools.session_edit_file({
-    sessionName,
+    sessionId,
     path,
     instructions,
     content,
@@ -166,7 +166,7 @@ async function safeEdit(sessionName, path, instructions, content) {
 
   // Apply if safe
   return await tools.session_edit_file({
-    sessionName,
+    sessionId,
     path,
     instructions,
     content,
@@ -178,14 +178,14 @@ async function safeEdit(sessionName, path, instructions, content) {
 ### Pattern 2: Diff Review Workflow
 
 ```javascript
-async function reviewAndApply(sessionName, edits) {
+async function reviewAndApply(sessionId, edits) {
   const previews = [];
 
   // Generate previews for all edits
   for (const edit of edits) {
     const preview = await tools.session_edit_file({
       ...edit,
-      sessionName,
+      sessionId,
       dryRun: true,
     });
     previews.push({ edit, preview });
@@ -203,7 +203,7 @@ async function reviewAndApply(sessionName, edits) {
   for (const { edit } of previews) {
     const result = await tools.session_edit_file({
       ...edit,
-      sessionName,
+      sessionId,
       dryRun: false,
     });
     results.push(result);
@@ -220,7 +220,7 @@ async function reviewAndApply(sessionName, edits) {
 ```javascript
 try {
   await tools.session_edit_file({
-    sessionName: "my-session",
+    sessionId: "my-session",
     path: "non-existent.txt",
     instructions: "Try to edit non-existent file",
     content: "// ... existing code ...\nnew line\n// ... existing code ...",
@@ -241,7 +241,7 @@ try {
 const session = await tools.session_start({ task: "feature-123" });
 
 const preview = await tools.session_edit_file({
-  sessionName: session.session,
+  sessionId: session.sessionId,
   path: "src/feature.ts",
   instructions: "Implement new feature",
   content: "// implementation here",
@@ -250,7 +250,7 @@ const preview = await tools.session_edit_file({
 
 if (userApproves(preview.diff)) {
   await tools.session_edit_file({
-    sessionName: session.session,
+    sessionId: session.sessionId,
     path: "src/feature.ts",
     instructions: "Implement new feature",
     content: "// implementation here",
@@ -283,7 +283,7 @@ if (userApproves(preview.diff)) {
 | `edited`                   | boolean | Whether an existing file would be modified             |
 | `created`                  | boolean | Whether a new file would be created                    |
 | `path`                     | string  | The file path within the session workspace             |
-| `session`                  | string  | The session identifier                                 |
+| `sessionId`                | string  | The session identifier                                 |
 | `resolvedPath`             | string  | The full resolved file path                            |
 
 ## Notes

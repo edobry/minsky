@@ -208,10 +208,10 @@ Navigate to your main workspace and try again:
       // Merged PR — always hard-block (session is frozen)
       if (taskSession.prState?.mergedAt) {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") but its PR was ` +
+          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
             `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
             `delete the old one first:\n\n` +
-            `  minsky session delete ${taskSession.session}\n` +
+            `  minsky session delete ${taskSession.sessionId}\n` +
             `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
         );
       }
@@ -221,8 +221,10 @@ Navigate to your main workspace and try again:
 
       // Stale/orphaned with --recover: delete the old session and proceed
       if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
-        log.cli(`Recovering abandoned session "${taskSession.session}" (liveness: ${liveness})...`);
-        await deps.sessionDB.deleteSession(taskSession.session);
+        log.cli(
+          `Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`
+        );
+        await deps.sessionDB.deleteSession(taskSession.sessionId);
         // Fall through to create new session
       } else {
         // Build a more informative error message based on liveness
@@ -233,25 +235,25 @@ Navigate to your main workspace and try again:
 
         if (liveness === "healthy") {
           throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.session}").${statusInfo}${ageInfo} ` +
+            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
               `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
           );
         }
 
         if (liveness === "idle") {
           throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.session}") and was recently idle.${statusInfo}${ageInfo} ` +
+            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
               `Use the existing session, or delete it before starting a new one.`
           );
         }
 
         // stale or orphaned (without --recover)
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.session}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
+          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
             `To recover and start fresh:\n` +
             `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
             `Or to manually delete:\n` +
-            `  minsky session delete ${taskSession.session}`
+            `  minsky session delete ${taskSession.sessionId}`
         );
       }
     }
@@ -348,7 +350,7 @@ async function executeMutations(
 
   // Prepare session record
   const sessionRecord: SessionRecord = {
-    session: sessionId,
+    sessionId: sessionId,
     repoUrl,
     repoName: normalizeRepoName(repoUrl),
     createdAt: new Date().toISOString(),
@@ -466,7 +468,7 @@ Error: ${getErrorMessage(installError)}`
   }
 
   return {
-    session: sessionId,
+    sessionId: sessionId,
     repoUrl,
     repoName: normalizedRepoName,
     taskId,

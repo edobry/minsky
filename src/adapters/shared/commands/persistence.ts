@@ -258,7 +258,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
             if (typeof sessionData === "object" && sessionData !== null) {
               const typedSessionData = sessionData as Partial<SessionRecord>;
               sessionRecords.push({
-                session: sessionId,
+                sessionId: sessionId,
                 repoName: typedSessionData.repoName || sessionId,
                 repoUrl: typedSessionData.repoUrl || sessionId,
                 createdAt: typedSessionData.createdAt || new Date().toISOString(),
