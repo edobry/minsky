@@ -17,9 +17,34 @@ import { log } from "../../../../utils/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
+import type { SessionPrCreateDependencies } from "../../../../domain/session/commands/pr-create-subcommand";
 import { composeConventionalTitle } from "./pr-conventional-title";
 import { DrizzleAskRepository } from "../../../../domain/ask/repository";
 import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
+
+/** Minimal container interface required by buildSessionPrCreateDeps. */
+type PrCreateDepContainer = { has(key: string): boolean; get(key: string): unknown };
+
+/**
+ * Build the SessionPrCreateDependencies shape from the adapter's DI deps and
+ * command execution container. Exported for unit-testing the DI wiring —
+ * see pr-create-status-advance.test.ts (mt#1266).
+ */
+export function buildSessionPrCreateDeps(
+  deps: SessionCommandDependencies,
+  container: PrCreateDepContainer | undefined,
+  askRepository?: DrizzleAskRepository
+): SessionPrCreateDependencies {
+  return {
+    sessionDB: deps.sessionProvider,
+    taskService: deps.taskService,
+    persistenceProvider: container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined,
+    askRepository,
+  };
+}
 
 /**
  * Parameters accepted by the session PR create command.
@@ -285,6 +310,7 @@ export async function executeSessionPrCreate(
         sessionDB: deps.sessionProvider,
         persistenceProvider,
         askRepository,
+        taskService: deps.taskService,
       },
       {
         interface: interfaceType,
@@ -306,6 +332,7 @@ export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandD
     name: "create",
     description: "Create a pull request for a session",
     parameters: sessionPrCreateCommandParams,
+    mutating: true,
     execute: async (params, context) => {
       try {
         const deps = await getDeps();

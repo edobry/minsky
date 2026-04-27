@@ -208,6 +208,7 @@ export function createTasksDispatchCommand(
         prompt: promptResult.prompt,
         suggestedModel: promptResult.suggestedModel,
         agentType: promptResult.agentType,
+        skillsEmbedded: promptResult.skillsEmbedded,
         scopeWarning: promptResult.scopeWarning,
         batches: promptResult.batches,
       };
