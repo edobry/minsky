@@ -304,8 +304,8 @@ export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDe
         migrated: report.progress.migrated,
         failed: report.progress.failed,
         results: report.results.map((r) => ({
-          oldId: r.original.session,
-          newId: r.migrated?.session ?? r.original.session,
+          oldId: r.original.sessionId,
+          newId: r.migrated?.sessionId ?? r.original.sessionId,
           taskId: r.original.taskId,
           sessionIdChanged: r.changes.sessionIdChanged,
           success: r.success,

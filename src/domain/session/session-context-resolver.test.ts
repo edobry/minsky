@@ -19,14 +19,14 @@ describe("resolveSessionContext", () => {
     mockSessionProvider = new FakeSessionProvider({
       initialSessions: [
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "md#123", // Qualified format for storage
         },
         {
-          session: "task#456",
+          sessionId: "task#456",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-02T00:00:00Z",
@@ -117,7 +117,7 @@ describe("resolveSessionId", () => {
     const mockSessionProvider = new FakeSessionProvider({
       initialSessions: [
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",
@@ -141,7 +141,7 @@ describe("validateSessionContext", () => {
     const mockSessionProvider = new FakeSessionProvider({
       initialSessions: [
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           createdAt: "2024-01-01T00:00:00Z",

@@ -118,7 +118,7 @@ export async function approveSessionPr(
         params.task
       );
     }
-    sessionIdToUse = sessionByTask.session;
+    sessionIdToUse = sessionByTask.sessionId;
   }
 
   if (!sessionIdToUse) {
