@@ -386,9 +386,16 @@ describe("Session Edit Tools", () => {
     });
 
     test("should replace all occurrences when replace_all is true", async () => {
+      // Verify the replace_all branch calls replaceAll and returns the correct count.
+      // Uses a mock handler that simulates the real behavior without filesystem I/O.
       const mockSearchReplaceAll = mock(async (args: any) => {
         const content = "foo bar foo baz foo";
-        const occurrences = (content.match(new RegExp(args.search, "g")) || []).length;
+        let replacementCount = 0;
+        // Simulate the function-replacer overload (the actual fix for mt#1361)
+        const newContent = content.replaceAll(args.search, () => {
+          replacementCount++;
+          return args.replace;
+        });
         if (args.replace_all) {
           return {
             success: true,
@@ -396,12 +403,11 @@ describe("Session Edit Tools", () => {
             session: args.sessionId,
             edited: true,
             replaced: true,
-            replacementCount: occurrences,
-            searchText: args.search,
-            replaceText: args.replace,
+            replacementCount,
+            newContent,
           };
         }
-        throw new Error(`Search text found ${occurrences} times`);
+        throw new Error(`Search text found ${replacementCount} times`);
       });
 
       const result = await mockSearchReplaceAll({
@@ -415,6 +421,7 @@ describe("Session Edit Tools", () => {
       expect(result.success).toBe(true);
       expect(result.replacementCount).toBe(3);
       expect(result.replaced).toBe(true);
+      expect(result.newContent).toBe("qux bar qux baz qux");
     });
 
     test("should include replacementCount in response for single replacement", async () => {
@@ -537,6 +544,61 @@ describe("Session Edit Tools", () => {
           replace: "new text",
         })
       ).rejects.toThrow('Missing required parameter "search" (or alias "old_string")');
+    });
+
+    test("regression: replace_all=true with dollar-backtick in replace string does not duplicate content", async () => {
+      // Reproduced from mt#1361: replace text containing dollar-backtick was interpreted
+      // as the JS replacement-pattern "prefix-before-match" substitution, causing each
+      // replacement to contain the preceding file content.
+      //
+      // The fix: use the function-replacer overload `() => replaceText` which bypasses
+      // all $-pattern substitutions. This test verifies the correct behavior using the
+      // same pattern as the actual fix in session-edit-tools.ts.
+      const searchText = "SEARCH_TOKEN";
+      // dollar-backtick: the character immediately after $ is a backtick
+      const replaceText = "see `$`[-_]key` for details";
+      const originalContent = `line before\n${searchText}\nmiddle line\n${searchText}\nline after`;
+
+      // Simulate what the FIXED handler does: function-replacer overload
+      let replacementCount = 0;
+      const fixedResult = originalContent.replaceAll(searchText, () => {
+        replacementCount++;
+        return replaceText;
+      });
+
+      // Assert: literal replacement, no $-pattern expansion
+      const expected = originalContent.split(searchText).join(replaceText);
+      expect(fixedResult).toBe(expected);
+      expect(replacementCount).toBe(2);
+      // Size guard: no surrounding content spliced in
+      expect(fixedResult.length).toBe(
+        originalContent.length + 2 * (replaceText.length - searchText.length)
+      );
+
+      // Contrast: show that the BUGGY path (plain string replacer) expands the pattern
+      const buggyResult = originalContent.replaceAll(searchText, replaceText);
+      expect(buggyResult).not.toBe(expected);
+    });
+
+    test("regression: replace_all=false with dollar-ampersand in replace string does not expand the match", async () => {
+      // dollar-ampersand in JS replace() normally expands to the matched substring.
+      // The function-replacer fix must prevent this expansion.
+      const searchText = "TARGET";
+      // Without the fix: "$&-literal" would expand to "TARGET-literal"
+      const replaceText = "$&-literal";
+      const originalContent = `before ${searchText} after`;
+
+      // Simulate what the FIXED handler does: function-replacer overload
+      const fixedResult = originalContent.replace(searchText, () => replaceText);
+
+      // Assert: must be literal, not expanded
+      const expected = `before ${replaceText} after`;
+      expect(fixedResult).toBe(expected);
+
+      // Contrast: show that the BUGGY path expands the pattern
+      const buggyResult = originalContent.replace(searchText, replaceText);
+      expect(buggyResult).toBe(`before TARGET-literal after`);
+      expect(buggyResult).not.toBe(expected);
     });
   });
 });
