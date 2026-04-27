@@ -181,4 +181,48 @@ describe("getEffectivePersistenceConfig", () => {
     const result = getEffectivePersistenceConfig(config);
     expect(result.sqlite?.dbPath).toBe("/tmp/explicit.db");
   });
+
+  test("env-var connectionString is merged with modern postgres extras", () => {
+    // connectionString comes from env; modern postgres block carries extras but no connectionString.
+    // The partial postgres object is intentional — connectionString is supplied via env var.
+    process.env.MINSKY_POSTGRES_URL = POSTGRES_URL;
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        // connectionString is intentionally omitted — supplied via env var below.
+        postgres: { maxConnections: 9, connectTimeout: 30 } as unknown as {
+          connectionString: string;
+          maxConnections?: number;
+          connectTimeout?: number;
+        },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres?.connectionString).toBe(POSTGRES_URL);
+    expect(result.postgres?.maxConnections).toBe(9);
+    expect(result.postgres?.connectTimeout).toBe(30);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("postgres sub-object is absent when backend is sqlite", () => {
+    process.env.MINSKY_POSTGRES_URL = POSTGRES_URL;
+    const config = makeConfig({
+      persistence: { backend: "sqlite", sqlite: { dbPath: "/tmp/test.db" } },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres).toBeUndefined();
+    expect(result.sqlite?.dbPath).toBe("/tmp/test.db");
+  });
+
+  test("sqlite sub-object is absent when backend is postgres", () => {
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        postgres: { connectionString: POSTGRES_URL },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.sqlite).toBeUndefined();
+    expect(result.postgres?.connectionString).toBe(POSTGRES_URL);
+  });
 });

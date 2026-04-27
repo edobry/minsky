@@ -85,14 +85,17 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
     modernConnString ?? legacyConnString ?? process.env.MINSKY_POSTGRES_URL;
 
   // ── postgres sub-config (full) ────────────────────────────────────────────
-  // Merge the modern postgres block (which carries maxConnections etc.) with the
-  // resolved connectionString so callers do not have to re-derive it.
-  const resolvedPostgres: PostgresConfig | undefined = connectionString
-    ? {
-        ...(modernPostgres ?? {}),
-        connectionString,
-      }
-    : undefined;
+  // Merge legacy extras first, then modern (so modern wins), then inject the
+  // resolved connectionString. Only populate when the active backend is postgres
+  // so callers don't receive a stale postgres sub-object when sqlite is active.
+  const resolvedPostgres: PostgresConfig | undefined =
+    backend === "postgres" && connectionString
+      ? ({
+          ...(legacyPostgres ?? {}),
+          ...(modernPostgres ?? {}),
+          connectionString,
+        } as PostgresConfig)
+      : undefined;
 
   // ── dbPath (sqlite) ──────────────────────────────────────────────────────
   const modernDbPath = config.persistence?.sqlite?.dbPath;
@@ -102,7 +105,9 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
     modernDbPath ?? legacyDbPath ?? (backend === "sqlite" ? getDefaultSqliteDbPath() : undefined);
 
   // ── sqlite sub-config (full) ─────────────────────────────────────────────
-  const resolvedSqlite: SqliteConfig | undefined = dbPath ? { dbPath } : undefined;
+  // Only populate when the active backend is sqlite.
+  const resolvedSqlite: SqliteConfig | undefined =
+    backend === "sqlite" && dbPath ? { dbPath } : undefined;
 
   // ── deprecation warning ──────────────────────────────────────────────────
   // Warn only when legacy values actually *contribute* to the effective config —
