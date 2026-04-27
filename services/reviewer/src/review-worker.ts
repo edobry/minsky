@@ -420,6 +420,21 @@ export async function runReview(
     filesChanged: pr.filesChanged,
     prBody: pr.body,
   });
+
+  // Emit a structured log when the minsky:trivial marker overrides the scope.
+  // Makes marker usage visible in metrics so we can track opt-out frequency.
+  if (prScope === "trivial" && pr.body.includes("<!-- minsky:trivial -->")) {
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_marker_override",
+        owner,
+        repo,
+        pr: prNumber,
+        sha: pr.headSha,
+      })
+    );
+  }
+
   const scopeBucket = scopeBucketFor(prScope);
 
   const routing = decideRouting(tier, config);
