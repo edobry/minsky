@@ -9,14 +9,16 @@
  * The output shape mirrors the parsedDiff field in SessionPrReviewContextResult.
  *
  * Side semantics (relevant to anchor selection):
- *  - RIGHT lines (`newLine` set, `oldLine` null) — anchor on the head/incoming side.
- *  - LEFT lines (`oldLine` set, `newLine` null) — anchor on the base/old side
+ *  - RIGHT lines (newLine set, oldLine null) anchor on the head/incoming side.
+ *  - LEFT lines (oldLine set, newLine null) anchor on the base/old side
  *    (used to comment on deletions or pre-change code).
- *  - CONTEXT lines (both set) — unchanged lines; usable as anchors on either side.
+ *  - CONTEXT lines (both set) are unchanged lines; an internal classification.
+ *    Consumers must map a CONTEXT line to LEFT or RIGHT before sending it as a
+ *    GitHub review-comment anchor — GitHub's API only accepts LEFT or RIGHT.
  *
  * Reviewers picking anchors should match the side they want to comment on:
- * commenting on a deletion needs `side: "LEFT"`; commenting on an addition needs
- * `side: "RIGHT"`. CONTEXT lines are flexible.
+ * commenting on a deletion needs side: LEFT; commenting on an addition needs
+ * side: RIGHT.
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -65,7 +67,6 @@ export interface DiffFile {
  * "a/" and "b/" prefixes that git adds.
  */
 function stripGitPrefix(headerPath: string): string {
-  // Remove leading a/ or b/ prefix added by git
   if (headerPath.startsWith("a/") || headerPath.startsWith("b/")) {
     return headerPath.slice(2);
   }
@@ -81,11 +82,63 @@ const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
 const RENAME_FROM_RE = /^rename from (.+)$/;
 const RENAME_TO_RE = /^rename to (.+)$/;
 
-// Match the diff --git header; captures both a- and b-side paths.
-// Used as a fallback when --- / +++ headers are absent (mode-only changes,
-// binary diffs, etc.). Non-greedy on the first capture so paths-with-spaces
-// are split correctly on the " b/" boundary.
-const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
+// Prefix of every diff --git header. Stripped before the path-splitter runs.
+const DIFF_GIT_PREFIX = "diff --git a/";
+
+/**
+ * Extract the a-side and b-side paths from a diff --git header line.
+ *
+ * The naive regex approach (non-greedy first capture, looking for the
+ * literal " b/" delimiter) can mis-split when the a-side path itself
+ * contains the literal " b/" sequence (e.g. a directory named foo-b
+ * with children). To avoid that, this function:
+ *
+ *  1. Tries the symmetric-split fast path — for non-rename headers, git
+ *     emits "P b/P" where the same path P appears on both sides. If the
+ *     line ends with " b/" + first-half, we have a clean split.
+ *  2. Falls back to lastIndexOf(" b/") — for rename headers where the two
+ *     paths differ, this picks the rightmost separator. It is still
+ *     ambiguous if the b-side path also contains " b/", but renames are
+ *     also recognized by the rename-from / rename-to extended headers
+ *     (RENAME_FROM_RE / RENAME_TO_RE) which take precedence in caller logic.
+ *
+ * Returns undefined for both paths when the line does not start with the
+ * expected prefix — caller treats that as "no diff --git header on this line".
+ */
+function splitDiffGitHeader(line: string): {
+  oldPath: string | undefined;
+  newPath: string | undefined;
+} {
+  if (!line.startsWith(DIFF_GIT_PREFIX)) {
+    return { oldPath: undefined, newPath: undefined };
+  }
+
+  const rest = line.slice(DIFF_GIT_PREFIX.length);
+  const len = rest.length;
+
+  // Symmetric split: for non-rename headers, total length is 2P + 3 (" b/"),
+  // so P_length = (len - 3) / 2 must be an integer and the line must end
+  // with " b/" + first-half.
+  if (len >= 4 && (len - 3) % 2 === 0) {
+    const halfLen = (len - 3) / 2;
+    const candidate = rest.slice(0, halfLen);
+    const expectedSuffix = ` b/${candidate}`;
+    if (rest.endsWith(expectedSuffix)) {
+      return { oldPath: candidate, newPath: candidate };
+    }
+  }
+
+  // Fallback: rightmost " b/" is the most likely real delimiter when paths differ.
+  const delimIdx = rest.lastIndexOf(" b/");
+  if (delimIdx > 0) {
+    return {
+      oldPath: rest.slice(0, delimIdx),
+      newPath: rest.slice(delimIdx + 3),
+    };
+  }
+
+  return { oldPath: undefined, newPath: undefined };
+}
 
 // Match binary-diff markers — two flavors emitted by git:
 //   "Binary files a/foo and b/foo differ"
@@ -141,10 +194,9 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
     // ── Parse file header block ──────────────────────────────────────────
     // Capture the a/b paths from the diff --git header itself. These serve
     // as a fallback when --- / +++ headers are missing (mode-only, binary,
-    // empty-file add/delete).
-    const diffGitMatch = DIFF_GIT_RE.exec(line);
-    const gitOldPath = diffGitMatch ? diffGitMatch[1] : undefined;
-    const gitNewPath = diffGitMatch ? diffGitMatch[2] : undefined;
+    // empty-file add/delete). splitDiffGitHeader handles paths that contain
+    // the literal " b/" sequence correctly via a symmetric-split fast path.
+    const { oldPath: gitOldPath, newPath: gitNewPath } = splitDiffGitHeader(line);
 
     i++;
 

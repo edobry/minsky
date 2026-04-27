@@ -314,6 +314,24 @@ describe("parseUnifiedDiff", () => {
     expect(file.hunks).toHaveLength(0);
   });
 
+  test("splits diff --git correctly when path contains literal ' b/' substring (symmetric)", () => {
+    // Reviewer-bot finding on PR #835 round-3: the naive regex
+    // /^diff --git a\/(.+?) b\/(.+)$/ would stop at the first ' b/' it sees,
+    // mis-assigning the rest to the new-side. The symmetric-split fast path
+    // recovers the correct delimiter when both sides match.
+    const diff = [
+      "diff --git a/foo b/dir/file.txt b/foo b/dir/file.txt",
+      "old mode 100644",
+      "new mode 100755",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("foo b/dir/file.txt");
+    expect(file.status).toBe("modified");
+    expect(file.hunks).toHaveLength(0);
+  });
+
   test("classifies empty-file delete via 'deleted file mode' header (no ---/+++)", () => {
     // git emits this shape when an empty file is deleted.
     const diff = [
