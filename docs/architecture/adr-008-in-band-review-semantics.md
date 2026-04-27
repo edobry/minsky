@@ -10,7 +10,13 @@
 
 ### What we observe today
 
-The `minsky-reviewer[bot]` agent posts findings as Markdown text in the body of a PR review. Each finding follows a pattern like `**[BLOCKING]** \`file:line[-range]\` — body`. PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line`or`file:line-range`, **zero** anchored review comments (`get_review_comments`totalCount: 0). The`submitReview`tool already accepts a`comments[]`array of line-anchored comments end-to-end — see the`ReviewComment`interface and the Octokit mapping in`src/domain/repository/github-pr-review.ts`, and the matching tool-schema entries under `comments`in`src/adapters/shared/commands/session/session-parameters.ts`. The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
+The `minsky-reviewer[bot]` agent posts findings as Markdown text in the body of a PR review. Each finding follows a pattern like:
+
+```
+**[BLOCKING]** `file:line[-range]` — body
+```
+
+PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line` or `file:line-range`, **zero** anchored review comments (`get_review_comments` totalCount: 0). The `submitReview` tool already accepts a `comments[]` array of line-anchored comments end-to-end — see the `ReviewComment` interface and the Octokit mapping in `src/domain/repository/github-pr-review.ts`, and the matching tool-schema entries under `comments` in `src/adapters/shared/commands/session/session-parameters.ts`. The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
 
 1. **The reviewer prompt** (`.claude/agents/reviewer.md`) teaches an output format of `[BLOCKING] file:line — body` as Markdown text, never `comments[]`.
 2. **The context tool** (`session_pr_review_context`) returns the diff as a single unified-diff string. To produce a valid `comments[]` entry, the reviewer must parse `@@` hunk headers, pick a line that lies in a hunk, and pick a matching `side`. GitHub rejects the _entire_ `createReview` call with 422 if a single comment is off-diff. That foot-gun makes attempts costly and pushes the model back to body-Markdown output.
