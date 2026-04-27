@@ -171,6 +171,48 @@ export async function updateSessionImpl(
       await deps.gitService.fetchLatest!(workdir, remote || "origin");
       log.debug("Latest changes fetched");
 
+      // Pre-push safety check: detect if origin/<currentBranch> has advanced beyond local.
+      // If it has, a push would silently orphan the remote commits (see mt#1304).
+      // We refuse with a clear message rather than allow silent data loss.
+      if (!force) {
+        const remoteRef = `${remote || "origin"}/${currentBranch}`;
+        try {
+          const divergenceOutput = await deps.gitService.execInRepository(
+            workdir,
+            `git rev-list --left-right --count ${currentBranch}...${remoteRef}`
+          );
+          const parts = divergenceOutput.trim().split(/\s+/);
+          const remoteAheadPart = parts.length >= 2 ? parts[1] : undefined;
+          const remoteAheadCount =
+            remoteAheadPart !== undefined ? parseInt(remoteAheadPart, 10) : 0;
+          if (!isNaN(remoteAheadCount) && remoteAheadCount > 0) {
+            // Remote has commits the local does not — pushing would orphan them.
+            const localSha = await deps.gitService.execInRepository(workdir, "git rev-parse HEAD");
+            const remoteSha = await deps.gitService.execInRepository(
+              workdir,
+              `git rev-parse ${remoteRef}`
+            );
+            throw new MinskyError(
+              `Remote branch ${remoteRef} has advanced ${remoteAheadCount} commit(s) beyond ` +
+                `local ${currentBranch}. ` +
+                `Local HEAD: ${localSha.trim()}, remote HEAD: ${remoteSha.trim()}. ` +
+                `Pushing now would orphan those ${remoteAheadCount} commit(s). ` +
+                `Fetch and integrate the remote commits before re-running session_update (see mt#1304).`
+            );
+          }
+        } catch (checkError) {
+          // If the remote ref does not exist yet (new branch), the rev-list will fail — that is
+          // fine: no remote commits can be orphaned.  Re-throw only MinskyErrors (our own guard).
+          if (checkError instanceof MinskyError) {
+            throw checkError;
+          }
+          log.debug("Remote-ahead check skipped (remote ref may not exist yet)", {
+            remoteRef,
+            error: getErrorMessage(checkError),
+          });
+        }
+      }
+
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
