@@ -11,7 +11,7 @@ describe("sessionReviewImpl", () => {
     // Create trackable spies for methods we need to verify
     const getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
-        session: name as string,
+        sessionId: name as string,
         taskId: "123",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",
@@ -69,7 +69,7 @@ describe("sessionReviewImpl", () => {
     // Create trackable spies for methods we need to verify
     const getSessionByTaskIdSpy = mock((taskId: unknown) =>
       Promise.resolve({
-        session: "task123",
+        sessionId: "task123",
         taskId: taskId as string,
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",
@@ -80,7 +80,7 @@ describe("sessionReviewImpl", () => {
 
     const getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
-        session: name as string,
+        sessionId: name as string,
         taskId: "123",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",

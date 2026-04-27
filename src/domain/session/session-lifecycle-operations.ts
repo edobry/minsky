@@ -240,7 +240,7 @@ export async function getSessionDirImpl(
       throw new ResourceNotFoundError(`No session found for task ID "${validatedTaskId}"`);
     }
 
-    resolvedId = session.session;
+    resolvedId = session.sessionId;
   } else if (params.sessionId) {
     resolvedId = params.sessionId;
   } else {

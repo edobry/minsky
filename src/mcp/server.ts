@@ -746,7 +746,7 @@ export class MinskyMCPServer {
       const storageTaskId = taskId.replace(/^mt#/i, "");
       const record = await sessionProvider.getSessionByTaskId(storageTaskId);
       if (record) {
-        await this.updateSessionAgentId(record.session, agentId);
+        await this.updateSessionAgentId(record.sessionId, agentId);
       }
     }
   }

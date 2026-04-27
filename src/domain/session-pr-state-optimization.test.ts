@@ -68,7 +68,7 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Set up session with fresh PR state
       mockSessionDB._setSession(sessionId, {
-        session: sessionId,
+        sessionId: sessionId,
         prState: {
           branchName: "pr/test-session",
           commitHash: "abc123def456", // Add commitHash since implementation checks this
@@ -97,7 +97,7 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Set up session with stale PR state
       mockSessionDB._setSession(sessionId, {
-        session: sessionId,
+        sessionId: sessionId,
         prState: {
           branchName: "pr/test-session",
           exists: true,
@@ -141,7 +141,7 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Set up session with fresh PR state
       mockSessionDB._setSession(sessionId, {
-        session: sessionId,
+        sessionId: sessionId,
         prState: {
           branchName: "pr/performance-test",
           exists: true,
@@ -178,7 +178,7 @@ describe("PR State Optimization (Task #275)", () => {
       const sessionId = "new-pr-session";
 
       // Set up session record so updatePrStateOnCreation can find it
-      mockSessionDB._setSession(sessionId, { session: sessionId });
+      mockSessionDB._setSession(sessionId, { sessionId: sessionId });
 
       await updatePrStateOnCreation(sessionId, mockSessionDB as SessionProviderInterface);
 
@@ -199,7 +199,7 @@ describe("PR State Optimization (Task #275)", () => {
 
       // Set up session with existing PR state
       mockSessionDB._setSession(sessionId, {
-        session: sessionId,
+        sessionId: sessionId,
         prState: {
           branchName: "pr/merge-test-session",
           exists: true,

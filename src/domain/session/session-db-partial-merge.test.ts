@@ -45,7 +45,7 @@ const PR_BRANCH = "pr/test-partial-merge";
 
 function makeFullSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
-    session: SESSION_ID,
+    sessionId: SESSION_ID,
     repoName: "minsky",
     repoUrl: "https://github.com/edobry/minsky.git",
     createdAt: "2024-01-01T00:00:00.000Z",
@@ -98,7 +98,7 @@ describe("updateSession — unspecified fields are preserved", () => {
     expect(updated.lastActivityAt).toBe("2024-06-01T00:00:00.000Z");
 
     // Every other field is untouched
-    expect(updated.session).toBe(SESSION_ID);
+    expect(updated.sessionId).toBe(SESSION_ID);
     expect(updated.repoName).toBe("minsky");
     expect(updated.repoUrl).toBe("https://github.com/edobry/minsky.git");
     expect(updated.createdAt).toBe("2024-01-01T00:00:00.000Z");
@@ -375,7 +375,7 @@ describe("updateSessionFn (direct) — contract", () => {
       lastActivityAt: "2024-06-01T00:00:00.000Z",
     });
 
-    const updated = next.sessions.find((s) => s.session === SESSION_ID);
+    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
     expect(updated).toBeDefined();
     if (!updated) return;
 
@@ -405,7 +405,7 @@ describe("updateSessionFn (direct) — contract", () => {
       prState: undefined,
     });
 
-    const updated = next.sessions.find((s) => s.session === SESSION_ID);
+    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
     expect(updated).toBeDefined();
     if (!updated) return;
 
@@ -437,7 +437,7 @@ describe("updateSessionFn (direct) — contract", () => {
       },
     });
 
-    const updated = next.sessions.find((s) => s.session === SESSION_ID);
+    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
     expect(updated).toBeDefined();
     if (!updated) return;
 
