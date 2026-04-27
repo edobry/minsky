@@ -186,12 +186,30 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         // Build the token provider from project configuration — the same pattern
         // used by session-merge-operations and createRepositoryBackend.
-        const { getConfiguration } = await import("../../../domain/configuration/index");
-        const { createTokenProvider } = await import("../../../domain/auth");
-        const cfg = getConfiguration();
-        const userToken = cfg.github?.token ?? "";
-        const githubCfg = cfg.github ?? {};
-        const tokenProvider = createTokenProvider(githubCfg, userToken);
+        //
+        // NOTE: reconcile hard-depends on initialized configuration. getConfiguration()
+        // throws if initializeConfiguration() has not been called first (typically done
+        // at process startup via the CLI/MCP adapter entry points). If reconcile is
+        // invoked in a context where configuration is not yet initialised — e.g. a bare
+        // programmatic call or a DI-container-less test harness — the catch block below
+        // surfaces an actionable error rather than letting the raw throw propagate.
+        let tokenProvider;
+        try {
+          const { getConfiguration } = await import("../../../domain/configuration/index");
+          const { createTokenProvider } = await import("../../../domain/auth");
+          const cfg = getConfiguration();
+          const userToken = cfg.github?.token ?? "";
+          const githubCfg = cfg.github ?? {};
+          tokenProvider = createTokenProvider(githubCfg, userToken);
+        } catch (err: unknown) {
+          const cause = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `asks.reconcile requires Minsky configuration to be initialized. ` +
+              `Run \`minsky setup\` (or the appropriate init step) before calling reconcile, ` +
+              `or pass a pre-built TokenProvider through the DI container. Cause: ${cause}`,
+            { cause: err instanceof Error ? err : new Error(String(err)) }
+          );
+        }
 
         const githubClient = makeProductionGithubReviewClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
