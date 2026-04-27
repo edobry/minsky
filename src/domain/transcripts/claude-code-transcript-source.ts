@@ -31,13 +31,14 @@ const RETAINED_TYPES = new Set(["user", "assistant"]);
 const HARNESS = "claude_code";
 
 /**
- * Default glob matches the Minsky checkout under `~/Projects/minsky` for the
- * single-developer context (`edobry`); Claude Code derives its per-project
- * directory name by replacing slashes in the absolute project path with `-`.
- * Consumers operating from a different checkout location must pass their own
+ * Default glob scans all per-project transcript directories under
+ * `claudeProjectsDir`. Claude Code derives its per-project directory name by
+ * replacing slashes in the absolute project path with `-`, so a single
+ * `claudeProjectsDir` may hold transcripts for many checkouts. Callers that
+ * need to scope to a particular checkout should pass an explicit
  * `projectDirGlob` via `ClaudeCodeTranscriptSourceOptions`.
  */
-const DEFAULT_PROJECT_DIR_GLOB = "-Users-edobry-Projects-minsky*";
+const DEFAULT_PROJECT_DIR_GLOB = "*";
 
 const SUBAGENTS_DIR = "subagents";
 
@@ -57,8 +58,8 @@ export interface ClaudeCodeTranscriptSourceOptions {
   claudeProjectsDir?: string;
   /**
    * Glob (relative to `claudeProjectsDir`) selecting project dirs to scan.
-   * Defaults to the Minsky checkout for this codebase's single-developer
-   * context; override when adopting outside that checkout.
+   * Defaults to `"*"` — scan every project directory. Pass a more specific
+   * pattern (e.g. `"-Users-name-Projects-minsky*"`) to scope the scan.
    */
   projectDirGlob?: string;
 }
@@ -111,7 +112,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
 
   getJsonlTimestamp(line: RawTurnLine): TimestampISO | undefined {
     const ts = line.timestamp;
-    if (ts === undefined) return undefined;
+    if (typeof ts !== "string") return undefined;
     if (Number.isNaN(Date.parse(ts))) return undefined;
     return ts;
   }

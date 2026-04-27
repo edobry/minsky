@@ -10,6 +10,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { ClaudeCodeTranscriptSource } from "./claude-code-transcript-source";
+import type { RawTurnLine } from "./transcript-source";
 
 const PROJECT_DIR_NAME = "-Users-edobry-Projects-minsky";
 const PROJECT_DIR_GLOB = `${PROJECT_DIR_NAME}*`;
@@ -199,5 +200,16 @@ describe("ClaudeCodeTranscriptSource.getJsonlTimestamp", () => {
 
   test("returns undefined for an unparseable timestamp string", () => {
     expect(src.getJsonlTimestamp({ type: "user", timestamp: "not-a-date" })).toBeUndefined();
+  });
+
+  test("returns undefined when timestamp is a non-string value", () => {
+    // Cast through unknown because RawTurnLine declares timestamp as TimestampISO,
+    // but the upstream JSONL has no runtime validation — exercise the type guard.
+    expect(
+      src.getJsonlTimestamp({ type: "user", timestamp: 1735689600000 } as unknown as RawTurnLine)
+    ).toBeUndefined();
+    expect(
+      src.getJsonlTimestamp({ type: "user", timestamp: null } as unknown as RawTurnLine)
+    ).toBeUndefined();
   });
 });
