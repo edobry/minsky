@@ -81,10 +81,15 @@ export interface PrWatch {
    *   - merged: unused (null)
    *   - review-posted: `{ lastReviewId: number | null }`
    *   - check-status-changed: `{ lastConclusion: string | null }` where the
-   *     conclusion is one of the full GitHub Checks API enum values:
-   *     `"success"`, `"failure"`, `"neutral"`, `"cancelled"`, `"skipped"`,
-   *     `"timed_out"`, `"action_required"`, `"stale"`, or the synthetic
-   *     aggregates `"pending"` (in progress) and `"unknown"` (no runs).
+   *     conclusion is one of the values actually persisted by the reconciler:
+   *     `"success"`, `"failure"`, `"neutral"`, `"cancelled"`,
+   *     `"action_required"`, or `"stale"`.
+   *
+   *     Note: `"timed_out"` is never stored — it is flattened to `"failure"`
+   *     by `deriveOverallConclusion` (Rule 2). `"skipped"` is never stored
+   *     either — it contributes to a `"success"` or `"neutral"` aggregate.
+   *     `"pending"` and `"unknown"` are also never persisted — the handler in
+   *     `handleCheckStatusChanged` filters them out and returns no-match.
    *
    * Absent until the first reconciler pass on this watch.
    */

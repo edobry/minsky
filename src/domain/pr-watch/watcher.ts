@@ -353,9 +353,16 @@ async function handleReviewPosted(
  * `lastSeen.lastConclusion`.
  *
  * Fires when the overall conclusion (derived from all check runs) differs from
- * the last-seen value and is not pending or unknown. Handles the full GitHub
- * check_run conclusion enum — see `deriveOverallConclusion` for the aggregation
- * precedence rules.
+ * the last-seen value and is not `"pending"` or `"unknown"`. The persisted
+ * `lastConclusion` value is always one of: `"success"`, `"failure"`,
+ * `"neutral"`, `"cancelled"`, `"action_required"`, or `"stale"`.
+ *
+ * Note on flattening: `timed_out` check-run conclusions are folded into
+ * `"failure"` by `deriveOverallConclusion`, so `"timed_out"` never surfaces
+ * here. Similarly, `skipped` runs contribute to `"success"` or `"neutral"`
+ * aggregates and never appear as a standalone stored conclusion.
+ *
+ * See `deriveOverallConclusion` for full aggregation precedence rules.
  */
 async function handleCheckStatusChanged(
   watch: PrWatch,
@@ -389,17 +396,22 @@ async function handleCheckStatusChanged(
 /**
  * Derive a single overall conclusion string from a list of check runs.
  *
- * Handles the full GitHub Checks API `check_run.conclusion` enum. Conclusions
- * are aggregated by precedence (highest priority first):
+ * Handles the full GitHub Checks API `check_run.conclusion` enum. `stale`
+ * entries are filtered out before aggregation — a stale result means "a
+ * re-run was triggered and this result is invalidated"; only the fresh runs
+ * should determine the overall conclusion. Conclusions among the remaining
+ * (fresh) runs are aggregated by precedence (highest priority first):
  *
- *  1. Any `null` conclusion  → `"pending"` (still in progress)
- *  2. Any `failure` or `timed_out` → `"failure"` (terminal error)
- *  3. Any `cancelled`  → `"cancelled"` (terminal, distinct from failure)
- *  4. Any `action_required` → `"action_required"` (requires operator input)
- *  5. All `success` or `skipped` → `"success"`
- *  6. All `neutral` (or mix of neutral with success/skipped) → `"neutral"`
- *  7. All `stale` (re-run triggered; old result invalidated) → `"stale"`
- *  8. No runs present → `"unknown"`
+ *  1. No runs present → `"unknown"`
+ *  2. Any `null` conclusion  → `"pending"` (still in progress)
+ *  3. Filter stale entries. If only stale entries remain → `"stale"`.
+ *  4. Any `failure` or `timed_out` among fresh runs → `"failure"`
+ *     (`timed_out` is flattened to `failure`; it is never stored as-is)
+ *  5. Any `cancelled` among fresh runs → `"cancelled"`
+ *  6. Any `action_required` among fresh runs → `"action_required"`
+ *  7. All fresh runs are `success` or `skipped` → `"success"`
+ *     (`skipped` contributes to success; it is never stored as-is)
+ *  8. All fresh runs are `neutral` (or mix of neutral/success/skipped) → `"neutral"`
  *  9. Anything else → `"unknown"`
  *
  * The filter in `handleCheckStatusChanged` only fires on state changes where the
@@ -411,28 +423,30 @@ function deriveOverallConclusion(checkRuns: GithubCheckRun[]): string {
 
   const conclusions = checkRuns.map((r) => r.conclusion);
 
-  // Rule 1: any null → pending (still in progress)
+  // Rule 2: any null → pending (still in progress)
   if (conclusions.some((c) => c === null)) return "pending";
 
-  // Rule 2: any failure or timed_out → failure
-  if (conclusions.some((c) => c === "failure" || c === "timed_out")) return "failure";
+  // Rule 3: filter stale entries — stale means the result is invalidated by a re-run.
+  // Fresh runs determine the overall conclusion.
+  const fresh = conclusions.filter((c) => c !== "stale");
+  if (fresh.length === 0) return "stale"; // all entries were stale
 
-  // Rule 3: any cancelled → cancelled
-  if (conclusions.some((c) => c === "cancelled")) return "cancelled";
+  // Rule 4: any failure or timed_out → failure (timed_out is flattened to failure)
+  if (fresh.some((c) => c === "failure" || c === "timed_out")) return "failure";
 
-  // Rule 4: any action_required → action_required
-  if (conclusions.some((c) => c === "action_required")) return "action_required";
+  // Rule 5: any cancelled → cancelled
+  if (fresh.some((c) => c === "cancelled")) return "cancelled";
 
-  // Rule 5: all success or skipped → success
-  if (conclusions.every((c) => c === "success" || c === "skipped")) return "success";
+  // Rule 6: any action_required → action_required
+  if (fresh.some((c) => c === "action_required")) return "action_required";
 
-  // Rule 6: all neutral (or mix of neutral with success/skipped) → neutral
-  if (conclusions.every((c) => c === "neutral" || c === "success" || c === "skipped")) {
+  // Rule 7: all success or skipped → success (skipped contributes to success)
+  if (fresh.every((c) => c === "success" || c === "skipped")) return "success";
+
+  // Rule 8: all neutral (or mix of neutral with success/skipped) → neutral
+  if (fresh.every((c) => c === "neutral" || c === "success" || c === "skipped")) {
     return "neutral";
   }
-
-  // Rule 7: all stale → stale
-  if (conclusions.every((c) => c === "stale")) return "stale";
 
   return "unknown";
 }
