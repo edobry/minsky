@@ -36,10 +36,12 @@ export function buildPersistenceConfigFrom(runtimeConfig: Configuration): Persis
   const effective = getEffectivePersistenceConfig(runtimeConfig);
   return {
     backend: effective.backend as PersistenceConfig["backend"],
-    postgres: effective.connectionString
-      ? { connectionString: effective.connectionString }
-      : undefined,
-    sqlite: effective.dbPath ? { dbPath: effective.dbPath } : undefined,
+    // Spread the full postgres sub-object (carries maxConnections, connectTimeout, etc.)
+    // falling back to a minimal object when only the flat connectionString is available.
+    postgres:
+      effective.postgres ??
+      (effective.connectionString ? { connectionString: effective.connectionString } : undefined),
+    sqlite: effective.sqlite ?? (effective.dbPath ? { dbPath: effective.dbPath } : undefined),
   };
 }
 

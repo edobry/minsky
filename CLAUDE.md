@@ -119,11 +119,11 @@ When spawning subagents, use the appropriate model and type:
 
 **Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. (Community guides often recommend `haiku` as the `CLAUDE_CODE_SUBAGENT_MODEL` default; Minsky uses `sonnet` because subagents run full implementation workflows — edit, commit, PR — not just search/format.)
 
-**Types:** `"refactor"` for structural changes (built-in coherence verification). `"verify-completion"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
+**Types:** `"refactorer"` for structural changes (built-in coherence verification). `"auditor"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
-**Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `suggestedSubagentType` from the result.
+**Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
@@ -179,6 +179,27 @@ GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because 
 - `mcp__github__pull_request_review_write` → `mcp__minsky__session_pr_review_submit`
 
 Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
+
+## session_update and session_pr_create can force-push the branch
+
+`mcp__minsky__session_update` (and `mcp__minsky__session_pr_create`, which calls it internally) merges main onto the **local** session HEAD and force-pushes. If the remote `task/<id>` branch has been advanced beyond the session's local HEAD by another agent, the merge commit's parent is the stale local — NOT the advanced remote — and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning. mt#1304 tracks the tool-level fix; until that lands, the agent must guard.
+
+**Pre-flight before calling `session_update` or `session_pr_create` on any session whose task has an open PR:**
+
+1. Read `mcp__minsky__session_get(task)` → note `lastCommitHash`.
+2. Read `mcp__minsky__session_pr_list(task)` (or `mcp__github__pull_request_read get` and inspect `head.sha`).
+3. If `lastCommitHash !== head.sha`: the remote has advanced. **Do NOT call session_update.** Surface to user, or do the analysis non-mutatively (see below).
+
+**Non-mutating alternatives** when you only need to read the current PR state: use `mcp__github__get_file_contents(ref="task/mt-N")` for files at the PR HEAD, or `mcp__github__pull_request_read(method="get_diff")` for the full diff. Edit the session only when you're actually committing — and only after confirming local-vs-origin parity.
+
+**Recovery if you orphaned commits**: the orphaned SHAs remain accessible on GitHub by SHA for some retention window. Restore via:
+
+```
+gh api -X PATCH /repos/<owner>/<repo>/git/refs/heads/<branch> \
+  -f sha=<orphaned-head-sha> -F force=true
+```
+
+Then surface the incident to the user; do NOT silently re-run session_update on the restored branch. See `feedback_session_update_can_force_push` memory for the failure-mode pattern.
 
 ## Running commands in sessions
 
@@ -280,6 +301,20 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
+
+## Escalation packaging
+
+Identifying a decision as principal-level (per the stakes filter) is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to make the decision from the message alone, without round-tripping for missing context.
+
+Mechanical checklist before posting an escalation:
+
+1. **State the question in plain language**, not by referent. "Should I do A or B?" with A and B identified by label-only forces the user to look up what those labels mean. Restate the options inline.
+2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link.
+3. **List the decision drivers** — the factors that distinguish the options. The user should see what *would* tilt the choice, not infer it.
+4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
+5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
+
+This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034). When that subsystem ships, the packaging discipline becomes structural — until then, it's checklist-driven. See `feedback_escalation_packaging.md` for the originating incident (mt#1316 shape A/B/C).
 
 # Code Style
 

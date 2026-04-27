@@ -205,7 +205,7 @@ export function createTasksDispatchCommand(
         harness,
         prompt: promptResult.prompt,
         suggestedModel: promptResult.suggestedModel,
-        suggestedSubagentType: promptResult.suggestedSubagentType,
+        agentType: promptResult.agentType,
         scopeWarning: promptResult.scopeWarning,
         batches: promptResult.batches,
       };

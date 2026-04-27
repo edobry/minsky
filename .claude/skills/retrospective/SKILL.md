@@ -124,7 +124,7 @@ For each root cause, propose a fix that is **structural, not behavioral**. Prefe
 
 Fix types by category:
 
-- **Verification gap** — Add a step to the relevant skill (review-pr, verify-completion) or CLAUDE.md protocol
+- **Verification gap** — Add a step to the relevant skill (review-pr, auditor) or CLAUDE.md protocol
 - **Communication gap** — Update subagent prompt templates or add explicit instructions to CLAUDE.md
 - **Process gap** — Add a new protocol section to CLAUDE.md or a new step to an existing skill
 - **Enforcement gap** — Convert the rule into a hook, a skill step, or a subagent identity trait
@@ -142,6 +142,18 @@ Make the changes. This typically means editing some combination of:
 - `.cursor/rules/*.mdc` — enforcement rules
 
 Use sessions for any repo file changes. Call `memory_create` directly for persistent feedback entries — the memory system stores durably in the database, not in files.
+
+**Tier choice — file structural task NOW vs memory bridge only**
+
+Before saving a memory entry as the implementation, decide whether the structural fix's shape is already clear:
+
+- **Decision criterion**: if you can name the file/tool/skill that needs to change AND describe the specific change required, the shape IS clear. If you can only name the symptom or the rough direction, the shape is NOT clear yet.
+
+- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
+
+- **Shape is unclear** → memory tier alone is acceptable while you investigate. The memory entry should record what you DID see (the symptom) and an explicit "fix shape unknown — investigation needed" note so a future agent recognizes it as bridge-only, not the resolution.
+
+The default until the 2026-04-26 meta-retrospective was "save memory, file structural task only after recurrence." That cost 12-24h per pattern. Reference: Notion incident memo `34e937f03cb4813c8046c6e00cb668f2` ("Mitigation-tier inversion") — of four pattern-fixes that day, only one (session_update force-push, mt#1304) followed the corrected sequence; the other three (verify-script-not-run, parallel-work, reviewer-bot misreads) waited 1-2+ days before the structural task was filed, and the failure mode recurred in the meantime.
 
 ### 6. Verify the fix
 

@@ -30,8 +30,8 @@ The deepest distinction: **skills are content, subagents are processes.** A skil
 
 The agent that did the work is biased toward "I did what was asked." A fresh agent comes to the question without that bias. This is why Minsky's verification infrastructure is subagent-based:
 
-- **`refactor`** subagent (`.claude/agents/refactor.md`) — has a mandatory 7-question coherence verification protocol that runs after every structural change
-- **`verify-completion`** subagent (`.claude/agents/verify-completion.md`) — reads the task spec, checks each success criterion against the current codebase, returns structured pass/fail
+- **`refactorer`** subagent (`.claude/agents/refactorer.md`) — has a mandatory 7-question coherence verification protocol that runs after every structural change
+- **`auditor`** subagent (`.claude/agents/auditor.md`) — reads the task spec, checks each success criterion against the current codebase, returns structured pass/fail
 
 Both replace older rule-based verification protocols that asked the doer to check their own work.
 
@@ -63,6 +63,6 @@ For any concern, use the **strongest mechanism that fits**. If you find yourself
 
 ## Origin
 
-This framework emerged from a specific failure during mt#348: a narrowly-scoped refactor subagent eliminated a class but left stale comments, redundant files, and dead exports. The rule-based prompt to "verify coherence" was forgotten. The fix was structural: bake verification into the agent's identity (the `refactor` subagent), not into a remembered prompt.
+This framework emerged from a specific failure during mt#348: a narrowly-scoped refactor subagent eliminated a class but left stale comments, redundant files, and dead exports. The rule-based prompt to "verify coherence" was forgotten. The fix was structural: bake verification into the agent's identity (the `refactorer` subagent), not into a remembered prompt.
 
 For the full analysis, see the Notion insight: [rules → skills → subagents — a structural strength spectrum](https://www.notion.so/33b937f03cb481d5900ecfa84b3c44ff).
