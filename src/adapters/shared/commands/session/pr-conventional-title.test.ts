@@ -174,12 +174,41 @@ describe("composeConventionalTitle", () => {
     expect(result).toBe(EXPECTED_MT1265_FEAT_FOO);
   });
 
-  it("strips title prefix when no taskId is supplied (no mismatch check possible)", () => {
+  // PR #806 R2 BLOCKING fix: preserve user-supplied prefix when no taskId is given
+  // (silent stripping in this case erases potentially intentional context)
+  it("preserves title prefix when no taskId is supplied (no silent stripping)", () => {
     const result = composeConventionalTitle({
       type: "feat",
       title: "mt#1266: foo",
     });
-    expect(result).toBe("feat: foo");
+    expect(result).toBe("feat: mt#1266: foo");
+  });
+
+  // PR #806 R2 BLOCKING fix: leading whitespace must not bypass strip + mismatch
+  it("strips matching task-ID prefix even with leading whitespace", () => {
+    const result = composeConventionalTitle({
+      type: "feat",
+      title: "  mt#1265: foo",
+      taskId: "mt#1265",
+    });
+    expect(result).toBe(EXPECTED_MT1265_FEAT_FOO);
+  });
+
+  it("detects task-ID mismatch even when title has leading whitespace", () => {
+    let caught: unknown;
+    try {
+      composeConventionalTitle({
+        type: "feat",
+        title: "  #1266: foo",
+        taskId: "mt#1265",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const msg = (caught as ValidationError).message;
+    expect(msg).toContain("1266");
+    expect(msg).toContain("mt#1265");
   });
 
   // PR #806 review NON-BLOCKING gap: rejection of conventional-prefixed title without taskId
