@@ -63,6 +63,8 @@ import { ConflictType, ConflictSeverity } from "./conflict-detection-types";
 export class FakeGitService implements GitServiceInterface {
   /** All commands passed to execInRepository, in order. */
   readonly recordedCommands: Array<{ workdir: string; command: string }> = [];
+  /** All calls to push(), in order. */
+  readonly pushedCalls: Array<PushOptions> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -94,6 +96,7 @@ export class FakeGitService implements GitServiceInterface {
 
   resetCallCount(): void {
     this.recordedCommands.length = 0;
+    this.pushedCalls.length = 0;
   }
 
   /** Configure a response for a specific command pattern. First match wins. */
@@ -178,7 +181,8 @@ export class FakeGitService implements GitServiceInterface {
     return { workdir: this.mockWorkdir, merged: true, conflicts: false };
   }
 
-  async push(_options: PushOptions): Promise<PushResult> {
+  async push(options: PushOptions): Promise<PushResult> {
+    this.pushedCalls.push(options);
     return { workdir: this.mockWorkdir, pushed: true };
   }
 

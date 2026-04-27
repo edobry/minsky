@@ -172,9 +172,10 @@ export async function updateSessionImpl(
       log.debug("Latest changes fetched");
 
       // Pre-push safety check: detect if origin/<currentBranch> has advanced beyond local.
-      // If it has, a push would silently orphan the remote commits (see mt#1304).
+      // If it has, a push would silently orphan the remote commits.
       // We refuse with a clear message rather than allow silent data loss.
-      if (!force) {
+      // Skip when force=true (caller accepts the risk) or noPush=true (no push will happen anyway).
+      if (!force && !noPush) {
         const remoteRef = `${remote || "origin"}/${currentBranch}`;
         try {
           const divergenceOutput = await deps.gitService.execInRepository(
@@ -197,18 +198,32 @@ export async function updateSessionImpl(
                 `local ${currentBranch}. ` +
                 `Local HEAD: ${localSha.trim()}, remote HEAD: ${remoteSha.trim()}. ` +
                 `Pushing now would orphan those ${remoteAheadCount} commit(s). ` +
-                `Fetch and integrate the remote commits before re-running session_update (see mt#1304).`
+                `Fetch and integrate the remote commits before re-running session_update.`
             );
           }
         } catch (checkError) {
           // If the remote ref does not exist yet (new branch), the rev-list will fail — that is
-          // fine: no remote commits can be orphaned.  Re-throw only MinskyErrors (our own guard).
+          // fine: no remote commits can be orphaned.  Re-throw MinskyErrors (our own guard) and
+          // errors that are NOT due to a missing remote ref.
           if (checkError instanceof MinskyError) {
             throw checkError;
           }
-          log.debug("Remote-ahead check skipped (remote ref may not exist yet)", {
+          const errMsg = getErrorMessage(checkError);
+          // Only swallow errors that indicate the remote ref simply does not exist yet.
+          // Any other rev-list failure is unexpected and must be re-thrown.
+          const isRemoteRefMissing =
+            errMsg.includes("unknown revision") ||
+            errMsg.includes("ambiguous argument") ||
+            errMsg.includes("does not exist");
+          if (!isRemoteRefMissing) {
+            throw new MinskyError(
+              `Unexpected error while checking remote-ahead state for ${remoteRef}: ${errMsg}`,
+              checkError instanceof Error ? checkError : undefined
+            );
+          }
+          log.debug("Remote-ahead check skipped (remote ref does not exist yet)", {
             remoteRef,
-            error: getErrorMessage(checkError),
+            error: errMsg,
           });
         }
       }

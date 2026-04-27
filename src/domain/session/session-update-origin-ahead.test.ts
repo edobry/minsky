@@ -20,6 +20,13 @@ import { MinskyError } from "../../errors/index";
 import type { SessionRecord } from "./types";
 
 // ---------------------------------------------------------------------------
+// Shared constants
+// ---------------------------------------------------------------------------
+
+const REV_LIST_CMD = "rev-list --left-right --count";
+const RECOVERY_HINT = "Fetch and integrate the remote commits";
+
+// ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
 
@@ -70,9 +77,31 @@ function makeGitService(remoteAheadCount: number, currentBranch = "task/mt-1304"
   });
 
   // Override rev-list to return localAhead=0, remoteAhead=remoteAheadCount
-  svc.setCommandResponse("rev-list --left-right --count", `0\t${remoteAheadCount}`);
+  svc.setCommandResponse(REV_LIST_CMD, `0\t${remoteAheadCount}`);
 
   // Return deterministic SHAs for rev-parse
+  svc.setCommandResponse("rev-parse HEAD", "aabbccdd00000000000000000000000000000000");
+  svc.setCommandResponse("rev-parse origin/", "eeff001100000000000000000000000000000000");
+
+  return svc;
+}
+
+/**
+ * Configure a FakeGitService to report that local is N commits ahead of origin
+ * (remote is not ahead — the common case where a push is safe).
+ */
+function makeGitServiceLocalAhead(
+  localAheadCount: number,
+  currentBranch = "task/mt-1304"
+): FakeGitService {
+  const svc = new FakeGitService({
+    defaultBranch: currentBranch,
+    sessionWorkdir: WORKDIR,
+  });
+
+  // Override rev-list to return localAhead=N, remoteAhead=0
+  svc.setCommandResponse(REV_LIST_CMD, `${localAheadCount}\t0`);
+
   svc.setCommandResponse("rev-parse HEAD", "aabbccdd00000000000000000000000000000000");
   svc.setCommandResponse("rev-parse origin/", "eeff001100000000000000000000000000000000");
 
@@ -109,7 +138,7 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
     // Message must name the remote ref, commit count, and recovery hint
     expect(msg).toContain("origin/task/mt-1304");
     expect(msg).toContain("6 commit");
-    expect(msg).toContain("mt#1304");
+    expect(msg).toContain(RECOVERY_HINT);
   });
 
   it("does not call push() when origin has advanced", async () => {
@@ -130,11 +159,8 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
       // expected to throw
     }
 
-    // Verify push was never called — FakeGitService records all commands
-    // passed to execInRepository, but push() is a separate method.
-    // Check that no "push" command appears in the recorded execInRepository calls.
-    const pushCommands = gitService.recordedCommands.filter((c) => c.command.includes("push"));
-    expect(pushCommands).toHaveLength(0);
+    // Verify push() was never called — FakeGitService.pushedCalls records every push() invocation
+    expect(gitService.pushedCalls).toHaveLength(0);
   });
 
   it("proceeds normally when origin is not ahead (0 remote commits)", async () => {
@@ -161,7 +187,7 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
     // The safety check must NOT fire for parity state
     if (caughtError !== undefined) {
       const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
-      expect(msg).not.toContain("Fetch and integrate the remote commits");
+      expect(msg).not.toContain(RECOVERY_HINT);
       expect(msg).not.toContain("has advanced");
     }
   });
@@ -175,29 +201,84 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
     // Remote is 3 ahead, but force=true should bypass the guard
     const gitService = makeGitService(3);
 
-    let threw = false;
+    let caughtError: unknown;
     try {
       await updateSessionImpl(makeBaseParams({ force: true }), {
         gitService,
         sessionDB,
         getCurrentSession: async () => undefined,
       });
-    } catch {
-      threw = true;
+    } catch (err) {
+      caughtError = err;
     }
 
-    // force=true bypasses the safety check, so no throw from our guard
-    // (it may still throw from the forced merge — that is separate logic)
-    // The important thing is the error is NOT our MinskyError guard message.
-    if (threw) {
-      // If it did throw, confirm it is NOT from our safety guard
-      // (the forced path uses mergeBranch, which the fake succeeds silently)
-      // This branch should not be reached with FakeGitService defaults.
-      expect(threw).toBe(false);
+    // force=true bypasses the safety check, so the guard must NOT have fired
+    if (caughtError !== undefined) {
+      const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      expect(msg).not.toContain(RECOVERY_HINT);
+    }
+
+    // Also confirm that rev-list --left-right --count was NOT executed when force=true
+    const revListCmds = gitService.recordedCommands.filter((c) => c.command.includes(REV_LIST_CMD));
+    expect(revListCmds).toHaveLength(0);
+  });
+
+  it("skips the safety check when noPush=true (no push will happen)", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [sessionRecord],
+      sessionWorkdir: WORKDIR,
+    });
+    // Remote is 4 ahead, but noPush=true means we won't push so the guard is irrelevant
+    const gitService = makeGitService(4);
+
+    let caughtError: unknown;
+    try {
+      await updateSessionImpl(makeBaseParams({ noPush: true }), {
+        gitService,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      caughtError = err;
+    }
+
+    // noPush=true bypasses the safety check — must NOT throw our guard error
+    if (caughtError !== undefined) {
+      const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      expect(msg).not.toContain(RECOVERY_HINT);
     }
   });
 
-  it("proceeds when remote ref does not exist (new branch, no push yet)", async () => {
+  it("does not throw when local is ahead of origin (safe to push)", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [sessionRecord],
+      sessionWorkdir: WORKDIR,
+    });
+    // localAhead=3, remoteAhead=0 — the normal push scenario
+    const gitService = makeGitServiceLocalAhead(3);
+
+    let caughtError: unknown;
+    try {
+      await updateSessionImpl(makeBaseParams(), {
+        gitService,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      caughtError = err;
+    }
+
+    // The safety check must NOT fire when local is ahead
+    if (caughtError !== undefined) {
+      const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      expect(msg).not.toContain(RECOVERY_HINT);
+      expect(msg).not.toContain("has advanced");
+    }
+  });
+
+  it("proceeds when remote ref does not exist (new branch, no push yet) — benign path", async () => {
     const sessionRecord = makeSessionRecord();
     const sessionDB = new FakeSessionProvider({
       initialSessions: [sessionRecord],
@@ -210,7 +291,7 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
       sessionWorkdir: WORKDIR,
     });
     gitService.setCommandError(
-      "rev-list --left-right --count",
+      REV_LIST_CMD,
       new Error("unknown revision or path not in the working tree")
     );
 
@@ -230,8 +311,42 @@ describe("updateSessionImpl — pre-push origin-ahead safety check (mt#1304)", (
     // Should not throw the safety-check MinskyError — unknown remote is benign
     if (threw) {
       const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
-      expect(msg).not.toContain("Fetch and integrate the remote commits");
+      expect(msg).not.toContain(RECOVERY_HINT);
     }
+  });
+
+  it("re-throws non-benign rev-list errors (unexpected failure)", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [sessionRecord],
+      sessionWorkdir: WORKDIR,
+    });
+
+    // Simulate rev-list failing with an unrelated error (not a missing ref)
+    const gitService = new FakeGitService({
+      defaultBranch: "task/mt-1304",
+      sessionWorkdir: WORKDIR,
+    });
+    gitService.setCommandError(
+      REV_LIST_CMD,
+      new Error("fatal: internal git error: object database is corrupt")
+    );
+
+    let caughtError: unknown;
+    try {
+      await updateSessionImpl(makeBaseParams(), {
+        gitService,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      caughtError = err;
+    }
+
+    // Must throw — unrelated rev-list errors should NOT be silently swallowed
+    expect(caughtError).toBeInstanceOf(MinskyError);
+    const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+    expect(msg).toContain("Unexpected error while checking remote-ahead state");
   });
 
   it("error message includes local SHA, remote SHA, and commit count", async () => {
