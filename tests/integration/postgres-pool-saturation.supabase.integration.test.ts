@@ -32,8 +32,12 @@ import { runSaturationSuite } from "./postgres-pool-saturation.shared";
 const BRANCH_URL = process.env.SUPABASE_INTEGRATION_BRANCH_URL;
 const POOL_SIZE = Number(process.env.SUPABASE_INTEGRATION_BRANCH_POOL_SIZE) || 15;
 
-// Both env vars must be set to run. Matches the describe.if() pattern used in
-// tests/integration/github-api.integration.test.ts.
+// Skip-gate pattern: uses a top-level if/else rather than describe.if(...) because
+// runSaturationSuite creates its own describe block internally. Using describe.if()
+// here would produce a nested-describe shape that is awkward for child C (mt#1365)
+// to reuse. Option (b) from the review: keep the shared helper's internal describe
+// and let the wrapper use if/else with a console.log for the skip case.
+// mt#1365 implementer: retain this pattern when wiring the docker harness.
 if (process.env.RUN_INTEGRATION_TESTS && BRANCH_URL) {
   runSaturationSuite({
     connectionString: BRANCH_URL,

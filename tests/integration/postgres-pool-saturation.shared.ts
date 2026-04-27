@@ -138,9 +138,18 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
         // saturatingClients more that must retry via withPgPoolRetry.
         const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
 
+        // Guard: ensure releaseHeld() is called at most once even though the
+        // timer and finally block both attempt to call it.
+        let released = false;
+        const releaseOnce = async (): Promise<void> => {
+          if (released) return;
+          released = true;
+          await releaseHeld();
+        };
+
         try {
           // Release held connections partway through so the retrying clients succeed.
-          const releaseTimer = setTimeout(() => releaseHeld(), 300);
+          const releaseTimer = setTimeout(() => void releaseOnce(), 300);
 
           const tasks = Array.from({ length: saturatingClients }, () => {
             let attempts = 0;
@@ -175,7 +184,8 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           // All clients must have received a result
           expect(results.every((r) => r === 1 || r === "1")).toBe(true);
         } finally {
-          await releaseHeld();
+          // Guaranteed release if timer hasn't fired yet.
+          await releaseOnce();
         }
 
         process.stdout.write(
@@ -216,17 +226,35 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           await setup.end().catch(() => {});
         }
 
+        // Track total retry attempts across all insert tasks
+        let totalRetryAttempts = 0;
+
         const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
 
+        // Guard: ensure releaseHeld() is called at most once even though the
+        // timer and finally block both attempt to call it.
+        let released = false;
+        const releaseOnce = async (): Promise<void> => {
+          if (released) return;
+          released = true;
+          await releaseHeld();
+        };
+
         try {
-          const releaseTimer = setTimeout(() => releaseHeld(), 300);
+          const releaseTimer = setTimeout(() => void releaseOnce(), 300);
 
           // Attempt the INSERT concurrently from saturating clients.
           // withPgPoolRetry ensures connection-acquisition retries are safe
           // (the query-field guard prevents double-execution of transmitted queries).
-          const insertTasks = Array.from({ length: saturatingClients }, () =>
-            withPgPoolRetry(
+          const insertTasks = Array.from({ length: saturatingClients }, () => {
+            let attempts = 0;
+            return withPgPoolRetry(
               async () => {
+                attempts += 1;
+                if (attempts > 1) {
+                  // This attempt is a retry — record it
+                  totalRetryAttempts += 1;
+                }
                 const client = makeSingleClient(connectionString);
                 try {
                   // ON CONFLICT DO NOTHING guarantees the row is written once
@@ -245,14 +273,22 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
                 initialDelayMs: 50,
                 maxDelayMs: 1000,
               }
-            )
-          );
+            );
+          });
 
           await Promise.allSettled(insertTasks);
           clearTimeout(releaseTimer);
         } finally {
-          await releaseHeld();
+          // Guaranteed release if timer hasn't fired yet.
+          await releaseOnce();
         }
+
+        process.stdout.write(
+          `[saturation/${label}] AT-2: ${totalRetryAttempts} retry attempts across ${saturatingClients} insert tasks\n`
+        );
+        // At least some retries must have fired (proves saturation was encountered,
+        // not just that the DB constraint prevented duplicates on first attempt).
+        expect(totalRetryAttempts).toBeGreaterThan(0);
 
         // Count rows with this run ID — must be exactly 1
         const probe = makeSingleClient(connectionString);
@@ -290,9 +326,18 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
 
         const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
 
+        // Guard: ensure releaseHeld() is called at most once even though the
+        // timer and finally block both attempt to call it.
+        let released = false;
+        const releaseOnce = async (): Promise<void> => {
+          if (released) return;
+          released = true;
+          await releaseHeld();
+        };
+
         // Release the held connections shortly after so the provider can
         // complete its retry on the SELECT 1 health check.
-        const releaseTimer = setTimeout(() => releaseHeld(), 300);
+        const releaseTimer = setTimeout(() => void releaseOnce(), 300);
 
         const provider = new PostgresPersistenceProvider({
           backend: "postgres",
@@ -312,7 +357,8 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           expect(info).toContain("connected");
         } finally {
           clearTimeout(releaseTimer);
-          await releaseHeld();
+          // Guaranteed release if timer hasn't fired yet.
+          await releaseOnce();
           await provider.close().catch(() => {});
         }
       },
@@ -378,8 +424,17 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
 
         const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
 
+        // Guard: ensure releaseHeld() is called at most once even though the
+        // timer and finally block both attempt to call it.
+        let released = false;
+        const releaseOnce = async (): Promise<void> => {
+          if (released) return;
+          released = true;
+          await releaseHeld();
+        };
+
         // Release held connections so the vector search can succeed
-        const releaseTimer = setTimeout(() => releaseHeld(), 300);
+        const releaseTimer = setTimeout(() => void releaseOnce(), 300);
 
         const sqlClient = makeSingleClient(connectionString);
         const { drizzle } = await import("drizzle-orm/postgres-js");
@@ -401,7 +456,8 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           expect(results.length).toBeGreaterThan(0);
         } finally {
           clearTimeout(releaseTimer);
-          await releaseHeld();
+          // Guaranteed release if timer hasn't fired yet.
+          await releaseOnce();
           await sqlClient.end().catch(() => {});
         }
       },
