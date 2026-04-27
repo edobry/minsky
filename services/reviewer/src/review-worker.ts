@@ -562,11 +562,24 @@ export async function runReview(
   if (!validation.ok) {
     const skipNotice = buildEmptyOutputSkipNotice(output);
     // submitReview failure shouldn't mask the original empty-output error —
-    // catch defensively and continue to the error return below.
+    // catch defensively and continue to the error return below. Log the
+    // secondary failure so operators can correlate "primary error in
+    // status=error return + GitHub silent" against a submission-side cause
+    // (rate limit, transient 5xx, identity issue) rather than guessing.
     try {
       await submitReview(octokit, owner, repo, prNumber, "COMMENT", skipNotice);
-    } catch {
-      // Surfacing in logs is still captured via status=error + the reason below.
+    } catch (submitErr) {
+      console.error(
+        JSON.stringify({
+          event: "reviewer.submit_skip_notice_failed",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          primaryReason: validation.reason,
+          submitError: submitErr instanceof Error ? submitErr.message : String(submitErr),
+          provider: output.provider,
+          model: output.model,
+        })
+      );
     }
     return {
       status: "error",
@@ -633,8 +646,24 @@ export async function runReview(
         outcome.event,
         annotateReviewBody(sanitized.body, output, tier, isSelfReview)
       );
-    } catch {
-      // Primary error is still captured in outcome.reason + status below.
+    } catch (submitErr) {
+      // Log the secondary failure (mt#1370). Without this, a CoT-leak followed
+      // by a submitReview failure leaves zero trace on GitHub and only the
+      // primary outcome.reason in Railway logs — operators cannot tell whether
+      // the bot tried-and-failed or never tried at all. Symptom case: PR #830
+      // 2026-04-27, second commit 7e7be76a9 silent for 11+ minutes.
+      console.error(
+        JSON.stringify({
+          event: "reviewer.submit_error_notice_failed",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          primaryReason: outcome.reason,
+          sanitizeReason: sanitized.meta.reason,
+          submitError: submitErr instanceof Error ? submitErr.message : String(submitErr),
+          provider: output.provider,
+          model: output.model,
+        })
+      );
     }
     return {
       status: "error",
