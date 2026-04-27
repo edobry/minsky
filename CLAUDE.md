@@ -83,7 +83,7 @@ PR/commit, overlapping files, and four recommended actions (wait / coordinate / 
 MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
 ```
 
-The override is **logged to session stdout** (task ID, colliding PRs, ISO timestamp).
+The override is **logged to session stdout** (task ID, ISO timestamp).
 The line is visible in the session transcript but is **not** written to a durable
 audit file — once the session log is rotated, the record is gone. Use only when
 parallel work has been explicitly acknowledged and coordinated.

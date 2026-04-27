@@ -7,6 +7,7 @@ import {
   runParallelWorkChecks,
   parseGitHubRemoteUrl,
   type ParallelWorkCheckInput,
+  type ParallelWorkCheckDeps,
   type ParallelWorkCollision,
 } from "./parallel-work-guard";
 
@@ -316,7 +317,10 @@ describe("runParallelWorkChecks — clean path", () => {
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, cleanDeps);
     expect(result.blocked).toBe(false);
     expect(result.collisions).toHaveLength(0);
-    expect(result.warnings).toHaveLength(0);
+    // detectDefaultBranch emits a warning when repoDir is not a real git repo;
+    // that is the expected fall-back behavior (still permits, does not block).
+    // We verify there are no collision-related warnings.
+    expect(result.warnings.every((w) => !w.includes("sweep failed"))).toBe(true);
   });
 });
 
@@ -521,5 +525,78 @@ describe("parseGitHubRemoteUrl", () => {
   it("returns null for empty or malformed input", () => {
     expect(parseGitHubRemoteUrl("")).toBeNull();
     expect(parseGitHubRemoteUrl("not a url")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runParallelWorkChecks — failure/warning paths
+// ---------------------------------------------------------------------------
+
+describe("runParallelWorkChecks — failure and warning paths", () => {
+  const baseInput: ParallelWorkCheckInput = {
+    taskId: "mt#9999",
+    inScopeFiles: [FIXTURE_ASK_TS],
+    repo: "edobry/minsky",
+    lookbackHours: 24,
+  };
+
+  it("emits a warning when fetchOpenPrs throws, does not block", () => {
+    const throwingOpenPrsDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => {
+        throw new Error("gh: command not found");
+      },
+      fetchPrFiles: () => [],
+      fetchRecentMerges: () => [],
+    };
+
+    const result = runParallelWorkChecks(
+      baseInput,
+      "/tmp/anywhere",
+      undefined,
+      throwingOpenPrsDeps
+    );
+    expect(result.blocked).toBe(false);
+    expect(result.warnings.some((w) => w.includes("Open-PR sweep failed"))).toBe(true);
+  });
+
+  it("emits a warning when fetchRecentMerges throws, does not block", () => {
+    const throwingMergesDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [],
+      fetchPrFiles: () => [],
+      fetchRecentMerges: () => {
+        throw new Error("git: not a git repository");
+      },
+    };
+
+    const result = runParallelWorkChecks(baseInput, "/tmp/anywhere", undefined, throwingMergesDeps);
+    expect(result.blocked).toBe(false);
+    expect(result.warnings.some((w) => w.includes("Recently-merged sweep failed"))).toBe(true);
+  });
+
+  it("continues to check recently-merged when fetchOpenPrs throws (resilience)", () => {
+    const mergedCollision: ParallelWorkCollision = {
+      type: "recently-merged",
+      commitSha: "abc1234",
+      commitMessage: "feat: something that overlaps",
+      overlappingFiles: [FIXTURE_ASK_TS],
+    };
+
+    const resilientDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => {
+        throw new Error("gh: command not found");
+      },
+      fetchPrFiles: () => [],
+      fetchRecentMerges: () => [mergedCollision],
+    };
+
+    const result = runParallelWorkChecks(baseInput, "/tmp/anywhere", undefined, resilientDeps);
+    // Open-PR sweep failed => warning, but recently-merged sweep ran and found collision
+    expect(result.warnings.some((w) => w.includes("Open-PR sweep failed"))).toBe(true);
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    const resilientCollision = result.collisions[0];
+    expect(resilientCollision).toBeDefined();
+    if (!resilientCollision) throw new Error("expected collision");
+    expect(resilientCollision.type).toBe("recently-merged");
   });
 });

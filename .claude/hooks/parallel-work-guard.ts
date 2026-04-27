@@ -9,7 +9,7 @@
 //
 // Two checks are run:
 //   A. Open-PR sweep: any open PR whose changed files overlap the task's in-scope paths.
-//   B. Recently-merged sweep: any commit on main in the last 24h touching in-scope paths.
+//   B. Recently-merged sweep: any commit on the default branch in the last 24h touching in-scope paths.
 //
 // On hit: BLOCK with structured message listing the colliding PR/commit.
 // On miss or warn: permit.
@@ -30,7 +30,7 @@ import type { ToolHookInput } from "./types";
  * Wrapper around Bun.spawnSync that prepends common homebrew/system binary
  * directories to PATH so that `gh` and `git` resolve correctly regardless of
  * the shell PATH that launched Claude Code. Used for all gh/git calls in this
- * hook (fetchOpenPrs, fetchRecentMerges, detectDefaultBranch, detectRepoSlug).
+ * hook (fetchOpenPrs, fetchRecentMerges, detectDefaultBranch, deriveRepoFromGit).
  */
 function execWithPath(
   cmd: string[],
@@ -345,32 +345,58 @@ interface GitLogEntry {
 }
 
 /**
- * Fetch commits on main in the last `hours` hours that touch any of the
- * in-scope paths. Uses `git log --name-only` for file list.
+ * Detect the default remote branch ref (e.g. "origin/main") by reading the
+ * symbolic ref for origin/HEAD. Falls back to "origin/main" with a warning
+ * if the symbolic ref is unavailable.
+ */
+export function detectDefaultBranch(repoDir: string): { ref: string; warning?: string } {
+  const result = execWithPath(["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"]);
+
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    return {
+      ref: "origin/main",
+      warning: `Could not detect default branch via git symbolic-ref (exited ${result.exitCode}); falling back to origin/main`,
+    };
+  }
+
+  // Output is like "refs/remotes/origin/main" — strip the "refs/remotes/" prefix
+  const stripped = result.stdout.trim().replace(/^refs\/remotes\//, "");
+  return { ref: stripped };
+}
+
+/**
+ * Fetch commits on the default branch in the last `hours` hours that touch
+ * any of the in-scope paths. Uses `git log --name-only` for file list.
  *
- * Strategy: follow main's first-parent lineage (so we don't recurse into
- * merged branches' individual commits) AND include merge commits with
- * `-m --diff-merges=first-parent` so the merge commit reports the file set
- * brought in by the merged PR. The repo's policy is to use merge-method
+ * Strategy: follow the default branch's first-parent lineage (so we don't
+ * recurse into merged branches' individual commits) AND include merge commits
+ * with `-m --diff-merges=first-parent` so the merge commit reports the file
+ * set brought in by the merged PR. The repo's policy is to use merge-method
  * merges (see docs/pr-workflow.md §Merge method policy), so excluding
  * merges (`--no-merges`) was missing exactly the just-landed PR commits
  * this sweep is meant to catch.
+ *
+ * Throws on non-zero exit so the caller (runParallelWorkChecks) can surface
+ * the failure as a warning rather than silently returning [].
  */
 export function fetchRecentMerges(
   repoDir: string,
   inScopeFiles: string[],
-  hours: number
+  hours: number,
+  defaultBranchRef?: string
 ): ParallelWorkCollision[] {
   // ISO timestamp for `hours` ago
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
-  // Get log with file names in the last N hours on main
-  const result = execSync([
+  const branchRef = defaultBranchRef ?? "origin/main";
+
+  // Get log with file names in the last N hours on the default branch
+  const result = execWithPath([
     "git",
     "-C",
     repoDir,
     "log",
-    "origin/main",
+    branchRef,
     `--since=${since}`,
     "--first-parent",
     "-m",
@@ -379,7 +405,11 @@ export function fetchRecentMerges(
     "--format=COMMIT:%H %s",
   ]);
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
+  if (result.exitCode !== 0) {
+    throw new Error(`git log exited ${result.exitCode}: ${result.stderr || result.stdout}`);
+  }
+
+  if (!result.stdout.trim()) {
     return [];
   }
 
@@ -423,14 +453,18 @@ export function fetchRecentMerges(
  * Injectable dependency surface for `runParallelWorkChecks`. The default
  * impls call live `gh` and `git` subprocesses; tests pass mocks to exercise
  * the collision/no-collision paths hermetically.
+ *
+ * fetchPrFiles accepts a warnings array so per-PR lookup failures are
+ * surfaced without aborting the sweep.
  */
 export interface ParallelWorkCheckDeps {
   fetchOpenPrs: (repo: string) => PrInfo[];
-  fetchPrFiles: (repo: string, prNumber: number) => string[];
+  fetchPrFiles: (repo: string, prNumber: number, warnings: string[]) => string[];
   fetchRecentMerges: (
     repoDir: string,
     inScopeFiles: string[],
-    hours: number
+    hours: number,
+    defaultBranchRef?: string
   ) => ParallelWorkCollision[];
 }
 
@@ -444,11 +478,9 @@ const DEFAULT_DEPS: ParallelWorkCheckDeps = {
  * Run both parallel-work checks (open-PR + recently-merged).
  * Returns a structured result with all collisions found.
  *
- * The `repoDir` param is only needed for the git log check; if absent,
- * the recently-merged check is skipped.
- *
- * `deps` is injectable so tests can mock the `gh` / `git` subprocesses
- * and exercise the green and colliding paths end-to-end.
+ * The `repoDir` param is used for the git log check and default-branch
+ * detection. `deps` is injectable so tests can mock the `gh` / `git`
+ * subprocesses and exercise the green and colliding paths end-to-end.
  */
 export function runParallelWorkChecks(
   input: ParallelWorkCheckInput,
@@ -467,19 +499,30 @@ export function runParallelWorkChecks(
 
   // Check A: open PRs
   try {
-    const prCollisions = checkOpenPrs(input, skipBranch, deps.fetchOpenPrs, deps.fetchPrFiles);
+    const prCollisions = checkOpenPrs(
+      input,
+      skipBranch,
+      deps.fetchOpenPrs,
+      deps.fetchPrFiles,
+      warnings
+    );
     collisions.push(...prCollisions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`Open-PR sweep failed (non-blocking): ${msg}`);
   }
 
-  // Check B: recently merged
+  // Check B: recently merged — detect default branch first
   try {
+    const { ref: defaultBranchRef, warning: branchWarning } = detectDefaultBranch(repoDir);
+    if (branchWarning) {
+      warnings.push(branchWarning);
+    }
     const mergeCollisions = deps.fetchRecentMerges(
       repoDir,
       input.inScopeFiles,
-      input.lookbackHours
+      input.lookbackHours,
+      defaultBranchRef
     );
     collisions.push(...mergeCollisions);
   } catch (err) {
@@ -588,7 +631,7 @@ export function parseGitHubRemoteUrl(url: string): string | null {
  * look like a GitHub URL.
  */
 export function deriveRepoFromGit(repoDir: string): string | null {
-  const result = execSync(["git", "-C", repoDir, "remote", "get-url", "origin"]);
+  const result = execWithPath(["git", "-C", repoDir, "remote", "get-url", "origin"]);
   if (result.exitCode !== 0 || !result.stdout.trim()) {
     return null;
   }
