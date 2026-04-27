@@ -65,9 +65,9 @@ export const SessionContextComponent: ContextComponent = {
 
               if (fullSessionRecord) {
                 sessionRecord = {
-                  id: fullSessionRecord.session || sessionId,
+                  id: fullSessionRecord.sessionId || sessionId,
                   name:
-                    fullSessionRecord.name || fullSessionRecord.session || sessionId || "unknown",
+                    fullSessionRecord.name || fullSessionRecord.sessionId || sessionId || "unknown",
                   taskId: fullSessionRecord.taskId || taskId,
                   repoUrl: fullSessionRecord.repoUrl || "unknown",
                   branch: fullSessionRecord.branch || "main",

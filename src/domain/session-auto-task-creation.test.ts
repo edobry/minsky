@@ -101,7 +101,7 @@ describe("Session Auto-Task Creation", () => {
     // Verify session was created with task ID (qualified format)
     expect(result.taskId).toBe("md#001"); // Code returns qualified ID format
     // Session ID is now a UUID (opaque, no task info encoded)
-    expect(result.session).toMatch(
+    expect(result.sessionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
   });
@@ -142,7 +142,7 @@ describe("Session Auto-Task Creation", () => {
     });
 
     // Verify session ID is the provided name, not auto-generated
-    expect(result.session).toBe("custom-session");
+    expect(result.sessionId).toBe("custom-session");
     expect(result.taskId).toBe("md#001"); // When custom session ID provided, returns qualified task ID
   });
 });

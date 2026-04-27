@@ -116,11 +116,11 @@ export async function sessionPr(
     return {
       ...result,
       session: {
-        session: sessionRecord.session,
+        sessionId: sessionRecord.sessionId,
         taskId: sessionRecord.taskId,
         repoName: sessionRecord.repoName,
       },
-      sessionId: sessionRecord.session, // Alternative property name for formatter compatibility
+      sessionId: sessionRecord.sessionId, // Alternative property name for formatter compatibility
     };
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance

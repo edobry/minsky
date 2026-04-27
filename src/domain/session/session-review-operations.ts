@@ -83,7 +83,7 @@ export async function sessionReviewImpl(
         taskIdToUse
       );
     }
-    sessionIdToUse = session.session;
+    sessionIdToUse = session.sessionId;
   }
 
   // If session is still not set, try to detect it from repo path

@@ -35,23 +35,27 @@ export interface PushDependencies {
  * Session resolution must happen at the adapter boundary before calling this.
  */
 export async function pushImpl(options: PushOptions, deps: PushDependencies): Promise<PushResult> {
-  let workdir: string;
-  let branch: string;
   const remote = options.remote || "origin";
+  const workdir = options.repoPath ?? validateProcess(process).cwd();
 
-  // Resolve workdir
-  if (options.repoPath) {
-    workdir = options.repoPath;
-    const { stdout: branchOut } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+  // Resolve current branch via rev-parse --abbrev-ref HEAD. The literal
+  // string "HEAD" is git's machine-readable signal for detached HEAD —
+  // locale-independent across git versions. Surface an actionable error
+  // for that case. Unrelated rev-parse failures (not a git repo, missing
+  // git binary, permission errors) propagate as the original error from
+  // execAsync — preserving type, stack, and structured fields. See mt#994;
+  // mt#1217 fixed the upstream session_update path that was leaving
+  // sessions detached.
+  const { stdout } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+  const branch = stdout.trim();
+  if (branch === "HEAD") {
+    throw new Error(
+      `Cannot push: HEAD is detached in ${workdir}. ` +
+        `Check out a branch first (e.g. 'git switch <branch>' or 'git checkout -b <new-branch>').`
     );
-    branch = branchOut.trim();
-  } else {
-    workdir = validateProcess(process).cwd();
-    const { stdout: branchOut } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-    );
-    branch = branchOut.trim();
+  }
+  if (!branch) {
+    throw new Error(`Cannot push: rev-parse returned an empty branch name for ${workdir}.`);
   }
 
   // 2. Validate remote exists
