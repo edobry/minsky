@@ -3,9 +3,13 @@
  *
  * Uses narrow stubs for `CommandExecutor` and `StdoutSink` so no real
  * processes are spawned and no I/O reaches stdout during the test run.
+ *
+ * stdout-cleanliness tests (including STRUCTURED log mode) verify that the
+ * injected `StdoutSink` receives zero writes — the logger always routes its
+ * non-darwin fallback through `cliWarn` which targets stderr unconditionally.
  */
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { CommandExecutor, StdoutSink } from "./operator-notify";
 import { SystemOperatorNotify } from "./operator-notify";
@@ -182,5 +186,49 @@ describe("SystemOperatorNotify.notify — non-darwin platform", () => {
     notify.notify("title", "body");
 
     expect(written).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// notify() stdout-cleanliness in STRUCTURED log mode
+// ---------------------------------------------------------------------------
+
+describe("SystemOperatorNotify.notify — stdout clean in STRUCTURED log mode", () => {
+  let savedLogMode: string | undefined;
+
+  beforeEach(() => {
+    savedLogMode = process.env.MINSKY_LOG_MODE;
+    process.env.MINSKY_LOG_MODE = "STRUCTURED";
+  });
+
+  afterEach(() => {
+    if (savedLogMode === undefined) {
+      delete process.env.MINSKY_LOG_MODE;
+    } else {
+      process.env.MINSKY_LOG_MODE = savedLogMode;
+    }
+  });
+
+  it("does not write to the stdout sink on linux in STRUCTURED mode", () => {
+    // Even when MINSKY_LOG_MODE=STRUCTURED (where the agent logger would send
+    // info to stdout), notify() must not write to the injected StdoutSink.
+    // The non-darwin fallback uses cliWarn which always routes to stderr.
+    const { sink, written } = makeStubStdout();
+    const { executor } = makeStubExecutor();
+    const notify = new SystemOperatorNotify(executor, sink, "linux");
+
+    notify.notify("Build done", "All checks passed");
+
+    expect(written).toHaveLength(0);
+  });
+
+  it("does not invoke the command executor in STRUCTURED mode on linux", () => {
+    const { sink } = makeStubStdout();
+    const { executor, calls } = makeStubExecutor();
+    const notify = new SystemOperatorNotify(executor, sink, "linux");
+
+    notify.notify("Build done", "All checks passed");
+
+    expect(calls).toHaveLength(0);
   });
 });
