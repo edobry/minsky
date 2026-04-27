@@ -253,7 +253,7 @@ Full gap analysis: [Notion: Architecture map](https://www.notion.so/33a937f03cb4
 
 Three cross-cutting principles govern how Minsky agents behave within the architecture above. They
 are not implementation features — they are posture commitments that shape every design decision.
-ADR-007 (Attention-Allocation Subsystem) names and consumes all three. The full position essay
+ADR-008 (Attention-Allocation Subsystem) names and consumes all three. The full position essay
 lives in Notion (`34a937f0-3cb4-814b-adba-f2e5cee38c08`).
 
 ### Attention as the scarce resource

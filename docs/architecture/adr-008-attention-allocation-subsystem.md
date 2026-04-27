@@ -1,4 +1,4 @@
-# ADR-007: Attention-Allocation Subsystem (Ask Entity, Router, Transport Bindings)
+# ADR-008: Attention-Allocation Subsystem (Ask Entity, Router, Transport Bindings)
 
 ## Status
 
@@ -331,7 +331,7 @@ This ADR is research. The implementation decomposes into the child tasks below. 
 7. **Attention-accounting schema + reporting** — per-task / per-kind rollups; `tasks_list` / `session_status` surfacing. Depends on child #1.
 8. **BLOCKED subtype rendering** — `tasks_list` renders `BLOCKED(direction)` etc. with the linked Ask. Depends on children #1 and #3.
 
-Child tasks mt#1068–mt#1072 cover children #1, #2, #6, #7, and #8 above. Children #3, #4, and #5 (the transport bindings for Inbox, AG-UI, and Mesh) are owned by their parent tasks (mt#454, mt#700, mt#1001 respectively) — they consume ADR-007 but do not get separate child tasks under mt#1034.
+Child tasks mt#1068–mt#1072 cover children #1, #2, #6, #7, and #8 above. Children #3, #4, and #5 (the transport bindings for Inbox, AG-UI, and Mesh) are owned by their parent tasks (mt#454, mt#700, mt#1001 respectively) — they consume ADR-008 but do not get separate child tasks under mt#1034.
 
 ## Relationship to existing tasks
 
