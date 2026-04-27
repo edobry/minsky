@@ -149,7 +149,7 @@ Before saving a memory entry as the implementation, decide whether the structura
 
 - **Decision criterion**: if you can name the file/tool/skill that needs to change AND describe the specific change required, the shape IS clear. If you can only name the symptom or the rough direction, the shape is NOT clear yet.
 
-- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands.
+- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
 
 - **Shape is unclear** → memory tier alone is acceptable while you investigate. The memory entry should record what you DID see (the symptom) and an explicit "fix shape unknown — investigation needed" note so a future agent recognizes it as bridge-only, not the resolution.
 
