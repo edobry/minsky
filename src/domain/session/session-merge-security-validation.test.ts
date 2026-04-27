@@ -285,7 +285,7 @@ describe("Session Merge Security Validation", () => {
       // Third argument (MergePROptions) varies by runtime context (service-account
       // config, provenance records) and is tested in
       // src/domain/provenance/merge-token-resolution.test.ts. This is a security
-      // test — it verifies that unapproved sessions don't reach the merge API.
+      // test -- it verifies that unapproved sessions don't reach the merge API.
       expect(newMerge).toHaveBeenCalledWith(
         "pr/approved-session",
         SESSION_TEST_PATTERNS.APPROVED_SESSION,
@@ -323,6 +323,397 @@ describe("Session Merge Security Validation", () => {
       expect(() => {
         validateSessionApprovedForMerge(edgeCaseSession, "edge-case-session");
       }).toThrow(ValidationError);
+    });
+  });
+
+  // ── Acceptance tests for the acceptStaleReviewerSilence waiver (mt#1366) ────
+
+  describe("acceptStaleReviewerSilence waiver", () => {
+    // Shared test constants to avoid magic-string duplication
+    const TEST_SESSION_WORKDIR = "/test/session/workdir";
+    const COMMENT_NO_BLOCKERS = "No blockers found.";
+
+    // Shared pullRequest object so tests can spread it without non-null assertions
+    const botPullRequest = {
+      number: 999,
+      url: "https://github.com/test/repo/pull/999",
+      state: "open" as const,
+      createdAt: new Date().toISOString(),
+      headBranch: "task/mt-1366",
+      baseBranch: "main",
+      lastSynced: new Date().toISOString(),
+      github: {
+        id: 999,
+        nodeId: "PR_node_999",
+        htmlUrl: "https://github.com/test/repo/pull/999",
+        author: "minsky-ai[bot]",
+      },
+    };
+
+    // Shared GitHub session record with a PR that has no approvals
+    const botPrSession: SessionRecord = {
+      sessionId: "bot-pr-session",
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
+      name: "bot-pr-session",
+      taskId: "task-bot",
+      repoUrl: "https://github.com/test/repo.git",
+      backendType: "github",
+      prBranch: "task/mt-1366",
+      prApproved: true,
+      pullRequest: botPullRequest,
+    };
+
+    const successMergeResult = {
+      commitHash: "abc123def456",
+      mergeDate: new Date().toISOString(),
+      mergedBy: "test-user",
+      mergeSha: "abc123",
+      mergedAt: new Date().toISOString(),
+    };
+
+    const fakeDeps = (getApprovalStatusImpl: () => Promise<unknown>) => ({
+      sessionDB: {
+        ...mockSessionProvider,
+        getSession: mock(() => Promise.resolve(botPrSession)),
+        updateSession: mock(() => Promise.resolve()),
+        getSessionWorkdir: mock(() => Promise.resolve(TEST_SESSION_WORKDIR)),
+      },
+      persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
+      createRepositoryBackend: (_config: any) =>
+        Promise.resolve({
+          pr: { merge: mock(() => Promise.resolve(successMergeResult)) },
+          review: { getApprovalStatus: mock(getApprovalStatusImpl) },
+          getType: () => "github",
+        } as any),
+      taskService: {
+        setTaskStatus: async () => {},
+        getTaskStatus: async () => "IN-REVIEW",
+        getTask: async () => null,
+      } as any,
+    });
+
+    // Acceptance test 1 (default-blocked):
+    // Same-identity COMMENT review, no minsky-reviewer[bot] review, no CHANGES_REQUESTED.
+    // Without the flag: session_pr_merge still refuses with a clear message.
+    it("Acceptance 1 (default): blocks merge without waiver flag when isApproved=false", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: false,
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: COMMENT_NO_BLOCKERS,
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      await expect(mergeSessionPr({ session: "bot-pr-session", json: true }, deps)).rejects.toThrow(
+        ValidationError
+      );
+
+      await expect(mergeSessionPr({ session: "bot-pr-session", json: true }, deps)).rejects.toThrow(
+        /does not meet approval requirements/
+      );
+    });
+
+    // Acceptance test 1 (flag-allowed):
+    // Same-identity COMMENT review, no minsky-reviewer[bot], no CHANGES_REQUESTED.
+    // canMerge=true: no other blockers.
+    // With acceptStaleReviewerSilence=true: merges successfully.
+    it("Acceptance 1 (waiver): allows merge with flag when conditions hold and canMerge=true", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: true, // No other blockers: branch is clean, not draft
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: COMMENT_NO_BLOCKERS,
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      const result = await mergeSessionPr(
+        { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+        deps
+      );
+
+      expect(result).toBeDefined();
+      expect(result.session).toBe("bot-pr-session");
+    });
+
+    // Acceptance test 2:
+    // Self-authored PR with CHANGES_REQUESTED review: still blocked regardless of flag.
+    it("Acceptance 2: blocks merge even with flag when CHANGES_REQUESTED exists", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: false,
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "CHANGES_REQUESTED",
+            submittedAt: new Date().toISOString(),
+            body: "Fix the issue first.",
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(/CHANGES_REQUESTED review exists/);
+    });
+
+    // Acceptance test 3:
+    // Self-authored PR with minsky-reviewer[bot] APPROVE review: merges normally without flag.
+    it("Acceptance 3: merges normally when minsky-reviewer[bot] has approved (no flag needed)", async () => {
+      const approvalStatus = {
+        isApproved: true,
+        canMerge: true,
+        approvals: [
+          {
+            reviewId: "r2",
+            approvedBy: "minsky-reviewer[bot]",
+            approvedAt: new Date().toISOString(),
+            prNumber: 999,
+          },
+        ],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r2",
+            reviewerLogin: "minsky-reviewer[bot]",
+            state: "APPROVED",
+            submittedAt: new Date().toISOString(),
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      // No waiver flag needed: normal approval path
+      const result = await mergeSessionPr({ session: "bot-pr-session", json: true }, deps);
+
+      expect(result).toBeDefined();
+      expect(result.session).toBe("bot-pr-session");
+    });
+
+    // B1 acceptance test (round-4):
+    // Non-bot PR author with acceptStaleReviewerSilence=true is still blocked.
+    // The waiver only applies when PR author is minsky-ai[bot].
+    it("B1: blocks merge when PR author is not minsky-ai[bot] even with waiver flag", async () => {
+      // Build a session with a non-bot PR author by spreading the shared pullRequest object
+      const nonBotPrSession: SessionRecord = {
+        ...botPrSession,
+        pullRequest: {
+          ...botPullRequest,
+          github: {
+            ...botPullRequest.github,
+            author: "human-developer", // NOT minsky-ai[bot]
+          },
+        },
+      };
+
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: false,
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "human-developer",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: "Looks good to me.",
+          },
+        ],
+      };
+
+      // Build deps with non-bot session
+      const nonBotDeps = {
+        sessionDB: {
+          ...mockSessionProvider,
+          getSession: mock(() => Promise.resolve(nonBotPrSession)),
+          updateSession: mock(() => Promise.resolve()),
+          getSessionWorkdir: mock(() => Promise.resolve(TEST_SESSION_WORKDIR)),
+        },
+        persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
+        createRepositoryBackend: (_config: any) =>
+          Promise.resolve({
+            pr: { merge: mock(() => Promise.resolve(successMergeResult)) },
+            review: { getApprovalStatus: mock(() => Promise.resolve(approvalStatus)) },
+            getType: () => "github",
+          } as any),
+        taskService: {
+          setTaskStatus: async () => {},
+          getTaskStatus: async () => "IN-REVIEW",
+          getTask: async () => null,
+        } as any,
+      };
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          nonBotDeps
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          nonBotDeps
+        )
+      ).rejects.toThrow(/not minsky-ai\[bot\]/);
+    });
+
+    // B2 acceptance test (round-4):
+    // Third-party COMMENTED review with acceptStaleReviewerSilence=true is still blocked.
+    // The waiver requires the COMMENTED review to be from the SAME identity as the PR author.
+    it("B2-review: blocks merge when COMMENTED review is from a third party, not the PR author", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: false,
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            // Third-party reviewer, NOT the PR author (minsky-ai[bot])
+            reviewerLogin: "some-other-reviewer",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: "I had a look.",
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(/same-identity COMMENT review/);
+    });
+
+    // B2 acceptance test (round-4 NEW -- canMerge check):
+    // Waiver conditions (reviews) hold, but PR has canMerge=false due to a non-approval blocker
+    // (e.g. draft state, merge conflicts, failing checks). Waiver must be refused.
+    it("B2-canMerge: blocks merge when waiver conditions hold but canMerge=false", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: false, // Non-approval blocker (e.g. merge conflicts or draft state)
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "draft" as const, // PR is a draft
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: COMMENT_NO_BLOCKERS,
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        mergeSessionPr(
+          { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+          deps
+        )
+      ).rejects.toThrow(/Another merge blocker is active/);
+    });
+
+    // DISMISSED CHANGES_REQUESTED test:
+    // A DISMISSED CHANGES_REQUESTED review should not block the waiver path.
+    it("Non-blocking: dismissed CHANGES_REQUESTED does not block waiver", async () => {
+      const approvalStatus = {
+        isApproved: false,
+        canMerge: true, // No other blockers
+        approvals: [],
+        requiredApprovals: 1,
+        prState: "open" as const,
+        rawReviews: [
+          {
+            reviewId: "r1",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "DISMISSED", // Previously CHANGES_REQUESTED, now dismissed
+            submittedAt: new Date().toISOString(),
+            body: "Old comment, now dismissed.",
+          },
+          {
+            reviewId: "r2",
+            reviewerLogin: "minsky-ai[bot]",
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: COMMENT_NO_BLOCKERS,
+          },
+        ],
+      };
+
+      const deps = fakeDeps(() => Promise.resolve(approvalStatus));
+
+      // DISMISSED review should not block the waiver -- merge should succeed
+      const result = await mergeSessionPr(
+        { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
+        deps
+      );
+
+      expect(result).toBeDefined();
+      expect(result.session).toBe("bot-pr-session");
     });
   });
 });

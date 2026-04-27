@@ -41,6 +41,10 @@ import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
+import { BOT_IDENTITY_LOGIN } from "../constants";
+
+// Re-export for backward compatibility with any consumers importing from this module.
+export { BOT_IDENTITY_LOGIN } from "../constants";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -95,6 +99,24 @@ export interface SessionMergeParams {
   repo?: string;
   json?: boolean;
   cleanupSession?: boolean; // Session cleanup after merge (default: true)
+  /**
+   * Operator-override waiver: when true, allows merge for self-authored bot PRs
+   * blocked only by the same-App-identity self-approval rule when
+   * minsky-reviewer[bot] has not fired (webhook-miss class).
+   *
+   * Only used by session.pr.merge -- has no effect in other contexts.
+   *
+   * Conditions that must ALL hold for the waiver to apply:
+   *   - PR author is minsky-ai[bot] (waiver does not apply to human-authored PRs).
+   *   - No CHANGES_REQUESTED review exists on the PR (DISMISSED reviews are excluded).
+   *   - At least one COMMENTED review from the SAME identity as the PR author exists.
+   *   - No review from minsky-reviewer[bot] exists.
+   *   - approvalStatus.canMerge is true (PR is not a draft, no merge conflicts, no failing checks).
+   *
+   * Default: false (safety check is enforced by default; waiver requires explicit opt-in).
+   * An audit log entry at INFO level is emitted when the waiver is used.
+   */
+  acceptStaleReviewerSilence?: boolean;
 }
 
 /**
@@ -253,21 +275,148 @@ export async function mergeSessionPr(
         log.cli(`• Branch protection: ${branchProtection}`);
       }
 
+      // Track whether the waiver path was taken (used for B1: correct success message)
+      let waiverApplied = false;
+
       if (!approvalStatus.isApproved) {
-        // Concise, actionable guidance without noisy transport logs
-        throw new ValidationError(
-          `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.` +
-            `\n\n` +
-            `💡 Next steps:` +
-            `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
-            `\n   2. Request required reviews` +
-            `\n   3. Address any changes requested` +
-            `\n   4. Re-run merge when approvals are sufficient`
+        // Check whether the operator-override waiver applies before blocking.
+        // Waiver conditions (ALL must hold):
+        //   1. acceptStaleReviewerSilence flag explicitly set to true.
+        //   2. PR author is the configured bot identity (minsky-ai[bot]).
+        //   3. No CHANGES_REQUESTED review (substantive findings unaddressed).
+        //   4. No minsky-reviewer[bot] review (webhook-miss class).
+        //   5. At least one COMMENTED review from the SAME identity as the PR author.
+        const rawReviews = approvalStatus.rawReviews ?? [];
+        const prAuthor = sessionRecord.pullRequest.github?.author ?? "";
+        const isPrAuthorBot = prAuthor.toLowerCase() === BOT_IDENTITY_LOGIN.toLowerCase();
+        // Exclude DISMISSED reviews from CHANGES_REQUESTED check (stale reviews that no longer block)
+        const hasChangesRequested = rawReviews
+          .filter((r) => r.state !== "DISMISSED")
+          .some((r) => r.state === "CHANGES_REQUESTED");
+        const hasReviewerBotReview = rawReviews.some(
+          (r) => r.reviewerLogin.toLowerCase() === "minsky-reviewer[bot]"
         );
+        // Waiver requires COMMENTED review from the SAME identity as the PR author.
+        // Normalize both sides to lowercase: GitHub logins are case-insensitive.
+        const prAuthorLower = prAuthor.toLowerCase();
+        const hasCommentedReview = rawReviews.some(
+          (r) => r.state === "COMMENTED" && r.reviewerLogin.toLowerCase() === prAuthorLower
+        );
+
+        const waiverEligible =
+          params.acceptStaleReviewerSilence === true &&
+          isPrAuthorBot &&
+          !hasChangesRequested &&
+          !hasReviewerBotReview &&
+          hasCommentedReview;
+
+        if (waiverEligible) {
+          // B2: Waiver only addresses the reviewer-bot-silence blocker, not other merge blockers.
+          // If canMerge is false for any other reason (draft, merge conflicts, failing checks),
+          // refuse the waiver and surface the blocker clearly.
+          if (!approvalStatus.canMerge) {
+            const prState = approvalStatus.prState ?? "unknown";
+            throw new ValidationError(
+              `❌ GitHub PR #${sessionRecord.pullRequest.number} cannot be merged.\n` +
+                `   The acceptStaleReviewerSilence waiver addresses reviewer-bot silence only.\n` +
+                `   Another merge blocker is active (PR state: ${prState}).\n` +
+                `   Resolve the underlying blocker (e.g., draft state, merge conflicts, failing checks) before retrying.\n\n` +
+                `💡 Next steps:` +
+                `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+                `\n   2. Address the blocker` +
+                `\n   3. Re-run merge when the PR is mergeable`
+            );
+          }
+
+          // Identify which identities are involved for audit record
+          const commentReviewers = rawReviews
+            .filter((r) => r.state === "COMMENTED")
+            .map((r) => r.reviewerLogin)
+            .join(", ");
+          const prNumber = sessionRecord.pullRequest.number;
+
+          log.info(
+            `WAIVER: acceptStaleReviewerSilence applied for PR #${prNumber}. ` +
+              `PR author identity: ${sessionRecord.pullRequest.github?.author ?? "unknown"}. ` +
+              `COMMENT reviewer(s): ${commentReviewers}. ` +
+              `minsky-reviewer[bot] review absent (webhook-miss class). ` +
+              `Proceeding with merge under operator-override waiver.`
+          );
+          if (!params.json) {
+            log.cli(
+              `⚠️  Operator-override waiver applied: minsky-reviewer[bot] review absent. ` +
+                `Merging under acceptStaleReviewerSilence. See audit log for details.`
+            );
+          }
+          waiverApplied = true;
+          // Fall through to merge -- do not throw
+        } else if (params.acceptStaleReviewerSilence === true && !waiverEligible) {
+          // Flag was set but waiver conditions don't hold -- give a clear reason
+          const reasons: string[] = [];
+          if (!isPrAuthorBot) {
+            reasons.push(
+              `PR author is "${prAuthor}", not minsky-ai[bot] (waiver only applies to self-authored bot PRs)`
+            );
+          }
+          if (hasChangesRequested) {
+            reasons.push(
+              "CHANGES_REQUESTED review exists (substantive findings must be addressed)"
+            );
+          }
+          if (hasReviewerBotReview) {
+            reasons.push(
+              "minsky-reviewer[bot] review exists (waiver only applies when reviewer-bot is absent)"
+            );
+          }
+          if (!hasCommentedReview) {
+            reasons.push(
+              `no COMMENTED review from the PR author (${prAuthor}) found (waiver requires a same-identity COMMENT review)`
+            );
+          }
+          throw new ValidationError(
+            `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.\n` +
+              `   acceptStaleReviewerSilence=true was set but waiver conditions are not met:\n${reasons
+                .map((r) => `   - ${r}`)
+                .join("\n")}\n\n` +
+              `💡 Next steps:` +
+              `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+              `\n   2. Request required reviews` +
+              `\n   3. Address any changes requested` +
+              `\n   4. Re-run merge when approvals are sufficient`
+          );
+        } else {
+          // Default path: no waiver, block merge with actionable guidance
+          // Only hint about acceptStaleReviewerSilence when the waiver could plausibly apply:
+          // the PR must be authored by the bot identity (waiver never applies to human-authored PRs).
+          const missingReviewerNote =
+            isPrAuthorBot && !hasReviewerBotReview
+              ? `\n   Note: minsky-reviewer[bot] has not reviewed this PR. ` +
+                `If the reviewer bot is silent (webhook-miss), you may use ` +
+                `acceptStaleReviewerSilence=true as an operator-override waiver.`
+              : "";
+          throw new ValidationError(
+            `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.${
+              missingReviewerNote
+            }\n\n` +
+              `💡 Next steps:` +
+              `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+              `\n   2. Request required reviews` +
+              `\n   3. Address any changes requested` +
+              `\n   4. Re-run merge when approvals are sufficient`
+          );
+        }
       }
 
+      // B1: Condition success message on whether the PR was actually approved (not waiver path).
+      // When proceeding via waiver, the waiver message above already informed the user.
       if (!params.json) {
-        log.cli(`✅ PR is approved and mergeable`);
+        if (waiverApplied) {
+          log.cli(
+            `PR proceeding via acceptStaleReviewerSilence waiver -- reviewer-bot review absent, waiver conditions met`
+          );
+        } else {
+          log.cli(`✅ PR is approved and mergeable`);
+        }
       }
     } catch (error) {
       if (error instanceof ValidationError) {

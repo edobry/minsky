@@ -9,6 +9,7 @@ import { CommandCategory, type CommandDefinition } from "../../command-registry"
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionApproveCommandParams,
+  sessionMergeCommandParams,
   sessionInspectCommandParams,
   sessionReviewCommandParams,
 } from "./session-parameters";
@@ -381,7 +382,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
     category: CommandCategory.SESSION,
     name: "merge",
     description: "Merge an approved session pull request",
-    parameters: sessionApproveCommandParams, // Reuse same params
+    parameters: sessionMergeCommandParams,
     mutating: true,
     execute: withErrorLogging(
       "session.pr.merge",
@@ -400,6 +401,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
             repo: params.repo as string | undefined,
             json: params.json as boolean | undefined,
             cleanupSession: shouldCleanup,
+            acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
           },
           buildSessionMergeDeps(deps, context.container)
         );
