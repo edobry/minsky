@@ -116,7 +116,7 @@ export async function updateSessionImpl(
 
           // Create session record
           const newSessionRecord: SessionRecord = {
-            session: sessionId,
+            sessionId: sessionId,
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),

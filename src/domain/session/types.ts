@@ -20,7 +20,7 @@ export enum SessionStatus {
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
 export interface SessionRecord {
-  session: string;
+  sessionId: string;
   repoName: string;
   repoUrl: string;
   repoPath?: string; // Local path to the repository
@@ -50,7 +50,7 @@ export interface SessionRecord {
   prApproved?: boolean; // Whether this session's PR is approved
 
   // Legacy / compatibility fields
-  /** @deprecated Use `session` instead */
+  /** @deprecated Use `sessionId` instead */
   name?: string;
   workspacePath?: string;
   sessionPath?: string;
@@ -93,7 +93,7 @@ export function deriveSessionLiveness(
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
 export interface Session {
-  session: string;
+  sessionId: string;
   repoUrl?: string;
   repoName?: string;
   /** @deprecated No longer stored persistently; kept for compatibility with code that still reads it */
@@ -167,7 +167,7 @@ export interface SessionProviderInterface {
   /**
    * Update an existing session
    */
-  updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+  updateSession(session: string, updates: Partial<Omit<SessionRecord, "sessionId">>): Promise<void>;
 
   /**
    * Delete a session by name
@@ -276,7 +276,7 @@ export interface SessionPrResult {
   url?: string; // PR URL from repository backend
   // Session information for CLI formatting
   session?: {
-    session: string;
+    sessionId: string;
     taskId?: string;
     repoName?: string;
   };

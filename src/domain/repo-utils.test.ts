@@ -41,7 +41,7 @@ describe("Repo Utils", () => {
           Promise.resolve(
             name === "test-session"
               ? {
-                  session: "test-session",
+                  sessionId: "test-session",
                   repoName: "test-repo",
                   repoUrl: "/test/repo/url",
                   createdAt: new Date().toISOString(),

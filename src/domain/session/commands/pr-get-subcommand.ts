@@ -291,13 +291,13 @@ export async function sessionPrGet(
     const fp = finalPullRequest;
     const pullRequest = {
       number: fp?.number,
-      title: livePrData?.title || fp?.title || `PR for ${sessionRecord.session}`,
-      sessionId: sessionRecord.session,
+      title: livePrData?.title || fp?.title || `PR for ${sessionRecord.sessionId}`,
+      sessionId: sessionRecord.sessionId,
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"
-          ? fp?.headBranch || currentBranch || sessionRecord.session
-          : prState?.branchName || `pr/${sessionRecord.branch || sessionRecord.session}`,
+          ? fp?.headBranch || currentBranch || sessionRecord.sessionId
+          : prState?.branchName || `pr/${sessionRecord.branch || sessionRecord.sessionId}`,
       status: livePrData?.state || fp?.state || (prState?.exists ? "created" : "not_found"),
       url: livePrData?.html_url || fp?.url,
       // Use live timestamps when available

@@ -185,7 +185,7 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
 
       const matchingSessions = sessions.filter((session) => {
         return (
-          session.session?.toLowerCase().includes(lowerQuery) ||
+          session.sessionId?.toLowerCase().includes(lowerQuery) ||
           session.repoName?.toLowerCase().includes(lowerQuery) ||
           session.repoUrl?.toLowerCase().includes(lowerQuery) ||
           session.taskId?.toLowerCase().includes(lowerQuery) ||

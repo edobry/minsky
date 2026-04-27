@@ -119,7 +119,7 @@ describe("Workspace Domain Methods", () => {
       const sessionDbMock = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "session-id",
+            sessionId: "session-id",
             repoName: "repo-name",
             repoUrl: "https://github.com/org/repo.git",
             branch: `task#${TEST_VALUE}`,
@@ -194,7 +194,7 @@ describe("Workspace Domain Methods", () => {
       const sessionDbMock = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "session-id",
+            sessionId: "session-id",
             repoName: "repo-name",
             repoUrl: "https://github.com/org/repo.git",
             branch: `task#${TEST_VALUE}`,
@@ -232,7 +232,7 @@ describe("Workspace Domain Methods", () => {
       const sessionDbMock = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "session-id",
+            sessionId: "session-id",
             repoName: "repo-name",
             repoUrl: "https://github.com/org/repo.git",
             branch: `task#${TEST_VALUE}`,
