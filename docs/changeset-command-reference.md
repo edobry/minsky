@@ -24,8 +24,8 @@ minsky repo changeset get 154 [--details]
 minsky repo changeset info [--json]
 
 # Filter by specific session
-minsky repo changeset list --sessionId task-mt#510
-minsky repo changeset search "bug fix" --sessionId my-session
+minsky repo changeset list --session task-mt#510
+minsky repo changeset search "bug fix" --session my-session
 ```
 
 ### Session-Specific Operations

@@ -20,7 +20,7 @@ minsky session edit-file --path <file-path> [--instruction "<description>"] [opt
 
 ### Optional Parameters
 
-- `--sessionId <name>` or `-s <name>`: Session identifier (auto-detected from workspace if not provided)
+- `--session-id <name>` or `-s <name>`: Session identifier (auto-detected from workspace if not provided)
 - `--instruction <text>`: Optional high-level guidance that can affect placement/order of edits
 - `--pattern-file <path>` or `-f <path>`: Path to file containing edit pattern
 - `--dry-run` or `-n`: Preview changes without writing to disk
