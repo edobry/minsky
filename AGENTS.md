@@ -921,8 +921,10 @@ PR/commit, overlapping files, and four recommended actions (wait / coordinate / 
 MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
 ```
 
-The override is **audit-logged** (stdout line with task ID, colliding PRs, and ISO timestamp).
-Use only when parallel work has been explicitly acknowledged and coordinated.
+The override is **logged to session stdout** (task ID, colliding PRs, ISO timestamp).
+The line is visible in the session transcript but is **not** written to a durable
+audit file — once the session log is rotated, the record is gone. Use only when
+parallel work has been explicitly acknowledged and coordinated.
 
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.

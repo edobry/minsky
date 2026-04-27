@@ -5,6 +5,7 @@ import {
   findOverlappingFiles,
   formatBlockMessage,
   runParallelWorkChecks,
+  type ParallelWorkCheckDeps,
   type ParallelWorkCheckInput,
   type ParallelWorkCollision,
 } from "./parallel-work-guard";
@@ -297,6 +298,123 @@ describe("runParallelWorkChecks — clean path", () => {
     // producing warnings but not blocking
     expect(result.blocked).toBe(false);
   });
+
+  it("returns not blocked when injected deps return no collisions (true green path)", () => {
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#9999",
+      inScopeFiles: [FIXTURE_ASK_TS, FIXTURE_SETTINGS_JSON],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    const cleanDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [],
+      fetchPrFiles: () => [],
+      fetchRecentMerges: () => [],
+    };
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, cleanDeps);
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+});
+
+describe("runParallelWorkChecks — colliding path (full integration via DI)", () => {
+  it("blocks on open-PR collision (mt#1068 incident replay through full pipeline)", () => {
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#1068",
+      inScopeFiles: [FIXTURE_ASK_TS, FIXTURE_ASK_TEST_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    // Mock deps simulate the actual mt#1068 scenario:
+    // PR #788 (mt#1240) is open and touches src/domain/ask/
+    const collidingDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [
+        {
+          number: 788,
+          title: "feat(mt#1240): Ask reconciler chain",
+          headRefName: "task/mt-1240",
+        },
+      ],
+      fetchPrFiles: (_repo, prNumber) =>
+        prNumber === 788 ? [FIXTURE_ASK_TS, "src/domain/ask/index.ts"] : [],
+      fetchRecentMerges: () => [],
+    };
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, collidingDeps);
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    const collision = result.collisions[0];
+    expect(collision).toBeDefined();
+    if (!collision) throw new Error("expected collision");
+    expect(collision.type).toBe("open-pr");
+    expect(collision.prNumber).toBe(788);
+    expect(collision.overlappingFiles).toContain(FIXTURE_ASK_TS);
+  });
+
+  it("blocks on recently-merged collision", () => {
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#9001",
+      inScopeFiles: [FIXTURE_ASK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    const recentMergeDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [],
+      fetchPrFiles: () => [],
+      fetchRecentMerges: () => [
+        {
+          type: "recently-merged",
+          commitSha: "abcd123",
+          commitMessage: "feat(mt#1240): land Ask domain",
+          overlappingFiles: [FIXTURE_ASK_TS],
+        },
+      ],
+    };
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, recentMergeDeps);
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    const collision = result.collisions[0];
+    expect(collision).toBeDefined();
+    if (!collision) throw new Error("expected collision");
+    expect(collision.type).toBe("recently-merged");
+  });
+
+  it("skips the task's own branch when scanning open PRs", () => {
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#1362",
+      inScopeFiles: [FIXTURE_HOOK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    // The task's own PR is open and touches the same file — but we should skip it.
+    const ownBranchDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [
+        {
+          number: 851,
+          title: "feat(mt#1362): own PR",
+          headRefName: "task/mt-1362",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_HOOK_TS],
+      fetchRecentMerges: () => [],
+    };
+
+    const result = runParallelWorkChecks(
+      checkInput,
+      "/tmp/anywhere",
+      "task/mt-1362",
+      ownBranchDeps
+    );
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -327,5 +445,24 @@ Implement a PreToolUse hook...
     expect(warnings).toHaveLength(0);
     expect(files).toContain(FIXTURE_HOOK_TS);
     expect(files).toContain(FIXTURE_SETTINGS_JSON);
+  });
+
+  it("handles parenthetical-suffix In-scope header (mt#1305 style)", () => {
+    // mt#1305-style spec uses `**In scope (this task):**` with a parenthetical
+    // qualifier — the original regex only matched the bare `**In scope:**` form.
+    const mt1305StyleSpec = `
+## Scope
+
+**In scope (this task):**
+- \`.claude/skills/plan-task/SKILL.md\`
+- \`.claude/skills/implement-task/SKILL.md\`
+
+**Out of scope:**
+- Hook implementation (separate task)
+`;
+    const { files, warnings } = extractInScopeFiles(mt1305StyleSpec);
+    expect(warnings).toHaveLength(0);
+    expect(files).toContain(".claude/skills/plan-task/SKILL.md");
+    expect(files).toContain(".claude/skills/implement-task/SKILL.md");
   });
 });

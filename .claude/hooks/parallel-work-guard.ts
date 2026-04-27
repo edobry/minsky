@@ -83,8 +83,11 @@ export function extractInScopeFiles(specContent: string): {
 
   const scopeContent = specContent.slice(scopeStart, scopeEnd);
 
-  // Find "**In scope:**" block
-  const inScopeMatch = scopeContent.match(/\*\*In scope:\*\*/i);
+  // Find "**In scope:**" or "**In scope (parenthetical):**" block.
+  // Some specs use a parenthetical suffix like `**In scope (this task):**`
+  // (e.g., mt#1305-style). The `[^*]*?` allows any non-asterisk chars between
+  // "In scope" and ":**", capturing both forms.
+  const inScopeMatch = scopeContent.match(/\*\*In scope[^*]*?:\*\*/i);
   if (!inScopeMatch) {
     warnings.push(
       "No '**In scope:**' block found in ## Scope section — parallel-work check skipped"
@@ -238,12 +241,17 @@ export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]):
 
 /**
  * Run the open-PR sweep. Skips the PR for the current task's own branch.
+ *
+ * `fetchPrs` and `fetchFiles` are injectable so tests can exercise the
+ * collision/no-collision paths without live `gh` calls.
  */
 export function checkOpenPrs(
   input: ParallelWorkCheckInput,
-  skipBranch?: string
+  skipBranch?: string,
+  fetchPrs: (repo: string) => PrInfo[] = fetchOpenPrs,
+  fetchFiles: (repo: string, prNumber: number) => string[] = fetchPrFiles
 ): ParallelWorkCollision[] {
-  const prs = fetchOpenPrs(input.repo);
+  const prs = fetchPrs(input.repo);
   const collisions: ParallelWorkCollision[] = [];
 
   for (const pr of prs) {
@@ -252,7 +260,7 @@ export function checkOpenPrs(
       continue;
     }
 
-    const prFiles = fetchPrFiles(input.repo, pr.number);
+    const prFiles = fetchFiles(input.repo, pr.number);
     const overlapping = findOverlappingFiles(input.inScopeFiles, prFiles);
 
     if (overlapping.length > 0) {
@@ -344,16 +352,41 @@ export function fetchRecentMerges(
 // ---------------------------------------------------------------------------
 
 /**
+ * Injectable dependency surface for `runParallelWorkChecks`. The default
+ * impls call live `gh` and `git` subprocesses; tests pass mocks to exercise
+ * the collision/no-collision paths hermetically.
+ */
+export interface ParallelWorkCheckDeps {
+  fetchOpenPrs: (repo: string) => PrInfo[];
+  fetchPrFiles: (repo: string, prNumber: number) => string[];
+  fetchRecentMerges: (
+    repoDir: string,
+    inScopeFiles: string[],
+    hours: number
+  ) => ParallelWorkCollision[];
+}
+
+const DEFAULT_DEPS: ParallelWorkCheckDeps = {
+  fetchOpenPrs,
+  fetchPrFiles,
+  fetchRecentMerges,
+};
+
+/**
  * Run both parallel-work checks (open-PR + recently-merged).
  * Returns a structured result with all collisions found.
  *
  * The `repoDir` param is only needed for the git log check; if absent,
  * the recently-merged check is skipped.
+ *
+ * `deps` is injectable so tests can mock the `gh` / `git` subprocesses
+ * and exercise the green and colliding paths end-to-end.
  */
 export function runParallelWorkChecks(
   input: ParallelWorkCheckInput,
   repoDir: string,
-  skipBranch?: string
+  skipBranch?: string,
+  deps: ParallelWorkCheckDeps = DEFAULT_DEPS
 ): ParallelWorkCheckResult {
   const collisions: ParallelWorkCollision[] = [];
   const warnings: string[] = [];
@@ -366,7 +399,7 @@ export function runParallelWorkChecks(
 
   // Check A: open PRs
   try {
-    const prCollisions = checkOpenPrs(input, skipBranch);
+    const prCollisions = checkOpenPrs(input, skipBranch, deps.fetchOpenPrs, deps.fetchPrFiles);
     collisions.push(...prCollisions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -375,7 +408,11 @@ export function runParallelWorkChecks(
 
   // Check B: recently merged
   try {
-    const mergeCollisions = fetchRecentMerges(repoDir, input.inScopeFiles, input.lookbackHours);
+    const mergeCollisions = deps.fetchRecentMerges(
+      repoDir,
+      input.inScopeFiles,
+      input.lookbackHours
+    );
     collisions.push(...mergeCollisions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
