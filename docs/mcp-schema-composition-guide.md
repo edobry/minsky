@@ -13,7 +13,7 @@ This guide explains how to use the new MCP schema composition architecture intro
 ```typescript
 // Session identification
 export const SessionIdentifierSchema = z.object({
-  sessionName: z.string().describe("Session identifier (name or task ID)"),
+  sessionId: z.string().describe("Session identifier (ID or task ID)"),
 });
 
 // File path within session workspace
@@ -152,7 +152,7 @@ const handler = async (args: MyOperationArgs): Promise<Record<string, any>> => {
     return createFileOperationResponse(
       {
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
         resolvedPath: relativeResolvedPath,
       },
       {
@@ -164,7 +164,7 @@ const handler = async (args: MyOperationArgs): Promise<Record<string, any>> => {
   } catch (error) {
     return createErrorResponse(getErrorMessage(error), {
       path: args.path,
-      session: args.sessionName,
+      session: args.sessionId,
     });
   }
 };
@@ -187,7 +187,7 @@ commandMapper.addCommand({
 
 | Schema                    | Purpose                     | Fields                                                                                |
 | ------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
-| `SessionIdentifierSchema` | Session identification      | `sessionName`                                                                         |
+| `SessionIdentifierSchema` | Session identification      | `sessionId`                                                                           |
 | `FilePathSchema`          | File path within session    | `path`                                                                                |
 | `LineRangeSchema`         | Line range for file reading | `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file` |
 | `FileContentSchema`       | File content for writing    | `content`                                                                             |
@@ -227,7 +227,7 @@ commandMapper.addCommand({
 
 ```typescript
 parameters: z.object({
-  sessionName: z.string().describe("Session identifier"),
+  sessionId: z.string().describe("Session identifier"),
   path: z.string().describe("File path"),
   // ... duplicated definitions
 });
@@ -252,7 +252,7 @@ parameters: SessionFileOperationSchema.merge(
 return {
   success: true,
   path: args.path,
-  session: args.sessionName,
+  session: args.sessionId,
   // ... manual construction
 };
 ```
@@ -261,7 +261,7 @@ return {
 
 ```typescript
 return createFileOperationResponse(
-  { path: args.path, session: args.sessionName },
+  { path: args.path, session: args.sessionId },
   {
     /* operation-specific data */
   }
@@ -278,7 +278,7 @@ catch (error) {
     success: false,
     error: getErrorMessage(error),
     path: args.path,
-    session: args.sessionName,
+    session: args.sessionId,
   };
 }
 ```
@@ -291,7 +291,7 @@ catch (error) {
   log.error("Operation failed", { ...context, error: errorMessage });
   return createErrorResponse(errorMessage, {
     path: args.path,
-    session: args.sessionName,
+    session: args.sessionId,
   });
 }
 ```
@@ -318,7 +318,7 @@ const handler = async (args: MyOperationArgs): Promise<Record<string, any>> => {
 commandMapper.addCommand({
   name: "session.my_tool",
   parameters: z.object({
-    sessionName: z.string().describe("Session identifier (name or task ID)"),
+    sessionId: z.string().describe("Session identifier (ID or task ID)"),
     path: z.string().describe("Path to the file within the session workspace"),
     createDirs: z
       .boolean()
@@ -333,7 +333,7 @@ commandMapper.addCommand({
       return {
         success: true,
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
         // ... manual response construction
       };
     } catch (error) {
@@ -341,7 +341,7 @@ commandMapper.addCommand({
         success: false,
         error: getErrorMessage(error),
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
       };
     }
   },
@@ -365,7 +365,7 @@ commandMapper.addCommand({
     try {
       // ... implementation
       return createFileOperationResponse(
-        { path: args.path, session: args.sessionName },
+        { path: args.path, session: args.sessionId },
         {
           /* operation results */
         }
@@ -375,7 +375,7 @@ commandMapper.addCommand({
       log.error("My tool failed", { ...args, error: errorMessage });
       return createErrorResponse(errorMessage, {
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
       });
     }
   },
@@ -396,11 +396,11 @@ commandMapper.addCommand({
   parameters: SessionFileOperationSchema,
   handler: async (args: SessionFileOperation): Promise<Record<string, any>> => {
     try {
-      const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+      const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
       const stats = await stat(resolvedPath);
 
       return createFileOperationResponse(
-        { path: args.path, session: args.sessionName },
+        { path: args.path, session: args.sessionId },
         {
           size: stats.size,
           modified: stats.mtime,
@@ -412,7 +412,7 @@ commandMapper.addCommand({
       log.error("File size check failed", { ...args, error: errorMessage });
       return createErrorResponse(errorMessage, {
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
       });
     }
   },
@@ -448,7 +448,7 @@ commandMapper.addCommand({
       // ... complex archiving logic
 
       return createFileOperationResponse(
-        { path: args.path, session: args.sessionName },
+        { path: args.path, session: args.sessionId },
         {
           archived: true,
           compressionRatio: 0.75,
@@ -462,7 +462,7 @@ commandMapper.addCommand({
       log.error("File archiving failed", { ...args, error: errorMessage });
       return createErrorResponse(errorMessage, {
         path: args.path,
-        session: args.sessionName,
+        session: args.sessionId,
       });
     }
   },

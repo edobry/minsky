@@ -58,6 +58,7 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
     name: "update",
     description: "Update a session",
     parameters: sessionUpdateCommandParams,
+    mutating: true,
     execute: withErrorLogging("session.update", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("../../../../domain/session/session-service");
       const deps = await getDeps();

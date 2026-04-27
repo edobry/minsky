@@ -334,9 +334,10 @@ export async function callTasksSpecGet(
       (b): b is { type: "json"; json: unknown } =>
         b?.type === "json" && "json" in (b as { json?: unknown })
     );
-    let envelope: { success?: unknown; content?: unknown; error?: unknown } | null = null;
+    type EnvelopeShape = { success?: unknown; content?: unknown; error?: unknown };
+    let envelope: EnvelopeShape | null = null;
     if (jsonEntry) {
-      envelope = jsonEntry.json as typeof envelope;
+      envelope = jsonEntry.json as EnvelopeShape;
     } else {
       const textChunks = content
         .filter(
@@ -349,7 +350,7 @@ export async function callTasksSpecGet(
       }
       const joined = textChunks.join("");
       try {
-        envelope = JSON.parse(joined) as typeof envelope;
+        envelope = JSON.parse(joined) as EnvelopeShape;
       } catch {
         // Defensive: if the content is plain markdown rather than the JSON
         // envelope, accept it. The Minsky MCP's documented shape is

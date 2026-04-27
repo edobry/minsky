@@ -54,6 +54,14 @@ export interface PullRequestContext {
    * Fetched from the pulls.listFiles endpoint alongside the diff.
    */
   filesChanged: string[];
+  /**
+   * Authoritative changed-files count from the PR API (`pulls.get` →
+   * `changed_files`). The classifier compares this against
+   * `filesChanged.length` to detect listFiles truncation (cap exceeded, error
+   * fallback, etc.) and downgrade to `normal` rather than classify on a
+   * partial view.
+   */
+  changedFilesCount: number;
 }
 
 /**
@@ -164,6 +172,7 @@ export async function fetchPullRequestContext(
     diff,
     headSha: pr.head.sha,
     filesChanged,
+    changedFilesCount: pr.changed_files,
   };
 }
 
@@ -245,7 +254,7 @@ export async function fetchPriorReviews(
         id: r.id,
         state: r.state as PriorReview["state"],
         submittedAt: r.submitted_at ?? new Date(0).toISOString(),
-        commitId: r.commit_id,
+        commitId: r.commit_id ?? "",
         userLogin: r.user?.login ?? "",
         // GitHub's Reviews API returns null for empty approve/comment bodies.
         // Coalesce to "" so downstream body.includes(...) in
@@ -326,6 +335,18 @@ function isBinaryBuffer(buf: Buffer, sampleBytes = 8192): boolean {
 }
 
 /**
+ * Extract a numeric HTTP status from an Octokit RequestError-shaped value.
+ * Returns undefined when err is not a status-bearing object.
+ */
+function getErrorStatus(err: unknown): number | undefined {
+  if (err instanceof Error && "status" in err) {
+    const status = (err as { status?: unknown }).status;
+    return typeof status === "number" ? status : undefined;
+  }
+  return undefined;
+}
+
+/**
  * Read the content of a file at a specific git ref.
  *
  * Returns a discriminated union:
@@ -379,11 +400,7 @@ export async function readFileAtRef(
     }
     return { kind: "text", content: buf.toString("utf-8"), truncated };
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      "status" in (err as Record<string, unknown>) &&
-      (err as Record<string, unknown>).status === 404
-    ) {
+    if (getErrorStatus(err) === 404) {
       return null;
     }
     throw err;
@@ -429,11 +446,7 @@ export async function listDirectoryAtRef(
       )
       .map((entry) => ({ name: entry.name, type: entry.type }));
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      "status" in (err as Record<string, unknown>) &&
-      (err as Record<string, unknown>).status === 404
-    ) {
+    if (getErrorStatus(err) === 404) {
       return null;
     }
     throw err;

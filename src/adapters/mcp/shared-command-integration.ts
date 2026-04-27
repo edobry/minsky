@@ -175,6 +175,7 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
+        mutating: command.mutating,
         handler: async (args: Record<string, unknown>) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
