@@ -202,7 +202,7 @@ async function reconstructSessionRecord(
 
     // Create session record
     const sessionRecord: SessionRecord = {
-      session: sessionId,
+      sessionId: sessionId,
       repoName,
       repoUrl,
       createdAt,

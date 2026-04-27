@@ -18,6 +18,9 @@ const ACCEPT_MCP = "application/json, text/event-stream";
 // Shared response body constants
 const SESSION_NOT_FOUND_MSG = "Session not found";
 
+// Shared staleness-signal constants
+const STALENESS_LOGGER = "minsky-staleness";
+
 describe("MCP Server", () => {
   beforeEach(() => {
     setupTestMocks();
@@ -511,6 +514,187 @@ describe("MCP Server", () => {
     }
   });
 
+  test("tools/call success path triggers staleness signal when detector reports stale", async () => {
+    // Regression guard for the handler wiring, not just triggerStaleSignal in isolation.
+    // If the `if (this.stalenessDetector.getStaleWarning() ...)` check were removed from
+    // the success branch of setupRequestHandlers, THIS test would fail even though the
+    // existing triggerStaleSignal unit test would still pass.
+    //
+    // Strategy: invoke the registered tools/call handler directly via the SDK Server's
+    // internal _requestHandlers map (keyed by method name "tools/call"), bypassing the
+    // MCP protocol layer.  This is the same code path as a real client tool call without
+    // the overhead of a full network round-trip.
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a trivial tool that returns a deterministic value.
+    server.addTool({
+      name: "greet",
+      description: "Returns a greeting",
+      handler: async () => "hello from greet",
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    const fakeStartupHead = "aabbccdd";
+    const fakeCurrentHead = "eeff0011";
+    const fakeStaleMessage =
+      `\n\n The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection so we don't actually exit.
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the SDK server instance.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    // Invoke the registered tools/call handler via the SDK Protocol's internal
+    // _requestHandlers map (keyed by "tools/call"). This exercises the actual
+    // wiring in setupRequestHandlers — the getStaleWarning() check must be present
+    // for sendLoggingMessage to fire here.
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const syntheticRequest = {
+      method: "tools/call",
+      params: {
+        name: "greet",
+        arguments: {},
+      },
+    };
+
+    const response = await toolsCallHandler(syntheticRequest, {});
+
+    // The tool response must be returned correctly regardless of staleness.
+    expect(response).toMatchObject({
+      content: [{ type: "text", text: "hello from greet" }],
+    });
+
+    // sendLoggingMessage must have been called once with the correct shape —
+    // proving the handler wiring (not just triggerStaleSignal itself) is intact.
+    expect(loggingCalls.length).toBe(1);
+    const call = loggingCalls[0];
+    if (!call) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(call.level).toBe("alert");
+    expect(call.logger).toBe(STALENESS_LOGGER);
+    const data = call.data as { text: string; startupHead: string; currentHead: string };
+    expect(data.text).toContain("reconnect via /mcp");
+    expect(data.startupHead).toBe(fakeStartupHead);
+    expect(data.currentHead).toBe(fakeCurrentHead);
+
+    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+
+    await server.close();
+  });
+
+  test("tools/call error path triggers staleness signal when detector reports stale", async () => {
+    // Parallel to the success-path wiring test above. Verifies that the error branch
+    // of the tools/call handler also checks for staleness — removing the
+    // getStaleWarning() check from the catch block would make this test fail.
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a tool that always throws.
+    server.addTool({
+      name: "fail",
+      description: "Always fails",
+      handler: async () => {
+        throw new Error("deliberate failure");
+      },
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    const fakeStartupHead = "11223344";
+    const fakeCurrentHead = "55667788";
+    const fakeStaleMessage =
+      `\n\n The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection.
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the SDK server instance.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const syntheticRequest = {
+      method: "tools/call",
+      params: {
+        name: "fail",
+        arguments: {},
+      },
+    };
+
+    // The handler re-throws — verify the error reaches the caller.
+    await expect(toolsCallHandler(syntheticRequest, {})).rejects.toThrow(
+      "Tool execution failed: deliberate failure"
+    );
+
+    // sendLoggingMessage must still fire even on the error path.
+    expect(loggingCalls.length).toBe(1);
+    const call = loggingCalls[0];
+    if (!call) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(call.level).toBe("alert");
+    expect(call.logger).toBe(STALENESS_LOGGER);
+
+    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+
+    await server.close();
+  });
+
   test("staleness signal: sendLoggingMessage called at alert level and exit scheduled when stale", async () => {
     // Verifies that when StalenessDetector returns a non-null warning:
     // (a) the tool response is still returned correctly,
@@ -598,7 +782,7 @@ describe("MCP Server", () => {
     const firstCall = loggingCalls[0];
     if (!firstCall) throw new Error("Expected loggingCalls[0] to be defined");
     expect(firstCall.level).toBe("alert");
-    expect(firstCall.logger).toBe("minsky-staleness");
+    expect(firstCall.logger).toBe(STALENESS_LOGGER);
     const data = firstCall.data as { text: string; startupHead: string; currentHead: string };
     expect(data.text).toContain("reconnect via /mcp");
     expect(data.startupHead).toBe(fakeStartupHead);

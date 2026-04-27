@@ -248,7 +248,7 @@ export async function analyzePRStateIssues(
       description: "GitHub backend using incorrect 'pr/' branch format",
       details: {
         currentBranch: sessionRecord.prBranch,
-        expectedBranch: sessionRecord.session,
+        expectedBranch: sessionRecord.sessionId,
       },
       autoFixable: true,
     });
@@ -257,7 +257,7 @@ export async function analyzePRStateIssues(
   // Check for stale PR state with non-existent branches
   if (sessionRecord.prState?.branchName) {
     try {
-      const workdir = await sessionDB.getSessionWorkdir(sessionRecord.session);
+      const workdir = await sessionDB.getSessionWorkdir(sessionRecord.sessionId);
       const branchExists = await gitService
         .execInRepository(workdir, `git rev-parse --verify ${sessionRecord.prState.branchName}`)
         .then(() => true)
@@ -332,7 +332,7 @@ export async function analyzePRStateIssues(
         } catch (lookupError) {
           // No PR found or lookup failed — skip silently
           log.debug("Could not find PR for session branch", {
-            session: sessionRecord.session,
+            session: sessionRecord.sessionId,
             branch: branchName,
             error: lookupError,
           });
@@ -341,7 +341,7 @@ export async function analyzePRStateIssues(
     } catch (error) {
       // Token provider failed or URL parsing failed — skip silently
       log.debug("Could not check GitHub for missing PR", {
-        session: sessionRecord.session,
+        session: sessionRecord.sessionId,
         error,
       });
     }
@@ -458,7 +458,7 @@ export async function repairBranchFormat(
 ): Promise<RepairAction> {
   const correctBranch = issue.details?.expectedBranch as string;
 
-  await sessionDB.updateSession(sessionRecord.session, {
+  await sessionDB.updateSession(sessionRecord.sessionId, {
     prBranch: correctBranch,
     prState: {
       ...(sessionRecord.prState ? projectPrState(sessionRecord.prState) : {}),
@@ -482,7 +482,7 @@ async function repairPRState(
   sessionRecord: SessionRecord,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
-  await sessionDB.updateSession(sessionRecord.session, {
+  await sessionDB.updateSession(sessionRecord.sessionId, {
     prBranch: undefined,
     prState: undefined,
     pullRequest: undefined,
@@ -525,7 +525,7 @@ async function repairBackendSync(
     }
   }
 
-  await sessionDB.updateSession(sessionRecord.session, {
+  await sessionDB.updateSession(sessionRecord.sessionId, {
     backendType: newBackendType as "github",
   });
 
@@ -585,7 +585,7 @@ async function repairMissingPR(
     lastSynced: new Date().toISOString(),
   };
 
-  await sessionDB.updateSession(sessionRecord.session, {
+  await sessionDB.updateSession(sessionRecord.sessionId, {
     pullRequest,
     prBranch: headBranch,
     prState: {

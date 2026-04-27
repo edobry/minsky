@@ -113,7 +113,7 @@ class MockPersistenceProvider extends PersistenceProvider {
       getEntity: async (id: string) => data.get(id) ?? null,
       getEntities: async () => Array.from(data.values()),
       createEntity: async (entity: SessionRecord) => {
-        const id = entity.session || String(data.size);
+        const id = entity.sessionId || String(data.size);
         data.set(id, entity);
         return entity;
       },

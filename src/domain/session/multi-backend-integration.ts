@@ -191,7 +191,7 @@ export class SessionBackwardCompatibility {
     }
 
     // UUID session IDs are the current format — no migration needed
-    if (isUuidSessionId(sessionRecord.session)) {
+    if (isUuidSessionId(sessionRecord.sessionId)) {
       return false;
     }
 
