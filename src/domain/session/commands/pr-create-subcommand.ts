@@ -17,6 +17,8 @@ export interface SessionPrCreateDependencies {
   persistenceProvider?: import("../../persistence/types").PersistenceProvider;
   /** Optional — when provided, a quality.review Ask row is filed on successful PR creation. */
   askRepository?: AskRepository;
+  /** Optional — when provided, task status is advanced to IN-REVIEW on successful PR creation. */
+  taskService?: import("../../tasks/taskService").TaskServiceInterface;
 }
 
 /**
@@ -51,7 +53,7 @@ export async function sessionPrCreate(
   url?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  const { sessionDB, persistenceProvider, askRepository } = deps;
+  const { sessionDB, persistenceProvider, askRepository, taskService } = deps;
 
   // Validate draft mode requirements
   if (params.draft) {
@@ -95,7 +97,7 @@ export async function sessionPrCreate(
       draft: params.draft || false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },
-    { sessionDB, gitService, persistenceProvider },
+    { sessionDB, gitService, persistenceProvider, taskService },
     options
   );
 

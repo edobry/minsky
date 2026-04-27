@@ -78,13 +78,13 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   async addSession(sessionRecord: SessionRecord): Promise<void> {
-    log.debug(`Adding session: ${sessionRecord.session}`);
+    log.debug(`Adding session: ${sessionRecord.sessionId}`);
     try {
       const storage = await this.getStorage();
       await storage.createEntity(sessionRecord);
-      log.debug(`Session added successfully: ${sessionRecord.session}`);
+      log.debug(`Session added successfully: ${sessionRecord.sessionId}`);
     } catch (error) {
-      log.error(`Failed to add session '${sessionRecord.session}': ${getErrorMessage(error)}`);
+      log.error(`Failed to add session '${sessionRecord.sessionId}': ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -268,7 +268,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       return getRepoPathFn(state.data, record);
     } catch (error) {
       log.error(
-        `Failed to get repo path for session '${record.session}': ${getErrorMessage(error)}`
+        `Failed to get repo path for session '${record.sessionId}': ${getErrorMessage(error)}`
       );
       throw error;
     }

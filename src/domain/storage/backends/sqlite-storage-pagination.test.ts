@@ -12,7 +12,7 @@ import type { SessionRecord, SessionDbState } from "../../session/session-db";
 
 function makeRecord(n: number, lastActivityAt?: string): SessionRecord {
   return {
-    session: `s${n}`,
+    sessionId: `s${n}`,
     repoName: `repo-${n}`,
     repoUrl: `https://example.test/repo${n}.git`,
     createdAt: new Date(Date.UTC(2026, 0, n)).toISOString(),
@@ -51,8 +51,8 @@ describe("SqliteStorage pagination (mt#933)", () => {
     const page2 = await storage.getEntities({ limit: 5, offset: 5, orderBy });
     expect(page1.length).toBe(5);
     expect(page2.length).toBe(5);
-    const p1Ids = new Set(page1.map((s) => s.session));
-    const p2Ids = page2.map((s) => s.session);
+    const p1Ids = new Set(page1.map((s) => s.sessionId));
+    const p2Ids = page2.map((s) => s.sessionId);
     for (const id of p2Ids) {
       expect(p1Ids.has(id)).toBe(false);
     }
@@ -63,7 +63,7 @@ describe("SqliteStorage pagination (mt#933)", () => {
       limit: 3,
       orderBy: [{ field: "lastActivityAt", direction: "desc" }],
     });
-    expect(out.map((s) => s.session)).toEqual(["s30", "s29", "s28"]);
+    expect(out.map((s) => s.sessionId)).toEqual(["s30", "s29", "s28"]);
   });
 
   test("createdAfter / createdBefore bound the window", async () => {
@@ -72,7 +72,7 @@ describe("SqliteStorage pagination (mt#933)", () => {
       createdBefore: new Date(Date.UTC(2026, 0, 15)).toISOString(),
       orderBy: [{ field: "createdAt", direction: "asc" }],
     });
-    expect(out.map((s) => s.session)).toEqual(["s10", "s11", "s12", "s13", "s14", "s15"]);
+    expect(out.map((s) => s.sessionId)).toEqual(["s10", "s11", "s12", "s13", "s14", "s15"]);
   });
 
   test("NULL lastActivityAt sorts to the end (not the top) of a desc page", async () => {
@@ -98,7 +98,7 @@ describe("SqliteStorage pagination (mt#933)", () => {
     // null-activity rows trail. The reverse — Postgres's default DESC NULLS
     // FIRST behavior — would put s4/s5/s6 ahead of s3, hiding the recently
     // active sessions from the first page.
-    expect(out.slice(0, 3).map((s) => s.session)).toEqual(["s3", "s2", "s1"]);
-    expect(new Set(out.slice(3).map((s) => s.session))).toEqual(new Set(["s4", "s5", "s6"]));
+    expect(out.slice(0, 3).map((s) => s.sessionId)).toEqual(["s3", "s2", "s1"]);
+    expect(new Set(out.slice(3).map((s) => s.sessionId))).toEqual(new Set(["s4", "s5", "s6"]));
   });
 });
