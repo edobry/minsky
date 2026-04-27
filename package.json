@@ -95,7 +95,7 @@
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
     "drizzle-kit": "^0.31.2",
-    "drizzle-orm": "^0.44.2",
+    "drizzle-orm": "^0.45.2",
     "fs-extra": "^11.3.0",
     "glob": "^11.0.3",
     "gpt-tokenizer": "^3.0.1",
