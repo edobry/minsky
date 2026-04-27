@@ -327,17 +327,17 @@ export class ConflictDetectionService {
             status.includes("UU") || status.includes("AA") || status.includes("DD");
 
           if (hasConflicts) {
-            // Abort the merge so the working tree is clean when the caller throws.
-            // Best-effort: if abort fails (e.g. no merge in progress), don't mask
-            // the original conflict result.
-            try {
-              await this.deps.execAsync(`git -C ${repoPath} merge --abort`);
-            } catch (abortError) {
-              this.deps.log.warn("git merge --abort failed (ignored)", {
-                abortError,
-                repoPath,
-              });
-            }
+            // Leave the merge in progress so conflict markers remain in the
+            // working tree. Agents can resolve them via session_edit_file /
+            // session_search_replace and then commit.
+            // Do NOT call git merge --abort here.
+
+            // Collect the list of conflicted file paths from git status output
+            const conflictedFiles = status
+              .split("\n")
+              .filter((line) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(line))
+              .map((line) => line.slice(3).trim())
+              .filter(Boolean);
 
             return {
               workdir: repoPath,
@@ -345,6 +345,7 @@ export class ConflictDetectionService {
               conflicts: true,
               conflictDetails: prediction?.userGuidance || "Merge conflicts detected",
               prediction,
+              conflictedFiles,
             };
           }
 
@@ -450,6 +451,7 @@ export class ConflictDetectionService {
             : "Merge update completed",
           conflictDetails: mergeResult.conflictDetails,
           divergenceAnalysis: divergence,
+          conflictedFiles: mergeResult.conflictedFiles,
         };
       }
     } catch (error) {

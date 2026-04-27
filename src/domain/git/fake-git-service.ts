@@ -75,6 +75,12 @@ export class FakeGitService implements GitServiceInterface {
   private readonly mockWorkdir: string;
   private branchExists: boolean;
 
+  /**
+   * When set, smartSessionUpdate() returns this result instead of the default
+   * happy-path response. Use this in tests to simulate conflict scenarios.
+   */
+  private smartSessionUpdateOverride: SmartUpdateResult | undefined;
+
   constructor(
     options: {
       defaultBranch?: string;
@@ -114,6 +120,14 @@ export class FakeGitService implements GitServiceInterface {
 
   setBranchExists(value: boolean): void {
     this.branchExists = value;
+  }
+
+  /**
+   * Override the result returned by smartSessionUpdate().
+   * Useful for simulating merge-conflict scenarios in tests.
+   */
+  setSmartSessionUpdateResult(result: SmartUpdateResult): void {
+    this.smartSessionUpdateOverride = result;
   }
 
   async execInRepository(workdir: string, command: string): Promise<string> {
@@ -272,6 +286,9 @@ export class FakeGitService implements GitServiceInterface {
     _baseBranch: string,
     _options?: { skipIfAlreadyMerged?: boolean; autoResolveConflicts?: boolean }
   ): Promise<SmartUpdateResult> {
+    if (this.smartSessionUpdateOverride !== undefined) {
+      return this.smartSessionUpdateOverride;
+    }
     return { workdir: this.mockWorkdir, updated: true, skipped: false };
   }
 }

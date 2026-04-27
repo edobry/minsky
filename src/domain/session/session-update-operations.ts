@@ -302,23 +302,43 @@ export async function updateSessionImpl(
 
         if (!updateResult.updated && updateResult.conflictDetails) {
           // Enhanced conflict guidance
-          log.cli("🚫 Update failed due to merge conflicts:");
+          log.cli("Update failed due to merge conflicts:");
           log.cli(updateResult.conflictDetails);
 
           if (updateResult.divergenceAnalysis) {
             const analysis = updateResult.divergenceAnalysis;
-            log.cli("\n📊 Branch Analysis:");
-            log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
-            log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
-            log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+            log.cli("\nBranch Analysis:");
+            log.cli(`   Session ahead: ${analysis.aheadCommits} commits`);
+            log.cli(`   Session behind: ${analysis.behindCommits} commits`);
+            log.cli(`   Recommended action: ${analysis.recommendedAction}`);
 
             if (analysis.sessionChangesInBase) {
-              log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+              log.cli(`\nYour changes appear to already be in ${branchToMerge}. Try:`);
             }
           }
 
-          // Make output more human-friendly (avoid raw JSON)
-          throw new MinskyError(updateResult.conflictDetails);
+          // Build the conflict error message. When conflictedFiles are available the
+          // merge is still in progress and markers are present in the working tree,
+          // so tell the agent which files to edit and what to do next.
+          let conflictMessage = updateResult.conflictDetails;
+          if (updateResult.conflictedFiles && updateResult.conflictedFiles.length > 0) {
+            const fileList = updateResult.conflictedFiles.map((f) => `  - ${f}`).join("\n");
+            conflictMessage =
+              `${updateResult.conflictDetails}\n\n` +
+              `Conflict markers (<<<<<<<) are present in the working tree. ` +
+              `Resolve the conflicts in the following files, then stage and commit:\n` +
+              `${fileList}\n\n` +
+              `Use session_edit_file or session_search_replace to edit conflicted files, ` +
+              `then run session_commit to complete the merge.`;
+
+            log.cli("\nConflict markers are present in the working tree.");
+            log.cli("Resolve conflicts in:");
+            updateResult.conflictedFiles.forEach((f) => log.cli(`   ${f}`));
+            log.cli("\nUse session_edit_file or session_search_replace to resolve,");
+            log.cli("then run session_commit to complete the merge.");
+          }
+
+          throw new MinskyError(conflictMessage);
         }
 
         log.debug("Enhanced merge completed successfully", { updateResult });
