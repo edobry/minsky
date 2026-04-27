@@ -1,0 +1,481 @@
+/**
+ * Unified diff parser for GitHub PR diffs.
+ *
+ * Parses a unified diff string into structured hunks that can be used to
+ * construct valid line-anchored review comments for the GitHub API
+ * (octokit.rest.pulls.createReview comments[]). See:
+ *   https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request
+ *
+ * The output shape mirrors the parsedDiff field in SessionPrReviewContextResult.
+ *
+ * Supported diff variants:
+ *  - Pure-add files (--- /dev/null)
+ *  - Pure-delete files (+++ /dev/null)
+ *  - Empty-file adds and deletes (no ---/+++ headers; new file mode /
+ *    deleted file mode extended headers used as the status signal)
+ *  - Modified files (single or multi-hunk)
+ *  - Modified files with no content change (mode-only changes — no ---/+++ headers)
+ *  - Binary modifications (Binary files differ or GIT binary patch)
+ *  - Binary adds/deletes (Binary files X and Y differ with /dev/null on either side)
+ *  - Renames without content change (no hunks)
+ *  - Renames with content change (has hunks)
+ *  - "\ No newline at end of file" markers (skipped, not counted as lines)
+ *
+ * Out of scope (treated as modified or skipped if path cannot be inferred):
+ *  - Copy operations (copy from / copy to extended headers). Per mt#1336 spec
+ *    scope was add/delete/modify/rename only; copies are uncommon enough on
+ *    GitHub PRs that explicit handling can be added in a follow-up if needed.
+ *  - CRLF line endings. Input is assumed LF (matches GitHub diff API output).
+ *  - Provider-specific variants that omit standard rename-from / rename-to
+ *    extended headers when paths differ.
+ *
+ * Side semantics (relevant to anchor selection):
+ *  - RIGHT lines (newLine set, oldLine null) anchor on the head/incoming side.
+ *  - LEFT lines (oldLine set, newLine null) anchor on the base/old side
+ *    (used to comment on deletions or pre-change code).
+ *  - CONTEXT lines (both set) are unchanged lines; an internal classification.
+ *    Consumers must map a CONTEXT line to LEFT or RIGHT before sending it as a
+ *    GitHub review-comment anchor — GitHub's API only accepts LEFT or RIGHT.
+ *
+ * Reviewers picking anchors should match the side they want to comment on:
+ * commenting on a deletion needs side: LEFT; commenting on an addition needs
+ * side: RIGHT.
+ */
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+export type DiffFileSide = "LEFT" | "RIGHT" | "CONTEXT";
+export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface DiffLine {
+  /** Which side of the diff this line belongs to. */
+  side: DiffFileSide;
+  /** 1-based line number in the old file (null for RIGHT lines). */
+  oldLine: number | null;
+  /** 1-based line number in the new file (null for LEFT lines). */
+  newLine: number | null;
+  /** Line content without the leading +/-/space prefix. */
+  content: string;
+}
+
+export interface DiffHunk {
+  /** 1-based start line in the old file. */
+  oldStart: number;
+  /** Number of lines from the old file this hunk covers. */
+  oldLines: number;
+  /** 1-based start line in the new file. */
+  newStart: number;
+  /** Number of lines from the new file this hunk covers. */
+  newLines: number;
+  /** Raw "@@ -a,b +c,d @@" hunk header line. */
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface DiffFile {
+  /** Path in the new tree (or deleted path for deleted files). */
+  path: string;
+  /** Original path before rename (only set for renamed files). */
+  oldPath?: string;
+  status: DiffFileStatus;
+  hunks: DiffHunk[];
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Determine the file path from --- / +++ header values, stripping the
+ * "a/" and "b/" prefixes that git adds.
+ */
+function stripGitPrefix(headerPath: string): string {
+  if (headerPath.startsWith("a/") || headerPath.startsWith("b/")) {
+    return headerPath.slice(2);
+  }
+  // /dev/null signals file creation or deletion — callers handle separately
+  return headerPath;
+}
+
+// Match: @@ -oldStart[,oldLines] +newStart[,newLines] @@ [optional context]
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+
+// Match rename source/dest in extended headers
+// e.g. "rename from path/to/old" / "rename to path/to/new"
+const RENAME_FROM_RE = /^rename from (.+)$/;
+const RENAME_TO_RE = /^rename to (.+)$/;
+
+// Prefix of every diff --git header. Stripped before the path-splitter runs.
+const DIFF_GIT_PREFIX = "diff --git a/";
+
+/**
+ * Extract the a-side and b-side paths from a diff --git header line.
+ *
+ * Only handles the symmetric case: non-rename, non-copy headers where git
+ * emits "P b/P" with the same path P on both sides. If the line ends with
+ * " b/" + first-half, we have a clean split.
+ *
+ * For asymmetric headers (paths differ), this function returns undefined.
+ * Asymmetric handling lives in the caller via the rename-from / rename-to
+ * extended headers (RENAME_FROM_RE / RENAME_TO_RE). Copy operations are
+ * out of scope for this parser (see module docstring); files with only
+ * "copy from / copy to" extended headers will not have their paths
+ * recovered here and will be skipped downstream by the empty-path guard.
+ *
+ * The function does not implement an asymmetric heuristic (e.g. the rightmost
+ * " b/" as delimiter) because no such heuristic is correct in general — for
+ * example a header "diff --git a/aa b/cc b/dd b/ee" with old="aa b/cc" and
+ * new="dd b/ee" cannot be unambiguously split without external information.
+ * Returning undefined forces explicit handling rather than emitting wrong
+ * paths silently.
+ */
+function splitDiffGitHeader(line: string): {
+  oldPath: string | undefined;
+  newPath: string | undefined;
+} {
+  if (!line.startsWith(DIFF_GIT_PREFIX)) {
+    return { oldPath: undefined, newPath: undefined };
+  }
+
+  const rest = line.slice(DIFF_GIT_PREFIX.length);
+  const len = rest.length;
+
+  // Symmetric split: for non-rename headers, total length is 2P + 3 (" b/"),
+  // so P_length = (len - 3) / 2 must be an integer and the line must end
+  // with " b/" + first-half.
+  if (len >= 4 && (len - 3) % 2 === 0) {
+    const halfLen = (len - 3) / 2;
+    const candidate = rest.slice(0, halfLen);
+    const expectedSuffix = ` b/${candidate}`;
+    if (rest.endsWith(expectedSuffix)) {
+      return { oldPath: candidate, newPath: candidate };
+    }
+  }
+
+  // No fallback for asymmetric headers: when symmetric-split fails, the
+  // header is either malformed or describes a rename whose paths differ.
+  // Renames are always accompanied by rename-from / rename-to extended
+  // headers (RENAME_FROM_RE / RENAME_TO_RE) which the caller handles
+  // before falling back to gitOldPath / gitNewPath. Returning undefined
+  // here forces the caller to recognize this branch explicitly rather
+  // than silently producing wrong paths via a heuristic that cannot
+  // disambiguate cases where both paths contain the literal " b/".
+  return { oldPath: undefined, newPath: undefined };
+}
+
+// Match binary-diff markers — two flavors emitted by git:
+//   "Binary files a/foo and b/foo differ"
+//   "GIT binary patch"
+const BINARY_DIFFER_RE = /^Binary files /;
+const BINARY_PATCH_RE = /^GIT binary patch$/;
+
+// Match the "Binary files X and Y differ" line and extract whether either
+// side is /dev/null (signalling add or delete of a binary file).
+// Captures: 1 = old-side path or "/dev/null"; 2 = new-side path or "/dev/null".
+const BINARY_DIFFER_PATHS_RE = /^Binary files (.+) and (.+) differ$/;
+
+// Match "new file mode <mode>" / "deleted file mode <mode>" extended headers.
+// These appear without the dashed-prefix header pair when a file is created
+// or deleted with empty content (no diff hunks to emit). Without them, the
+// parser cannot tell an empty-file add from a metadata-only modification.
+const NEW_FILE_MODE_RE = /^new file mode /;
+const DELETED_FILE_MODE_RE = /^deleted file mode /;
+
+// ── Main parser ───────────────────────────────────────────────────────────
+
+/**
+ * Parse a full unified diff string (typically from a GitHub PR diff endpoint)
+ * into an array of DiffFile objects.
+ *
+ * Handles:
+ * - Pure-add files (--- /dev/null)
+ * - Pure-delete files (+++ /dev/null)
+ * - Empty-file adds and deletes (no ---/+++ headers; "new file mode" /
+ *   "deleted file mode" extended headers used as the status signal)
+ * - Modified files (single or multi-hunk)
+ * - Modified files with no content change (mode-only changes — no ---/+++ headers)
+ * - Binary modifications ("Binary files … differ" or "GIT binary patch")
+ * - Renames without content change (no hunks)
+ * - Renames with content change (has hunks)
+ * - "\ No newline at end of file" markers (skipped, not counted as lines)
+ *
+ * For diffs that omit --- / +++ headers (mode-only, binary, empty-file
+ * add/delete), the file path is recovered from the "diff --git a/X b/Y"
+ * header itself; the resulting DiffFile carries the inferred status with
+ * an empty hunks array.
+ */
+export function parseUnifiedDiff(diffText: string): DiffFile[] {
+  const lines = diffText.split("\n");
+  const files: DiffFile[] = [];
+
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+
+    // Advance until we hit a "diff --git" line (start of a new file section)
+    if (!line.startsWith("diff --git ")) {
+      i++;
+      continue;
+    }
+
+    // ── Parse file header block ──────────────────────────────────────────
+    // Capture the a/b paths from the diff --git header itself. These serve
+    // as a fallback when --- / +++ headers are missing (mode-only, binary,
+    // empty-file add/delete). splitDiffGitHeader handles paths that contain
+    // the literal " b/" sequence correctly via a symmetric-split fast path.
+    const { oldPath: gitOldPath, newPath: gitNewPath } = splitDiffGitHeader(line);
+
+    i++;
+
+    let oldPath: string | undefined;
+    let newPath: string | undefined;
+    let isRename = false;
+    let isBinary = false;
+    let isBinaryAdd = false;
+    let isBinaryDelete = false;
+    let isNewFile = false;
+    let isDeletedFile = false;
+    let renameFrom: string | undefined;
+    let renameTo: string | undefined;
+
+    // Read extended headers until we hit --- or @@
+    while (i < lines.length) {
+      const hdr = lines[i] ?? "";
+
+      if (hdr.startsWith("--- ") || hdr.startsWith("@@ ") || hdr.startsWith("diff --git ")) {
+        break;
+      }
+
+      const renameFromMatch = RENAME_FROM_RE.exec(hdr);
+      if (renameFromMatch) {
+        renameFrom = renameFromMatch[1] ?? "";
+        isRename = true;
+        i++;
+        continue;
+      }
+
+      const renameToMatch = RENAME_TO_RE.exec(hdr);
+      if (renameToMatch) {
+        renameTo = renameToMatch[1] ?? "";
+        i++;
+        continue;
+      }
+
+      // Binary diffs emit either "Binary files … differ" or "GIT binary patch"
+      // in the extended-headers region (no --- /+++ follows).
+      // For "Binary files X and Y differ" we also detect /dev/null on either
+      // side to set add/delete status; otherwise the file is treated as a
+      // binary modification.
+      if (BINARY_DIFFER_RE.test(hdr)) {
+        isBinary = true;
+        const m = BINARY_DIFFER_PATHS_RE.exec(hdr);
+        if (m) {
+          if (m[1] === "/dev/null") isBinaryAdd = true;
+          if (m[2] === "/dev/null") isBinaryDelete = true;
+        }
+        i++;
+        continue;
+      }
+      if (BINARY_PATCH_RE.test(hdr)) {
+        isBinary = true;
+        i++;
+        continue;
+      }
+
+      // Empty-file add: "new file mode 100644" with no content diff.
+      // Empty-file delete: "deleted file mode 100644" with no content diff.
+      if (NEW_FILE_MODE_RE.test(hdr)) {
+        isNewFile = true;
+        i++;
+        continue;
+      }
+      if (DELETED_FILE_MODE_RE.test(hdr)) {
+        isDeletedFile = true;
+        i++;
+        continue;
+      }
+
+      i++;
+    }
+
+    // Read --- and +++ headers (absent for mode-only, binary, and empty-file
+    // add/delete diffs).
+    const minusLine = lines[i] ?? "";
+    if (i < lines.length && minusLine.startsWith("--- ")) {
+      oldPath = stripGitPrefix(minusLine.slice(4).split("\t")[0] ?? "");
+      i++;
+    }
+    const plusLine = lines[i] ?? "";
+    if (i < lines.length && plusLine.startsWith("+++ ")) {
+      newPath = stripGitPrefix(plusLine.slice(4).split("\t")[0] ?? "");
+      i++;
+    }
+
+    // Determine status. Precedence:
+    //   1. rename (extended headers) — wins over everything else.
+    //   2. /dev/null in --- or +++ — explicit add/delete with content.
+    //   3. new file mode / deleted file mode — empty-file add/delete signal,
+    //      used when --- /+++ are absent.
+    //   4. modified — including mode-only and binary cases.
+    let status: DiffFileStatus;
+    let filePath: string;
+    let fileOldPath: string | undefined;
+
+    if (isRename && renameFrom && renameTo) {
+      status = "renamed";
+      filePath = renameTo;
+      fileOldPath = renameFrom;
+    } else if (oldPath === "/dev/null" || isBinaryAdd) {
+      status = "added";
+      filePath = newPath ?? gitNewPath ?? "";
+    } else if (newPath === "/dev/null" || isBinaryDelete) {
+      status = "deleted";
+      filePath = oldPath ?? gitOldPath ?? "";
+    } else if (isNewFile) {
+      status = "added";
+      filePath = gitNewPath ?? gitOldPath ?? "";
+    } else if (isDeletedFile) {
+      status = "deleted";
+      filePath = gitOldPath ?? gitNewPath ?? "";
+    } else {
+      // Modified — including mode-only and binary cases where ---/+++ are absent.
+      status = "modified";
+      filePath = newPath ?? oldPath ?? gitNewPath ?? gitOldPath ?? "";
+    }
+
+    // Skip file entries that ended up with no recoverable path. Emitting
+    // an empty-path DiffFile would silently produce invalid review anchors
+    // downstream; an explicit skip is the right floor.
+    if (filePath === "") {
+      // Still need to advance past binary content if present
+      continue;
+    }
+
+    // Binary diffs have no hunks and don't fall through to the hunk-parser
+    // loop. Finalize them here so consumers see a coherent path even though
+    // there's nothing to anchor a comment to.
+    if (isBinary) {
+      const fileEntry: DiffFile = {
+        path: filePath,
+        status,
+        hunks: [],
+      };
+      if (fileOldPath !== undefined) {
+        fileEntry.oldPath = fileOldPath;
+      }
+      files.push(fileEntry);
+      continue;
+    }
+
+    // ── Parse hunks ──────────────────────────────────────────────────────
+    const hunks: DiffHunk[] = [];
+
+    while (i < lines.length) {
+      const hunkLine = lines[i] ?? "";
+
+      // Stop at next file
+      if (hunkLine.startsWith("diff --git ")) {
+        break;
+      }
+
+      const hunkMatch = HUNK_HEADER_RE.exec(hunkLine);
+      if (!hunkMatch) {
+        i++;
+        continue;
+      }
+
+      const hunkHeader = hunkLine;
+      const oldStart = parseInt(hunkMatch[1] ?? "0", 10);
+      const oldLines = hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1;
+      const newStart = parseInt(hunkMatch[3] ?? "0", 10);
+      const newLines = hunkMatch[4] !== undefined ? parseInt(hunkMatch[4], 10) : 1;
+
+      i++;
+
+      const diffLines: DiffLine[] = [];
+      let oldLineNum = oldStart;
+      let newLineNum = newStart;
+
+      while (i < lines.length) {
+        const diffLine = lines[i] ?? "";
+
+        // Stop at next hunk header or next file
+        if (diffLine.startsWith("@@ ") || diffLine.startsWith("diff --git ")) {
+          break;
+        }
+
+        if (diffLine === "\\ No newline at end of file") {
+          // This is a git metadata marker, not an actual line — skip it
+          i++;
+          continue;
+        }
+
+        // A truly empty line ends the hunk — real context lines always carry
+        // a leading space prefix, so an empty string is the trailing newline
+        // from split("\n") or a blank separator before the next file.
+        if (diffLine === "") {
+          i++;
+          break;
+        }
+
+        const prefix = diffLine[0];
+        const content = diffLine.slice(1);
+
+        if (prefix === "+") {
+          diffLines.push({
+            side: "RIGHT",
+            oldLine: null,
+            newLine: newLineNum,
+            content,
+          });
+          newLineNum++;
+        } else if (prefix === "-") {
+          diffLines.push({
+            side: "LEFT",
+            oldLine: oldLineNum,
+            newLine: null,
+            content,
+          });
+          oldLineNum++;
+        } else if (prefix === " ") {
+          diffLines.push({
+            side: "CONTEXT",
+            oldLine: oldLineNum,
+            newLine: newLineNum,
+            content,
+          });
+          oldLineNum++;
+          newLineNum++;
+        } else {
+          // Unknown prefix — skip
+          i++;
+          continue;
+        }
+
+        i++;
+      }
+
+      hunks.push({
+        oldStart,
+        oldLines,
+        newStart,
+        newLines,
+        header: hunkHeader,
+        lines: diffLines,
+      });
+    }
+
+    const fileEntry: DiffFile = {
+      path: filePath,
+      status,
+      hunks,
+    };
+
+    if (fileOldPath !== undefined) {
+      fileEntry.oldPath = fileOldPath;
+    }
+
+    files.push(fileEntry);
+  }
+
+  return files;
+}

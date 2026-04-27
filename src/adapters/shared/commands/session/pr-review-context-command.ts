@@ -39,7 +39,7 @@ export function createSessionPrReviewContextCommand(getDeps: LazySessionDeps): C
     category: CommandCategory.SESSION,
     name: "review_context",
     description:
-      "Get all PR review data in a single call: metadata, CI checks, diff, and task spec",
+      "Get all PR review data in a single call: metadata, CI checks, diff (raw + parsedDiff with structured hunks for line-anchored comment selection), and task spec",
     parameters: sessionPrReviewContextCommandParams,
     execute: withErrorLogging(
       "session.pr.review_context",
