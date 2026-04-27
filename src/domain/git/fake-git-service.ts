@@ -135,6 +135,20 @@ export class FakeGitService implements GitServiceInterface {
 
     // Default command-pattern responses (preserved from createMockGitService)
     if (command.includes("rev-list --left-right --count")) return "0\t0";
+    // Upstream resolution: @{u} throws by default (no upstream configured), causing
+    // the caller to fall back to the conventional origin/<branch> ref name.
+    if (command.includes("@{u}")) {
+      throw new Error("fatal: no upstream configured for branch");
+    }
+    // show-ref for remote tracking refs: default to success (ref exists) unless the
+    // command targets a pr/ branch (handled separately by branchExists flag).
+    if (command.includes("show-ref") && command.includes("refs/remotes/")) {
+      if (command.includes("pr/")) {
+        return this.branchExists ? "ref-exists" : "not-exists";
+      }
+      // For non-pr remote refs, return success (ref exists) so the rev-list check runs.
+      return "ref-exists";
+    }
     if (command.includes("show-ref") && command.includes("pr/")) {
       return this.branchExists ? "ref-exists" : "not-exists";
     }
