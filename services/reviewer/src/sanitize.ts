@@ -37,7 +37,9 @@ export interface SanitizeResult {
 // Note: we intentionally use `[ \t]*` (not `\s*`) so the regex doesn't
 // greedily consume newlines before the heading — that would truncate the
 // prefix we scan for CoT signals and make blank-line-run detection miss.
-const STRUCTURAL_HEADING_RE =
+// Exported so calibration tooling (services/reviewer/scripts/calibrate-tolerance.ts)
+// can reuse the canonical pattern instead of duplicating it (mt#1264 R1 BLOCKING fix).
+export const STRUCTURAL_HEADING_RE =
   /^[ \t]*(?:#{1,6}[ \t]+|\*\*)(findings|spec verification|summary|documentation impact)\b/im;
 
 // "Strong" scratch patterns — each one alone is enough to fire the heuristic.
@@ -90,7 +92,8 @@ const STRONG_SCRATCH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
 // "I" (no space), while "I will" and "I am going to" take whitespace — a
 // single `\s+` branch would have missed "I'll" entirely. Both ASCII `'` and
 // curly `’` apostrophes match.
-const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['’]ll\b|\bI\s+am\s+going\s+to\b/i;
+// Exported so calibration tooling can reuse the canonical pattern (mt#1264 R1).
+export const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['’]ll\b|\bI\s+am\s+going\s+to\b/i;
 
 // 20+ consecutive newlines (19 blanks after the first) — no legitimate review
 // body contains this. Catches the "hundreds of blank lines" pattern from #743.
@@ -100,7 +103,13 @@ const BLANK_LINE_RUN_RE = /\r?\n(?:[ \t]*\r?\n){19,}/;
 
 // Above this prefix length, a narrative-scratch phrase is treated as a signal.
 // Below, we assume it's legitimate "I will focus on..."-style intro prose.
-const NARRATIVE_TOLERANCE_CHARS = 300;
+//
+// Threshold calibrated 2026-04-26 (mt#1264) via replay against the full
+// minsky-reviewer[bot] review corpus — at-risk zone (prefix >= 300 + narrative
+// + sole signal) had 0 samples. See docs/architecture/critic-constitution-reliability.md.
+// Exported so calibration tooling can compare against the canonical threshold
+// rather than hardcoding its own copy (mt#1264 R1).
+export const NARRATIVE_TOLERANCE_CHARS = 300;
 
 // User-facing notice that replaces the body when a CoT leak has no
 // recoverable structural section. Internal tracker IDs (mt#1212) are
@@ -113,6 +122,29 @@ const ERROR_NOTICE_BODY =
   "`Findings` section to preserve, so the leaked content was discarded. " +
   "The PR will receive a fresh review on the next commit. See " +
   "`docs/architecture/critic-constitution-reliability.md` for details.";
+
+// URL pattern: http:// or https:// followed by non-whitespace chars.
+const URL_PATTERN = /https?:\/\/\S+/g;
+
+// Email pattern: standard user@domain.tld form.
+// Hyphen is placed at the end of each character class to avoid useless-escape.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+
+/**
+ * Return a redacted snippet of `text` suitable for structured log payloads.
+ *
+ * Takes the first `maxChars` characters of the text, then replaces:
+ *   - URLs (`http://` / `https://`) → `[url]`
+ *   - Email addresses → `[email]`
+ *
+ * Exported so unit tests can verify the redaction in isolation. Used by
+ * `review-worker.ts` to attach a redacted prefix snippet to
+ * `reviewer.cot_leak_detected` events for calibration (mt#1264).
+ */
+export function redactForLog(text: string, maxChars = 200): string {
+  const snippet = text.slice(0, maxChars);
+  return snippet.replace(URL_PATTERN, "[url]").replace(EMAIL_PATTERN, "[email]");
+}
 
 export function sanitizeReviewBody(raw: string): SanitizeResult {
   const originalLength = raw.length;
