@@ -3,9 +3,20 @@
  *
  * Parses a unified diff string into structured hunks that can be used to
  * construct valid line-anchored review comments for the GitHub API
- * (octokit.rest.pulls.createReview comments[]).
+ * (octokit.rest.pulls.createReview comments[]). See:
+ *   https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request
  *
  * The output shape mirrors the parsedDiff field in SessionPrReviewContextResult.
+ *
+ * Side semantics (relevant to anchor selection):
+ *  - RIGHT lines (`newLine` set, `oldLine` null) — anchor on the head/incoming side.
+ *  - LEFT lines (`oldLine` set, `newLine` null) — anchor on the base/old side
+ *    (used to comment on deletions or pre-change code).
+ *  - CONTEXT lines (both set) — unchanged lines; usable as anchors on either side.
+ *
+ * Reviewers picking anchors should match the side they want to comment on:
+ * commenting on a deletion needs `side: "LEFT"`; commenting on an addition needs
+ * `side: "RIGHT"`. CONTEXT lines are flexible.
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────
