@@ -50,5 +50,7 @@ if (process.env.RUN_INTEGRATION_TESTS && BRANCH_URL) {
   const missing: string[] = [];
   if (!process.env.RUN_INTEGRATION_TESTS) missing.push("RUN_INTEGRATION_TESTS=1");
   if (!BRANCH_URL) missing.push("SUPABASE_INTEGRATION_BRANCH_URL=<connection-string>");
-  console.log(`[saturation/supabase] integration tests skipped — set ${missing.join(", ")} to run`);
+  process.stdout.write(
+    `[saturation/supabase] integration tests skipped — set ${missing.join(", ")} to run\n`
+  );
 }

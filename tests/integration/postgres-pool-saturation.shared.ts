@@ -96,19 +96,20 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
   const TEST_TIMEOUT_MS = 60_000;
 
   describe(`Postgres pool saturation suite [${label}]`, () => {
-    // Verify the connection is reachable at all before running the suite.
-    let healthOk = false;
-
     beforeAll(async () => {
       const probe = makeSingleClient(connectionString);
       try {
         await probe`SELECT 1`;
-        healthOk = true;
         process.stdout.write(`[saturation/${label}] connection health check passed\n`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stdout.write(
-          `[saturation/${label}] SKIP: connection health check failed — ${msg}\n`
+        // Re-throw so bun:test marks the suite as failed rather than silently passing.
+        // "Skip when env vars absent" happens at the outer wrapper level (env-gate) and
+        // is unaffected by this throw — we only reach here when env vars ARE set but the
+        // actual connection fails, which is a genuine error.
+        throw new Error(
+          `[saturation/${label}] connection health check failed — ${msg}. ` +
+            `Verify that SUPABASE_INTEGRATION_BRANCH_URL is correct and the branch is reachable.`
         );
       } finally {
         await probe.end().catch(() => {});
@@ -126,11 +127,6 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-1: concurrent clients all succeed after retry under saturation",
       async () => {
-        if (!healthOk) {
-          process.stdout.write(`[saturation/${label}] AT-1: skipped — connection unhealthy\n`);
-          return;
-        }
-
         // Track total retry attempts across all tasks
         let totalRetryAttempts = 0;
 
@@ -204,11 +200,6 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-2: mutating CRUD under saturation produces no duplicate rows",
       async () => {
-        if (!healthOk) {
-          process.stdout.write(`[saturation/${label}] AT-2: skipped — connection unhealthy\n`);
-          return;
-        }
-
         const testRunId = randomUUID();
         const tableName = "saturation_idempotency_test";
 
@@ -303,8 +294,10 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           );
           expect(Number(count)).toBe(1);
 
-          // Cleanup test row
+          // Cleanup: delete test row and drop the table so long-lived branches
+          // don't accumulate test tables across runs.
           await probe.unsafe(`DELETE FROM ${tableName} WHERE run_id = $1`, [testRunId]);
+          await probe.unsafe(`DROP TABLE IF EXISTS ${tableName}`);
         } finally {
           await probe.end().catch(() => {});
         }
@@ -319,11 +312,6 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-3: PostgresPersistenceProvider.initialize() recovers under saturation",
       async () => {
-        if (!healthOk) {
-          process.stdout.write(`[saturation/${label}] AT-3: skipped — connection unhealthy\n`);
-          return;
-        }
-
         const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
 
         // Guard: ensure releaseHeld() is called at most once even though the
@@ -372,11 +360,6 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-4: PostgresVectorStorage.search returns results after backoff under saturation",
       async () => {
-        if (!healthOk) {
-          process.stdout.write(`[saturation/${label}] AT-4: skipped — connection unhealthy\n`);
-          return;
-        }
-
         // Check pgvector availability before running the vector test
         const probe = makeSingleClient(connectionString);
         let vectorAvailable = false;
@@ -438,6 +421,8 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
 
         const sqlClient = makeSingleClient(connectionString);
         const { drizzle } = await import("drizzle-orm/postgres-js");
+        // `db` is required by the PostgresVectorStorage constructor signature even though
+        // the search path internally uses `this.sql.unsafe` rather than the drizzle client.
         const db = drizzle(sqlClient);
 
         const vectorStorage = new PostgresVectorStorage(sqlClient, db, DIMENSION, {
@@ -458,6 +443,8 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
           await releaseOnce();
+          // Drop the test table so long-lived branches don't accumulate test tables.
+          await sqlClient.unsafe(`DROP TABLE IF EXISTS ${VECTOR_TABLE}`).catch(() => {});
           await sqlClient.end().catch(() => {});
         }
       },
