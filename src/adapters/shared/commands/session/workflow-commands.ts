@@ -17,6 +17,9 @@ import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { McpErrorCode } from "../../../../errors/mcp-error-codes";
+import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
+import { SessionConflictError } from "../../../../errors/index";
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -33,6 +36,41 @@ export { createSessionPrReviewContextCommand } from "./pr-review-context-command
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
 
+/**
+ * Classify a caught error from `git commit` as a pre-commit hook failure.
+ *
+ * Node's `child_process.exec` attaches `.stderr` and `.stdout` to the thrown
+ * error when the process exits with a non-zero code. A pre-commit hook failure
+ * looks like: `ExecException { message: "Command failed: git -C ... commit ...", stderr: "<hook output>" }`.
+ *
+ * We consider it a pre-commit failure when:
+ *   - The error has a non-empty `stderr` property (subprocess output), AND
+ *   - The error message mentions the git commit command (not some other git op).
+ */
+function classifyPreCommitFailure(err: unknown): {
+  isPreCommit: boolean;
+  subprocessOutput: string;
+} {
+  if (err === null || typeof err !== "object") {
+    return { isPreCommit: false, subprocessOutput: "" };
+  }
+  const e = err as Record<string, unknown>;
+  const msg = typeof e.message === "string" ? e.message : "";
+  const stderr = typeof e.stderr === "string" ? e.stderr : "";
+  const stdout = typeof e.stdout === "string" ? e.stdout : "";
+  const subprocessOutput = [stderr, stdout].filter(Boolean).join("\n").trim();
+
+  // Must reference a git commit invocation
+  const isCommitCommand = msg.includes("git") && msg.includes("commit");
+  // Must have subprocess output (if there is none, it's an internal error, not a hook)
+  const hasOutput = subprocessOutput.length > 0;
+
+  return {
+    isPreCommit: isCommitCommand && hasOutput,
+    subprocessOutput,
+  };
+}
+
 export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.commit",
@@ -45,36 +83,48 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
       const { sessionCommit } = await import("../../../../domain/session/session-commands");
       const deps = await getDeps();
 
-      const result = await sessionCommit(
-        {
-          session: (params.sessionId as string | undefined) ?? "",
-          message: (params.message as string | undefined) ?? "",
-          all: params.all as boolean | undefined,
-          amend: params.amend as boolean | undefined,
-          noStage: params.noStage as boolean | undefined,
-        },
-        deps.sessionProvider
-      );
+      try {
+        const result = await sessionCommit(
+          {
+            session: (params.sessionId as string | undefined) ?? "",
+            message: (params.message as string | undefined) ?? "",
+            all: params.all as boolean | undefined,
+            amend: params.amend as boolean | undefined,
+            noStage: params.noStage as boolean | undefined,
+          },
+          deps.sessionProvider
+        );
 
-      return {
-        success: result.success,
-        sessionId: params.sessionId,
-        commitHash: result.commitHash,
-        shortHash: result.shortHash,
-        subject: result.subject,
-        branch: result.branch,
-        authorName: result.authorName,
-        authorEmail: result.authorEmail,
-        timestamp: result.timestamp,
-        message: result.message,
-        filesChanged: result.filesChanged,
-        insertions: result.insertions,
-        deletions: result.deletions,
-        files: result.files,
-        pushed: result.pushed,
-        oneline: params.oneline === true,
-        noFiles: params.noFiles === true,
-      };
+        return {
+          success: result.success,
+          sessionId: params.sessionId,
+          commitHash: result.commitHash,
+          shortHash: result.shortHash,
+          subject: result.subject,
+          branch: result.branch,
+          authorName: result.authorName,
+          authorEmail: result.authorEmail,
+          timestamp: result.timestamp,
+          message: result.message,
+          filesChanged: result.filesChanged,
+          insertions: result.insertions,
+          deletions: result.deletions,
+          files: result.files,
+          pushed: result.pushed,
+          oneline: params.oneline === true,
+          noFiles: params.noFiles === true,
+        };
+      } catch (err) {
+        const { isPreCommit, subprocessOutput } = classifyPreCommitFailure(err);
+        if (isPreCommit) {
+          throw mcpStructuredError({
+            code: McpErrorCode.PRE_COMMIT_FAILED,
+            summary: "Pre-commit hook blocked the commit",
+            subprocessOutput,
+          });
+        }
+        throw err;
+      }
     }),
   };
 }
@@ -376,6 +426,22 @@ export function buildSessionMergeDeps(
   };
 }
 
+/**
+ * Return true when an error from a PR merge operation indicates a git conflict.
+ */
+function isMergeConflictError(err: unknown): boolean {
+  if (err instanceof SessionConflictError) return true;
+  const msg =
+    err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
+  return (
+    msg.includes("CONFLICT") ||
+    msg.includes("conflict") ||
+    msg.includes("merge conflict") ||
+    msg.includes("Cannot merge") ||
+    msg.includes("mergeable")
+  );
+}
+
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.merge",
@@ -394,19 +460,31 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
         const shouldCleanup = params.skipCleanup !== true;
 
-        const result = await mergeSessionPr(
-          {
-            session: params.sessionId as string | undefined,
-            task: params.task as string | undefined,
-            repo: params.repo as string | undefined,
-            json: params.json as boolean | undefined,
-            cleanupSession: shouldCleanup,
-            acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
-          },
-          buildSessionMergeDeps(deps, context.container)
-        );
+        try {
+          const result = await mergeSessionPr(
+            {
+              session: params.sessionId as string | undefined,
+              task: params.task as string | undefined,
+              repo: params.repo as string | undefined,
+              json: params.json as boolean | undefined,
+              cleanupSession: shouldCleanup,
+              acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
+            },
+            buildSessionMergeDeps(deps, context.container)
+          );
 
-        return { success: true, result, printed: true };
+          return { success: true, result, printed: true };
+        } catch (err) {
+          if (isMergeConflictError(err)) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw mcpStructuredError({
+              code: McpErrorCode.CONFLICT,
+              summary: "Merge conflict prevented PR from merging",
+              details: { originalMessage: msg },
+            });
+          }
+          throw err;
+        }
       }
     ),
   };

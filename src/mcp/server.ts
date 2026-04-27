@@ -9,6 +9,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
   isInitializeRequest,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
@@ -623,6 +624,12 @@ export class MinskyMCPServer {
             this.triggerStaleSignal(server);
           }
 
+          // Preserve structured McpError instances (e.g. StructuredMcpError with
+          // machine-readable data payload) so the SDK propagates `code` and `data`
+          // to the caller intact. Plain Error objects are wrapped as before.
+          if (error instanceof McpError) {
+            throw error;
+          }
           throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
