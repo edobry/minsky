@@ -5,14 +5,17 @@
  *   - `bell()` — writes the ASCII BEL character (\x07) to stdout, causing most
  *     terminals to emit an audible or visual alert.
  *   - `notify(title, body)` — on macOS (darwin) shells out to `osascript` to
- *     raise a native notification banner; on all other platforms falls back to a
- *     plain `console.log` so callers don't need to guard on platform.
+ *     raise a native notification banner; on all other platforms routes through
+ *     the structured logger (stderr/log channels) so stdout stays clean for
+ *     CLI/MCP protocol consumers.
  *
  * The command executor is injected so unit tests can verify the `osascript`
  * invocation without spawning real processes. See `operator-notify.test.ts`.
  *
  * Zero dependency on the Ask entity — this is pure plumbing.
  */
+
+import { log } from "../../utils/logger";
 
 /**
  * Abstraction over `child_process.spawnSync` / similar. Only the subset needed
@@ -110,9 +113,9 @@ export class SystemOperatorNotify implements OperatorNotify {
         `display notification "${safeBody}" with title "${safeTitle}"`,
       ]);
     } else {
-      // Non-darwin: log only so callers get consistent behavior without
-      // any platform-specific machinery.
-      console.log(`[notify] ${title}: ${body}`);
+      // Non-darwin: route through the structured logger (stderr/log channels)
+      // so stdout stays clean for CLI/MCP protocol consumers.
+      log.info("[notify] notification suppressed on non-darwin platform", { title, body });
     }
   }
 }

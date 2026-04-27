@@ -163,4 +163,24 @@ describe("SystemOperatorNotify.notify — non-darwin platform", () => {
 
     expect(calls).toHaveLength(0);
   });
+
+  it("does not write to the stdout sink on linux", () => {
+    const { sink, written } = makeStubStdout();
+    const { executor } = makeStubExecutor();
+    const notify = new SystemOperatorNotify(executor, sink, "linux");
+
+    notify.notify("title", "body");
+
+    expect(written).toHaveLength(0);
+  });
+
+  it("does not write to the stdout sink on win32", () => {
+    const { sink, written } = makeStubStdout();
+    const { executor } = makeStubExecutor();
+    const notify = new SystemOperatorNotify(executor, sink, "win32");
+
+    notify.notify("title", "body");
+
+    expect(written).toHaveLength(0);
+  });
 });
