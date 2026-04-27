@@ -24,7 +24,11 @@ await setupConfiguration();
 
 import { getConfiguration } from "../src/domain/configuration/index";
 import { PersistenceService } from "../src/domain/persistence/service";
-import { ProvenanceService, TranscriptService, AuthorshipJudge } from "../src/domain/provenance";
+import {
+  ProvenanceService,
+  AgentTranscriptService,
+  AuthorshipJudge,
+} from "../src/domain/provenance";
 import { createCompletionService } from "../src/domain/ai/service-factory";
 import type { ResolvedConfig } from "../src/domain/configuration/types";
 import { eq } from "drizzle-orm";
@@ -53,7 +57,7 @@ if (!record.sessionId) {
   process.exit(0);
 }
 
-const transcriptService = new TranscriptService(db);
+const transcriptService = new AgentTranscriptService(db);
 const defaultJsonlPath =
   "/Users/edobry/.claude/projects/-Users-edobry-Projects-minsky/f7dd3fee-977d-40f2-bcdc-a26f573b2117.jsonl";
 const jsonlPath = process.argv[2] ?? defaultJsonlPath;
