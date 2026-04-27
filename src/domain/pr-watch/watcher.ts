@@ -353,10 +353,9 @@ async function handleReviewPosted(
  * `lastSeen.lastConclusion`.
  *
  * Fires when the overall conclusion (derived from all check runs) differs from
- * the last-seen value. Uses a simple majority: "failure" beats "success"; if
- * any check_run has conclusion "failure" or "timed_out", the overall is
- * "failure"; otherwise if all completed runs are "success" or "skipped" the
- * overall is "success"; "pending" means at least one run is still in progress.
+ * the last-seen value and is not pending or unknown. Handles the full GitHub
+ * check_run conclusion enum — see `deriveOverallConclusion` for the aggregation
+ * precedence rules.
  */
 async function handleCheckStatusChanged(
   watch: PrWatch,
@@ -390,19 +389,51 @@ async function handleCheckStatusChanged(
 /**
  * Derive a single overall conclusion string from a list of check runs.
  *
- * - "pending"  — at least one run has no conclusion yet (still in progress)
- * - "failure"  — at least one run concluded with failure or timed_out
- * - "success"  — all completed runs concluded success or skipped
- * - "unknown"  — no runs present
+ * Handles the full GitHub Checks API `check_run.conclusion` enum. Conclusions
+ * are aggregated by precedence (highest priority first):
+ *
+ *  1. Any `null` conclusion  → `"pending"` (still in progress)
+ *  2. Any `failure` or `timed_out` → `"failure"` (terminal error)
+ *  3. Any `cancelled`  → `"cancelled"` (terminal, distinct from failure)
+ *  4. Any `action_required` → `"action_required"` (requires operator input)
+ *  5. All `success` or `skipped` → `"success"`
+ *  6. All `neutral` (or mix of neutral with success/skipped) → `"neutral"`
+ *  7. All `stale` (re-run triggered; old result invalidated) → `"stale"`
+ *  8. No runs present → `"unknown"`
+ *  9. Anything else → `"unknown"`
+ *
+ * The filter in `handleCheckStatusChanged` only fires on state changes where the
+ * current conclusion is not `"pending"` or `"unknown"`. All other conclusions
+ * (including `cancelled`, `neutral`, `action_required`, `stale`) do fire.
  */
 function deriveOverallConclusion(checkRuns: GithubCheckRun[]): string {
   if (checkRuns.length === 0) return "unknown";
 
   const conclusions = checkRuns.map((r) => r.conclusion);
 
+  // Rule 1: any null → pending (still in progress)
   if (conclusions.some((c) => c === null)) return "pending";
+
+  // Rule 2: any failure or timed_out → failure
   if (conclusions.some((c) => c === "failure" || c === "timed_out")) return "failure";
+
+  // Rule 3: any cancelled → cancelled
+  if (conclusions.some((c) => c === "cancelled")) return "cancelled";
+
+  // Rule 4: any action_required → action_required
+  if (conclusions.some((c) => c === "action_required")) return "action_required";
+
+  // Rule 5: all success or skipped → success
   if (conclusions.every((c) => c === "success" || c === "skipped")) return "success";
+
+  // Rule 6: all neutral (or mix of neutral with success/skipped) → neutral
+  if (conclusions.every((c) => c === "neutral" || c === "success" || c === "skipped")) {
+    return "neutral";
+  }
+
+  // Rule 7: all stale → stale
+  if (conclusions.every((c) => c === "stale")) return "stale";
+
   return "unknown";
 }
 

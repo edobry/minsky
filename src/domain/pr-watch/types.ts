@@ -80,7 +80,11 @@ export interface PrWatch {
    * Shape is event-dependent:
    *   - merged: unused (null)
    *   - review-posted: `{ lastReviewId: number | null }`
-   *   - check-status-changed: `{ lastConclusion: "success" | "failure" | "timed_out" | "skipped" | null }`
+   *   - check-status-changed: `{ lastConclusion: string | null }` where the
+   *     conclusion is one of the full GitHub Checks API enum values:
+   *     `"success"`, `"failure"`, `"neutral"`, `"cancelled"`, `"skipped"`,
+   *     `"timed_out"`, `"action_required"`, `"stale"`, or the synthetic
+   *     aggregates `"pending"` (in progress) and `"unknown"` (no runs).
    *
    * Absent until the first reconciler pass on this watch.
    */
