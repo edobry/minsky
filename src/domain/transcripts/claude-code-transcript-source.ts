@@ -76,10 +76,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
   }
 
   async *discoverSessions(): AsyncIterable<DiscoveredSession> {
-    const projectDirs = await glob(this.projectDirGlob, {
-      cwd: this.claudeProjectsDir,
-      absolute: true,
-    });
+    const projectDirs = await safeGlob(this.projectDirGlob, this.claudeProjectsDir);
 
     for (const projectDir of projectDirs) {
       yield* this.scanDir(projectDir, false);
@@ -178,4 +175,17 @@ async function safeStat(path: string): Promise<Awaited<ReturnType<typeof fs.stat
 
 async function pathExists(path: string): Promise<boolean> {
   return (await safeStat(path)) !== null;
+}
+
+/**
+ * Wraps `glob` to match `safeReaddir` / `safeStat` semantics: a missing or
+ * inaccessible base directory yields an empty array instead of throwing.
+ */
+async function safeGlob(pattern: string, cwd: string): Promise<string[]> {
+  if (!(await pathExists(cwd))) return [];
+  try {
+    return await glob(pattern, { cwd, absolute: true });
+  } catch {
+    return [];
+  }
 }

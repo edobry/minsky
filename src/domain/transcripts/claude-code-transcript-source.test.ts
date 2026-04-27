@@ -213,3 +213,18 @@ describe("ClaudeCodeTranscriptSource.getJsonlTimestamp", () => {
     ).toBeUndefined();
   });
 });
+
+describe("ClaudeCodeTranscriptSource.discoverSessions — defensive", () => {
+  test("returns empty when claudeProjectsDir does not exist", async () => {
+    const nonExistent = join(tmpdir(), "definitely-not-a-real-claude-projects-dir-mt1350");
+    const src = new ClaudeCodeTranscriptSource({
+      claudeProjectsDir: nonExistent,
+      projectDirGlob: "*",
+    });
+    const sessions: unknown[] = [];
+    for await (const session of src.discoverSessions()) {
+      sessions.push(session);
+    }
+    expect(sessions).toEqual([]);
+  });
+});
