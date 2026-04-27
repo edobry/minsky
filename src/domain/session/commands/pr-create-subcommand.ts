@@ -105,31 +105,19 @@ export async function sessionPrCreate(
   // Failure here must NOT fail the PR creation response.
   if (askRepository) {
     try {
-      const prUrl = result.url;
-      const prNumber = prUrl ? parsePrNumber(prUrl) : undefined;
       const sessionId = result.sessionId ?? params.sessionId;
       const taskId = result.session?.taskId ?? params.task;
-
-      await askRepository.create({
-        kind: "quality.review",
-        classifierVersion: "v1.0.0",
-        requestor: sessionId ?? "minsky.session:unknown",
-        parentSessionId: sessionId,
-        parentTaskId: taskId,
-        title: prNumber != null ? `Review PR #${prNumber}` : "Review PR",
-        question: params.body ?? "Review the changes in this PR.",
-        contextRefs: prUrl
-          ? [
-              {
-                kind: "github-pr",
-                ref: prUrl,
-                description: prNumber != null ? `PR #${prNumber}` : "PR",
-              },
-            ]
-          : [],
-        metadata: {},
+      await fileQualityReviewAsk(askRepository, {
+        prUrl: result.url,
+        sessionId,
+        taskId,
+        body: params.body,
       });
-      log.debug("Filed quality.review Ask for PR", { prUrl, prNumber, sessionId, taskId });
+      log.debug("Filed quality.review Ask for PR", {
+        prUrl: result.url,
+        sessionId,
+        taskId,
+      });
     } catch (askError) {
       // Non-fatal: log and continue so PR creation always succeeds.
       log.warn(`Failed to file quality.review Ask after PR creation: ${askError}`);
@@ -143,14 +131,80 @@ export async function sessionPrCreate(
 }
 
 /**
+ * Parse a GitHub pull request URL into its `{owner, repo, prNumber}` parts.
+ *
+ * Canonical form: `https://github.com/<owner>/<repo>/pull/<number>`. Returns
+ * `undefined` when the URL does not match.
+ */
+export function parseGithubPrUrl(
+  url: string
+): { owner: string; repo: string; prNumber: number } | undefined {
+  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(url);
+  if (!match) return undefined;
+  const owner = match[1];
+  const repo = match[2];
+  const numStr = match[3];
+  if (!owner || !repo || !numStr) return undefined;
+  const prNumber = parseInt(numStr, 10);
+  if (isNaN(prNumber)) return undefined;
+  return { owner, repo, prNumber };
+}
+
+/**
  * Extract the PR number from a GitHub pull request URL.
  *
- * Handles the canonical form: https://github.com/<owner>/<repo>/pull/<number>
  * Returns `undefined` for non-matching or malformed URLs.
  */
 export function parsePrNumber(url: string): number | undefined {
-  const match = /\/pull\/(\d+)/.exec(url);
-  if (!match || !match[1]) return undefined;
-  const n = parseInt(match[1], 10);
-  return isNaN(n) ? undefined : n;
+  return parseGithubPrUrl(url)?.prNumber;
+}
+
+/**
+ * File a `quality.review` Ask for a successfully-created PR.
+ *
+ * The contextRef is written in canonical form (`github-pr:<owner>/<repo>/<n>`)
+ * so the reconciler's `parsePrRef` can route it. The full PR URL is preserved
+ * in the contextRef `description` for click-through and notification surfaces.
+ *
+ * Non-fatal — callers should wrap in try/catch and swallow errors so that
+ * PR creation never fails on Ask-insert failure.
+ */
+export async function fileQualityReviewAsk(
+  askRepository: AskRepository,
+  params: {
+    prUrl?: string;
+    sessionId?: string;
+    taskId?: string;
+    body?: string;
+  }
+): Promise<void> {
+  const parsed = params.prUrl ? parseGithubPrUrl(params.prUrl) : undefined;
+  const prNumber = parsed?.prNumber;
+  const canonicalRef = parsed
+    ? `github-pr:${parsed.owner}/${parsed.repo}/${parsed.prNumber}`
+    : undefined;
+
+  const contextRefs =
+    canonicalRef && params.prUrl
+      ? [
+          {
+            kind: "github-pr",
+            ref: canonicalRef,
+            description:
+              prNumber != null ? `PR #${prNumber} (${params.prUrl})` : `PR (${params.prUrl})`,
+          },
+        ]
+      : [];
+
+  await askRepository.create({
+    kind: "quality.review",
+    classifierVersion: "v1.0.0",
+    requestor: params.sessionId ?? "minsky.session:unknown",
+    parentSessionId: params.sessionId,
+    parentTaskId: params.taskId,
+    title: prNumber != null ? `Review PR #${prNumber}` : "Review PR",
+    question: params.body ?? "Review the changes in this PR.",
+    contextRefs,
+    metadata: {},
+  });
 }
