@@ -72,7 +72,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register tools commands
   registerToolsCommands(container);
 
-  // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
+  // Register asks commands (Ask subsystem — mt#1034 / ADR-008)
   registerAsksCommands(container);
 
   // Register pr-watch commands (PR-state watcher — mt#1295)
