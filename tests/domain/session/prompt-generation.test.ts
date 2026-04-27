@@ -3,20 +3,48 @@ import {
   generateSubagentPrompt,
   PROMPT_WATERMARK,
   ENVELOPE_HEADER,
+  PROMPT_TYPE_TO_AGENT_TYPE,
+  RECOMMENDED_SKILLS_HEADER,
+  EMBEDDED_SKILLS_HEADER,
   type GeneratePromptParams,
+  type PromptType,
+  type SkillLoader,
 } from "../../../src/domain/session/prompt-generation";
 
 const MCP_SESSION_COMMIT = "mcp__minsky__session_commit";
 const MCP_SESSION_PR_CREATE = "mcp__minsky__session_pr_create";
 const EXPECTED_MODEL = "sonnet";
 
+// Default to claude-code (lean path) for the bulk of legacy tests so the
+// skills are NOT embedded inline. Standalone-path tests opt in explicitly.
 const baseParams: GeneratePromptParams = {
   sessionDir: "/Users/test/.local/state/minsky/sessions/abc-123",
   sessionId: "abc-123",
   taskId: "456",
   type: "implementation",
   instructions: "Add a new feature to do X.",
+  harness: "claude-code",
 };
+
+/** Build an in-memory SkillLoader from a fixture map. */
+function makeMemoryLoader(fixture: {
+  agents?: Record<string, string[]>; // agentName -> declared skill names
+  skills?: Record<string, string>; // skillName -> body
+}): SkillLoader {
+  return {
+    loadAgentSkillNames(agentType) {
+      const declared = fixture.agents?.[agentType];
+      return declared === undefined ? null : declared;
+    },
+    loadSkillBody(skillName) {
+      const body = fixture.skills?.[skillName];
+      return body === undefined ? null : body;
+    },
+  };
+}
+
+/** Loader that always returns null (simulates an empty workspace). */
+const emptyLoader: SkillLoader = makeMemoryLoader({});
 
 describe("generateSubagentPrompt", () => {
   describe("common sections", () => {
@@ -72,9 +100,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.suggestedModel).toBe(EXPECTED_MODEL);
     });
 
-    it("does not suggest a subagent type for implementation", () => {
+    it("emits implementer agentType for implementation", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "implementation" });
-      expect(result.agentType).toBeUndefined();
+      expect(result.agentType).toBe("implementer");
     });
   });
 
@@ -128,9 +156,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.suggestedModel).toBe(EXPECTED_MODEL);
     });
 
-    it("does not suggest a subagent type for review", () => {
+    it("emits reviewer agentType for review", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "review" });
-      expect(result.agentType).toBeUndefined();
+      expect(result.agentType).toBe("reviewer");
     });
   });
 
@@ -151,9 +179,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.suggestedModel).toBe(EXPECTED_MODEL);
     });
 
-    it("does not suggest a subagent type for cleanup", () => {
+    it("emits cleaner agentType for cleanup", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
-      expect(result.agentType).toBeUndefined();
+      expect(result.agentType).toBe("cleaner");
     });
   });
 
@@ -184,44 +212,6 @@ describe("generateSubagentPrompt", () => {
     it("suggests sonnet as the model for audit", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
       expect(result.suggestedModel).toBe(EXPECTED_MODEL);
-    });
-  });
-
-  describe("skill references", () => {
-    it("includes implement-task and prepare-pr skills for implementation type", () => {
-      const result = generateSubagentPrompt({ ...baseParams, type: "implementation" });
-      expect(result.prompt).toContain("/implement-task");
-      expect(result.prompt).toContain("/prepare-pr");
-    });
-
-    it("includes code-organization skill for refactor type", () => {
-      const result = generateSubagentPrompt({ ...baseParams, type: "refactor" });
-      expect(result.prompt).toContain("/code-organization");
-    });
-
-    it("includes review-pr skill for review type", () => {
-      const result = generateSubagentPrompt({ ...baseParams, type: "review" });
-      expect(result.prompt).toContain("/review-pr");
-    });
-
-    it("includes fix-skipped-tests skill for cleanup type", () => {
-      const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
-      expect(result.prompt).toContain("/fix-skipped-tests");
-    });
-
-    it("does not include skill references for audit type", () => {
-      const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
-      expect(result.prompt).not.toContain("Recommended Skills");
-    });
-
-    it("skill references appear before scope constraints", () => {
-      const scope = ["src/foo.ts"];
-      const result = generateSubagentPrompt({ ...baseParams, type: "implementation", scope });
-      const skillsIdx = result.prompt.indexOf("Recommended Skills");
-      const scopeIdx = result.prompt.indexOf("Scope Constraints");
-      expect(skillsIdx).toBeGreaterThan(-1);
-      expect(scopeIdx).toBeGreaterThan(-1);
-      expect(skillsIdx).toBeLessThan(scopeIdx);
     });
   });
 
@@ -348,6 +338,16 @@ describe("generateSubagentPrompt", () => {
         expect(batch.prompt).toContain(PROMPT_WATERMARK);
       }
     });
+
+    it("each batch carries harness, agentType, and skillsEmbedded metadata", () => {
+      const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
+      const result = generateSubagentPrompt({ ...baseParams, scope });
+      for (const batch of result.batches ?? []) {
+        expect(batch.harness).toBe("claude-code");
+        expect(batch.agentType).toBe("implementer");
+        expect(batch.skillsEmbedded).toEqual([]);
+      }
+    });
   });
 
   describe("watermark", () => {
@@ -468,7 +468,7 @@ describe("generateSubagentPrompt", () => {
       }
 
       for (const type of ALL_TYPES) {
-        it(`rendered envelope for ${type} is ≤60 lines`, () => {
+        it(`rendered envelope for ${type} is <=60 lines`, () => {
           const result = generateSubagentPrompt({ ...baseParams, type });
           const envelope = extractEnvelope(result.prompt);
           const lineCount = envelope.split("\n").length;
@@ -498,6 +498,189 @@ describe("generateSubagentPrompt", () => {
         for (const batch of result.batches ?? []) {
           expect(batch.prompt).not.toContain(ENVELOPE_HEADER);
         }
+      });
+    });
+  });
+
+  describe("dual-path dispatch (mt#915)", () => {
+    describe("PROMPT_TYPE_TO_AGENT_TYPE mapping", () => {
+      it("maps every PromptType to a compiled agent name", () => {
+        expect(PROMPT_TYPE_TO_AGENT_TYPE).toEqual({
+          implementation: "implementer",
+          refactor: "refactorer",
+          review: "reviewer",
+          cleanup: "cleaner",
+          audit: "auditor",
+        });
+      });
+
+      it("emits agentType for every PromptType (regardless of harness)", () => {
+        const types: PromptType[] = ["implementation", "refactor", "review", "cleanup", "audit"];
+        for (const type of types) {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.agentType).toBe(PROMPT_TYPE_TO_AGENT_TYPE[type]);
+        }
+      });
+    });
+
+    describe("result-shape metadata", () => {
+      it("always sets harness on the result", () => {
+        const result = generateSubagentPrompt({ ...baseParams, harness: "claude-code" });
+        expect(result.harness).toBe("claude-code");
+      });
+
+      it("always sets skillsEmbedded as an array (empty on lean path)", () => {
+        const result = generateSubagentPrompt({ ...baseParams, harness: "claude-code" });
+        expect(Array.isArray(result.skillsEmbedded)).toBe(true);
+        expect(result.skillsEmbedded).toEqual([]);
+      });
+
+      it("propagates harness to each batch", () => {
+        const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
+        const result = generateSubagentPrompt({
+          ...baseParams,
+          scope,
+          harness: "standalone",
+          skillLoader: emptyLoader,
+        });
+        for (const batch of result.batches ?? []) {
+          expect(batch.harness).toBe("standalone");
+        }
+      });
+    });
+
+    describe("native (claude-code) path", () => {
+      const nativeParams: GeneratePromptParams = { ...baseParams, harness: "claude-code" };
+
+      it("does not embed skill content", () => {
+        const result = generateSubagentPrompt(nativeParams);
+        expect(result.prompt).not.toContain(EMBEDDED_SKILLS_HEADER);
+        expect(result.skillsEmbedded).toEqual([]);
+      });
+
+      it("does not include the legacy /skill-name reference section", () => {
+        const result = generateSubagentPrompt(nativeParams);
+        expect(result.prompt).not.toContain(RECOMMENDED_SKILLS_HEADER);
+        expect(result.prompt).not.toContain("/implement-task");
+        expect(result.prompt).not.toContain("/prepare-pr");
+      });
+
+      it("still emits agentType so the harness can route to the subagent", () => {
+        const result = generateSubagentPrompt(nativeParams);
+        expect(result.agentType).toBe("implementer");
+      });
+
+      it("preserves scope, envelope, commit, and watermark sections (lean != empty)", () => {
+        const result = generateSubagentPrompt({
+          ...nativeParams,
+          scope: ["src/foo.ts"],
+        });
+        expect(result.prompt).toContain("Scope Constraints");
+        expect(result.prompt).toContain(ENVELOPE_HEADER);
+        expect(result.prompt).toContain(MCP_SESSION_COMMIT);
+        expect(result.prompt).toContain(PROMPT_WATERMARK);
+      });
+    });
+
+    describe("standalone path with compiled agent definition", () => {
+      const SKILL_MISSING = "skill-gamma-missing";
+      const standaloneLoader = makeMemoryLoader({
+        agents: {
+          implementer: ["skill-alpha", "skill-beta", SKILL_MISSING],
+        },
+        skills: {
+          "skill-alpha": "Body of skill alpha goes here.",
+          "skill-beta": "Body of skill beta goes here.",
+          // SKILL_MISSING intentionally absent from skills map
+        },
+      });
+
+      const standaloneParams: GeneratePromptParams = {
+        ...baseParams,
+        harness: "standalone",
+        skillLoader: standaloneLoader,
+      };
+
+      it("embeds skill bodies inline under the embedded-skills header", () => {
+        const result = generateSubagentPrompt(standaloneParams);
+        expect(result.prompt).toContain(EMBEDDED_SKILLS_HEADER);
+        expect(result.prompt).toContain("Body of skill alpha goes here.");
+        expect(result.prompt).toContain("Body of skill beta goes here.");
+      });
+
+      it("reports the embedded skill names in skillsEmbedded metadata", () => {
+        const result = generateSubagentPrompt(standaloneParams);
+        expect(result.skillsEmbedded).toEqual(["skill-alpha", "skill-beta"]);
+      });
+
+      it("silently skips skills referenced by the agent but missing on disk", () => {
+        const result = generateSubagentPrompt(standaloneParams);
+        expect(result.prompt).not.toContain(SKILL_MISSING);
+        expect(result.skillsEmbedded).not.toContain(SKILL_MISSING);
+      });
+
+      it("does not also emit the legacy /skill-name reference section", () => {
+        const result = generateSubagentPrompt(standaloneParams);
+        expect(result.prompt).not.toContain(RECOMMENDED_SKILLS_HEADER);
+      });
+
+      it("prompt is fat: contains skill bodies and is longer than the lean prompt", () => {
+        const native = generateSubagentPrompt({ ...baseParams, harness: "claude-code" });
+        const fat = generateSubagentPrompt(standaloneParams);
+        expect(fat.prompt.length).toBeGreaterThan(native.prompt.length);
+      });
+    });
+
+    describe("standalone path without compiled agent definition (backward compat)", () => {
+      const fallbackParams: GeneratePromptParams = {
+        ...baseParams,
+        harness: "standalone",
+        skillLoader: emptyLoader,
+      };
+
+      it("falls back to the legacy /skill-name reference section", () => {
+        const result = generateSubagentPrompt({ ...fallbackParams, type: "implementation" });
+        expect(result.prompt).toContain(RECOMMENDED_SKILLS_HEADER);
+        expect(result.prompt).toContain("/implement-task");
+        expect(result.prompt).toContain("/prepare-pr");
+      });
+
+      it("does not embed skill bodies", () => {
+        const result = generateSubagentPrompt({ ...fallbackParams, type: "implementation" });
+        expect(result.prompt).not.toContain(EMBEDDED_SKILLS_HEADER);
+      });
+
+      it("reports skillsEmbedded as empty (references aren't embedded content)", () => {
+        const result = generateSubagentPrompt({ ...fallbackParams, type: "implementation" });
+        expect(result.skillsEmbedded).toEqual([]);
+      });
+
+      it("audit type emits no recommended-skills section (audit has no skills)", () => {
+        const result = generateSubagentPrompt({ ...fallbackParams, type: "audit" });
+        expect(result.prompt).not.toContain(RECOMMENDED_SKILLS_HEADER);
+      });
+
+      it("includes skill references for cleanup type", () => {
+        const result = generateSubagentPrompt({ ...fallbackParams, type: "cleanup" });
+        expect(result.prompt).toContain("/fix-skipped-tests");
+      });
+    });
+
+    describe("agent declared no skills (empty array)", () => {
+      const emptySkillsLoader = makeMemoryLoader({
+        agents: { implementer: [] }, // agent exists but lists no skills
+        skills: {},
+      });
+
+      it("falls back to legacy references when the agent declares zero skills", () => {
+        const result = generateSubagentPrompt({
+          ...baseParams,
+          harness: "standalone",
+          skillLoader: emptySkillsLoader,
+        });
+        // No bodies to embed → caller falls back to legacy references
+        expect(result.prompt).not.toContain(EMBEDDED_SKILLS_HEADER);
+        expect(result.prompt).toContain(RECOMMENDED_SKILLS_HEADER);
       });
     });
   });
