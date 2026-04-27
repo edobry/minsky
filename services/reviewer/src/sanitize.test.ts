@@ -6,6 +6,8 @@ import { sanitizeReviewBody, redactForLog } from "./sanitize";
 const CALLING_READ_FILE = "Calling read_file on src/foo.ts.";
 const SIGNAL_TOOL_CALL = "scratch:tool-call-narration";
 const SIGNAL_LONG_NARRATIVE = "long-narrative-prefix";
+// Narrative intro string used by mt#1264 boundary tests. 31 chars including trailing space.
+const NARRATIVE_INTRO = "I will quickly check the diff. ";
 
 const CLEAN_REVIEW = `## Findings
 
@@ -322,6 +324,31 @@ describe("sanitizeReviewBody", () => {
     const body = `I will quickly check the diff. ${padding}`;
     const result = sanitizeReviewBody(body);
     expect(result.action).toBe("errored");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
+  });
+
+  // mt#1264 R3 NON-BLOCKING: lock the strict `>` boundary at the canonical
+  // threshold. Sanitize uses `prefix.length > NARRATIVE_TOLERANCE_CHARS`
+  // (strict greater-than), so 299 and 300 are passthrough; 301 trips.
+  // Helper builds a prefix of EXACTLY targetLen chars followed by a heading.
+  function makeBoundaryBody(targetLen: number): string {
+    const padding = "x".repeat(targetLen - NARRATIVE_INTRO.length - 1);
+    return `${NARRATIVE_INTRO}${padding}\n## Findings\n- ok`;
+  }
+
+  test("narrative phrase at exactly threshold-1 (299 chars) → passthrough (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(299));
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("narrative phrase at exactly threshold (300 chars) → passthrough (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(300));
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("narrative phrase at exactly threshold+1 (301 chars) → stripped (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(301));
+    expect(result.action).toBe("stripped");
     expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
   });
 });

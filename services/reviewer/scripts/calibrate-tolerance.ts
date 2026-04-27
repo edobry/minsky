@@ -9,24 +9,28 @@
  * Usage:
  *   GITHUB_TOKEN=<pat> bun run services/reviewer/scripts/calibrate-tolerance.ts
  *
- * Output: JSON to stdout. The "at-risk" zone (prefix >= 300 chars with
- * narrative phrase and action == passthrough | stripped-only-by-narrative)
- * is included with ALL samples, not just 3.
+ * Output: JSON to stdout. The "at-risk" zone (prefix > NARRATIVE_TOLERANCE_CHARS
+ * with narrative phrase and action == passthrough | stripped-only-by-narrative)
+ * is included with ALL samples, not just 3. Boundary semantics mirror
+ * sanitize.ts exactly: strict `>` against the exported threshold.
  */
 
 import { Octokit } from "@octokit/rest";
-import { sanitizeReviewBody } from "../src/sanitize.ts";
+import {
+  sanitizeReviewBody,
+  NARRATIVE_SCRATCH_PATTERN,
+  NARRATIVE_TOLERANCE_CHARS,
+  STRUCTURAL_HEADING_RE,
+} from "../src/sanitize.ts";
 
 const OWNER = "edobry";
 const REPO = "minsky";
 const BOT_LOGIN = "minsky-reviewer[bot]";
 
+// Display-only bucket boundaries (chars). Boundary semantics for the at-risk
+// classification are sourced from `NARRATIVE_TOLERANCE_CHARS` (sanitize.ts) —
+// these constants are just for the bucketed report layout.
 const BUCKET_BOUNDARIES = [0, 100, 200, 300, 400, 500];
-
-const NARRATIVE_SCRATCH_PATTERN = /\bI\s+will\b|\bI['’]ll\b|\bI\s+am\s+going\s+to\b/i;
-
-const STRUCTURAL_HEADING_RE =
-  /^[ \t]*(?:#{1,6}[ \t]+|\*\*)(findings|spec verification|summary|documentation impact)\b/im;
 
 interface ReviewRecord {
   prNumber: number;
@@ -164,8 +168,12 @@ function buildBuckets(records: ReviewRecord[]): Record<string, BucketData> {
 }
 
 function identifyAtRisk(records: ReviewRecord[]): ReviewRecord[] {
+  // Mirror sanitize.ts boundary semantics: it uses
+  // `prefix.length > NARRATIVE_TOLERANCE_CHARS` (strictly greater).
+  // The calibration "at-risk" zone matches that exact comparator so the
+  // script's classification can never drift from production behavior.
   return records.filter((rec) => {
-    if (rec.prefixLength < 300) return false;
+    if (rec.prefixLength <= NARRATIVE_TOLERANCE_CHARS) return false;
     if (!rec.narrativePresent) return false;
     if (rec.action === "passthrough") return true;
     if (
@@ -206,12 +214,12 @@ async function main() {
     summary: {
       totalBotReviews: records.length,
       atRiskCount: atRisk.length,
-      currentThreshold: 300,
+      currentThreshold: NARRATIVE_TOLERANCE_CHARS,
       buckets: bucketSummary,
     },
     atRiskZone: {
       description:
-        "Prefix >= 300 chars + narrative phrase + action=passthrough OR stripped-only-by-narrative-signal",
+        "Prefix > NARRATIVE_TOLERANCE_CHARS chars + narrative phrase + action=passthrough OR stripped-only-by-narrative-signal",
       count: atRisk.length,
       samples: atRisk.map((rec) => ({
         prNumber: rec.prNumber,
