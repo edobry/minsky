@@ -100,6 +100,10 @@ const BLANK_LINE_RUN_RE = /\r?\n(?:[ \t]*\r?\n){19,}/;
 
 // Above this prefix length, a narrative-scratch phrase is treated as a signal.
 // Below, we assume it's legitimate "I will focus on..."-style intro prose.
+//
+// Threshold calibrated 2026-04-26 (mt#1264) via replay against the full
+// minsky-reviewer[bot] review corpus — at-risk zone (prefix >= 300 + narrative
+// + sole signal) had 0 samples. See docs/architecture/critic-constitution-reliability.md.
 const NARRATIVE_TOLERANCE_CHARS = 300;
 
 // User-facing notice that replaces the body when a CoT leak has no
@@ -113,6 +117,29 @@ const ERROR_NOTICE_BODY =
   "`Findings` section to preserve, so the leaked content was discarded. " +
   "The PR will receive a fresh review on the next commit. See " +
   "`docs/architecture/critic-constitution-reliability.md` for details.";
+
+// URL pattern: http:// or https:// followed by non-whitespace chars.
+const URL_PATTERN = /https?:\/\/\S+/g;
+
+// Email pattern: standard user@domain.tld form.
+// Hyphen is placed at the end of each character class to avoid useless-escape.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+
+/**
+ * Return a redacted snippet of `text` suitable for structured log payloads.
+ *
+ * Takes the first `maxChars` characters of the text, then replaces:
+ *   - URLs (`http://` / `https://`) → `[url]`
+ *   - Email addresses → `[email]`
+ *
+ * Exported so unit tests can verify the redaction in isolation. Used by
+ * `review-worker.ts` to attach a redacted prefix snippet to
+ * `reviewer.cot_leak_detected` events for calibration (mt#1264).
+ */
+export function redactForLog(text: string, maxChars = 200): string {
+  const snippet = text.slice(0, maxChars);
+  return snippet.replace(URL_PATTERN, "[url]").replace(EMAIL_PATTERN, "[email]");
+}
 
 export function sanitizeReviewBody(raw: string): SanitizeResult {
   const originalLength = raw.length;

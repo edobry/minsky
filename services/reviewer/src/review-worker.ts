@@ -29,7 +29,7 @@ import {
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
-import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
+import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -585,6 +585,7 @@ export async function runReview(
         cleanedLength: sanitized.meta.cleanedLength,
         action: sanitized.action,
         reason: sanitized.meta.reason,
+        prefixSnippet: redactForLog(output.text), // mt#1264: redacted first ~200 chars for FP/TP calibration
         provider: output.provider,
         model: output.model,
       })
