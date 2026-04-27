@@ -21,6 +21,14 @@ export interface ReviewerConfig {
 
   tier2Enabled: boolean;
 
+  // Optional Minsky MCP endpoint, used for both provenance-based tier
+  // resolution (mt#1085) and task-spec fetch (mt#1187). When either field
+  // is absent, both features fall back to their degraded paths — tier falls
+  // back to the PR-body marker, task spec stays null. A startup warning is
+  // logged in that case.
+  mcpUrl: string | undefined;
+  mcpToken: string | undefined;
+
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
 }
@@ -69,6 +77,17 @@ export function loadConfig(): ReviewerConfig {
     }
   })();
 
+  const mcpUrl = process.env["MINSKY_MCP_URL"] ?? undefined;
+  const mcpToken = process.env["MINSKY_MCP_TOKEN"] ?? undefined;
+
+  if (!mcpUrl || !mcpToken) {
+    console.warn(
+      "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+        "Provenance-based tier resolution (mt#1085) falls back to the PR-body marker, " +
+        "and task-spec fetch (mt#1187) is disabled for every review."
+    );
+  }
+
   return {
     appId: parseInt(requireEnv("MINSKY_REVIEWER_APP_ID"), 10),
     privateKey: requireEnv("MINSKY_REVIEWER_PRIVATE_KEY"),
@@ -80,6 +99,9 @@ export function loadConfig(): ReviewerConfig {
     providerModel,
 
     tier2Enabled: optionalEnv("MINSKY_REVIEWER_TIER2_ENABLED", "false") === "true",
+
+    mcpUrl,
+    mcpToken,
 
     port: parseInt(optionalEnv("PORT", "3000"), 10),
     logLevel: optionalEnv("LOG_LEVEL", "info") as ReviewerConfig["logLevel"],

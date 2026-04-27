@@ -23,8 +23,6 @@ export interface SessionPrReviewSubmitDependencies {
 export interface SessionPrReviewSubmitParams {
   /** Session UUID or task-based alias (e.g. "mt#847") */
   sessionId?: string;
-  /** Convenience alias — same as sessionId */
-  name?: string;
   /** Task ID — used when no explicit sessionId is provided */
   task?: string;
   /** Repository path filter */
@@ -63,7 +61,7 @@ export async function sessionPrReviewSubmit(
 
   // Resolve session
   const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.sessionId ?? params.name,
+    sessionId: params.sessionId,
     task: params.task,
     repo: params.repo,
     sessionProvider: sessionDB,

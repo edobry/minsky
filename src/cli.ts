@@ -93,6 +93,10 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     const { createSetupCommand } = await import("./commands/setup/index");
     cli.addCommand(createSetupCommand());
   }
+  if (needsAll || requestedCommand === "compile") {
+    const { createCompileCommand } = await import("./commands/compile/index");
+    cli.addCommand(createCompileCommand());
+  }
 
   // Set error handler
   cli.configureOutput({

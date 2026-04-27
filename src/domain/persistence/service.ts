@@ -17,8 +17,33 @@ import {
 } from "./types";
 import { PersistenceProviderFactory } from "./factory";
 import { getConfiguration } from "../configuration";
+import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
+import type { Configuration } from "../configuration/schemas";
 import { log } from "../../utils/logger";
 import type { VectorStorage } from "../storage/vector/types";
+
+/**
+ * Build a PersistenceConfig from a Configuration via the documented fallback
+ * chain (`persistence.*` → `sessiondb.*` → MINSKY_POSTGRES_URL → defaults).
+ *
+ * Exported for test coverage of the legacy fallback path. Production code
+ * goes through `PersistenceService.loadConfiguration` which calls this with
+ * `getConfiguration()`. Lifting it to a pure function makes the env-var-only
+ * hosted-deploy path (mt#1271) directly unit-testable without mocking the
+ * global configuration provider.
+ */
+export function buildPersistenceConfigFrom(runtimeConfig: Configuration): PersistenceConfig {
+  const effective = getEffectivePersistenceConfig(runtimeConfig);
+  return {
+    backend: effective.backend as PersistenceConfig["backend"],
+    // Spread the full postgres sub-object (carries maxConnections, connectTimeout, etc.)
+    // falling back to a minimal object when only the flat connectionString is available.
+    postgres:
+      effective.postgres ??
+      (effective.connectionString ? { connectionString: effective.connectionString } : undefined),
+    sqlite: effective.sqlite ?? (effective.dbPath ? { dbPath: effective.dbPath } : undefined),
+  };
+}
 
 /**
  * Persistence service — injectable instance.
@@ -67,17 +92,12 @@ export class PersistenceService {
   }
 
   /**
-   * Load configuration from runtime config.
-   * Static because it doesn't depend on instance state.
+   * Load configuration from runtime config via the documented fallback chain.
+   * See `buildPersistenceConfigFrom` for the resolution semantics. Static
+   * because it doesn't depend on instance state.
    */
   private static loadConfiguration(): PersistenceConfig {
-    const runtimeConfig = getConfiguration();
-    if (runtimeConfig.persistence) {
-      return runtimeConfig.persistence;
-    }
-    throw new Error(
-      "No persistence configuration found. Please configure 'persistence:' in your configuration."
-    );
+    return buildPersistenceConfigFrom(getConfiguration());
   }
 
   /**

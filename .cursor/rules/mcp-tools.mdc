@@ -1,0 +1,61 @@
+---
+name: MCP Tools
+description: Use MCP tools for all operations - never shell out to git/gh CLI. Includes session_exec usage and banned GitHub PR-write tools.
+alwaysApply: true
+tags:
+  - minsky
+  - mcp
+---
+# MCP Tools
+
+Use MCP tools for all operations — never shell out to git/gh CLI:
+
+- `mcp__minsky__tasks_*` — task CRUD, status, specs, deps
+- `mcp__minsky__session_*` — session lifecycle, PRs, file operations
+- `mcp__minsky__rules_*` — project rules
+- `mcp__minsky__persistence_*` — database operations
+
+GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because they bypass TokenProvider and produce silent identity drift. Use the Minsky equivalents:
+
+- `mcp__github__create_pull_request` → `mcp__minsky__session_pr_create`
+- `mcp__github__update_pull_request` → `mcp__minsky__session_pr_edit`
+- `mcp__github__merge_pull_request` → `mcp__minsky__session_pr_merge`
+- `mcp__github__pull_request_review_write` → `mcp__minsky__session_pr_review_submit`
+
+Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
+
+## session_update and session_pr_create can force-push the branch
+
+`mcp__minsky__session_update` (and `mcp__minsky__session_pr_create`, which calls it internally) merges main onto the **local** session HEAD and force-pushes. If the remote `task/<id>` branch has been advanced beyond the session's local HEAD by another agent, the merge commit's parent is the stale local — NOT the advanced remote — and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning. mt#1304 tracks the tool-level fix; until that lands, the agent must guard.
+
+**Pre-flight before calling `session_update` or `session_pr_create` on any session whose task has an open PR:**
+
+1. Read `mcp__minsky__session_get(task)` → note `lastCommitHash`.
+2. Read `mcp__minsky__session_pr_list(task)` (or `mcp__github__pull_request_read get` and inspect `head.sha`).
+3. If `lastCommitHash !== head.sha`: the remote has advanced. **Do NOT call session_update.** Surface to user, or do the analysis non-mutatively (see below).
+
+**Non-mutating alternatives** when you only need to read the current PR state: use `mcp__github__get_file_contents(ref="task/mt-N")` for files at the PR HEAD, or `mcp__github__pull_request_read(method="get_diff")` for the full diff. Edit the session only when you're actually committing — and only after confirming local-vs-origin parity.
+
+**Recovery if you orphaned commits**: the orphaned SHAs remain accessible on GitHub by SHA for some retention window. Restore via:
+
+```
+gh api -X PATCH /repos/<owner>/<repo>/git/refs/heads/<branch> \
+  -f sha=<orphaned-head-sha> -F force=true
+```
+
+Then surface the incident to the user; do NOT silently re-run session_update on the restored branch. See `feedback_session_update_can_force_push` memory for the failure-mode pattern.
+
+## Running commands in sessions
+
+Use `mcp__minsky__session_exec` to run shell commands inside a session workspace from the main agent context. The session directory is resolved automatically — no need to look up paths or `cd` into directories.
+
+```
+mcp__minsky__session_exec(task: "mt#123", command: "git status")
+mcp__minsky__session_exec(task: "mt#123", command: "bun test --preload ./tests/setup.ts --timeout=15000 src")
+mcp__minsky__session_exec(task: "mt#123", command: "bun run format:check")
+mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
+```
+
+Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
+
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.

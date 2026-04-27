@@ -36,7 +36,7 @@ import { AuthorshipTier } from "../provenance/types";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
 import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
-import { TranscriptService } from "../provenance/transcript-service";
+import { AgentTranscriptService } from "../provenance/transcript-service";
 import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
@@ -452,7 +452,7 @@ export async function mergeSessionPr(
       if (typeof provider.getDatabaseConnection === "function") {
         const db = await provider.getDatabaseConnection();
         if (db) {
-          const transcriptService = new TranscriptService(db);
+          const transcriptService = new AgentTranscriptService(db);
           const transcript = await transcriptService.getTranscript(sessionIdToUse);
           if (transcript && transcript.length > 0) {
             const judgingCfg = getConfiguration() as ResolvedConfig;

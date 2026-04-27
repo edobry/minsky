@@ -2,7 +2,8 @@
  * Knowledge Domain Types
  *
  * Core types for the knowledge base system, supporting document retrieval,
- * provider abstractions, and sync reporting across knowledge sources.
+ * provider abstractions, sync reporting, and search response shapes across
+ * knowledge sources.
  */
 
 /**
@@ -107,6 +108,99 @@ export interface KnowledgeSourceConfig {
    * Mutually exclusive with `driveFolderId`.
    */
   documentIds?: string[];
+}
+
+// ─── Search response shape (Phase 2a) ────────────────────────────────────────
+
+/**
+ * Opaque identifier for a chunk in the search response.
+ * Format: `{sourceName}:{documentId}:{chunkIndex}`
+ */
+export type ChunkId = string;
+
+/**
+ * Staleness classification for a knowledge chunk.
+ * - `fresh`  — last modified within agingDays (default 30 days)
+ * - `aging`  — modified between agingDays and staleDays (default 30–90 days)
+ * - `stale`  — not modified for more than staleDays (default 90 days)
+ */
+export type Staleness = "fresh" | "aging" | "stale";
+
+/**
+ * Per-chunk freshness metadata returned in the search response.
+ */
+export interface ChunkFreshness {
+  /** ISO 8601 timestamp of last modification */
+  lastModified: string;
+  /** Freshness classification */
+  staleness: Staleness;
+}
+
+/**
+ * A single search result chunk returned from knowledge.search.
+ */
+export interface ChunkResult {
+  /** Unique chunk identifier (`{sourceName}:{documentId}:{chunkIndex}`) */
+  id: ChunkId;
+  /** Human-readable title of the source document */
+  title: string;
+  /** Short text excerpt from the chunk */
+  excerpt: string;
+  /** URL pointing to the original document */
+  url: string;
+  /** Name of the knowledge source this chunk came from */
+  source: string;
+  /** Similarity score in [0, 1] — higher is more relevant */
+  score: number;
+}
+
+/**
+ * A pair of chunks with conflicting information (Phase 2b — stub only).
+ * Reserved for mt#1027 to populate.
+ */
+export interface ChunkConflict {
+  chunkA: ChunkId;
+  chunkB: ChunkId;
+  disagreement: string;
+}
+
+/**
+ * A cluster of redundant chunks sharing essentially the same content
+ * (Phase 2b — stub only). Reserved for mt#1027 to populate.
+ */
+export interface ChunkRedundancy {
+  cluster: ChunkId[];
+  representative: ChunkId;
+}
+
+/**
+ * Structured search response returned by `knowledge.search`.
+ *
+ * `chunks` is the primary result list in relevance order (highest score first).
+ * `authority` is the same chunks re-sorted by (sourceAuthority desc, score desc)
+ * using the `knowledgeReconciliation.sourceAuthority` config map and an epsilon
+ * tiebreak — use this when you want to prefer authoritative sources over
+ * marginally higher relevance.
+ *
+ * `freshness` provides per-chunk staleness metadata keyed by `ChunkId`.
+ *
+ * `conflicts` and `redundancies` are always empty arrays in Phase 2a
+ * and will be populated by Phase 2b (mt#1027).
+ *
+ * Backward compat: existing code that reads only `response.chunks` works
+ * unchanged — the response is a strict superset.
+ */
+export interface KnowledgeSearchResponse {
+  /** Chunks in relevance (score) order — primary result list */
+  chunks: ChunkResult[];
+  /** Per-chunk staleness metadata keyed by chunk ID */
+  freshness: Record<ChunkId, ChunkFreshness>;
+  /** Chunks in (authority, score) order — authority-first secondary ordering */
+  authority: ChunkId[];
+  /** Conflicting chunk pairs — empty in Phase 2a; populated by mt#1027 */
+  conflicts: ChunkConflict[];
+  /** Redundant chunk clusters — empty in Phase 2a; populated by mt#1027 */
+  redundancies: ChunkRedundancy[];
 }
 
 /**

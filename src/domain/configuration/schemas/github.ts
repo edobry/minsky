@@ -42,10 +42,22 @@ export const githubRepoConfigSchema = z
  */
 export const githubServiceAccountSchema = z
   .object({
-    type: z.literal("github-app"),
+    // Discriminant for future multi-backend support (GitLab App, etc.). Today there's
+    // only one valid value, so default it — this lets env-var-only configs work without
+    // requiring an explicit MINSKY_APP_TYPE=github-app setting. `docs/github-app-bot-setup.md`
+    // already claims this is auto-inferred; this default makes the claim actually true.
+    type: z.literal("github-app").default("github-app"),
     appId: z.number(),
-    privateKeyFile: z.string(),
+    /** Path to the PEM private key file (traditional local-deploy path). */
+    privateKeyFile: z.string().optional(),
+    /** Raw PEM content (env-var path, e.g., from MINSKY_GITHUB_APP_PRIVATE_KEY). */
+    privateKey: z.string().optional(),
     installationId: z.number(),
+  })
+  .refine((data) => !!(data.privateKey || data.privateKeyFile), {
+    message:
+      "GitHub App service account requires either privateKey (env var) or privateKeyFile (file path)",
+    path: ["privateKey"],
   })
   .optional();
 
@@ -161,4 +173,7 @@ export const githubEnvMapping = {
   // GitHub Enterprise
   GITHUB_BASE_URL: "github.baseUrl",
   GITHUB_API_URL: "github.baseUrl",
+
+  // GitHub App private key (env-var / hosted-deploy path)
+  MINSKY_GITHUB_APP_PRIVATE_KEY: "github.serviceAccount.privateKey",
 } as const;

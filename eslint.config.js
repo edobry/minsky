@@ -4,6 +4,7 @@ import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
+import noNonAsciiIdentifiers from "./eslint-rules/no-non-ascii-identifiers.js";
 import noUnderscorePrefixMismatch from "./eslint-rules/no-underscore-prefix-mismatch.js";
 import noExcessiveAsUnknown from "./eslint-rules/no-excessive-as-unknown.js";
 import noUnsafeGitExec from "./eslint-rules/no-unsafe-git-exec.js";
@@ -22,6 +23,7 @@ import noDirectServiceConstruction from "./eslint-rules/no-direct-service-constr
 import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-execute.js";
 import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
+import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 
 export default [
   js.configs.recommended,
@@ -106,6 +108,7 @@ export default [
       prettier: prettierPlugin,
       custom: {
         rules: {
+          "no-non-ascii-identifiers": noNonAsciiIdentifiers,
           "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
           "no-excessive-as-unknown": noExcessiveAsUnknown,
           "no-unsafe-git-exec": noUnsafeGitExec,
@@ -124,6 +127,7 @@ export default [
           "no-validation-error-in-execute": noValidationErrorInExecute,
           "no-domain-singleton": noDomainSingleton,
           "require-injectable": requireInjectable,
+          "no-skipped-tests": noSkippedTests,
         },
       },
     },
@@ -140,6 +144,7 @@ export default [
       "prefer-template": "error", // Prevents string concatenation bugs
 
       // === VARIABLE NAMING RULES ===
+      "custom/no-non-ascii-identifiers": "error", // Prevents non-ASCII characters in identifier names (enforces ensure-ascii-code-symbols rule)
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
       // === TEST PATTERN ENFORCEMENT ===
@@ -266,6 +271,8 @@ export default [
             "**/src/domain/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
+            // Hook entry points (run outside DI container — legitimate bootstrap)
+            "**/src/hooks/*.ts",
             // Adapter-layer composition roots (commands wire up DI providers)
             "**/src/adapters/shared/commands/**/*.ts",
             // CLI command composition roots
@@ -322,6 +329,17 @@ export default [
       "no-restricted-imports": [
         "error",
         {
+          // Ban node:child_process — use Bun.$ or Bun.spawn instead.
+          // Bare "child_process" imports are tracked for future migration (mt#1152).
+          // The node: protocol form is the stricter target because new code should
+          // never reach for child_process at all; Bun's native APIs are preferred.
+          paths: [
+            {
+              name: "node:child_process",
+              message:
+                "Use Bun.$ (shell) or Bun.spawn/Bun.spawnSync instead of node:child_process. See bun_over_node.mdc.",
+            },
+          ],
           patterns: [
             {
               group: [
@@ -475,6 +493,13 @@ export default [
           skipComments: true,
         },
       ],
+    },
+  },
+  // === SKIPPED TEST ENFORCEMENT (test files only) ===
+  {
+    files: ["**/*.test.ts", "**/*.spec.ts"],
+    rules: {
+      "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
     },
   },
 ];

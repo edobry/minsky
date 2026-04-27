@@ -1,43 +1,74 @@
 /**
  * Provenance Commands
  *
- * Commands for managing authorship provenance records, including retroactive
- * tier recomputation using the current judging policy.
+ * Commands for reading the full provenance record for an artifact.
+ * Retroactive tier recomputation has been moved to the `authorship` namespace
+ * (`authorship.recompute`). See `authorship.ts`.
  *
- * @see mt#970 — Retroactive tier recomputation command
+ * `provenance.recompute` is retained as a deprecated compatibility alias that
+ * forwards to `authorship.recompute`. Any existing automation or CLI scripts
+ * calling `provenance.recompute` will continue to work; a console.warn is
+ * emitted on every invocation to prompt migration.
+ *
+ * DI assumption: `context.container?.has("persistence")` at execute time is
+ * effectively a registration-time capture because
+ * `src/adapters/mcp/shared-command-integration.ts (registration site)` always
+ * populates `context.container` from `config.container` when the command is
+ * invoked through the MCP bridge. If the MCP bridge is ever changed to use
+ * per-request containers, all commands in both `provenance.ts` and
+ * `authorship.ts` that check `context.container?.has("persistence")` will
+ * break in the same way.
+ *
+ * @see mt#1085 — provenance.get shared command (MCP exposure)
+ * @see mt#1254 — authorship namespace introduction; recompute moved there
  */
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import type { SharedCommandRegistry, CommandExecutionContext } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import type { AppContainerInterface } from "../../../composition/types";
+import { ARTIFACT_TYPES } from "../../../domain/provenance/types";
+import type { ArtifactType } from "../../../domain/provenance/types";
+
+const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
 
 /**
  * Register all provenance-related shared commands.
+ *
+ * @param _container Optional DI container (unused at registration time; resolved at execute time)
+ * @param registry   Optional registry to register into (defaults to global sharedCommandRegistry).
+ *                   Pass a fresh registry in tests to avoid global state mutation.
  */
-export function registerProvenanceCommands(_container?: AppContainerInterface): void {
-  sharedCommandRegistry.registerCommand({
-    id: "provenance.recompute",
+export function registerProvenanceCommands(
+  _container?: AppContainerInterface,
+  registry?: SharedCommandRegistry
+): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+
+  // ── provenance.get ────────────────────────────────────────────────────────
+  targetRegistry.registerCommand({
+    id: "provenance.get",
     category: CommandCategory.PROVENANCE,
-    name: "recompute",
-    description:
-      "Retroactively recompute authorship tiers for all historical provenance records " +
-      "using the current judging policy.",
+    name: "get",
+    description: "Look up the provenance record for a specific artifact by ID and type.",
     parameters: {
-      dryRun: {
-        schema: z.boolean(),
-        description: "Show what would change without applying updates (default: false)",
-        required: false,
-        defaultValue: false,
+      artifactId: {
+        schema: z.string(),
+        description: "The artifact identifier (e.g. PR number as string, commit SHA)",
+        required: true,
+      },
+      artifactType: {
+        schema: artifactTypeSchema,
+        description: `Type of artifact. One of: ${ARTIFACT_TYPES.join(", ")}`,
+        required: true,
       },
     },
     async execute(params, context) {
-      const { dryRun = false } = params;
+      const { artifactId, artifactType } = params;
 
       try {
-        // Resolve the persistence provider from DI container or fall back to a
-        // fresh PersistenceService (same pattern used by cli.ts).
         const persistenceProvider = (() => {
           if (context.container?.has("persistence")) {
             return context.container.get(
@@ -58,47 +89,64 @@ export function registerProvenanceCommands(_container?: AppContainerInterface): 
         if (!db) {
           throw new Error(
             "getDatabaseConnection() returned null. " +
-              "Provenance recomputation requires a PostgreSQL or SQLite backend with Drizzle ORM."
+              "provenance.get requires a PostgreSQL or SQLite backend with Drizzle ORM."
           );
         }
 
-        // Import domain services
         const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
-        const { TranscriptService } = await import("../../../domain/provenance/transcript-service");
-        const { AuthorshipJudge } = await import("../../../domain/provenance/authorship-judge");
-        const { createCompletionService } = await import("../../../domain/ai/service-factory");
-        const { requireAIProviders } = await import("../../../domain/ai/provider-operations");
-        const { getResolvedConfig } = await import("./ai/shared-helpers");
-        const resolvedConfig = getResolvedConfig();
-
-        // Validate that at least one AI provider is configured.
-        requireAIProviders(resolvedConfig);
-
-        const completionService = createCompletionService(resolvedConfig);
-
         const provenanceService = new ProvenanceService(
           db as import("drizzle-orm/postgres-js").PostgresJsDatabase
         );
-        const transcriptService = new TranscriptService(
-          db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+
+        const record = await provenanceService.getProvenanceForArtifact(
+          artifactId,
+          artifactType as ArtifactType
         );
-        const judge = new AuthorshipJudge(completionService);
 
-        if (dryRun) {
-          log.cli("Running in dry-run mode — no changes will be applied.");
-        }
-
-        const summary = await provenanceService.recomputeAll({
-          dryRun,
-          judge,
-          transcriptService,
-        });
-
-        return summary;
+        return record;
       } catch (error) {
-        log.error("provenance.recompute failed", { error: getErrorMessage(error) });
+        log.error("provenance.get failed", { error: getErrorMessage(error) });
         throw error;
       }
+    },
+  });
+
+  // ── provenance.recompute (deprecated alias) ───────────────────────────────
+  // `authorship.recompute` is the canonical command since mt#1254. This alias
+  // is preserved for backward compatibility with existing automation / CLI
+  // scripts that call `provenance.recompute`. It emits a deprecation warning
+  // on every invocation and delegates to the real handler at execute-time.
+  targetRegistry.registerCommand({
+    id: "provenance.recompute",
+    category: CommandCategory.PROVENANCE,
+    name: "recompute",
+    description:
+      "[DEPRECATED] Use `authorship.recompute` instead. " +
+      "Retroactively recompute authorship tiers for all historical provenance records " +
+      "using the current judging policy.",
+    parameters: {
+      dryRun: {
+        schema: z.boolean(),
+        description: "Show what would change without applying updates (default: false)",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    async execute(params, context: CommandExecutionContext) {
+      log.warn("provenance.recompute is deprecated; use authorship.recompute");
+
+      // Delegate to authorship.recompute at execute-time so the alias works
+      // regardless of registration order. The authorship commands must be
+      // registered before any invocation reaches this handler.
+      const authorshipRecompute = targetRegistry.getCommand("authorship.recompute");
+      if (!authorshipRecompute) {
+        throw new Error(
+          "provenance.recompute alias: authorship.recompute is not registered. " +
+            "Ensure registerAuthorshipCommands() is called before invoking this command."
+        );
+      }
+
+      return authorshipRecompute.execute(params, context);
     },
   });
 

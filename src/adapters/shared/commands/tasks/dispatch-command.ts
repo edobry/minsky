@@ -187,6 +187,15 @@ export function createTasksDispatchCommand(
         scope,
       });
 
+      // TODO(mt#441): When native subagent dispatch ships, set _meta["io.minsky/agent_id"]
+      // on each MCP request the dispatched subagent makes. The value should be:
+      //   `minsky.native-subagent:run:${taskId}@${callerAgentId}`
+      // where callerAgentId is the agentId of the dispatching agent (resolved by the server
+      // from the current request's extras). The subagent prompt or session record should
+      // carry the parent agentId so the subagent knows its parent chain.
+      // See: src/domain/agent-identity/resolve.ts for the resolver,
+      //      src/domain/agent-identity/layer2.ts for the _meta key constant (AGENT_ID_META_KEY).
+
       return {
         success: true,
         taskId,
@@ -196,7 +205,7 @@ export function createTasksDispatchCommand(
         harness,
         prompt: promptResult.prompt,
         suggestedModel: promptResult.suggestedModel,
-        suggestedSubagentType: promptResult.suggestedSubagentType,
+        agentType: promptResult.agentType,
         scopeWarning: promptResult.scopeWarning,
         batches: promptResult.batches,
       };

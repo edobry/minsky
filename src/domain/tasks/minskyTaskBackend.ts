@@ -1,6 +1,5 @@
 import { eq, not, and, like, inArray, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 // Remove configuration import - dependencies should be injected
 import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
 import { first } from "../../utils/array-safety";

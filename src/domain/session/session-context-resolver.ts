@@ -18,7 +18,7 @@ import { execAsync } from "../../utils/exec";
  */
 export interface SessionContextOptions {
   /** Explicit session ID provided by user */
-  session?: string;
+  sessionId?: string;
   /** Explicit task ID provided by user */
   task?: string;
   /** Repository path for context detection */
@@ -68,7 +68,7 @@ export async function resolveSessionContext(
   options: SessionContextOptions
 ): Promise<ResolvedSessionContext> {
   const {
-    session,
+    sessionId,
     task,
     repo,
     cwd = process.cwd(),
@@ -92,7 +92,7 @@ export async function resolveSessionContext(
 
   log.debug("Resolving session context", {
     task,
-    session,
+    sessionId,
     repo,
     sessionProviderType: sessionProvider.constructor.name,
   });
@@ -100,17 +100,17 @@ export async function resolveSessionContext(
   const workingDirectory = repo || cwd;
 
   // Option 1: Explicit session ID provided
-  if (session) {
-    log.debug("Using explicit session ID", { session });
+  if (sessionId) {
+    log.debug("Using explicit session ID", { sessionId });
 
     // Validate session exists
-    const sessionRecord = await sessionProvider.getSession(session);
+    const sessionRecord = await sessionProvider.getSession(sessionId);
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${session}' not found`, "session", session);
+      throw new ResourceNotFoundError(`Session '${sessionId}' not found`, "session", sessionId);
     }
 
     return {
-      sessionId: session,
+      sessionId,
       taskId: sessionRecord.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,

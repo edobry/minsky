@@ -23,27 +23,34 @@ import type {
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 
+/**
+ * Structural subset of fs/promises used by RuleService.
+ * Declared structurally (rather than Pick<typeof fsPromises, ...>) so that
+ * in-memory test fakes like createMockFs() assign without casts.
+ */
+export interface RuleServiceFs {
+  readdir(path: string): Promise<string[]>;
+  access(path: string): Promise<void>;
+  readFile(path: string, encoding: BufferEncoding): Promise<string>;
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<string | undefined>;
+  writeFile(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
+}
+
 @injectable()
 export class RuleService {
   private workspacePath: string;
-  private fs: Pick<
-    typeof nodeFsPromises,
-    "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
-  >;
+  private fs: RuleServiceFs;
   private existsSyncFn: (path: string) => boolean;
 
   constructor(
     workspacePath: string,
     deps?: {
-      fsPromises?: Pick<
-        typeof nodeFsPromises,
-        "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
-      >;
+      fsPromises?: RuleServiceFs;
       existsSyncFn?: (path: string) => boolean;
     }
   ) {
     this.workspacePath = workspacePath;
-    this.fs = deps?.fsPromises || nodeFsPromises;
+    this.fs = deps?.fsPromises || (nodeFsPromises as RuleServiceFs);
     this.existsSyncFn = deps?.existsSyncFn || nodeExistsSync;
     // Log workspace path on initialization for debugging
     log.debug("RuleService initialized", { workspacePath });
@@ -61,12 +68,68 @@ export class RuleService {
 
   /**
    * List all rules in the workspace
+   *
+   * When scanning multiple format directories (default: minsky, cursor, generic),
+   * rules are deduplicated by ID. The format order defines priority:
+   * `.minsky/rules/` wins over `.cursor/rules/` which wins over `.ai/rules/`.
+   * This prevents compile-target artifacts (e.g. `.cursor/rules/`) from doubling
+   * up alwaysApply rules that are already sourced from `.minsky/rules/`.
    */
   async listRules(options: RuleOptions = {}): Promise<Rule[]> {
+    // When scanning a single specific format, return all rules for that format (no dedup needed).
+    if (options.format) {
+      const rules: Rule[] = [];
+      const dirPath = this.getRuleDirPath(options.format);
+
+      if (options.debug) {
+        log.debug("Listing rules", { directory: dirPath, format: options.format });
+      }
+
+      try {
+        const files = await this.fs.readdir(dirPath);
+
+        for (const file of files) {
+          if (!file.endsWith(".mdc")) continue;
+
+          try {
+            const rule = await this.getRule(file.replace(/\.mdc$/, ""), {
+              format: options.format,
+              debug: options.debug,
+            });
+
+            // Filter by tag if specified
+            if (options.tag && (!rule.tags || !rule.tags.includes(options.tag))) {
+              continue;
+            }
+
+            if (rule) rules.push(rule);
+          } catch (error) {
+            log.error("Error processing rule file", {
+              file,
+              originalError: getErrorMessage(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            });
+          }
+        }
+      } catch (error) {
+        // Directory might not exist, which is fine
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          log.error("Error reading rules directory", {
+            format: options.format,
+            originalError: getErrorMessage(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+        }
+      }
+
+      return rules;
+    }
+
+    // Multi-format scan: collect rules in priority order (minsky > cursor > generic),
+    // deduplicating by ID so compile-target artifacts don't produce duplicate emissions.
+    const formats: RuleFormat[] = ["minsky", "cursor", "generic"];
+    const seenIds = new Set<string>();
     const rules: Rule[] = [];
-    const formats: RuleFormat[] = options.format
-      ? [options.format]
-      : ["minsky", "cursor", "generic"];
 
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);
@@ -81,8 +144,21 @@ export class RuleService {
         for (const file of files) {
           if (!file.endsWith(".mdc")) continue;
 
+          const ruleId = file.replace(/\.mdc$/, "");
+
+          // Skip if a higher-priority format already provided this rule ID
+          if (seenIds.has(ruleId)) {
+            if (options.debug) {
+              log.debug("Skipping duplicate rule ID (lower-priority format)", {
+                ruleId,
+                format,
+              });
+            }
+            continue;
+          }
+
           try {
-            const rule = await this.getRule(file.replace(/\.mdc$/, ""), {
+            const rule = await this.getRule(ruleId, {
               format,
               debug: options.debug,
             });
@@ -92,7 +168,8 @@ export class RuleService {
               continue;
             }
 
-            if (rule) rules.push(rule);
+            seenIds.add(ruleId);
+            rules.push(rule);
           } catch (error) {
             log.error("Error processing rule file", {
               file,
@@ -331,7 +408,7 @@ export class RuleService {
     meta: RuleMeta,
     options: CreateRuleOptions = {}
   ): Promise<Rule> {
-    const format = options.format || "cursor";
+    const format = options.format || "minsky";
     const dirPath = this.getRuleDirPath(format);
     const filePath = join(dirPath, `${id}.mdc`);
 

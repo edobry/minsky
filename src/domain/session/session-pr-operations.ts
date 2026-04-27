@@ -123,7 +123,7 @@ export async function sessionPrImpl(
   }
 
   // STEP 3: Determine session ID from explicit parameter or directory (CLI only)
-  let sessionId = params.session;
+  let sessionId = params.sessionId ?? params.session;
 
   // For CLI interface, try to extract session ID from directory if not explicitly provided
   if (!sessionId && interfaceType === "cli") {
@@ -239,25 +239,30 @@ Please provide a title for your pull request:
   try {
     // Use enhanced update with conflict detection options — pass deps through
     // so updateSessionImpl doesn't try to create its own sessionProvider.
-    await updateSessionImpl(
-      {
-        name: sessionId,
-        repo: params.repo,
-        json: false,
-        force: false,
-        noStash: false,
-        noPush: false,
-        dryRun: false,
-        skipConflictCheck: params.skipConflictCheck,
-        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-        skipIfAlreadyMerged: true, // Automatically skip if changes already merged
-      } as import("../schemas").SessionUpdateParameters,
-      {
-        sessionDB: deps.sessionDB,
-        gitService: deps.gitService,
-        getCurrentSession: async () => undefined,
-      }
-    );
+    //
+    // mt#1281: must be `sessionId`, not `name` — the receiving schema
+    // (`SessionUpdateParameters`) defines the field as `sessionId`. The prior
+    // `name:` form was silently dropped by the type cast, leaving the
+    // resolver inside `updateSessionImpl` to throw "Session ID is required"
+    // on every PR create.
+    const updateParams: import("../schemas").SessionUpdateParameters = {
+      sessionId,
+      repo: params.repo,
+      branch: undefined,
+      remote: undefined,
+      force: false,
+      noStash: false,
+      noPush: false,
+      dryRun: false,
+      skipConflictCheck: params.skipConflictCheck ?? false,
+      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts ?? false,
+      skipIfAlreadyMerged: true, // Automatically skip if changes already merged
+    };
+    await updateSessionImpl(updateParams, {
+      sessionDB: deps.sessionDB,
+      gitService: deps.gitService,
+      getCurrentSession: async () => undefined,
+    });
     log.cli("✅ Session updated successfully");
   } catch (error) {
     const errorMessage = getErrorMessage(error);

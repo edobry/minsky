@@ -84,6 +84,8 @@ function makeFakeService(existing: MemoryRecord[] = []): MemoryServiceSurface & 
       old: makeRecord({ id: _oldId }),
       replacement: makeRecord({ ...newInput }),
     }),
+
+    lineage: async (_id: string) => ({ chain: [], truncated: false }),
   } satisfies MemoryServiceSurface & { created: MemoryCreateInput[] };
 }
 

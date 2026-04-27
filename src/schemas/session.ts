@@ -35,6 +35,30 @@ export const _sessionRecordSchema = z.object({
  */
 export const sessionListParamsSchema = commonCommandOptionsSchema.extend({
   task: taskIdSchema.optional().describe("Filter sessions by task ID"),
+  since: z
+    .string()
+    .optional()
+    .describe(
+      "Only include sessions created on/after this time (YYYY-MM-DD or relative like 7d/24h/30m)"
+    ),
+  until: z
+    .string()
+    .optional()
+    .describe(
+      "Only include sessions created on/before this time (YYYY-MM-DD or relative like 7d/24h/30m)"
+    ),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Maximum number of sessions to return (default: 20)"),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe("Number of sessions to skip for pagination (default: 0)"),
 });
 
 /**
@@ -47,11 +71,11 @@ export type SessionListParams = z.infer<typeof sessionListParamsSchema>;
  */
 export const sessionGetParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session to retrieve"),
+    sessionId: sessionIdSchema.optional().describe("Session ID to retrieve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
   .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => data.name !== undefined || data.task !== undefined, {
+  .refine((data) => data.sessionId !== undefined || data.task !== undefined, {
     message: "Either session ID or task ID must be provided",
   });
 
@@ -65,7 +89,7 @@ export type SessionGetParams = z.infer<typeof sessionGetParamsSchema>;
  */
 export const sessionStartParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name for the new session"),
+    sessionId: sessionIdSchema.optional().describe("Session ID for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
     description: z.string().min(1).optional().describe("Description for auto-created task"),
@@ -93,8 +117,8 @@ export const sessionStartParamsSchema = z
       if (!data.task && !data.description) {
         return false;
       }
-      // Either name or task or description must be provided
-      return data.name || data.task || data.description;
+      // Either sessionId or task or description must be provided
+      return data.sessionId || data.task || data.description;
     },
     {
       message: "Task association is required. Please provide --task <id> or --description <text>",
@@ -111,12 +135,12 @@ export type SessionStartParams = z.infer<typeof sessionStartParamsSchema>;
  */
 export const sessionDeleteParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session to delete"),
+    sessionId: sessionIdSchema.optional().describe("Session ID to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
   .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => data.name !== undefined || data.task !== undefined, {
+  .refine((data) => data.sessionId !== undefined || data.task !== undefined, {
     message: "Either session ID or task ID must be provided",
   });
 
@@ -130,11 +154,11 @@ export type SessionDeleteParams = z.infer<typeof sessionDeleteParamsSchema>;
  */
 export const sessionDirParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session"),
+    sessionId: sessionIdSchema.optional().describe("Session ID"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
   .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => data.name !== undefined || data.task !== undefined, {
+  .refine((data) => data.sessionId !== undefined || data.task !== undefined, {
     message: "Either session ID or task ID must be provided",
   });
 
@@ -148,7 +172,7 @@ export type SessionDirParams = z.infer<typeof sessionDirParamsSchema>;
  */
 export const sessionUpdateParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session to update"),
+    sessionId: sessionIdSchema.optional().describe("Session ID to update"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
     remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
@@ -163,7 +187,7 @@ export const sessionUpdateParamsSchema = z
     skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
   })
   .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => data.name !== undefined || data.task !== undefined, {
+  .refine((data) => data.sessionId !== undefined || data.task !== undefined, {
     message: "Either session ID or task ID must be provided",
   });
 
@@ -177,7 +201,7 @@ export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
  */
 export const sessionApproveParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session to approve"),
+    sessionId: sessionIdSchema.optional().describe("Session ID to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
     noStash: z
@@ -187,9 +211,12 @@ export const sessionApproveParamsSchema = z
       .describe("Skip automatic stashing of uncommitted changes"),
   })
   .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
-    message: "Either session ID, task ID, or repo path must be provided",
-  });
+  .refine(
+    (data) => data.sessionId !== undefined || data.task !== undefined || data.repo !== undefined,
+    {
+      message: "Either session ID, task ID, or repo path must be provided",
+    }
+  );
 
 /**
  * Type for session approve parameters
@@ -201,7 +228,7 @@ export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
  */
 export const sessionPrParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session"),
+    sessionId: sessionIdSchema.optional().describe("Session ID"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
     body: z.string().optional().describe("PR body text"),
@@ -235,7 +262,7 @@ export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
  */
 export const sessionReviewParamsSchema = z
   .object({
-    name: sessionIdSchema.optional().describe("Name of the session to review"),
+    sessionId: sessionIdSchema.optional().describe("Session ID to review"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),

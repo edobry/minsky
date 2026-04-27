@@ -21,13 +21,13 @@ describe("suggest-rules service integration", () => {
     // Create sample rules that match the real data structure
     sampleRules = [
       {
-        id: "test-driven-bugfix",
-        name: "Test-Driven Bug Fixing",
-        description: "Use this when fixing a bug or error of any kind",
-        content: "Test-driven development workflow for bug fixes...",
+        id: "designing-tests",
+        name: "Designing Tests",
+        description: "Use this when fixing a bug or writing tests of any kind",
+        content: "Test design workflow for bug fixes and new features...",
         tags: ["testing", "bugfix", "workflow"],
         format: "cursor" as const,
-        path: "/rules/test-driven-bugfix.mdc",
+        path: "/rules/designing-tests.mdc",
       },
       {
         id: RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES,
@@ -78,10 +78,10 @@ describe("suggest-rules service integration", () => {
           return {
             suggestions: [
               {
-                ruleId: "test-driven-bugfix",
+                ruleId: "designing-tests",
                 relevanceScore: 0.9,
                 reasoning:
-                  "The query mentions fixing a bug, which directly matches the test-driven-bugfix rule purpose.",
+                  "The query mentions fixing a bug, which directly matches the designing-tests rule purpose.",
                 confidenceLevel: "high",
               },
             ],
@@ -138,7 +138,7 @@ describe("suggest-rules service integration", () => {
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
     const firstSuggestion = first(response.suggestions);
-    expect(firstSuggestion.ruleId).toBe("test-driven-bugfix");
+    expect(firstSuggestion.ruleId).toBe("designing-tests");
     expect(firstSuggestion.relevanceScore).toBe(0.9);
     expect(firstSuggestion.confidenceLevel).toBe("high");
     expect(response.queryAnalysis.intent).toContain("bug");
@@ -199,7 +199,7 @@ describe("suggest-rules service integration", () => {
       generateObject: mock(async () => ({
         suggestions: [
           {
-            ruleId: "test-driven-bugfix",
+            ruleId: "designing-tests",
             relevanceScore: 0.9,
             reasoning: "High relevance",
             confidenceLevel: "high",

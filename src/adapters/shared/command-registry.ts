@@ -43,7 +43,9 @@ export enum CommandCategory {
   MCP = "MCP",
   KNOWLEDGE = "KNOWLEDGE",
   PROVENANCE = "PROVENANCE",
+  AUTHORSHIP = "AUTHORSHIP",
   MEMORY = "MEMORY",
+  COMPILE = "COMPILE",
 }
 
 /**
@@ -340,6 +342,20 @@ export class SharedCommandRegistry implements CommandRegistry {
   clear(): void {
     this.commands.clear();
   }
+
+  /**
+   * Remove a single command from the registry.
+   *
+   * Intended primarily for test teardown so test-only commands do not
+   * persist in the global registry across tests. Returns true if a command
+   * was removed; false if the id was not registered.
+   *
+   * @internal Test-only; deliberately omitted from the CommandRegistry
+   * interface so it does not form part of the supported public API.
+   */
+  unregisterCommand(id: string): boolean {
+    return this.commands.delete(id);
+  }
 }
 
 /**
@@ -359,7 +375,8 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
 export const _sharedCommandRegistry = createSharedCommandRegistry();
 
 /**
- * Default command registry instance (non-underscore version)
- * Used by files that follow variable-naming-protocol
+ * Default command registry instance (non-underscore version).
+ * The underscore-prefixed _sharedCommandRegistry is the internal instance;
+ * this export provides the public name for callers.
  */
 export const sharedCommandRegistry = _sharedCommandRegistry;

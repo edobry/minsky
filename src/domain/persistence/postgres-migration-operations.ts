@@ -7,6 +7,57 @@
 
 import { log } from "../../utils/logger";
 
+/** Shape of a single journal entry from _journal.json */
+export interface JournalEntry {
+  idx: number;
+  version: string;
+  when: number;
+  tag: string;
+  breakpoints: boolean;
+}
+
+/** Shape of the full _journal.json file */
+export interface Journal {
+  version: string;
+  dialect: string;
+  entries: JournalEntry[];
+}
+
+/**
+ * Validate that journal entry timestamps are monotonically increasing.
+ * Drizzle-orm uses these as created_at in __drizzle_migrations and processes
+ * migrations by timestamp order. Out-of-order timestamps cause silent skips.
+ */
+export function validateJournalTimestamps(journal: Journal): void {
+  let prev: JournalEntry | undefined;
+  for (const curr of journal.entries) {
+    if (prev && curr.when <= prev.when) {
+      throw new Error(
+        `Migration journal timestamps out of order: ` +
+          `${prev.tag} (idx=${prev.idx}, when=${prev.when}) >= ` +
+          `${curr.tag} (idx=${curr.idx}, when=${curr.when}). ` +
+          `Fix the 'when' values in _journal.json to be monotonically increasing.`
+      );
+    }
+    prev = curr;
+  }
+}
+
+/**
+ * Assert that the DB migration count matches the journal entry count.
+ * A mismatch means drizzle silently skipped one or more migrations.
+ */
+export function assertMigrationCountMatch(dbCount: number, journalCount: number): void {
+  if (dbCount !== journalCount) {
+    const skipped = journalCount - dbCount;
+    throw new Error(
+      `Migration count mismatch: DB has ${dbCount} applied migrations but journal has ${journalCount} entries. ` +
+        `${skipped} migration(s) may have been silently skipped by drizzle's high-water-mark behavior. ` +
+        `Check that _journal.json timestamps are monotonically increasing.`
+    );
+  }
+}
+
 /** Typed result shape for dry-run migration plan */
 export interface PostgresMigrationPlan {
   success: boolean;
@@ -54,7 +105,15 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   maskedConn: string;
 }> {
   const migrationsFolder = "./src/domain/storage/migrations/pg";
-  const { readdirSync } = await import("fs");
+  const { readdirSync, readFileSync } = await import("fs");
+  const { join } = await import("path");
+
+  // Validate journal timestamps before doing anything else
+  const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
+    encoding: "utf8",
+  }) as string;
+  const journal: Journal = JSON.parse(journalRaw);
+  validateJournalTimestamps(journal);
 
   const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
 
@@ -217,8 +276,8 @@ export async function runPostgresSchemaMigrations(
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
-  const { readdirSync } = await import("fs");
-  const { basename } = await import("path");
+  const { readdirSync, readFileSync } = await import("fs");
+  const { basename: _basename, join } = await import("path");
 
   const sql = postgres(connectionString, {
     prepare: false,
@@ -238,6 +297,14 @@ export async function runPostgresSchemaMigrations(
     })();
 
     const migrationsFolder = "./src/domain/storage/migrations/pg";
+
+    // Read and validate journal timestamps before executing
+    const journalRawExec = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
+      encoding: "utf8",
+    }) as string;
+    const journal: Journal = JSON.parse(journalRawExec);
+    validateJournalTimestamps(journal);
+
     const files = (() => {
       try {
         return readdirSync(migrationsFolder)
@@ -268,13 +335,15 @@ export async function runPostgresSchemaMigrations(
       `;
       metaExists = Boolean(meta?.[0]?.exists);
       if (metaExists) {
-        const rows = await sql<{ count: string; hash: string | null; created_at: string | null }[]>`
-          SELECT COUNT(*)::text as count,
-                 MAX(hash) as hash,
-                 MAX(created_at)::text as created_at
-          FROM "drizzle"."__drizzle_migrations";
+        const cnt = await sql<{ count: string }[]>`
+          SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
         `;
-        appliedCount = parseInt(rows?.[0]?.count || "0", 10);
+        appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+        const rows = await sql<{ hash: string | null; created_at: string | null }[]>`
+          SELECT hash, created_at::text
+          FROM "drizzle"."__drizzle_migrations"
+          ORDER BY created_at DESC LIMIT 1;
+        `;
         latestHash = rows?.[0]?.hash || undefined;
         latestAt = rows?.[0]?.created_at || undefined;
       }
@@ -314,29 +383,23 @@ export async function runPostgresSchemaMigrations(
 
     const start = Date.now();
     if (files.length > 0) {
-      const pending = Math.max(files.length - appliedCount, 0);
-      if (pending > 0) {
+      const pendingEntries = journal.entries.slice(appliedCount);
+      if (pendingEntries.length > 0) {
         log.cli("Running migrations (in order):");
-        files.slice(appliedCount).forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+        pendingEntries.forEach((e, i) => log.cli(`  ${i + 1}. ${e.tag}.sql`));
         log.cli("");
       }
     }
     await migrate(db, { migrationsFolder });
     {
       const ms = Date.now() - start;
-      // Re-check applied count
-      try {
-        const cnt2 = await sql<{ count: string; last: string | null }[]>`
-          SELECT COUNT(*)::text as count, MAX(hash) as last
-          FROM "drizzle"."__drizzle_migrations";
-        `;
-        const applied2 = parseInt(cnt2?.[0]?.count || "0", 10);
-        const last = cnt2?.[0]?.last || "";
-        log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
-        if (last) log.cli(`Latest applied: ${last}`);
-      } catch {
-        log.cli(`Applied migrations in ${ms}ms`);
-      }
+      // Post-flight: verify that DB count matches journal entries (catches silent skips)
+      const cnt2 = await sql<{ count: string }[]>`
+        SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+      `;
+      const applied2 = parseInt(cnt2?.[0]?.count || "0", 10);
+      assertMigrationCountMatch(applied2, journal.entries.length);
+      log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
     }
   } finally {
     await sql.end();

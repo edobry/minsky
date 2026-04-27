@@ -31,7 +31,7 @@ import {
   type AuthorshipJudgment,
   type AuthorshipJudge,
 } from "./authorship-judge";
-import type { TranscriptService } from "./transcript-service";
+import type { AgentTranscriptService } from "./transcript-service";
 import { log } from "../../utils/logger";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
@@ -201,7 +201,7 @@ export class ProvenanceService {
   async recomputeAll(options: {
     dryRun: boolean;
     judge: AuthorshipJudge;
-    transcriptService: TranscriptService;
+    transcriptService: AgentTranscriptService;
   }): Promise<RecomputeSummary> {
     const { dryRun, judge, transcriptService } = options;
 
@@ -233,7 +233,10 @@ export class ProvenanceService {
       }
 
       const record = toProvenanceRecord(row);
-      const sessionId = record.sessionId!; // safe: query filters isNotNull
+      // Query filters isNotNull(sessionId) so this should never be null at runtime,
+      // but the TS return type still includes null. Guard for safety.
+      if (!record.sessionId) continue;
+      const sessionId = record.sessionId;
 
       try {
         const transcript = await transcriptService.getTranscript(sessionId);
@@ -260,13 +263,13 @@ export class ProvenanceService {
           summary.tierChanged++;
         }
 
-        if (dryRun) {
-          summary.changes!.push({
+        if (dryRun && summary.changes) {
+          summary.changes.push({
             artifactId: record.artifactId,
             oldTier: oldTier,
             newTier: judgment.tier,
           });
-        } else {
+        } else if (!dryRun) {
           await this.updateWithJudgment(record.artifactId, record.artifactType, judgment);
         }
       } catch (error) {

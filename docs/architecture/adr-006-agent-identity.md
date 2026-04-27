@@ -1,6 +1,6 @@
 # ADR-006: Agent identity scheme for MCP callers
 
-**Status:** Proposed — April 2026
+**Status:** Accepted — April 2026
 **Context task:** mt#953
 **Companion:** [Position: Agent identity is an authority question](https://www.notion.so/34a937f03cb48143bfbedd8710972daf)
 
@@ -112,9 +112,9 @@ Fallback when Layers 3 and 2 don't produce a value. Construct an ID from `client
 | Codex CLI                                     | `com.openai.codex:proc:<host-hash>/<pid>` (ascribed; no instance signal today)                |
 | Cursor                                        | `com.cursor.cursor:proc:<host-hash>/<pid>` (ascribed until Cursor-specific enforcement added) |
 | Zed                                           | `app.zed.zed:proc:<host-hash>/<pid>` (ascribed)                                               |
-| GitHub Copilot coding agent                   | `github-app:copilot-swe-agent:install:<id>` (git/GitHub channel, not MCP)                     |
-| Linear agent, other GitHub App-based agents   | `github-app:<slug>:install:<id>`                                                              |
-| Minsky native subagent                        | `minsky.native-subagent:task:<task-id>@<parent-agentId>`                                      |
+| GitHub Copilot coding agent                   | `github-app:copilot-swe-agent:inst:<id>` (git/GitHub channel, not MCP)                        |
+| Linear agent, other GitHub App-based agents   | `github-app:<slug>:inst:<id>`                                                                 |
+| Minsky native subagent                        | `minsky.native-subagent:run:<task-id>@<parent-agentId>`                                       |
 | No recognized signal                          | `unknown:hash:<sha256(host,user,pid,start)>`                                                  |
 
 ### Privacy

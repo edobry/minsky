@@ -52,7 +52,7 @@ describe("sessionReviewImpl", () => {
     };
 
     // Test the sessionReview functionality
-    const result = await sessionReviewImpl({ session: "testSession" }, deps as any);
+    const result = await sessionReviewImpl({ sessionId: "testSession" }, deps as any);
 
     // Verify calls with individual spies
     expect(getSessionSpy).toHaveBeenCalledWith("testSession");
@@ -184,7 +184,7 @@ describe("sessionReviewImpl", () => {
 
     // Test with non-existent session
     try {
-      await sessionReviewImpl({ session: "non-existent-session" }, deps as any);
+      await sessionReviewImpl({ sessionId: "non-existent-session" }, deps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {

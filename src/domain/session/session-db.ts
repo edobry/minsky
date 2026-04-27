@@ -165,7 +165,10 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
 }
 
 /**
- * Update an existing session
+ * Update an existing session.
+ *
+ * Merge contract: `{ ...existing, ...updates }`. Fields with `undefined` values clear the
+ * column. Nested objects (e.g. `prState`, `pullRequest`) replace wholesale (shallow, not deep).
  */
 export function updateSessionFn(
   state: SessionDbState,

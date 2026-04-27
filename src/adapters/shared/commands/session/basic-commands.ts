@@ -23,32 +23,36 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("../../../../domain/session/session-service");
+      const { parseTime } = await import("../../../../utils/result-handling/filters");
       const deps = await getDeps();
       const service = new SessionService(deps);
+
+      const verbose = params.verbose as boolean | undefined;
+
+      // Parse since/until into ISO strings so the storage layer can apply the
+      // window directly (otherwise pagination + post-filter would silently
+      // drop matches that fell outside the first page).
+      const sinceTs = parseTime(params.since as string | undefined);
+      const untilTs = parseTime(params.until as string | undefined);
 
       let sessions = await service.list({
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
         task: params.task as string | undefined,
+        limit: params.limit as number | undefined,
+        offset: params.offset as number | undefined,
+        since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
+        until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
       });
 
-      try {
-        const {
-          parseTime,
-          filterByTimeRange,
-        } = require("../../../../utils/result-handling/filters");
-        const sinceTs = parseTime(params.since as string | undefined);
-        const untilTs = parseTime(params.until as string | undefined);
-        sessions = filterByTimeRange(
-          sessions.map((s) => ({ ...s, updatedAt: s.createdAt })),
-          sinceTs,
-          untilTs
-        );
-      } catch {
-        // ignore
+      // Lean-output by default — strip the heavy nested PR payload that drives
+      // most of the per-row response size. Callers who want full records pass
+      // --verbose.
+      if (!verbose) {
+        sessions = sessions.map(({ pullRequest: _pr, prState: _ps, ...rest }) => rest);
       }
 
-      return { success: true, sessions, verbose: params.verbose };
+      return { success: true, sessions, verbose };
     }),
   };
 }
@@ -66,14 +70,14 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
       const service = new SessionService(deps);
 
       const session = await service.get({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
       });
 
       if (!session) {
-        const identifier = params.name || params.task || "unknown";
+        const identifier = params.sessionId || params.task || "unknown";
         throw new Error(`Session '${identifier}' not found`);
       }
 
@@ -116,12 +120,11 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
       const service = new SessionService(deps);
 
       const session = await service.start({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         description: params.description as string | undefined,
         branch: params.branch as string | undefined,
         repo: params.repo as string | undefined,
-        session: params.session as string | undefined,
         json: (params.json as boolean | undefined) ?? false,
         quiet: (params.quiet as boolean | undefined) ?? false,
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
@@ -152,7 +155,7 @@ export function createSessionDirCommand(getDeps: LazySessionDeps): CommandDefini
       const service = new SessionService(deps);
 
       const directory = await service.getDir({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
         json: params.json as boolean | undefined,
@@ -227,7 +230,7 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
       const service = new SessionService(deps);
 
       const workdir = await service.getDir({
-        name: params.name as string | undefined,
+        sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
       });

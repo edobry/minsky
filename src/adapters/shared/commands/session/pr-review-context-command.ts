@@ -19,11 +19,6 @@ export const sessionPrReviewContextCommandParams = {
     description: "Session ID (positional)",
     required: false,
   },
-  name: {
-    schema: z.string(),
-    description: "Session name",
-    required: false,
-  },
   task: {
     schema: z.string(),
     description: "Task ID to resolve session from",
@@ -54,7 +49,6 @@ export function createSessionPrReviewContextCommand(getDeps: LazySessionDeps): C
           const result = await sessionPrReviewContext(
             {
               sessionId: params.sessionId as string | undefined,
-              name: params.name as string | undefined,
               task: params.task as string | undefined,
               repo: params.repo as string | undefined,
             },

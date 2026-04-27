@@ -44,7 +44,14 @@ import {
   diagnoseMergeBlocker,
 } from "./github-pr-approval";
 import { submitReview as submitReviewImpl } from "./github-pr-review";
+import {
+  dismissReview as dismissReviewImpl,
+  type DismissReviewOptions,
+  type DismissReviewResult,
+} from "./github-pr-review";
+import { listReviews as listReviewsImpl } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
+import type { ReviewListEntry } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 
 const HTTP_NOT_FOUND = 404;
@@ -573,6 +580,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       owner: this.owner,
       repo: this.repo,
       getToken: () => this.tokenProvider.getServiceToken(),
+      getUserToken: () => this.tokenProvider.getUserToken(),
     };
   }
 
@@ -707,6 +715,20 @@ Repository: https://github.com/${this.owner}/${this.repo}
       ): Promise<SubmitReviewResult> => {
         const gh = this.requireGitHubContext();
         return submitReviewImpl(gh, prIdentifier, options);
+      },
+
+      dismissReview: async (
+        prIdentifier: string | number,
+        reviewId: number,
+        options: DismissReviewOptions
+      ): Promise<DismissReviewResult> => {
+        const gh = this.requireGitHubContext();
+        return dismissReviewImpl(gh, prIdentifier, reviewId, options);
+      },
+
+      listReviews: async (prIdentifier: string | number): Promise<ReviewListEntry[]> => {
+        const gh = this.requireGitHubContext();
+        return listReviewsImpl(gh, prIdentifier);
       },
     };
   }

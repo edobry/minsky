@@ -27,7 +27,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|mcp__minsky__session_exec",
         "hooks": [
           {
             "type": "command",
@@ -45,6 +45,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-github-mcp-pr-writes.ts",
             "timeout": 5,
             "statusMessage": "Checking GitHub MCP PR-write ban..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-session-for-main-workspace-edits.ts",
+            "timeout": 5,
+            "statusMessage": "Checking main-workspace edit guard..."
           }
         ]
       }

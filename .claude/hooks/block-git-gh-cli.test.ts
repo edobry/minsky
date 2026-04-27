@@ -7,7 +7,207 @@ import {
   parseSegment,
   splitOnShellOperators,
   stripEnvVarAssignments,
+  toolContextFromName,
+  findGhApiMethod,
+  findGhApiEndpoint,
+  findGhApiField,
+  findGhApiPrMergeEndpointToken,
+  stripSurroundingQuotes,
+  SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
+
+/** Minsky MCP tool names referenced in denial reasons — hoisted to avoid magic-string duplication in tests. */
+const SESSION_COMMIT_TOOL = "mcp__minsky__session_commit";
+
+// ---------------------------------------------------------------------------
+// toolContextFromName
+// ---------------------------------------------------------------------------
+
+describe("toolContextFromName", () => {
+  it("maps session_exec tool name to 'session_exec' context", () => {
+    expect(toolContextFromName(SESSION_EXEC_TOOL_NAME)).toBe("session_exec");
+  });
+
+  it("maps Bash to 'bash' context", () => {
+    expect(toolContextFromName("Bash")).toBe("bash");
+  });
+
+  it("maps any other tool name to 'bash' context (default)", () => {
+    expect(toolContextFromName("Edit")).toBe("bash");
+    expect(toolContextFromName("")).toBe("bash");
+    expect(toolContextFromName("mcp__minsky__session_commit")).toBe("bash");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDenial — session_exec context (carve-outs preserved)
+// ---------------------------------------------------------------------------
+
+describe("checkDenial — session_exec context", () => {
+  const deniedViaSessionExec = (subcommand: string, extraArgs: string[] = []) =>
+    checkDenial({ binary: "git", args: [subcommand, ...extraArgs] }, "session_exec");
+
+  // The four rules that are self-referential on session_exec — MUST be allowed
+  // when invoked via session_exec (otherwise the rule's reason contradicts itself).
+  it("allows `git status` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("status")).toBeNull();
+  });
+
+  it("allows `git stash` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("stash")).toBeNull();
+  });
+
+  it("allows `git reset` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("reset")).toBeNull();
+    expect(deniedViaSessionExec("reset", ["--hard", "HEAD"])).toBeNull();
+  });
+
+  it("denies `git -C <path> status` via session_exec (prevents bypass)", () => {
+    // Regression guard for the mt#1196 minsky-reviewer finding: -C was
+    // originally carved out as `allowedInSessionExec: true`. That let
+    // `git -C /anywhere commit|push|merge|...` slip through because the -C
+    // rule fired first (args[0] === "-C"), got skipped as a carve-out, and
+    // no subsequent rule matched (they all check args[0] for a subcommand).
+    // Denying -C unconditionally closes the bypass.
+    expect(
+      checkDenial({ binary: "git", args: ["-C", "/some/path", "status"] }, "session_exec")
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> commit` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "commit", "-m", "x"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> push` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial({ binary: "git", args: ["-C", "/some/path", "push"] }, "session_exec")
+    ).not.toBeNull();
+  });
+
+  it("denies `git -C <path> merge` via session_exec (bypass attempt)", () => {
+    expect(
+      checkDenial(
+        { binary: "git", args: ["-C", "/some/path", "merge", "origin/main"] },
+        "session_exec"
+      )
+    ).not.toBeNull();
+  });
+
+  // All other git denials still fire via session_exec — these are the loophole
+  // cases from the PR #717 incident retrospective (mt#1196).
+  it("denies `git log` via session_exec (use git_log MCP tool)", () => {
+    const reason = deniedViaSessionExec("log");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__git_log");
+  });
+
+  it("denies `git diff` via session_exec (use git_diff/session_diff MCP tools)", () => {
+    const reason = deniedViaSessionExec("diff");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__git_diff");
+  });
+
+  it("denies `git commit` via session_exec (use session_commit)", () => {
+    const reason = deniedViaSessionExec("commit");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain(SESSION_COMMIT_TOOL);
+  });
+
+  it("denies `git add` via session_exec (use session_commit all:true)", () => {
+    expect(deniedViaSessionExec("add")).not.toBeNull();
+  });
+
+  it("denies `git push` via session_exec", () => {
+    expect(deniedViaSessionExec("push")).not.toBeNull();
+  });
+
+  it("denies `git merge` via session_exec (use session_pr_merge)", () => {
+    const reason = deniedViaSessionExec("merge");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("mcp__minsky__session_pr_merge");
+  });
+
+  it("denies `git rebase` via session_exec (use session_update)", () => {
+    expect(deniedViaSessionExec("rebase")).not.toBeNull();
+  });
+
+  it("denies `git checkout` via session_exec", () => {
+    expect(deniedViaSessionExec("checkout")).not.toBeNull();
+  });
+
+  it("denies `git fetch` via session_exec (handled by session_update)", () => {
+    expect(deniedViaSessionExec("fetch")).not.toBeNull();
+  });
+
+  it("denies `git clone` via session_exec (use session_start)", () => {
+    expect(deniedViaSessionExec("clone")).not.toBeNull();
+  });
+
+  it("denies `git blame` via session_exec (use git_blame)", () => {
+    expect(deniedViaSessionExec("blame")).not.toBeNull();
+  });
+
+  it("denies `git branch` via session_exec", () => {
+    expect(deniedViaSessionExec("branch")).not.toBeNull();
+  });
+
+  it("denies `git pull` via session_exec", () => {
+    expect(deniedViaSessionExec("pull")).not.toBeNull();
+  });
+
+  it("allows `git show` via session_exec (not in denial table; real MCP gap)", () => {
+    expect(deniedViaSessionExec("show")).toBeNull();
+  });
+
+  it("allows `git cherry-pick` via session_exec (not in denial table)", () => {
+    expect(deniedViaSessionExec("cherry-pick")).toBeNull();
+  });
+
+  // All gh denials fire the same way on both contexts (no carve-outs).
+  it("denies `gh pr create` via session_exec", () => {
+    const reason = checkDenial({ binary: "gh", args: ["pr", "create"] }, "session_exec");
+    expect(reason).not.toBeNull();
+  });
+
+  it("denies `gh pr review` via session_exec", () => {
+    const reason = checkDenial({ binary: "gh", args: ["pr", "review"] }, "session_exec");
+    expect(reason).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDenial — bash context regression (default behavior unchanged)
+// ---------------------------------------------------------------------------
+
+describe("checkDenial — bash context (regression: no change from prior behavior)", () => {
+  const deniedViaBash = (subcommand: string) =>
+    checkDenial({ binary: "git", args: [subcommand] }, "bash");
+
+  it("still denies `git status` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("status")).not.toBeNull();
+  });
+
+  it("still denies `git stash` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("stash")).not.toBeNull();
+  });
+
+  it("still denies `git reset` on Bash (existing behavior)", () => {
+    expect(deniedViaBash("reset")).not.toBeNull();
+  });
+
+  it("still denies `git -C <path>` on Bash (existing behavior)", () => {
+    expect(checkDenial({ binary: "git", args: ["-C", "/some/path"] }, "bash")).not.toBeNull();
+  });
+
+  it("default context (no arg) behaves as bash — denies `git status`", () => {
+    expect(checkDenial({ binary: "git", args: ["status"] })).not.toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // stripEnvVarAssignments
@@ -254,7 +454,7 @@ describe("checkDenial — git", () => {
 
   it("denial reason for git add references session_commit", () => {
     const reason = denied("add");
-    expect(reason).toContain("mcp__minsky__session_commit");
+    expect(reason).toContain(SESSION_COMMIT_TOOL);
   });
 
   it("denial reason for git -C references session_exec", () => {
@@ -393,6 +593,50 @@ describe("full command denial integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Integration: session_exec command string → denial
+// ---------------------------------------------------------------------------
+
+describe("full command denial integration — session_exec context", () => {
+  const firstSessionExecDenial = (cmd: string) => {
+    const parsed = parseCommands(cmd);
+    for (const p of parsed) {
+      const r = checkDenial(p, "session_exec");
+      if (r) return r;
+    }
+    return null;
+  };
+
+  it("denies `git log --oneline` via session_exec", () => {
+    expect(firstSessionExecDenial("git log --oneline")).not.toBeNull();
+  });
+
+  it("denies `git merge origin/main` via session_exec", () => {
+    expect(firstSessionExecDenial("git merge origin/main --no-edit")).not.toBeNull();
+  });
+
+  it("denies chained `git fetch && git log` via session_exec", () => {
+    expect(firstSessionExecDenial("git fetch origin main && git log --oneline")).not.toBeNull();
+  });
+
+  it("allows `git status` via session_exec", () => {
+    expect(firstSessionExecDenial("git status")).toBeNull();
+  });
+
+  it("allows `git stash pop` via session_exec", () => {
+    expect(firstSessionExecDenial("git stash pop")).toBeNull();
+  });
+
+  it("allows `git show origin/main:path/to/file` via session_exec (real MCP gap)", () => {
+    expect(firstSessionExecDenial("git show origin/main:path/to/file")).toBeNull();
+  });
+
+  it("allows arbitrary non-git commands via session_exec", () => {
+    expect(firstSessionExecDenial("bun test --preload ./tests/setup.ts")).toBeNull();
+    expect(firstSessionExecDenial("ls -la")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Known limitations — document expected-but-imperfect behavior
 // ---------------------------------------------------------------------------
 
@@ -403,7 +647,7 @@ describe("known limitations: shell quoting is not honored", () => {
     // This is the happy path even though parsing is technically broken.
     const cmd = `git commit -m "feat: pipe | this"`;
     const parsed = parseCommands(cmd);
-    const firstDenied = parsed.map(checkDenial).find((r) => r !== null);
+    const firstDenied = parsed.map((p) => checkDenial(p)).find((r) => r !== null);
     expect(firstDenied).not.toBeNull();
   });
 
@@ -425,7 +669,7 @@ describe("known limitations: shell quoting is not honored", () => {
     // The splitter sees `echo "hi ` and `git cherry-pick abc"` — the latter parses
     // as git cherry-pick, which is in the allowed list.
     expect(parsed.length).toBeGreaterThanOrEqual(1);
-    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    const anyDenied = parsed.map((p) => checkDenial(p)).some((r) => r !== null);
     expect(anyDenied).toBe(false); // Known-permissive: nothing denied
   });
 
@@ -435,7 +679,7 @@ describe("known limitations: shell quoting is not honored", () => {
     const cmd = `TAG=$(git log -1 --format=%s)`;
     const parsed = parseCommands(cmd);
     // Depending on the splitter, the outer command may not parse as git at all.
-    const anyDenied = parsed.map(checkDenial).some((r) => r !== null);
+    const anyDenied = parsed.map((p) => checkDenial(p)).some((r) => r !== null);
     // Current behavior: subshell content is not blocked. Known limitation.
     expect(anyDenied).toBe(false);
   });
@@ -456,5 +700,316 @@ describe("denial table sanity", () => {
     for (const rule of ghDenials) {
       expect(rule.reason.length).toBeGreaterThan(0);
     }
+  });
+
+  it("every gitDenial with `allowedInSessionExec: true` has a reason that references session_exec", () => {
+    // Sanity check: if a rule carves out session_exec, its reason message
+    // should actually guide the agent to use session_exec. Otherwise the
+    // carve-out is incoherent.
+    for (const rule of gitDenials) {
+      if (rule.allowedInSessionExec) {
+        expect(rule.reason).toContain("session_exec");
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gh api merge-method enforcement (mt#1228)
+// ---------------------------------------------------------------------------
+
+/** Test literals for the merge-method values; hoisted to avoid magic-string-duplication lint warnings. */
+const MERGE_METHOD_MERGE = "merge_method=merge";
+const MERGE_METHOD_SQUASH = "merge_method=squash";
+const MERGE_METHOD_REBASE = "merge_method=rebase";
+/** Quoted form of merge_method=merge (double-quote stripping coverage). */
+const MERGE_METHOD_MERGE_QUOTED = `"${MERGE_METHOD_MERGE}"`;
+/** Canonical PR-merge endpoints used in the new enforcement tests. */
+const ENDPOINT_PR1_MERGE = "repos/o/r/pulls/1/merge";
+const ENDPOINT_PR42_MERGE = "repos/o/r/pulls/42/merge";
+
+describe("findGhApiMethod", () => {
+  it("defaults to GET when no method flag present", () => {
+    expect(findGhApiMethod(["api", "repos/o/r"])).toBe("GET");
+  });
+
+  it("returns PUT for -X PUT", () => {
+    expect(findGhApiMethod(["api", "-X", "PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("returns PUT for --method PUT (long-form)", () => {
+    expect(findGhApiMethod(["api", "--method", "PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("returns POST for -X POST", () => {
+    expect(findGhApiMethod(["api", "-X", "POST", "repos/o/r/issues"])).toBe("POST");
+  });
+});
+
+describe("findGhApiEndpoint", () => {
+  it("extracts the first positional after flag/value pairs", () => {
+    expect(
+      findGhApiEndpoint(["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", MERGE_METHOD_MERGE])
+    ).toBe(ENDPOINT_PR42_MERGE);
+  });
+
+  it("extracts the positional when it precedes flags", () => {
+    expect(findGhApiEndpoint(["api", "repos/o/r", "-q", ".name"])).toBe("repos/o/r");
+  });
+
+  it("returns null when no positional is present", () => {
+    expect(findGhApiEndpoint(["api", "-X", "GET"])).toBeNull();
+  });
+});
+
+describe("findGhApiField", () => {
+  it("extracts a -f KEY=VALUE value", () => {
+    expect(
+      findGhApiField(["api", "-X", "PUT", "endpoint", "-f", MERGE_METHOD_MERGE], "merge_method")
+    ).toBe("merge");
+  });
+
+  it("returns null when the key is absent", () => {
+    expect(findGhApiField(["api", "-X", "PUT", "endpoint"], "merge_method")).toBeNull();
+  });
+
+  it("does not match on partial prefix", () => {
+    // `merge_methodology` should not match `merge_method` (the prefix check uses "=").
+    expect(findGhApiField(["api", "-f", "merge_methodology=squash"], "merge_method")).toBeNull();
+  });
+});
+
+describe("checkDenial — gh api PR-merge endpoint (mt#1228)", () => {
+  const ghApi = (argString: string) =>
+    checkDenial({ binary: "gh", args: argString.split(/\s+/).filter(Boolean) });
+
+  it("blocks PUT /pulls/N/merge with merge_method=squash", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`)).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge with merge_method=rebase", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_REBASE}`)).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge with no merge_method (ambiguous intent)", () => {
+    expect(ghApi("api -X PUT repos/o/r/pulls/42/merge")).not.toBeNull();
+  });
+
+  it("blocks PUT /pulls/N/merge via --method long-form with merge_method=squash", () => {
+    expect(
+      ghApi(`api --method PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`)
+    ).not.toBeNull();
+  });
+
+  it("allows PUT /pulls/N/merge with merge_method=merge", () => {
+    expect(ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_MERGE}`)).toBeNull();
+  });
+
+  it("allows PUT /pulls/N/reviews/REVIEW_ID/dismissals (different endpoint)", () => {
+    expect(ghApi("api -X PUT repos/o/r/pulls/42/reviews/123/dismissals -f message=why")).toBeNull();
+  });
+
+  it("allows GET /pulls/N/merge (not a merge operation)", () => {
+    expect(ghApi("api -X GET repos/o/r/pulls/42/merge")).toBeNull();
+  });
+
+  it("allows generic `gh api repos/o/r` (default GET, no body)", () => {
+    expect(ghApi("api repos/o/r")).toBeNull();
+  });
+
+  it("denial reason mentions merge_method=merge and links to policy docs", () => {
+    const reason = ghApi(`api -X PUT repos/o/r/pulls/42/merge -f ${MERGE_METHOD_SQUASH}`);
+    expect(reason).toContain(MERGE_METHOD_MERGE);
+    expect(reason).toMatch(/pr-workflow|gh_api_bypass/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quote/case/alternate-form hardening (PR #761 round-1 review)
+// ---------------------------------------------------------------------------
+
+describe("stripSurroundingQuotes", () => {
+  it("removes matching double quotes from merge_method=merge", () => {
+    expect(stripSurroundingQuotes(MERGE_METHOD_MERGE_QUOTED)).toBe(MERGE_METHOD_MERGE);
+  });
+
+  it("removes matching single quotes", () => {
+    expect(stripSurroundingQuotes("'repos/o/r'")).toBe("repos/o/r");
+  });
+
+  it("leaves unquoted tokens unchanged", () => {
+    expect(stripSurroundingQuotes(MERGE_METHOD_MERGE)).toBe(MERGE_METHOD_MERGE);
+  });
+
+  it("leaves mismatched quotes alone", () => {
+    // "foo' is not a matched pair; don't touch it
+    expect(stripSurroundingQuotes("\"foo'")).toBe("\"foo'");
+  });
+
+  it("leaves single-character tokens alone", () => {
+    expect(stripSurroundingQuotes('"')).toBe('"');
+    expect(stripSurroundingQuotes("'")).toBe("'");
+    expect(stripSurroundingQuotes("")).toBe("");
+  });
+});
+
+describe("findGhApiMethod — additional forms and casing", () => {
+  it("uppercases lowercase -X values (avoids bypass via -X put)", () => {
+    expect(findGhApiMethod(["api", "-X", "put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("uppercases --method values (avoids bypass via --method put)", () => {
+    expect(findGhApiMethod(["api", "--method", "put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses equals form --method=PUT", () => {
+    expect(findGhApiMethod(["api", "--method=PUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("uppercases equals form --method=put", () => {
+    expect(findGhApiMethod(["api", "--method=put", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses combined short form -XPUT", () => {
+    expect(findGhApiMethod(["api", "-XPUT", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+
+  it("parses combined short form with lowercase -Xput", () => {
+    expect(findGhApiMethod(["api", "-Xput", ENDPOINT_PR1_MERGE])).toBe("PUT");
+  });
+});
+
+describe("findGhApiField — quoted values", () => {
+  it("strips double quotes around the whole KEY=VALUE token", () => {
+    expect(findGhApiField(["api", "-f", MERGE_METHOD_MERGE_QUOTED], "merge_method")).toBe("merge");
+  });
+
+  it("strips single quotes around the whole KEY=VALUE token", () => {
+    expect(findGhApiField(["api", "-f", "'merge_method=merge'"], "merge_method")).toBe("merge");
+  });
+});
+
+describe("findGhApiPrMergeEndpointToken", () => {
+  it("finds the endpoint at any position in args", () => {
+    expect(
+      findGhApiPrMergeEndpointToken([
+        "api",
+        "-X",
+        "PUT",
+        "-f",
+        "commit_title=X",
+        ENDPOINT_PR42_MERGE,
+        "-f",
+        MERGE_METHOD_SQUASH,
+      ])
+    ).toBe(ENDPOINT_PR42_MERGE);
+  });
+
+  it("finds a quoted endpoint", () => {
+    // Pass the endpoint with surrounding double quotes as a single token —
+    // template literal construction matches how the upstream tokenizer would
+    // deliver a token like `"repos/o/r/pulls/42/merge"` with quotes intact.
+    expect(findGhApiPrMergeEndpointToken(["api", "-X", "PUT", `"${ENDPOINT_PR42_MERGE}"`])).toBe(
+      ENDPOINT_PR42_MERGE
+    );
+  });
+
+  it("returns null when no token matches", () => {
+    expect(
+      findGhApiPrMergeEndpointToken(["api", "-X", "PUT", "repos/o/r/pulls/42/merges"])
+    ).toBeNull();
+  });
+
+  it("does not match /merges or /merge-upstream", () => {
+    expect(
+      findGhApiPrMergeEndpointToken(["api", "-X", "PUT", "repos/o/r/pulls/42/merge-upstream"])
+    ).toBeNull();
+  });
+
+  it('finds endpoint after a quote-split -f commit_title="My PR Title" (bypass regression guard)', () => {
+    // Upstream tokenizer is not quote-aware, so `-f commit_title="My PR Title"`
+    // arrives as multiple tokens. The old positional-based extractor returned
+    // a fragment of the title; the all-tokens scan finds the real endpoint.
+    expect(
+      findGhApiPrMergeEndpointToken([
+        "api",
+        "-X",
+        "PUT",
+        "-f",
+        'commit_title="My',
+        "PR",
+        'Title"',
+        ENDPOINT_PR42_MERGE,
+        "-f",
+        MERGE_METHOD_SQUASH,
+      ])
+    ).toBe(ENDPOINT_PR42_MERGE);
+  });
+});
+
+describe("checkDenial — gh api PR-merge hardening (PR #761 round 1)", () => {
+  const ghApi = (argString: string) =>
+    checkDenial({ binary: "gh", args: argString.split(/\s+/).filter(Boolean) });
+
+  it("blocks lowercase -X put (case-insensitivity regression guard)", () => {
+    expect(ghApi("api -X put repos/o/r/pulls/42/merge -f merge_method=squash")).not.toBeNull();
+  });
+
+  it("blocks --method=PUT equals form with squash", () => {
+    expect(
+      ghApi("api --method=PUT repos/o/r/pulls/42/merge -f merge_method=squash")
+    ).not.toBeNull();
+  });
+
+  it("blocks -XPUT combined short form with squash", () => {
+    expect(ghApi("api -XPUT repos/o/r/pulls/42/merge -f merge_method=squash")).not.toBeNull();
+  });
+
+  it("blocks quoted endpoint (regression guard for quote-stripping)", () => {
+    // The tokenizer splits on whitespace only, so a quoted endpoint token
+    // arrives with the quote characters still attached. Template literal
+    // reconstructs the quoted form.
+    const args = ["api", "-X", "PUT", `"${ENDPOINT_PR42_MERGE}"`, "-f", MERGE_METHOD_SQUASH];
+    expect(checkDenial({ binary: "gh", args })).not.toBeNull();
+  });
+
+  it('blocks endpoint after a quote-split -f commit_title="My PR Title" (bypass regression guard)', () => {
+    // Before the mt#1228 round-1 review fix, positional-based extraction
+    // pulled \"PR\" out of the split title as the \"endpoint\", missed the
+    // regex, and let a squash-merge through.
+    const args = [
+      "api",
+      "-X",
+      "PUT",
+      "-f",
+      'commit_title="My',
+      "PR",
+      'Title"',
+      ENDPOINT_PR42_MERGE,
+      "-f",
+      MERGE_METHOD_SQUASH,
+    ];
+    expect(checkDenial({ binary: "gh", args })).not.toBeNull();
+  });
+
+  it('allows quoted -f "merge_method=merge" (over-block regression guard)', () => {
+    // Before quote-stripping in findGhApiField, a valid quoted
+    // -f \"merge_method=merge\" was treated as absent and over-blocked.
+    const args = ["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", MERGE_METHOD_MERGE_QUOTED];
+    expect(checkDenial({ binary: "gh", args })).toBeNull();
+  });
+
+  it("allows single-quoted -f 'merge_method=merge'", () => {
+    const args = ["api", "-X", "PUT", ENDPOINT_PR42_MERGE, "-f", "'merge_method=merge'"];
+    expect(checkDenial({ binary: "gh", args })).toBeNull();
+  });
+
+  it("denial reason does not reference out-of-repo memory paths", () => {
+    // Per PR #761 review non-blocking: keep denial reasons pointing at
+    // in-repo docs (docs/pr-workflow.md) rather than memory files that
+    // live outside the repo.
+    const reason = ghApi("api -X PUT repos/o/r/pulls/42/merge -f merge_method=squash");
+    expect(reason).not.toContain("feedback_gh_api_bypass.md");
+    expect(reason).toContain("pr-workflow.md");
   });
 });

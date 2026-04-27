@@ -1,0 +1,8 @@
+---
+name: Memory Usage
+description: Instructs the agent to use memory_search for on-demand context retrieval instead of relying on always-loaded memory files.
+alwaysApply: true
+tags:
+  - memory
+---
+Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.

@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   generateSubagentPrompt,
   PROMPT_WATERMARK,
+  ENVELOPE_HEADER,
   type GeneratePromptParams,
 } from "../../../src/domain/session/prompt-generation";
 
@@ -73,7 +74,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for implementation", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "implementation" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -90,9 +91,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain(MCP_SESSION_PR_CREATE);
     });
 
-    it("suggests refactor subagent type", () => {
+    it("suggests refactorer agentType", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "refactor" });
-      expect(result.suggestedSubagentType).toBe("refactor");
+      expect(result.agentType).toBe("refactorer");
     });
 
     it("suggests sonnet as the model for refactor", () => {
@@ -129,7 +130,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for review", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "review" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -152,7 +153,7 @@ describe("generateSubagentPrompt", () => {
 
     it("does not suggest a subagent type for cleanup", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "cleanup" });
-      expect(result.suggestedSubagentType).toBeUndefined();
+      expect(result.agentType).toBeUndefined();
     });
   });
 
@@ -175,9 +176,9 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain("**Not applicable**");
     });
 
-    it("suggests verify-completion subagent type", () => {
+    it("suggests auditor agentType", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
-      expect(result.suggestedSubagentType).toBe("verify-completion");
+      expect(result.agentType).toBe("auditor");
     });
 
     it("suggests sonnet as the model for audit", () => {
@@ -373,6 +374,131 @@ describe("generateSubagentPrompt", () => {
     it("includes watermark in audit prompts", () => {
       const result = generateSubagentPrompt({ ...baseParams, type: "audit" });
       expect(result.prompt).toContain(PROMPT_WATERMARK);
+    });
+  });
+
+  describe("operating envelope", () => {
+    const MUTATING_TYPES = ["implementation", "refactor", "cleanup"] as const;
+    const READ_ONLY_TYPES = ["review", "audit"] as const;
+    const ALL_TYPES = [...MUTATING_TYPES, ...READ_ONLY_TYPES] as const;
+
+    const EXPECTED_HANDOFF_PATH = `.minsky/sessions/${baseParams.sessionId}/handoff.md`;
+
+    describe("default (envelope included)", () => {
+      for (const type of ALL_TYPES) {
+        it(`includes the envelope header for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain(ENVELOPE_HEADER);
+        });
+
+        it(`includes budget-awareness framing for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain("**Budget awareness.**");
+          expect(result.prompt).toContain("24 and 65 tool uses");
+        });
+
+        it(`includes graceful-exit section for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain("**Graceful exit.**");
+        });
+
+        it(`includes the literal handoff path for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain(EXPECTED_HANDOFF_PATH);
+        });
+
+        it(`includes the four handoff-note fields for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain("**Done:**");
+          expect(result.prompt).toContain("**In progress:**");
+          expect(result.prompt).toContain("**Remaining:**");
+          expect(result.prompt).toContain("**Known issues:**");
+        });
+
+        it(`includes the handoff-path convention section for ${type}`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain("**Handoff path convention.**");
+        });
+      }
+
+      for (const type of MUTATING_TYPES) {
+        it(`includes checkpoint cadence for ${type} (mutating)`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).toContain("**Checkpoint cadence.**");
+          expect(result.prompt).toContain("wip(mt#456)");
+        });
+      }
+
+      for (const type of READ_ONLY_TYPES) {
+        it(`omits checkpoint cadence for ${type} (read-only)`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).not.toContain("**Checkpoint cadence.**");
+        });
+
+        it(`omits wip(mt#...) instruction for ${type} (read-only)`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          expect(result.prompt).not.toContain("wip(mt#456)");
+        });
+      }
+    });
+
+    describe("omitOperatingEnvelope: true", () => {
+      for (const type of ALL_TYPES) {
+        it(`suppresses the envelope for ${type}`, () => {
+          const result = generateSubagentPrompt({
+            ...baseParams,
+            type,
+            omitOperatingEnvelope: true,
+          });
+          expect(result.prompt).not.toContain(ENVELOPE_HEADER);
+          expect(result.prompt).not.toContain("**Budget awareness.**");
+          expect(result.prompt).not.toContain("**Graceful exit.**");
+          expect(result.prompt).not.toContain(EXPECTED_HANDOFF_PATH);
+        });
+      }
+    });
+
+    describe("rendered length", () => {
+      function extractEnvelope(prompt: string): string {
+        const start = prompt.indexOf(ENVELOPE_HEADER);
+        expect(start).toBeGreaterThan(-1);
+        // Envelope ends at the next `## ` heading or end of string
+        const afterHeader = prompt.indexOf("\n## ", start + ENVELOPE_HEADER.length);
+        return afterHeader === -1 ? prompt.slice(start) : prompt.slice(start, afterHeader);
+      }
+
+      for (const type of ALL_TYPES) {
+        it(`rendered envelope for ${type} is ≤60 lines`, () => {
+          const result = generateSubagentPrompt({ ...baseParams, type });
+          const envelope = extractEnvelope(result.prompt);
+          const lineCount = envelope.split("\n").length;
+          expect(lineCount).toBeLessThanOrEqual(60);
+        });
+      }
+    });
+
+    describe("batched mode", () => {
+      it("includes envelope in every batch by default", () => {
+        const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
+        const result = generateSubagentPrompt({ ...baseParams, scope });
+        expect(result.batches).toBeDefined();
+        for (const batch of result.batches ?? []) {
+          expect(batch.prompt).toContain(ENVELOPE_HEADER);
+        }
+      });
+
+      it("suppresses envelope in every batch when omitOperatingEnvelope: true", () => {
+        const scope = Array.from({ length: 41 }, (_, i) => `src/file${i}.ts`);
+        const result = generateSubagentPrompt({
+          ...baseParams,
+          scope,
+          omitOperatingEnvelope: true,
+        });
+        expect(result.batches).toBeDefined();
+        for (const batch of result.batches ?? []) {
+          expect(batch.prompt).not.toContain(ENVELOPE_HEADER);
+        }
+      });
     });
   });
 });

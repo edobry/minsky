@@ -45,7 +45,6 @@ export interface SessionPrGetDependencies {
 export async function sessionPrGet(
   params: {
     sessionId?: string;
-    name?: string;
     task?: string;
     repo?: string;
     json?: boolean;
@@ -80,7 +79,7 @@ export async function sessionPrGet(
   try {
     // Resolve session context using existing resolver
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: params.sessionId || params.name,
+      sessionId: params.sessionId,
       task: params.task,
       repo: params.repo,
       sessionProvider: sessionDB,
@@ -168,11 +167,7 @@ export async function sessionPrGet(
           };
 
           // Update session record with discovered PR data (normalized to PullRequestInfo shape)
-          const updatedSession = {
-            ...sessionRecord,
-            pullRequest: repairedPrData,
-          };
-          await sessionDB.updateSession(resolvedContext.sessionId, updatedSession);
+          await sessionDB.updateSession(resolvedContext.sessionId, { pullRequest: repairedPrData });
 
           log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
           finalPullRequest = repairedPrData;
@@ -228,10 +223,7 @@ export async function sessionPrGet(
             // REMOVED: title, body, updatedAt - fetched live from GitHub API
           };
 
-          await sessionDB.updateSession(resolvedContext.sessionId, {
-            ...sessionRecord,
-            pullRequest: enriched,
-          });
+          await sessionDB.updateSession(resolvedContext.sessionId, { pullRequest: enriched });
 
           finalPullRequest = enriched;
         }

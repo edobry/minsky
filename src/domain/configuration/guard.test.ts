@@ -2,8 +2,14 @@
  * Tests for the project setup guard.
  */
 
-import { describe, it, expect } from "bun:test";
-import { checkProjectSetup, guardProjectSetup, EXEMPT_COMMANDS } from "./guard";
+import { describe, it, expect, afterEach } from "bun:test";
+import {
+  checkProjectSetup,
+  guardProjectSetup,
+  EXEMPT_COMMANDS,
+  setHostedMode,
+  isHostedMode,
+} from "./guard";
 import { ValidationError } from "../../errors/index";
 
 const FAKE_REPO = "/fake/repo";
@@ -91,5 +97,33 @@ describe("EXEMPT_COMMANDS", () => {
     expect(EXEMPT_COMMANDS.has("init")).toBe(true);
     expect(EXEMPT_COMMANDS.has("setup")).toBe(true);
     expect(EXEMPT_COMMANDS.has("mcp.register")).toBe(true);
+  });
+});
+
+describe("hosted mode", () => {
+  const missingDeps = { existsSync: makeExistsSync(new Set()) };
+
+  afterEach(() => {
+    // Reset so module state does not leak into other tests.
+    setHostedMode(false);
+  });
+
+  it("setHostedMode toggles the flag", () => {
+    expect(isHostedMode()).toBe(false);
+    setHostedMode(true);
+    expect(isHostedMode()).toBe(true);
+    setHostedMode(false);
+    expect(isHostedMode()).toBe(false);
+  });
+
+  it("guardProjectSetup is a no-op for non-exempt commands when hosted mode is on", () => {
+    setHostedMode(true);
+    expect(() => guardProjectSetup("tasks.list", FAKE_REPO, missingDeps)).not.toThrow();
+    expect(() => guardProjectSetup("tasks.spec.get", FAKE_REPO, missingDeps)).not.toThrow();
+  });
+
+  it("guardProjectSetup still throws when hosted mode is off (preserved stdio behavior)", () => {
+    // Default state — no setHostedMode(true) call.
+    expect(() => guardProjectSetup("tasks.list", FAKE_REPO, missingDeps)).toThrow(ValidationError);
   });
 });

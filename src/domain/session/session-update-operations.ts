@@ -30,7 +30,7 @@ export async function updateSessionImpl(
   deps: UpdateSessionDependencies
 ): Promise<Session> {
   const {
-    name,
+    sessionId: sessionIdParam,
     branch,
     remote,
     noStash,
@@ -48,20 +48,20 @@ export async function updateSessionImpl(
   let sessionId: string;
   try {
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      sessionId: sessionIdParam,
       task: params.task,
       repo: params.repo,
       sessionProvider: deps.sessionDB,
-      allowAutoDetection: !name, // Only allow auto-detection if no name provided
+      allowAutoDetection: !sessionIdParam, // Only allow auto-detection if no identity provided
       getCurrentSessionFn: deps.getCurrentSession,
     });
     sessionId = resolvedContext.sessionId;
     log.debug("Session resolved", { sessionId, resolvedBy: resolvedContext.resolvedBy });
   } catch (error) {
-    log.debug("Failed to resolve session", { error, name, task: params.task });
+    log.debug("Failed to resolve session", { error, sessionId: sessionIdParam, task: params.task });
     if (error instanceof ValidationError) {
       throw new ValidationError(
-        "Session ID is required. Either provide a session ID (--name), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
       );
     }
     throw error;

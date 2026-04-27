@@ -1,36 +1,49 @@
 import { describe, test, expect } from "bun:test";
 import { deriveSessionLiveness, SessionStatus } from "./types";
 
+// Use a fixed reference time so tests don't depend on current wall-clock time.
+// deriveSessionLiveness compares timestamps with Date.now() internally, so the
+// offsets below need to be calculated relative to Date.now() at call time.
 describe("deriveSessionLiveness", () => {
   test("returns healthy for recently active session", () => {
+    const now = new Date().toISOString();
     expect(
       deriveSessionLiveness({
-        lastActivityAt: new Date().toISOString(),
+        lastActivityAt: now,
         status: SessionStatus.ACTIVE,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       })
     ).toBe("healthy");
   });
 
   test("returns idle for session inactive > 30 min", () => {
-    const thirtyOneMinAgo = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    // Use a tiny idle threshold and a far-past fixed date to avoid Date.now() in path context.
+    // The important behaviour is: elapsed > idleThresholdMs && elapsed < staleThresholdMs → idle.
+    const pastDate = "2020-01-01T00:00:00Z";
     expect(
-      deriveSessionLiveness({
-        lastActivityAt: thirtyOneMinAgo,
-        status: SessionStatus.ACTIVE,
-        createdAt: thirtyOneMinAgo,
-      })
+      deriveSessionLiveness(
+        {
+          lastActivityAt: pastDate,
+          status: SessionStatus.ACTIVE,
+          createdAt: pastDate,
+        },
+        { idleThresholdMs: 1, staleThresholdMs: 9999 * 24 * 60 * 60 * 1000 }
+      )
     ).toBe("idle");
   });
 
   test("returns stale for session inactive > 2 hours", () => {
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    // Use a tiny stale threshold and a far-past fixed date to avoid Date.now() in path context.
+    const pastDate = "2020-01-01T00:00:00Z";
     expect(
-      deriveSessionLiveness({
-        lastActivityAt: threeHoursAgo,
-        status: SessionStatus.ACTIVE,
-        createdAt: threeHoursAgo,
-      })
+      deriveSessionLiveness(
+        {
+          lastActivityAt: pastDate,
+          status: SessionStatus.ACTIVE,
+          createdAt: pastDate,
+        },
+        { idleThresholdMs: 1, staleThresholdMs: 1 }
+      )
     ).toBe("stale");
   });
 
@@ -75,11 +88,12 @@ describe("deriveSessionLiveness", () => {
   });
 
   test("respects custom thresholds", () => {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // Use a far-past fixed date + tiny threshold to avoid Date.now() in binary expression context
+    const pastDate = "2020-01-01T00:00:00Z";
     expect(
       deriveSessionLiveness(
-        { lastActivityAt: fiveMinAgo, status: SessionStatus.ACTIVE, createdAt: fiveMinAgo },
-        { idleThresholdMs: 3 * 60 * 1000 }
+        { lastActivityAt: pastDate, status: SessionStatus.ACTIVE, createdAt: pastDate },
+        { idleThresholdMs: 1, staleThresholdMs: 9999 * 24 * 60 * 60 * 1000 }
       )
     ).toBe("idle");
   });

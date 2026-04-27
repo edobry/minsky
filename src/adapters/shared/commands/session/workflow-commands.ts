@@ -16,6 +16,8 @@ import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
+/** Minimal container interface required by buildSessionMergeDeps. */
+type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
 // Re-export PR subcommand factories so consumers can import the full set
 // from workflow-commands.
@@ -25,8 +27,10 @@ export { createSessionPrListCommand } from "./pr-list-command";
 export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";
 export { createSessionPrChecksCommand } from "./pr-checks-command";
+export { createSessionPrWaitForReviewCommand } from "./pr-wait-for-review-command";
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
+export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
 
 export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
@@ -88,7 +92,7 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
         const service = new SessionService(deps);
 
         const result = await service.approve({
-          session: params.name as string | undefined,
+          session: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -239,7 +243,8 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       const reviewResult = await sessionReviewImpl(
         {
-          session: (params.session as string | undefined) || (params.name as string | undefined),
+          sessionId:
+            (params.sessionId as string | undefined) || (params.session as string | undefined),
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -335,7 +340,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
         const service = new SessionService(deps);
 
         const result = await service.approve({
-          session: params.name as string | undefined,
+          session: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -356,7 +361,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
  */
 export function buildSessionMergeDeps(
   deps: Awaited<ReturnType<LazySessionDeps>>,
-  container: { has(key: string): boolean; get(key: string): unknown } | undefined
+  container: MergeDepContainer | undefined
 ): SessionMergeDependencies {
   return {
     sessionDB: deps.sessionProvider,
@@ -387,13 +392,13 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
         const result = await mergeSessionPr(
           {
-            session: params.name as string | undefined,
+            session: params.sessionId as string | undefined,
             task: params.task as string | undefined,
             repo: params.repo as string | undefined,
             json: params.json as boolean | undefined,
             cleanupSession: shouldCleanup,
           },
-          buildSessionMergeDeps(deps, context.container as any)
+          buildSessionMergeDeps(deps, context.container)
         );
 
         return { success: true, result, printed: true };

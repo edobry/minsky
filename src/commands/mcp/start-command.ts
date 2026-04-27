@@ -27,11 +27,28 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
+import { buildAndStartScheduler } from "./scheduler-wiring";
+import { setHostedMode } from "../../domain/configuration/guard";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
 const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
+
+/**
+ * Check a bearer-token authorization header against the expected token.
+ *
+ * Returns true only when the header is present in the form `Bearer <token>`
+ * (case-insensitive on the scheme) AND the presented token matches exactly.
+ *
+ * Exported for tests. Callers with auth disabled should not invoke this.
+ */
+export function checkBearerAuth(header: string | undefined, expectedToken: string): boolean {
+  if (!header || !expectedToken) return false;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const presented = match?.[1]?.trim();
+  return !!presented && presented === expectedToken;
+}
 
 /**
  * Register all MCP tool adapters on the given command mapper.
@@ -124,17 +141,42 @@ async function startHttpServer(
     port: string;
     host: string;
     endpoint: string;
+    requireAuth?: boolean;
   },
   projectContext?: ReturnType<typeof createProjectContext>
 ): Promise<void> {
   const app = express();
   app.use(express.json());
 
+  // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
+  // --require-auth was passed. /health remains public for Railway probes.
+  // When --require-auth is explicit but no token configured, refuse startup
+  // — silent no-auth with --require-auth would be the worst possible outcome.
+  const rawToken = process.env.MINSKY_MCP_AUTH_TOKEN?.trim();
+  const token = rawToken && rawToken.length > 0 ? rawToken : undefined;
+  if (options.requireAuth && !token) {
+    log.cliError(
+      "--require-auth passed but MINSKY_MCP_AUTH_TOKEN env var is not set. " +
+        "Set the token or omit --require-auth. Refusing to start in an undefined auth state."
+    );
+    exit(1);
+  }
+  type AuthState = { enabled: false } | { enabled: true; token: string };
+  const auth: AuthState = token ? { enabled: true, token } : { enabled: false };
+  if (auth.enabled) {
+    log.cli(`HTTP MCP auth: bearer-token required (token length=${auth.token.length})`);
+  } else {
+    log.warn(
+      "HTTP MCP starting WITHOUT authentication. Set MINSKY_MCP_AUTH_TOKEN to enable. " +
+        "This is only safe on localhost or in a private network."
+    );
+  }
+
   // Set up CORS for development
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.header("Access-Control-Allow-Headers", "Authorization, Content-Type, mcp-session-id");
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
     } else {
@@ -142,8 +184,18 @@ async function startHttpServer(
     }
   });
 
-  // Set up MCP endpoint
+  // Set up MCP endpoint (auth-gated when enabled)
   app.all(options.endpoint, async (req, res) => {
+    if (auth.enabled) {
+      const header = req.header("authorization") ?? req.header("Authorization");
+      if (!checkBearerAuth(header, auth.token)) {
+        res.status(401).json({
+          error: "unauthorized",
+          message: "valid bearer token required",
+        });
+        return;
+      }
+    }
     try {
       await server.handleHttpRequest(req, res);
     } catch (error) {
@@ -159,13 +211,13 @@ async function startHttpServer(
     }
   });
 
-  // Health check endpoint
-  app.get("/health", (req, res) => {
+  // Health check endpoint — always public, minimal body (safe to expose).
+  // Railway and other uptime probes hit this; don't leak internal state.
+  app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
       server: "Minsky MCP Server",
       transport: "http",
-      endpoint: options.endpoint,
       timestamp: new Date().toISOString(),
     });
   });
@@ -214,6 +266,10 @@ export function createStartCommand(
       `HTTP endpoint path (default: ${DEFAULT_HTTP_ENDPOINT})`,
       DEFAULT_HTTP_ENDPOINT
     )
+    .option(
+      "--require-auth",
+      "Require bearer-token auth on the HTTP MCP endpoint (token from MINSKY_MCP_AUTH_TOKEN env)"
+    )
     .action(async (options) => {
       try {
         // Determine transport type from --http flag
@@ -226,6 +282,9 @@ export function createStartCommand(
             log.cliError(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
             exit(1);
           }
+          // Hosted MCP: the developer-setup guard is a dev-laptop UX nudge and
+          // does not apply to a server process. See mt#1208.
+          setHostedMode(true);
         }
 
         const projectContext = resolveProjectContext(options.repo);
@@ -259,6 +318,12 @@ export function createStartCommand(
         // Register tools via adapter-based approach (initializes container if needed)
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         await registerAllTools(commandMapper, container);
+
+        // Wire the container into the server so agentId can be written to session records
+        // (must happen after registerAllTools which triggers container.initialize())
+        if (container) {
+          server.setContainer(container);
+        }
 
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
@@ -299,7 +364,16 @@ export function createStartCommand(
 
         // Start the server
         if (transportType === "http") {
-          await startHttpServer(server, options, projectContext);
+          await startHttpServer(
+            server,
+            {
+              port: options.port,
+              host: options.host,
+              endpoint: options.endpoint,
+              requireAuth: options.requireAuth,
+            },
+            projectContext
+          );
         } else {
           // Stdio transport
           if (!options.withInspector) {
@@ -322,15 +396,44 @@ export function createStartCommand(
           })
           .catch(() => {}); // Embedding sweep is best-effort
 
+        // Start the knowledge sync scheduler (best-effort; non-blocking)
+        // ADR-002: scheduler is only constructed here, inside the MCP server start
+        // path — never from `minsky --help` or any CLI-only code path.
+        const scheduler = await buildAndStartScheduler(container);
+
         log.cli("Press Ctrl+C to stop");
 
         // Handle termination signals gracefully
         const cleanup = async () => {
           log.cli("\nStopping Minsky MCP Server...");
           try {
+            // Stop the scheduler first so in-flight syncs complete before closing.
+            if (scheduler) {
+              await scheduler.stop();
+              log.debug("[scheduler] Knowledge sync scheduler stopped");
+            }
             await server.drain();
           } catch (error) {
             log.warn("Error during server cleanup", {
+              error: getErrorMessage(error),
+            });
+          }
+          // Release DB sockets promptly so another MCP instance (e.g. Railway
+          // redeploy rolling over to a new container) can claim pool slots
+          // without waiting for TCP timeout (mt#1193).
+          try {
+            const persistence = container?.has("persistence")
+              ? container.get("persistence")
+              : undefined;
+            if (
+              persistence &&
+              typeof (persistence as { close?: () => Promise<void> }).close === "function"
+            ) {
+              await (persistence as { close: () => Promise<void> }).close();
+              log.debug("[persistence] PostgreSQL connections closed");
+            }
+          } catch (error) {
+            log.warn("Error closing persistence during shutdown", {
               error: getErrorMessage(error),
             });
           }

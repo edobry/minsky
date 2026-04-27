@@ -47,7 +47,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await deleteSessionImpl(
-      { name: SESSION_ID, force: false },
+      { sessionId: SESSION_ID, force: false },
       {
         sessionDB,
         fs: {
@@ -76,7 +76,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await deleteSessionImpl(
-      { name: SESSION_ID, force: false },
+      { sessionId: SESSION_ID, force: false },
       {
         sessionDB,
         fs: {
@@ -101,7 +101,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
     const rmSyncMock = mock(() => {});
 
     const result = await deleteSessionImpl(
-      { name: SESSION_ID, force: false },
+      { sessionId: SESSION_ID, force: false },
       {
         sessionDB,
         fs: {

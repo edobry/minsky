@@ -1,0 +1,14 @@
+---
+name: Key Workflows
+description: 'Entry points for core Minsky skills - orchestrate, implement-task, review-pr, create-task.'
+alwaysApply: true
+tags:
+  - minsky
+  - workflows
+---
+# Key Workflows (via skills)
+
+- **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
+- **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
+- **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
+- **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)

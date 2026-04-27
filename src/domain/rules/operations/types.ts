@@ -6,6 +6,7 @@
  */
 
 import type { RuleFormat } from "../../rules";
+import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
@@ -17,10 +18,21 @@ export interface RulesSelectionConfig {
 
 // ─── Migration ───────────────────────────────────────────────────────────────
 
+/** Minimal fs interface required by migrateRules — injectable for testing. */
+export interface MigrateFsDeps {
+  readdir(path: string): Promise<string[]>;
+  mkdir(path: string, opts?: { recursive?: boolean }): Promise<string | undefined>;
+  access(path: string): Promise<void>;
+  readFile(path: string): Promise<Buffer>;
+  writeFile(path: string, data: Buffer | string): Promise<void>;
+}
+
 export interface MigrateRulesOptions {
   workspacePath: string;
   dryRun: boolean;
   force: boolean;
+  /** Optional fs override for testing — uses real fs/promises when omitted. */
+  fsDeps?: MigrateFsDeps;
 }
 
 export interface MigrateRulesResult {
@@ -110,6 +122,7 @@ export interface CompileRulesOptions {
   output?: string;
   dryRun?: boolean;
   check?: boolean;
+  memoryLoadingMode?: MemoryLoadingMode;
 }
 
 export interface CompileRulesResult {

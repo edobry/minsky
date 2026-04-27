@@ -10,7 +10,7 @@ import { z } from "zod";
  * Common parameter building blocks for session commands
  */
 export const commonSessionParams = {
-  name: {
+  sessionId: {
     schema: z.string(),
     description: "Session ID",
     required: false,
@@ -84,9 +84,22 @@ export const sessionListCommandParams = {
     description: "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
     required: false,
   },
+  limit: {
+    schema: z.number().int().positive(),
+    description: "Maximum number of sessions to return (default: 20)",
+    required: false,
+    defaultValue: 20,
+  },
+  offset: {
+    schema: z.number().int().nonnegative(),
+    description: "Number of sessions to skip for pagination (default: 0)",
+    required: false,
+    defaultValue: 0,
+  },
   verbose: {
     schema: z.boolean(),
-    description: "Show detailed session information",
+    description:
+      "Include full session record (PR state, pull request info). Default omits these large fields.",
     required: false,
     defaultValue: false,
   },
@@ -96,7 +109,7 @@ export const sessionListCommandParams = {
  * Session get command parameters
  */
 export const sessionGetCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -116,7 +129,7 @@ export const sessionGetCommandParams = {
  * Session start command parameters
  */
 export const sessionStartCommandParams = {
-  name: {
+  sessionId: {
     schema: z.string(),
     description: "Session ID",
     required: false,
@@ -133,11 +146,6 @@ export const sessionStartCommandParams = {
     required: false,
   },
   repo: commonSessionParams.repo,
-  session: {
-    schema: z.string(),
-    description: "Session identifier",
-    required: false,
-  },
   json: commonSessionParams.json,
   quiet: commonSessionParams.quiet,
   noStatusUpdate: {
@@ -171,7 +179,7 @@ export const sessionStartCommandParams = {
  * Session directory command parameters
  */
 export const sessionDirCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -198,7 +206,7 @@ export const sessionSearchCommandParams = {
  * Session delete command parameters
  */
 export const sessionDeleteCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   force: commonSessionParams.force,
   repo: commonSessionParams.repo,
@@ -209,7 +217,7 @@ export const sessionDeleteCommandParams = {
  * Session update command parameters
  */
 export const sessionUpdateCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   branch: {
@@ -251,7 +259,7 @@ export const sessionUpdateCommandParams = {
  * Session approve command parameters
  */
 export const sessionApproveCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -282,7 +290,7 @@ export const sessionPrCommandParams = {
     description: "Path to file containing PR body",
     required: false,
   },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   noStatusUpdate: {
@@ -311,7 +319,7 @@ export const sessionPrCommandParams = {
  * Session migrate-backend command parameters
  */
 export const sessionMigrateBackendCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -383,12 +391,7 @@ export const sessionPrCreateCommandParams = {
     description: "Path to file containing PR body",
     required: false,
   },
-  sessionId: {
-    schema: z.string(),
-    description: "Session identifier (ID or task ID)",
-    required: false,
-  },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   noStatusUpdate: {
@@ -445,7 +448,7 @@ export const sessionPrEditCommandParams = {
     description: "Path to file containing PR body (to update)",
     required: false,
   },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   debug: commonSessionParams.debug,
@@ -456,7 +459,7 @@ export const sessionPrEditCommandParams = {
  * Lists all PRs associated with sessions
  */
 export const sessionPrListCommandParams = {
-  session: {
+  sessionId: {
     schema: z.string(),
     description: "Filter PRs by specific session ID",
     required: false,
@@ -520,12 +523,7 @@ export const sessionPrListCommandParams = {
  * Gets detailed information about a specific PR
  */
 export const sessionPrGetCommandParams = {
-  sessionId: {
-    schema: z.string(),
-    description: "Session ID to look up PR for (positional)",
-    required: false,
-  },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -583,12 +581,7 @@ export const sessionPrGetCommandParams = {
  * Opens the pull request in the default web browser
  */
 export const sessionPrOpenCommandParams = {
-  sessionId: {
-    schema: z.string(),
-    description: "Session ID to open PR for (positional)",
-    required: false,
-  },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
 };
@@ -598,12 +591,7 @@ export const sessionPrOpenCommandParams = {
  * Gets CI check-run status for a session's pull request
  */
 export const sessionPrChecksCommandParams = {
-  sessionId: {
-    schema: z.string(),
-    description: "Session ID (positional)",
-    required: false,
-  },
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -628,16 +616,53 @@ export const sessionPrChecksCommandParams = {
 };
 
 /**
- * Session PR Review Submit command parameters
- * Submits a GitHub PR review through Minsky using the bot identity
+ * Session PR Wait-For-Review command parameters (mt#1203)
+ * Blocks until a review appears on the session's PR, with optional
+ * reviewer-login and since-timestamp filters.
  */
-export const sessionPrReviewSubmitCommandParams = {
+export const sessionPrWaitForReviewCommandParams = {
   sessionId: {
     schema: z.string(),
     description: "Session ID (positional)",
     required: false,
   },
-  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  timeoutSeconds: {
+    schema: z.number().int().min(1).max(1800),
+    description: "Maximum seconds to wait for a matching review (default: 600, max: 1800 / 30 min)",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number().int().min(5).max(60),
+    description: "Polling interval in seconds (default: 15, min: 5, max: 60)",
+    required: false,
+    defaultValue: 15,
+  },
+  reviewer: {
+    schema: z.string(),
+    description:
+      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
+      "Case-insensitive. Defaults to any reviewer.",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description:
+      "ISO-8601 timestamp; only reviews submitted at or after this time count as matches " +
+      "(inclusive lower bound). Defaults to the call's start time.",
+    required: false,
+  },
+};
+
+/**
+ * Session PR Review Submit command parameters
+ * Submits a GitHub PR review through Minsky using the bot identity
+ */
+export const sessionPrReviewSubmitCommandParams = {
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   body: {
@@ -666,11 +691,37 @@ export const sessionPrReviewSubmitCommandParams = {
 };
 
 /**
+ * Session PR Review Dismiss command parameters
+ * Dismisses a GitHub PR review (typically a stale adversarial review after
+ * the blocker has been addressed). Posts the dismissal through Minsky using
+ * the configured bot identity.
+ */
+export const sessionPrReviewDismissCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  reviewId: {
+    schema: z.coerce.number().int().positive(),
+    description: "GitHub review ID to dismiss (numeric — see PR review URLs)",
+    required: true,
+  },
+  message: {
+    schema: z.string().min(1),
+    description:
+      "Dismissal reason / message — required by the GitHub API and shown on " +
+      "the dismissed review. Include why the review is stale (e.g. 'covers " +
+      "commit <sha>; blocker addressed in <sha>').",
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */
 export const sessionExecCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   command: {
@@ -732,7 +783,7 @@ export const sessionCleanupCommandParams = {
  * Repairs various session state issues
  */
 export const sessionRepairCommandParams = {
-  name: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
@@ -775,11 +826,7 @@ export const sessionRepairCommandParams = {
  * CLI wrapper for session.edit_file MCP tool
  */
 export const sessionEditFileCommandParams = {
-  session: {
-    schema: z.string(),
-    description: "Session ID (auto-detected from workspace if not provided)",
-    required: false,
-  },
+  sessionId: commonSessionParams.sessionId,
   path: {
     schema: z.string(),
     description: "Path to the file within the session workspace",
@@ -815,7 +862,7 @@ export const sessionEditFileCommandParams = {
  * Session review command parameters
  */
 export const sessionReviewCommandParams = {
-  session: commonSessionParams.name,
+  sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,

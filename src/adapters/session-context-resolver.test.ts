@@ -16,7 +16,7 @@ import { ValidationError } from "../errors/index";
 describe("Interface-Layer Session Context Resolution", () => {
   describe("CLI Session Context Resolver", () => {
     it("should use explicit name when provided", () => {
-      const params = { name: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
+      const params = { sessionId: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
 
       expect(result.session).toBe(TEST_PATHS.SESSION_EXPLICIT);
@@ -44,7 +44,7 @@ describe("Interface-Layer Session Context Resolution", () => {
     });
 
     it("should prefer explicit name over auto-detection", () => {
-      const params = { name: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
+      const params = { sessionId: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
       const workingDir = TEST_PATHS.MINSKY_SESSIONS_TASK;
 
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
@@ -63,11 +63,11 @@ describe("Interface-Layer Session Context Resolution", () => {
     });
 
     it("should prefer name over task when both are provided", () => {
-      const params = { name: "task#158", task: "158", title: "test" };
+      const params = { sessionId: "task#158", task: "158", title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
 
-      expect(result.session).toBe("task#158"); // Session set from name
-      expect(result.name).toBe("task#158");
+      expect(result.session).toBe("task#158"); // Session set from sessionId
+      expect(result.sessionId).toBe("task#158");
       expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });
@@ -113,11 +113,11 @@ describe("Interface-Layer Session Context Resolution", () => {
     });
 
     it("should prefer name over task when both are provided", () => {
-      const params = { name: "task#158", task: "158", title: "test" };
+      const params = { sessionId: "task#158", task: "158", title: "test" };
       const result = MCPSessionContextResolver.resolveSessionContext(params);
 
-      expect(result.session).toBe("task#158"); // Session set from name
-      expect(result.name).toBe("task#158");
+      expect(result.session).toBe("task#158"); // Session set from sessionId
+      expect(result.sessionId).toBe("task#158");
       expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });

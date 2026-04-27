@@ -64,6 +64,27 @@ export class CommandMapper {
         reused: "inline",
       }) as Record<string, unknown>;
 
+      // Post-process: remove defaulted fields from `required`.
+      // Zod v4's z.toJSONSchema() marks every field as required unless explicitly
+      // `.optional()`. Fields with `.default()` should not be required for MCP tools
+      // because external agents should not have to pass defaulted params explicitly.
+      if (
+        Array.isArray(jsonSchema.required) &&
+        jsonSchema.properties != null &&
+        typeof jsonSchema.properties === "object"
+      ) {
+        const properties = jsonSchema.properties as Record<string, Record<string, unknown>>;
+        const filteredRequired = (jsonSchema.required as string[]).filter((key) => {
+          const prop = properties[key];
+          return !(prop != null && "default" in prop);
+        });
+        if (filteredRequired.length === 0) {
+          delete jsonSchema.required;
+        } else {
+          jsonSchema.required = filteredRequired;
+        }
+      }
+
       log.debug("Converted Zod to JSON Schema", {
         zodType:
           "_zod" in zodSchema

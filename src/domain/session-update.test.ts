@@ -18,7 +18,7 @@ import { FakeSessionProvider } from "./session/fake-session-provider";
 setupTestMocks();
 
 describe("updateSessionImpl - Basic Validation", () => {
-  test("throws ValidationError when name is not provided", async () => {
+  test("throws ValidationError when sessionId is not provided", async () => {
     const mockEmptySessionProvider = new FakeSessionProvider();
 
     const mockGitService = new FakeGitService();
@@ -26,7 +26,7 @@ describe("updateSessionImpl - Basic Validation", () => {
     await expect(
       updateSessionImpl(
         {
-          name: undefined as any, // Invalid input
+          sessionId: undefined,
           task: undefined,
           repo: undefined,
           noStash: false,
@@ -54,7 +54,7 @@ describe("updateSessionImpl - Basic Validation", () => {
     await expect(
       updateSessionImpl(
         {
-          name: "nonexistent-session",
+          sessionId: "nonexistent-session",
           noStash: false,
           noPush: false,
           force: false,
