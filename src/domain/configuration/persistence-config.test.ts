@@ -225,4 +225,46 @@ describe("getEffectivePersistenceConfig", () => {
     expect(result.sqlite).toBeUndefined();
     expect(result.postgres?.connectionString).toBe(POSTGRES_URL);
   });
+
+  test("legacy-only extras merged: deprecation fires and includes postgres.maxConnections in sources", () => {
+    // Modern config provides connectionString (no extras), legacy provides maxConnections.
+    // Legacy maxConnections should be merged in and trigger the deprecation warning.
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        postgres: { connectionString: POSTGRES_URL },
+      },
+      sessiondb: {
+        postgres: { maxConnections: 5 },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres?.maxConnections).toBe(5);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const warnMessage = String(warnSpy.mock.calls[0][0]);
+    expect(warnMessage).toContain("[deprecation]");
+    expect(warnMessage).toContain("postgres.maxConnections");
+  });
+
+  test("modern wins over legacy extras: no deprecation warning for overridden field", () => {
+    // Both modern and legacy provide maxConnections; modern (10) should win over legacy (5).
+    // No deprecation warning should fire for maxConnections because legacy didn't contribute.
+    const config = makeConfig({
+      persistence: {
+        backend: "postgres",
+        postgres: { connectionString: POSTGRES_URL, maxConnections: 10 },
+      },
+      sessiondb: {
+        postgres: { maxConnections: 5 },
+      },
+    });
+    const result = getEffectivePersistenceConfig(config);
+    expect(result.postgres?.maxConnections).toBe(10);
+    // Deprecation should NOT fire for maxConnections since modern overrides it.
+    // (There may be no warning at all, or only for other fields — but not for maxConnections.)
+    const warnCalls = warnSpy.mock.calls.map((c) => String(c[0]));
+    for (const msg of warnCalls) {
+      expect(msg).not.toContain("postgres.maxConnections");
+    }
+  });
 });

@@ -117,11 +117,34 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
   const legacyContributedConnString =
     legacyConnString !== undefined && modernConnString === undefined;
   const legacyContributedDbPath = legacyDbPath !== undefined && modernDbPath === undefined;
-  if (legacyContributedBackend || legacyContributedConnString || legacyContributedDbPath) {
+
+  // Check each legacy-only postgres extra field: legacy contributes only when the
+  // field is present in legacyPostgres AND not overridden by the modern block.
+  const postgresExtrasFields = [
+    "maxConnections",
+    "connectTimeout",
+    "idleTimeout",
+    "prepareStatements",
+  ] as const;
+  const legacyContributedExtras = postgresExtrasFields.filter(
+    (field) =>
+      legacyPostgres?.[field] !== undefined &&
+      (modernPostgres as Record<string, unknown> | undefined)?.[field] === undefined
+  );
+
+  if (
+    legacyContributedBackend ||
+    legacyContributedConnString ||
+    legacyContributedDbPath ||
+    legacyContributedExtras.length > 0
+  ) {
     const sources: string[] = [];
     if (legacyContributedBackend) sources.push("backend");
     if (legacyContributedConnString) sources.push("postgres.connectionString");
     if (legacyContributedDbPath) sources.push("sqlite.dbPath");
+    for (const field of legacyContributedExtras) {
+      sources.push(`postgres.${field}`);
+    }
     warnLegacySessiondbOnce(`sessiondb.{${sources.join(", ")}}`);
   }
 
