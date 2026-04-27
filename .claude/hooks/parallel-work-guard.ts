@@ -23,7 +23,7 @@ import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
-// PATH-augmented execSync
+// PATH-augmented subprocess helper
 // ---------------------------------------------------------------------------
 
 /**
