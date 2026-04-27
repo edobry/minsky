@@ -93,18 +93,28 @@ Structure the description with these sections:
 - **Ancillary Changes** — Changes outside the task scope with justification
 - **Screenshots/Examples** — Visual examples for UI changes
 
-### 4. Format the PR title
+### 4. Format the title parameter (description-only)
 
-The title is **description-only**:
+The `title` parameter you pass to `session_pr_create` is **description-only**. The tool composes the visible PR title from your `title` plus the `type` and task ID.
+
+**Author input rules (what you pass as `title:`):**
 
 - **Do NOT include** conventional commit prefixes (`feat:`, `fix:`)
 - **Do NOT include** task IDs (`(mt#123)`)
 - Keep it short and descriptive
 
-Good: `Add session file read MCP tool`
-Bad: `feat(mt#123): Add session file read MCP tool`
+The tool's `composeConventionalTitle` helper rejects pre-prefixed input (`Title should be description only. Do not include conventional prefix...`), so a violation here surfaces as a tool error, not as a silent format drift.
 
-The `type` parameter on `session_pr_create` handles the conventional commit prefix automatically.
+**What the visible PR title looks like (composed by the tool):**
+
+The visible title on GitHub will be `<type>(<task-id>): <your description>`. This is intentional and follows conventional commits.
+
+| You pass                                                                     | GitHub displays                                 |
+| ---------------------------------------------------------------------------- | ----------------------------------------------- |
+| `title: "Add session file read MCP tool"`, `type: "feat"`, `task: "mt#123"`  | `feat(mt#123): Add session file read MCP tool`  |
+| `title: "Mask credentials in config.show"`, `type: "fix"`, `task: "mt#1262"` | `fix(mt#1262): Mask credentials in config.show` |
+
+If a reviewer flags the visible PR title for "containing a conventional prefix or task ID," they're misreading this rule — the rule applies to author input, not to what GitHub displays. The visible composition is correct and intentional.
 
 ### 5. Create the PR
 
