@@ -128,15 +128,14 @@ function splitDiffGitHeader(line: string): {
     }
   }
 
-  // Fallback: rightmost " b/" is the most likely real delimiter when paths differ.
-  const delimIdx = rest.lastIndexOf(" b/");
-  if (delimIdx > 0) {
-    return {
-      oldPath: rest.slice(0, delimIdx),
-      newPath: rest.slice(delimIdx + 3),
-    };
-  }
-
+  // No fallback for asymmetric headers: when symmetric-split fails, the
+  // header is either malformed or describes a rename whose paths differ.
+  // Renames are always accompanied by rename-from / rename-to extended
+  // headers (RENAME_FROM_RE / RENAME_TO_RE) which the caller handles
+  // before falling back to gitOldPath / gitNewPath. Returning undefined
+  // here forces the caller to recognize this branch explicitly rather
+  // than silently producing wrong paths via a heuristic that cannot
+  // disambiguate cases where both paths contain the literal " b/".
   return { oldPath: undefined, newPath: undefined };
 }
 
@@ -145,6 +144,11 @@ function splitDiffGitHeader(line: string): {
 //   "GIT binary patch"
 const BINARY_DIFFER_RE = /^Binary files /;
 const BINARY_PATCH_RE = /^GIT binary patch$/;
+
+// Match the "Binary files X and Y differ" line and extract whether either
+// side is /dev/null (signalling add or delete of a binary file).
+// Captures: 1 = old-side path or "/dev/null"; 2 = new-side path or "/dev/null".
+const BINARY_DIFFER_PATHS_RE = /^Binary files (.+) and (.+) differ$/;
 
 // Match "new file mode <mode>" / "deleted file mode <mode>" extended headers.
 // These appear without the dashed-prefix header pair when a file is created
@@ -204,6 +208,8 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
     let newPath: string | undefined;
     let isRename = false;
     let isBinary = false;
+    let isBinaryAdd = false;
+    let isBinaryDelete = false;
     let isNewFile = false;
     let isDeletedFile = false;
     let renameFrom: string | undefined;
@@ -234,7 +240,20 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
 
       // Binary diffs emit either "Binary files … differ" or "GIT binary patch"
       // in the extended-headers region (no --- /+++ follows).
-      if (BINARY_DIFFER_RE.test(hdr) || BINARY_PATCH_RE.test(hdr)) {
+      // For "Binary files X and Y differ" we also detect /dev/null on either
+      // side to set add/delete status; otherwise the file is treated as a
+      // binary modification.
+      if (BINARY_DIFFER_RE.test(hdr)) {
+        isBinary = true;
+        const m = BINARY_DIFFER_PATHS_RE.exec(hdr);
+        if (m) {
+          if (m[1] === "/dev/null") isBinaryAdd = true;
+          if (m[2] === "/dev/null") isBinaryDelete = true;
+        }
+        i++;
+        continue;
+      }
+      if (BINARY_PATCH_RE.test(hdr)) {
         isBinary = true;
         i++;
         continue;
@@ -283,10 +302,10 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       status = "renamed";
       filePath = renameTo;
       fileOldPath = renameFrom;
-    } else if (oldPath === "/dev/null") {
+    } else if (oldPath === "/dev/null" || isBinaryAdd) {
       status = "added";
       filePath = newPath ?? gitNewPath ?? "";
-    } else if (newPath === "/dev/null") {
+    } else if (newPath === "/dev/null" || isBinaryDelete) {
       status = "deleted";
       filePath = oldPath ?? gitOldPath ?? "";
     } else if (isNewFile) {
@@ -299,6 +318,14 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       // Modified — including mode-only and binary cases where ---/+++ are absent.
       status = "modified";
       filePath = newPath ?? oldPath ?? gitNewPath ?? gitOldPath ?? "";
+    }
+
+    // Skip file entries that ended up with no recoverable path. Emitting
+    // an empty-path DiffFile would silently produce invalid review anchors
+    // downstream; an explicit skip is the right floor.
+    if (filePath === "") {
+      // Still need to advance past binary content if present
+      continue;
     }
 
     // Binary diffs have no hunks and don't fall through to the hunk-parser

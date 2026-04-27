@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { parseUnifiedDiff, type DiffFile, type DiffHunk, type DiffLine } from "./parse-diff";
 
 const NEW_FILE_MODE = "new file mode 100644";
+const DELETED_FILE_MODE = "deleted file mode 100644";
 const FILE_INDEX = "index abc1234..def5678 100644";
 const FILE_DIFF_HEADER = "diff --git a/file.ts b/file.ts";
+const PNG_DIFF_HEADER = "diff --git a/assets/logo.png b/assets/logo.png";
 
 function firstFile(diff: string): DiffFile {
   const result = parseUnifiedDiff(diff);
@@ -332,11 +334,63 @@ describe("parseUnifiedDiff", () => {
     expect(file.hunks).toHaveLength(0);
   });
 
+  test("classifies a binary file add via /dev/null in 'Binary files' line", () => {
+    // git emits this when a binary file is created.
+    const diff = [
+      PNG_DIFF_HEADER,
+      NEW_FILE_MODE,
+      "index 0000000..abc1234",
+      "Binary files /dev/null and b/assets/logo.png differ",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("assets/logo.png");
+    expect(file.status).toBe("added");
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  test("classifies a binary file delete via /dev/null in 'Binary files' line", () => {
+    // git emits this when a binary file is deleted.
+    const diff = [
+      PNG_DIFF_HEADER,
+      DELETED_FILE_MODE,
+      "index abc1234..0000000",
+      "Binary files a/assets/logo.png and /dev/null differ",
+      "",
+    ].join("\n");
+
+    const file = firstFile(diff);
+    expect(file.path).toBe("assets/logo.png");
+    expect(file.status).toBe("deleted");
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  test("skips file entries with no recoverable path (empty filePath)", () => {
+    // Malformed diff --git header without a/ b/ structure — split fails,
+    // no other path source, so the parser should skip this entry rather
+    // than emit a DiffFile with path: "".
+    const diff = [
+      "diff --git malformed-header-with-no-paths",
+      "old mode 100644",
+      "new mode 100755",
+      "diff --git a/valid.txt b/valid.txt",
+      "old mode 100644",
+      "new mode 100755",
+      "",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff);
+    // Only the valid second file should be emitted; the malformed first is skipped.
+    expect(result).toHaveLength(1);
+    expect(result[0]?.path).toBe("valid.txt");
+  });
+
   test("classifies empty-file delete via 'deleted file mode' header (no ---/+++)", () => {
     // git emits this shape when an empty file is deleted.
     const diff = [
       "diff --git a/gone.txt b/gone.txt",
-      "deleted file mode 100644",
+      DELETED_FILE_MODE,
       "index e69de29..0000000",
       "",
     ].join("\n");
