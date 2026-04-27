@@ -131,3 +131,50 @@ appears.
 - Tool-call scaffolding that correlates with the tool-loop-fallback
   sub-pattern → mt#1126 (tool wiring) and mt#1189 (cross-model
   convergence) are the relevant tickets.
+
+## NARRATIVE_TOLERANCE_CHARS calibration (mt#1264)
+
+The `NARRATIVE_TOLERANCE_CHARS = 300` threshold in `services/reviewer/src/sanitize.ts`
+controls when a narrative-scratch phrase (`I will` / `I'll` / `I am going to`)
+in the prefix-before-first-structural-heading fires the `long-narrative-prefix`
+CoT signal. Below the threshold, the phrase is assumed to be legitimate intro
+prose; above, it's treated as scratch leakage.
+
+**Calibration methodology (2026-04-26):**
+
+`services/reviewer/scripts/calibrate-tolerance.ts` replays every
+`minsky-reviewer[bot]` PR review body in the `edobry/minsky` repo through
+`sanitizeReviewBody` and buckets results by prefix length × narrative-phrase
+presence. The "at-risk zone" is defined as: prefix ≥ 300 chars + narrative
+phrase + action=passthrough (narrowly avoided strip) OR action=stripped with
+ONLY the `long-narrative-prefix` signal (stripped solely by narrative length).
+
+**Run command:**
+
+```bash
+GITHUB_TOKEN=<pat> bun run services/reviewer/scripts/calibrate-tolerance.ts
+```
+
+**Results (run 2026-04-26):**
+
+- Total bot reviews: 171 across 26 PR pages
+- At-risk zone count: **0 samples**
+- All `narrative-yes` reviews with prefix ≥ 300 chars were caught by a stronger
+  signal (e.g., `blank-line-run`, `scratch:tool-call-narration`) — not by the
+  `long-narrative-prefix` signal alone
+
+**Decision: keep 300.**
+
+Rationale: zero false-positive risk in the current corpus. Lowering would
+risk stripping legitimate intros; raising would create a gap with no upside.
+Should the at-risk count grow on a future run, revisit with a data-justified
+threshold change OR move to config-tunable.
+
+**Event enrichment:**
+
+The `reviewer.cot_leak_detected` log payload now includes `prefixSnippet`
+(first ~200 chars of the raw model output, with URLs and email addresses
+redacted via `redactForLog`). This closes the previous gap where calibration
+required only event metadata + had to refetch full bodies from GitHub. Going
+forward, future tuning can use the redacted snippet directly from the event
+stream without a corpus replay.
