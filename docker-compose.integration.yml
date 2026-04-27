@@ -1,0 +1,153 @@
+# docker-compose.integration.yml
+#
+# Local Postgres + Supavisor integration test harness for Minsky.
+# Implements mt#1365 (child C of mt#1205): a fully-local pool-saturation test stack.
+#
+# Services:
+#   postgres    — pgvector-enabled Postgres 16, the upstream database
+#   sv-migrate  — one-shot: runs Supavisor's Ecto migrations against postgres
+#   supavisor   — Supavisor session-mode pooler (pool_size=5) fronting postgres
+#   sv-init     — one-shot: registers the "local" tenant via the Supavisor admin API
+#
+# Usage:
+#   docker compose -f docker-compose.integration.yml up --wait
+#
+# Connection strings (after stack is ready):
+#   Direct Postgres: postgresql://postgres:postgres@localhost:5440/postgres
+#   Via Supavisor:   postgresql://postgres.local:postgres@localhost:6432/postgres
+#
+# Run the saturation tests:
+#   RUN_INTEGRATION_TESTS=1 DOCKER_SATURATION_HARNESS=1 \
+#   bun test --preload ./tests/setup.ts --timeout=60000 \
+#     tests/integration/postgres-pool-saturation.docker.integration.test.ts
+#
+# Tear down:
+#   docker compose -f docker-compose.integration.yml down -v
+#
+# Known limitations:
+#   - Supavisor does NOT persist tenant config across restarts by default;
+#     sv-init re-runs on every `docker compose up` to re-register the tenant.
+#   - The VAULT_ENC_KEY and API_JWT_SECRET are hardcoded for local-only use.
+#     Never use these values in production.
+#   - The pre-computed JWT in register-tenant.sh is valid until ~2125.
+#     Regenerate with: python3 scripts/integration/gen-supavisor-jwt.py
+#   - ERL_AFLAGS=-proto_dist inet_tcp disables IPv6 Erlang distribution to
+#     prevent "name in use" conflicts when multiple containers start quickly.
+
+version: "3.8"
+
+# ---------------------------------------------------------------------------
+# Shared Supavisor env — referenced by sv-migrate and supavisor services.
+# ---------------------------------------------------------------------------
+x-supavisor-env: &supavisor-env
+  SECRET_KEY_BASE: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  DATABASE_URL: "ecto://postgres:postgres@postgres:5432/postgres"
+  # 32-byte ASCII key used directly by Cloak AES.GCM — local harness only, not secret.
+  VAULT_ENC_KEY: "minsky-saturation-key-32-chars!!"
+  API_JWT_SECRET: "super-secret-jwt-token-with-at-least-32-characters-long"
+  REGION: "local"
+  # Use IPv4-only Erlang distribution to avoid inet6_tcp node-name conflicts.
+  ERL_AFLAGS: "-proto_dist inet_tcp"
+  ECTO_IPV6: "false"
+  # Proxy ports inside the container
+  PROXY_PORT_SESSION: "5432"
+  PROXY_PORT_TRANSACTION: "6543"
+
+services:
+  # ---------------------------------------------------------------------------
+  # postgres: pgvector-enabled Postgres 16 — the upstream database.
+  # Exposed on host port 5440 to avoid conflicts with any local postgres.
+  # The supavisor-init.sql creates the _supavisor schema that Supavisor's
+  # migrations need before they run.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5440:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./tests/integration/fixtures/supavisor-init.sql:/docker-entrypoint-initdb.d/01-supavisor-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # sv-migrate: runs Supavisor's Ecto migrations once.
+  # Must complete before supavisor starts.
+  # ---------------------------------------------------------------------------
+  sv-migrate:
+    image: ghcr.io/supabase/supavisor:1.1.56
+    entrypoint: ["/app/bin/migrate"]
+    environment:
+      <<: *supavisor-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # supavisor: session-mode connection pooler.
+  # pool_size=5 is enforced at the tenant level (set by sv-init below).
+  # Exposed on host port 6432 (session) and 4000 (admin API).
+  # ---------------------------------------------------------------------------
+  supavisor:
+    image: ghcr.io/supabase/supavisor:1.1.56
+    restart: unless-stopped
+    environment:
+      <<: *supavisor-env
+    ports:
+      - "6432:5432"  # session-mode pooler (use this for saturation tests)
+      - "6433:6543"  # transaction-mode pooler (not used by saturation tests)
+      - "4000:4000"  # admin REST API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sv-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # /api/health returns 204 No Content when Supavisor is up.
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health -o /dev/null -w '%{http_code}' | grep -qE '^(200|204|403)$'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # sv-init: registers the "local" tenant via the Supavisor admin REST API.
+  # Must run after supavisor is healthy. The register-tenant.sh script uses
+  # a pre-computed JWT (no openssl needed in curlimages/curl).
+  # ---------------------------------------------------------------------------
+  sv-init:
+    image: curlimages/curl:8.6.0
+    entrypoint: ["/bin/sh", "/scripts/register-tenant.sh"]
+    environment:
+      SUPAVISOR_API_URL: "http://supavisor:4000"
+      TENANT_EXTERNAL_ID: "local"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_DATABASE: "postgres"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      POOL_SIZE: "5"
+    volumes:
+      - ./tests/integration/fixtures/register-tenant.sh:/scripts/register-tenant.sh:ro
+    depends_on:
+      supavisor:
+        condition: service_healthy
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "true"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+
+volumes:
+  pg-data:

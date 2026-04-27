@@ -17,7 +17,10 @@ paths = [
   '''docs/.*''',
   '''README\.md''',
   '''process/tasks/.*\.md''',
-  '''.*\.test\.ts'''
+  '''.*\.test\.ts''',
+  # Integration test infrastructure — intentional placeholder credentials for local-only harness
+  '''docker-compose\.integration\.yml''',
+  '''tests/integration/fixtures/.*'''
 ]
 regexes = [
   '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',
