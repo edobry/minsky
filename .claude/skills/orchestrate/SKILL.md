@@ -58,7 +58,7 @@ Then start the session:
 Before dispatching implementation:
 
 - **Check scope**: If the task has multiple phases, create subtasks first (`mcp__minsky__tasks_create` with `parent: "<task-id>"`). Each subtask gets its own session.
-- **Check file overlap**: If launching parallel tasks, verify they don't edit the same files. Serialize or partition if they do.
+- **Parallel-work guard**: This is owned by `/plan-task` gate criterion (g) at the PLANNING → READY transition, with a re-check at `/implement-task` §0a before `session_start`. Do **not** duplicate the check here — if the task is READY, `/plan-task` already ran the full gate; if you're about to dispatch `/implement-task`, the §0a spot-check will run. Cite `feedback_check_parallel_work_before_decomposing` for rationale.
 - **Verify spec freshness**: Task specs may be stale. Verify file:line references against the current codebase before starting.
 
 ### 4. Implementation dispatch

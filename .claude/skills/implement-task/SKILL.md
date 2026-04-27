@@ -43,6 +43,26 @@ Evaluate the returned status:
 - **IN-REVIEW** → PR already created. Remind user to use `/verify-task mt#X` for next steps.
 - **DONE** → task is complete. No action needed.
 
+### 0a. Late parallel-work spot-check
+
+The PLANNING → READY gate already ran the full parallel-work check (`/plan-task` gate
+criterion g). But READY → IN-PROGRESS may happen hours or days later, and new PRs may
+have landed in the gap. Re-run an abbreviated check before `session_start`:
+
+1. **Open-PR sweep** — `mcp__github__list_pull_requests` with `state: "open"`. Scan titles
+   and branches for any PR whose scope plausibly overlaps the spec's `## Scope` → `In scope`
+   files. Spot-check suspicious matches with `mcp__github__pull_request_read get_diff`.
+2. **Recently-merged sweep** — `mcp__minsky__git_log` for the last 24 hours; check for any
+   merge that touched files this task plans to modify. A fix that landed overnight is just
+   as bad as one in flight.
+
+If either sweep hits, **halt before `session_start`** and surface the finding to the user
+(task ID or PR number, file overlap, recommendation: wait / coordinate / reframe / proceed
+with explicit acknowledgment).
+
+This is the last-line enforcement of `feedback_check_parallel_work_before_decomposing`.
+The full gate ran at PLANNING; this is the spot-check before the session is created.
+
 ### 1. Retrieve relevant memory context
 
 Call `memory_search` with the task ID and domain area:
