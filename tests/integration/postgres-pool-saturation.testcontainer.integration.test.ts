@@ -74,8 +74,20 @@ if (process.env.RUN_INTEGRATION_TESTS) {
     // -c max_connections=N caps the server-side connection ceiling.
     .withCommand(["postgres", "-c", `max_connections=${POOL_SIZE}`])
     .withExposedPorts(5432)
-    .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
-    .withStartupTimeout(60_000)
+    // Belt-and-suspenders readiness: port-listening proves the daemon is
+    // accepting connections; the log-message check ensures Postgres is
+    // actually ready to accept QUERIES (not just TCP connects). Layering
+    // both decouples readiness from any single signal in case a future
+    // image variant changes log format.
+    .withWaitStrategy(
+      Wait.forAll([
+        Wait.forListeningPorts(),
+        Wait.forLogMessage(/database system is ready to accept connections/, 2),
+      ])
+    )
+    // 120s startup window absorbs slow first-pull on cold CI runners
+    // (image is ~150 MB; uncached pull on slow networks can take >30s).
+    .withStartupTimeout(120_000)
     .start();
 
   const host = container.getHost();
