@@ -1,7 +1,7 @@
 /**
  * Shared Asks Commands
  *
- * Surfaces the Ask subsystem (mt#1034 / ADR-006) at the CLI/MCP layer.
+ * Surfaces the Ask subsystem (mt#1034 / ADR-008) at the CLI/MCP layer.
  *
  * - `asks.list` — read-only inspection of Asks with optional state/kind filters.
  * - `asks.reconcile` — runs one reconcile pass over open quality.review Asks.
