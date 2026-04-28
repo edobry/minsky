@@ -899,6 +899,36 @@ Prevents shell parsing issues that cause commands to hang with `dquote>` prompts
 
 All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
 
+## Parallel-Work Guard
+
+A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
+an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
+ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
+criterion (g) and `/implement-task` §0a.
+
+**Hook file:** `.claude/hooks/parallel-work-guard.ts`
+
+**Checks run:**
+1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
+2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
+
+**On hit:** the hook blocks `session_start` with a structured message listing the colliding
+PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).
+
+**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
+
+```bash
+MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
+```
+
+The override is **logged to session stdout** (task ID, ISO timestamp).
+The line is visible in the session transcript but is **not** written to a durable
+audit file — once the session log is rotated, the record is gone. Use only when
+parallel work has been explicitly acknowledged and coordinated.
+
+**When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
+section, the hook emits a warning to stdout and allows the session_start to proceed.
+
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
