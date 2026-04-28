@@ -109,6 +109,11 @@ export interface EnhancedMergeResult {
   conflicts: boolean;
   conflictDetails?: string;
   prediction?: ConflictPrediction;
+  /**
+   * When conflicts is true and markers were left in the working tree,
+   * lists the paths of conflicted files so callers can surface them to the agent.
+   */
+  conflictedFiles?: string[];
 }
 
 export interface SmartUpdateResult {
@@ -118,6 +123,12 @@ export interface SmartUpdateResult {
   reason?: string;
   conflictDetails?: string;
   divergenceAnalysis?: BranchDivergenceAnalysis;
+  /**
+   * When conflictDetails is set, lists the paths of files that contain
+   * conflict markers in the working tree, allowing agents to resolve them
+   * via session_edit_file / session_search_replace.
+   */
+  conflictedFiles?: string[];
 }
 
 export enum ConflictType {

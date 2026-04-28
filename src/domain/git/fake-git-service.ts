@@ -65,6 +65,8 @@ export class FakeGitService implements GitServiceInterface {
   readonly recordedCommands: Array<{ workdir: string; command: string }> = [];
   /** All calls to push(), in order. */
   readonly pushedCalls: Array<PushOptions> = [];
+  /** All calls to popStash(), in order (repoPath values). */
+  readonly popStashCalls: Array<string> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -74,6 +76,12 @@ export class FakeGitService implements GitServiceInterface {
   private readonly sessionWorkdir: string;
   private readonly mockWorkdir: string;
   private branchExists: boolean;
+
+  /**
+   * When set, smartSessionUpdate() returns this result instead of the default
+   * happy-path response. Use this in tests to simulate conflict scenarios.
+   */
+  private smartSessionUpdateOverride: SmartUpdateResult | undefined;
 
   constructor(
     options: {
@@ -97,6 +105,7 @@ export class FakeGitService implements GitServiceInterface {
   resetCallCount(): void {
     this.recordedCommands.length = 0;
     this.pushedCalls.length = 0;
+    this.popStashCalls.length = 0;
   }
 
   /** Configure a response for a specific command pattern. First match wins. */
@@ -114,6 +123,14 @@ export class FakeGitService implements GitServiceInterface {
 
   setBranchExists(value: boolean): void {
     this.branchExists = value;
+  }
+
+  /**
+   * Override the result returned by smartSessionUpdate().
+   * Useful for simulating merge-conflict scenarios in tests.
+   */
+  setSmartSessionUpdateResult(result: SmartUpdateResult): void {
+    this.smartSessionUpdateOverride = result;
   }
 
   async execInRepository(workdir: string, command: string): Promise<string> {
@@ -201,6 +218,7 @@ export class FakeGitService implements GitServiceInterface {
   }
 
   async popStash(_repoPath: string): Promise<StashResult> {
+    this.popStashCalls.push(_repoPath);
     return { workdir: this.mockWorkdir, stashed: false };
   }
 
@@ -272,6 +290,9 @@ export class FakeGitService implements GitServiceInterface {
     _baseBranch: string,
     _options?: { skipIfAlreadyMerged?: boolean; autoResolveConflicts?: boolean }
   ): Promise<SmartUpdateResult> {
+    if (this.smartSessionUpdateOverride !== undefined) {
+      return this.smartSessionUpdateOverride;
+    }
     return { workdir: this.mockWorkdir, updated: true, skipped: false };
   }
 }
