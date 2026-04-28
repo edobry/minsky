@@ -16,3 +16,7 @@ export {
   ClaudeCodeTranscriptSource,
   type ClaudeCodeTranscriptSourceOptions,
 } from "./claude-code-transcript-source";
+export {
+  AgentTranscriptIngestService,
+  type IngestAllResult,
+} from "./agent-transcript-ingest-service";

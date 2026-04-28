@@ -13,7 +13,7 @@
  * @see mt#1324 — agent_transcripts schema
  */
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -96,36 +96,16 @@ export class AgentTranscriptIngestService {
     const endedAt = latestTs ?? mtime;
 
     // ── 4. Upsert into agent_transcripts ─────────────────────────────────────
+    // Single atomic statement: INSERT … ON CONFLICT (agent_session_id) DO UPDATE.
+    // The on-conflict UPDATE merges transcript lines via SQL JSONB array concat
+    // (`transcript || EXCLUDED.transcript`), eliminating both the TOCTOU
+    // duplicate-key race and the lost-update window of a JS read-modify-write.
+    // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
+    // are not overwritten on conflict.
     try {
-      const existingRows = await this.db
-        .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
-        .from(agentTranscriptsTable)
-        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-        .limit(1);
-
-      if (existingRows.length > 0) {
-        // Merge: read existing transcript, append new lines.
-        const existingTranscriptRows = await this.db
-          .select({ transcript: agentTranscriptsTable.transcript })
-          .from(agentTranscriptsTable)
-          .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-          .limit(1);
-
-        const existingLines = (existingTranscriptRows[0]?.transcript ?? []) as RawTurnLine[];
-        const mergedTranscript = [...existingLines, ...newLines];
-
-        await this.db
-          .update(agentTranscriptsTable)
-          .set({
-            transcript: mergedTranscript,
-            endedAt: endedAt ?? undefined,
-            lastIngestedJsonlTimestamp: latestTs ?? undefined,
-            ingestedAt: new Date(),
-          })
-          .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId));
-      } else {
-        // First ingest for this session.
-        await this.db.insert(agentTranscriptsTable).values({
+      await this.db
+        .insert(agentTranscriptsTable)
+        .values({
           agentSessionId,
           harness,
           transcript: newLines,
@@ -135,8 +115,16 @@ export class AgentTranscriptIngestService {
           projectDir: deriveProjectDir(jsonlPath),
           lastIngestedJsonlTimestamp: latestTs ?? undefined,
           ingestedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: agentTranscriptsTable.agentSessionId,
+          set: {
+            transcript: sql`COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb) || EXCLUDED.transcript`,
+            endedAt: sql`EXCLUDED.ended_at`,
+            lastIngestedJsonlTimestamp: sql`EXCLUDED.last_ingested_jsonl_timestamp`,
+            ingestedAt: sql`EXCLUDED.ingested_at`,
+          },
         });
-      }
     } catch (err) {
       log.error(`Failed to upsert transcript for session ${agentSessionId}`, {
         error: getErrorMessage(err),

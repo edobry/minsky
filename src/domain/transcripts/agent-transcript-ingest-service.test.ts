@@ -125,21 +125,54 @@ function makeDb(state: Map<string, FakeRow>) {
 
     insert(_table: unknown) {
       return {
-        values(values: Partial<FakeRow> & { agentSessionId: string }): Promise<void> {
+        values(values: Partial<FakeRow> & { agentSessionId: string }) {
           const sid = values.agentSessionId;
           currentSid = sid;
-          state.set(sid, {
-            agentSessionId: sid,
-            harness: values.harness ?? "claude_code",
-            transcript: (values.transcript ?? []) as RawTurnLine[],
-            startedAt: values.startedAt ?? null,
-            endedAt: values.endedAt ?? null,
-            cwd: values.cwd ?? null,
-            projectDir: values.projectDir ?? null,
-            lastIngestedJsonlTimestamp: values.lastIngestedJsonlTimestamp ?? null,
-            ingestedAt: values.ingestedAt ?? new Date(),
-          });
-          return Promise.resolve();
+
+          // Plain-insert path: awaiting `.values(...)` directly performs the insert
+          // and overwrites any existing row (matches drizzle's INSERT semantics).
+          const doPlainInsert = (): Promise<void> => {
+            state.set(sid, {
+              agentSessionId: sid,
+              harness: values.harness ?? "claude_code",
+              transcript: (values.transcript ?? []) as RawTurnLine[],
+              startedAt: values.startedAt ?? null,
+              endedAt: values.endedAt ?? null,
+              cwd: values.cwd ?? null,
+              projectDir: values.projectDir ?? null,
+              lastIngestedJsonlTimestamp: values.lastIngestedJsonlTimestamp ?? null,
+              ingestedAt: values.ingestedAt ?? new Date(),
+            });
+            return Promise.resolve();
+          };
+
+          // Returns a thenable so plain `await db.insert(...).values(...)` still
+          // works, but also exposes `.onConflictDoUpdate(...)` for the upsert
+          // path. The fake doesn't introspect the conflict target or the SQL
+          // expressions in `set`; it hard-codes the production convention:
+          // transcript is JSONB-array concatenated, scalar fields are copied
+          // from EXCLUDED (i.e. the inserted values).
+          return {
+            then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
+              doPlainInsert().then(resolve, reject),
+            onConflictDoUpdate(_opts: unknown): Promise<void> {
+              const existing = state.get(sid);
+              if (!existing) return doPlainInsert();
+              const concatenated: RawTurnLine[] = [
+                ...(existing.transcript ?? []),
+                ...((values.transcript ?? []) as RawTurnLine[]),
+              ];
+              state.set(sid, {
+                ...existing,
+                transcript: concatenated,
+                endedAt: values.endedAt ?? existing.endedAt,
+                lastIngestedJsonlTimestamp:
+                  values.lastIngestedJsonlTimestamp ?? existing.lastIngestedJsonlTimestamp,
+                ingestedAt: values.ingestedAt ?? new Date(),
+              });
+              return Promise.resolve();
+            },
+          };
         },
       };
     },
@@ -349,14 +382,22 @@ describe("AgentTranscriptIngestService", () => {
       const state = new Map<string, FakeRow>();
       const db = makeDb(state);
 
-      // Make the first insert throw.
-      let insertCount = 0;
+      // Make the first upsert throw. Production code awaits
+      // `.insert(...).values(...).onConflictDoUpdate(...)`, so the override
+      // must surface the simulated error from the awaited terminal call.
+      let upsertCount = 0;
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
-        values: (values: Partial<FakeRow> & { agentSessionId: string }): Promise<void> => {
-          insertCount++;
-          if (insertCount === 1) return Promise.reject(new Error("simulated DB error"));
-          return origInsert(_table).values(values);
+        values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
+          const realChain = origInsert(_table).values(values);
+          return {
+            then: realChain.then.bind(realChain),
+            onConflictDoUpdate: (opts: unknown): Promise<void> => {
+              upsertCount++;
+              if (upsertCount === 1) return Promise.reject(new Error("simulated DB error"));
+              return realChain.onConflictDoUpdate(opts);
+            },
+          };
         },
       });
 
