@@ -27,20 +27,66 @@ railway up --detach -m "Initial deploy"
 
 Railway auto-detects the `Dockerfile` at repo root and builds from it.
 
-## Set environment variables
+## Managing environment variables (canonical path)
+
+**Use the TypeScript synthesizer (`scripts/railway/apply.ts`), not `railway variables --set`.**
+
+All production env-var state for `minsky-mcp` is captured in `services/minsky-mcp/railway.config.ts`. Changes go through that file and are applied via the synthesizer. Direct `railway variables --set` calls are error-prone (no audit trail, no idempotency, values can drift silently) and should not be used for ongoing management.
+
+### Synthesizer workflow
+
+```bash
+# Preview changes (dry-run — default)
+bun scripts/railway/apply.ts services/minsky-mcp
+
+# Apply changes
+bun scripts/railway/apply.ts services/minsky-mcp --execute
+```
+
+The synthesizer:
+
+1. Reads `services/minsky-mcp/railway.config.ts` (desired state)
+2. Fetches current Railway variables via GraphQL (actual state)
+3. Computes a typed diff and prints it
+4. On `--execute`: applies the diff via `railway environment edit --json` and reads back to confirm
+
+### Secret handling
+
+Secret variables (tagged `secret("ENV_VAR_NAME")` in the config) are resolved at apply-time from:
+
+1. `process.env[ENV_VAR_NAME]` (highest priority)
+2. `~/.config/minsky/railway-secrets.json` (fallback)
+3. Hard failure if neither source has the value
+
+To populate `~/.config/minsky/railway-secrets.json`, create it manually with the actual secret values:
+
+```json
+{
+  "MINSKY_MCP_AUTH_TOKEN": "<token>",
+  "MINSKY_GITHUB_APP_PRIVATE_KEY": "<private-key-pem>",
+  "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url>",
+  "MINSKY_POSTGRES_URL": "<supabase-url>",
+  "MINSKY_SESSIONDB_POSTGRES_URL": "<supabase-url>",
+  "OPENAI_API_KEY": "<key>"
+}
+```
+
+Secret vars are applied with `isSealed: true` on Railway — after sealing, the Railway dashboard and CLI hide the value (write-only). The synthesizer handles idempotency: if a var is already sealed on Railway, it classifies as NO-CHANGE without comparing values (sealed vars return `null` from the GraphQL API).
+
+### Initial setup (one-time only)
+
+For a brand-new Railway service with no variables set, the legacy `railway variables --set` form is acceptable for initial bootstrap:
 
 ```bash
 # Auth — REQUIRED when using the --require-auth flag (which the default Dockerfile CMD enables)
 railway variables --set MINSKY_MCP_AUTH_TOKEN=<output-of-openssl-rand-hex-32>
 
-# Persistence — BOTH vars required. The backend selector and the connection string must
-# be set together; `MINSKY_PERSISTENCE_POSTGRES_URL` alone does not flip the backend.
+# Persistence — BOTH vars required.
 railway variables --set MINSKY_PERSISTENCE_BACKEND=postgres
 railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-url>
-
-# Any other Minsky config env vars your setup uses (GitHub tokens, OpenAI keys, etc.)
-# The MCP server runs the same tools as the CLI, so it needs the same env.
 ```
+
+After initial bootstrap, switch to the synthesizer: run a dry-run to verify the config file matches production state, then use `--execute` for all subsequent changes.
 
 > **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
 >
