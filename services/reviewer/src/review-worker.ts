@@ -773,20 +773,32 @@ function annotateReviewBody(
  *     transient, 401/403 auth scope, etc.)
  *   - `name` — usually "HttpError" or similar; helps distinguish thrown class
  *   - `code` — node error code if the throw originated below octokit
+ *   - `stack` — truncated to STACK_MAX_LEN to bound log line size
  *
  * Reducing every catch to `.message` loses these. This helper picks them out
  * when present and falls back to `String(err)` otherwise. Output is bounded by
  * letting the caller's `JSON.stringify` cap natural object size; the fields
- * we extract are all small primitives.
+ * we extract are all small primitives + a truncated stack.
+ *
+ * Exported for unit testing (mt#1370 R3 BLOCKING).
  */
-function serializeSubmitError(err: unknown): {
+const STACK_MAX_LEN = 1024;
+
+export function serializeSubmitError(err: unknown): {
   name?: string;
   message: string;
   status?: number | string;
   code?: string;
+  stack?: string;
 } {
   if (err instanceof Error) {
-    const out: { name?: string; message: string; status?: number | string; code?: string } = {
+    const out: {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+      stack?: string;
+    } = {
       name: err.name,
       message: err.message,
     };
@@ -798,6 +810,12 @@ function serializeSubmitError(err: unknown): {
     }
     if (typeof errObj.code === "string") {
       out.code = errObj.code;
+    }
+    if (typeof err.stack === "string" && err.stack.length > 0) {
+      out.stack =
+        err.stack.length > STACK_MAX_LEN
+          ? `${err.stack.slice(0, STACK_MAX_LEN)}...[truncated]`
+          : err.stack;
     }
     return out;
   }
