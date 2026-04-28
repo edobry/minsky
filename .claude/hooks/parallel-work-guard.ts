@@ -199,8 +199,19 @@ const FETCH_OPEN_PRS_LIMIT = 200;
  * Per-subprocess timeout in milliseconds for gh/git calls. The PreToolUse
  * hook has a 30s overall budget; per-call caps prevent a single slow
  * subprocess from consuming it. Treat timeouts as warnings (fail-open).
+ *
+ * Lowered from 10s to 5s so that even degraded per-PR lookups can't
+ * cumulatively blow the 30s budget across 200 sequential calls.
  */
-const GH_GIT_TIMEOUT_MS = 10_000;
+const GH_GIT_TIMEOUT_MS = 5_000;
+
+/**
+ * Overall wall-clock budget (in ms) for `checkOpenPrs` to scan its slice
+ * of the PR list. Headroom under the 30s PreToolUse hook timeout. When
+ * the elapsed time approaches this, the sweep stops early with a warning
+ * rather than risking a SIGTERM mid-call.
+ */
+const OPEN_PR_SWEEP_BUDGET_MS = 25_000;
 
 /**
  * Fetch open PRs from the repository.
@@ -291,23 +302,34 @@ export function fetchPrFiles(repo: string, prNumber: number, warnings: string[] 
 
 /**
  * Check if any of the `inScopeFiles` patterns overlap with `prFiles`.
- * Both are treated as path prefixes / path suffixes for fuzzy matching.
+ *
+ * Match semantics: exact file equality OR directory-prefix bounded by a
+ * path separator (`/`). The boundary is critical — a boundary-less prefix
+ * check would false-match `src/app` against `src/application/config.ts`,
+ * blocking valid sessions.
+ *
+ * Both directions are checked: a scope entry may be either a file
+ * (matched as equality) or a directory (matched via `${normalizedScope}/`
+ * prefix on prFile, or vice versa if the PR's file list happens to
+ * include directory entries).
+ *
+ * Trailing slashes are normalized away on both sides so `src/foo/` and
+ * `src/foo` behave identically.
  */
 export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]): string[] {
   const overlapping: string[] = [];
+  const normalize = (p: string): string => p.replace(/^\.\//, "").replace(/\/$/, "");
   for (const scopeFile of inScopeFiles) {
-    // Normalize: remove leading ./
-    const normalizedScope = scopeFile.replace(/^\.\//, "");
-    for (const prFile of prFiles) {
-      if (
-        prFile === normalizedScope ||
-        prFile.startsWith(normalizedScope) ||
-        prFile.startsWith(`${normalizedScope}/`) ||
-        normalizedScope.startsWith(prFile) ||
-        normalizedScope.startsWith(`${prFile}/`)
-      ) {
-        if (!overlapping.includes(prFile)) {
-          overlapping.push(prFile);
+    const normalizedScope = normalize(scopeFile);
+    for (const rawPrFile of prFiles) {
+      const normalizedPrFile = normalize(rawPrFile);
+      const matches =
+        normalizedPrFile === normalizedScope ||
+        normalizedPrFile.startsWith(`${normalizedScope}/`) ||
+        normalizedScope.startsWith(`${normalizedPrFile}/`);
+      if (matches) {
+        if (!overlapping.includes(rawPrFile)) {
+          overlapping.push(rawPrFile);
         }
         break;
       }
@@ -368,10 +390,11 @@ export function checkOpenPrs(
   const prs = fetchPrs(input.repo);
   const collisions: ParallelWorkCollision[] = [];
 
-  // Bound the per-PR sweep so we don't blow past the 30s hook timeout in
-  // repos with hundreds of open PRs. 200 covers the realistic working set
-  // and matches the open-PR fetch upper bound from `gh api` pagination;
-  // beyond that we warn and stop scanning.
+  // Bound the per-PR sweep two ways:
+  //   1. Hard cap at MAX_PRS_TO_SCAN (200) — server-side limit matches.
+  //   2. Wall-clock budget — stop early if cumulative scan time approaches
+  //      the 30s hook timeout, so we always emit a structured allow/deny
+  //      rather than getting SIGTERM'd mid-call.
   const MAX_PRS_TO_SCAN = 200;
   const prsToScan = prs.slice(0, MAX_PRS_TO_SCAN);
   if (prs.length > MAX_PRS_TO_SCAN) {
@@ -380,13 +403,25 @@ export function checkOpenPrs(
     );
   }
 
+  const sweepStart = Date.now();
+  let scannedCount = 0;
+  let abortedForBudget = false;
+
   for (const pr of prsToScan) {
+    // Time-budget check — fire BEFORE the next subprocess so we never
+    // start a call we can't afford to finish.
+    if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) {
+      abortedForBudget = true;
+      break;
+    }
+
     // Skip the task's own branch via robust detection (handles non-standard naming)
     if (isOwnBranch(pr.headRefName, input.taskId, currentBranch)) {
       continue;
     }
 
     const prFiles = fetchFiles(input.repo, pr.number, warnings);
+    scannedCount += 1;
     const overlapping = findOverlappingFiles(input.inScopeFiles, prFiles);
 
     if (overlapping.length > 0) {
@@ -397,6 +432,14 @@ export function checkOpenPrs(
         overlappingFiles: overlapping,
       });
     }
+  }
+
+  if (abortedForBudget) {
+    warnings.push(
+      `Open-PR sweep aborted at ${scannedCount} of ${prsToScan.length} PRs after ${Math.round(
+        (Date.now() - sweepStart) / 1000
+      )}s (partial scan; 30s hook budget approaching)`
+    );
   }
 
   return collisions;

@@ -186,6 +186,23 @@ describe("findOverlappingFiles", () => {
     // Should deduplicate
     expect(result.length).toBe(1);
   });
+
+  it("does NOT false-match adjacent path prefixes (round-8 BLOCKING fix)", () => {
+    // Reviewer-bot round 8: prFile.startsWith(scope) without slash boundary
+    // false-matched `src/app` against `src/application/config.ts`. This test
+    // pins the boundary semantics in place.
+    expect(findOverlappingFiles(["src/app"], ["src/application/config.ts"])).toHaveLength(0);
+    expect(findOverlappingFiles(["src/foo"], ["src/foobar/file.ts"])).toHaveLength(0);
+    // Symmetric direction also boundary-bounded
+    expect(findOverlappingFiles(["src/application/config.ts"], ["src/app"])).toHaveLength(0);
+  });
+
+  it("DOES match exact files and proper directory prefixes", () => {
+    const APP_INDEX = "src/app/index.ts";
+    expect(findOverlappingFiles([APP_INDEX], [APP_INDEX])).toHaveLength(1);
+    expect(findOverlappingFiles(["src/app"], [APP_INDEX])).toHaveLength(1);
+    expect(findOverlappingFiles(["src/app/"], [APP_INDEX])).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
