@@ -256,16 +256,38 @@ export const sessionUpdateCommandParams = {
 };
 
 /**
- * Session approve command parameters
+ * Session approve command parameters.
+ * Only includes fields relevant to the approve action (not merge-only flags).
  */
 export const sessionApproveCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+};
+
+/**
+ * Session merge command parameters.
+ * Extends the approve base with merge-only flags.
+ */
+export const sessionMergeCommandParams = {
+  ...sessionApproveCommandParams,
   skipCleanup: {
     schema: z.boolean(),
     description: "Skip session cleanup after merge (preserves session files)",
+    required: false,
+    defaultValue: false,
+  },
+  acceptStaleReviewerSilence: {
+    schema: z.boolean(),
+    description:
+      "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). " +
+      "All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; " +
+      "(2) at least one COMMENTED review from the same identity as the PR author must exist; " +
+      "(3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); " +
+      "(4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; " +
+      "(5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. " +
+      "Emits an audit log entry at INFO level when the waiver is applied. Default: false.",
     required: false,
     defaultValue: false,
   },
@@ -682,26 +704,9 @@ export const sessionPrReviewSubmitCommandParams = {
         line: z.number().int().positive(),
         body: z.string().min(1),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
-        /**
-         * First line of a multi-line range (1-based, inclusive).
-         * Must be strictly less than `line`. Omit for single-line comments.
-         */
-        startLine: z.number().int().positive().optional(),
-        /**
-         * Diff side for the start of a multi-line range.
-         * Must equal `side` when both are provided. When only startSide is
-         * provided, `side` is inferred from it (and vice versa) — see the
-         * comments description for full defaulting rules.
-         */
-        startSide: z.enum(["LEFT", "RIGHT"]).optional(),
       })
     ),
-    description:
-      "Optional inline line-level comments. Each comment may span a range by providing " +
-      "startLine (first line, inclusive) in addition to line (last line, inclusive). " +
-      "Side defaulting: when both side and startSide are provided they must match (or " +
-      "the comment is rejected); when only one is provided the other inherits from it; " +
-      "when both are omitted, side defaults to RIGHT.",
+    description: "Optional inline line-level comments",
     required: false,
   },
   json: commonSessionParams.json,
