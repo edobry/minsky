@@ -569,13 +569,14 @@ export async function runReview(
     try {
       await submitReview(octokit, owner, repo, prNumber, "COMMENT", skipNotice);
     } catch (submitErr) {
-      console.error(
+      console.log(
         JSON.stringify({
           event: "reviewer.submit_skip_notice_failed",
           prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
+          sha: pr.headSha, // canonical field name (aligned with reviewer.cot_leak_detected)
+          commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
           primaryReason: validation.reason,
-          submitError: submitErr instanceof Error ? submitErr.message : String(submitErr),
+          submitError: serializeSubmitError(submitErr),
           provider: output.provider,
           model: output.model,
         })
@@ -652,14 +653,15 @@ export async function runReview(
       // primary outcome.reason in Railway logs — operators cannot tell whether
       // the bot tried-and-failed or never tried at all. Symptom case: PR #830
       // 2026-04-27, second commit 7e7be76a9 silent for 11+ minutes.
-      console.error(
+      console.log(
         JSON.stringify({
           event: "reviewer.submit_error_notice_failed",
           prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
+          sha: pr.headSha, // canonical field name (aligned with reviewer.cot_leak_detected)
+          commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
           primaryReason: outcome.reason,
           sanitizeReason: sanitized.meta.reason,
-          submitError: submitErr instanceof Error ? submitErr.message : String(submitErr),
+          submitError: serializeSubmitError(submitErr),
           provider: output.provider,
           model: output.model,
         })
@@ -761,4 +763,43 @@ function annotateReviewBody(
     }\n\n---\n\n`;
 
   return header + text;
+}
+
+/**
+ * Serialize a submitReview error into a structured-log-safe payload.
+ *
+ * Octokit errors carry diagnostically valuable fields beyond `.message`:
+ *   - `status` — HTTP status (rate limit signals as 403 + specific body, 5xx
+ *     transient, 401/403 auth scope, etc.)
+ *   - `name` — usually "HttpError" or similar; helps distinguish thrown class
+ *   - `code` — node error code if the throw originated below octokit
+ *
+ * Reducing every catch to `.message` loses these. This helper picks them out
+ * when present and falls back to `String(err)` otherwise. Output is bounded by
+ * letting the caller's `JSON.stringify` cap natural object size; the fields
+ * we extract are all small primitives.
+ */
+function serializeSubmitError(err: unknown): {
+  name?: string;
+  message: string;
+  status?: number | string;
+  code?: string;
+} {
+  if (err instanceof Error) {
+    const out: { name?: string; message: string; status?: number | string; code?: string } = {
+      name: err.name,
+      message: err.message,
+    };
+    // Octokit attaches `status` (number) and sometimes `code` to the error
+    // object; check via narrow object access without changing the static type.
+    const errObj = err as Error & { status?: unknown; code?: unknown };
+    if (typeof errObj.status === "number" || typeof errObj.status === "string") {
+      out.status = errObj.status;
+    }
+    if (typeof errObj.code === "string") {
+      out.code = errObj.code;
+    }
+    return out;
+  }
+  return { message: String(err) };
 }
