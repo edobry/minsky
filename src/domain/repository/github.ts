@@ -484,10 +484,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
           : "No changes to push or push failed",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      // Prefer the original `stderr` field when present (preserved by mt#1356's
+      // propagate-raw policy in pushImpl); fall back to `message`. This keeps
+      // the user-facing message free of the exec wrapper prefix
+      // ("Command failed: git -C ...") that surrounds raw exec errors.
+      const errObj = error as { stderr?: unknown; message?: unknown };
+      const stderr = typeof errObj.stderr === "string" ? errObj.stderr.trim() : "";
+      const message = stderr || (error instanceof Error ? error.message : String(error));
       return {
         success: false,
-        message: `Failed to push to repository: ${normalizedError.message}`,
+        message: `Failed to push to repository: ${message}`,
       };
     }
   }
