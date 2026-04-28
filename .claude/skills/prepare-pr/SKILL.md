@@ -99,22 +99,30 @@ The `title` parameter you pass to `session_pr_create` is **description-only**. T
 
 **Author input rules (what you pass as `title:`):**
 
-- **Do NOT include** conventional commit prefixes (`feat:`, `fix:`)
-- **Do NOT include** task IDs (`(mt#123)`)
-- Keep it short and descriptive
+- **Do NOT include** conventional commit prefixes — any of `feat:`, `fix:`, `docs:`, `feat(scope):`, etc.
+- **Do NOT include** task-ID prefixes — `mt#123:`, `md#409:`, `gh#42:`, `mt-123:`, or the bare `#123:` form. The composer's `TASK_ID_PREFIX_RE` matches all of these.
+- Keep it short and descriptive.
 
-The tool's `composeConventionalTitle` helper rejects pre-prefixed input (`Title should be description only. Do not include conventional prefix...`), so a violation here surfaces as a tool error, not as a silent format drift.
+**Tool behavior on violation** (in `src/adapters/shared/commands/session/pr-conventional-title.ts`):
+
+- **Conventional prefix** (`feat:`, `fix:` etc.): the helper throws `ValidationError` with message `Title should be description only — the prefix \`${autoPrefix}\` will be added automatically. Pass title without that prefix.` So this surfaces as a tool error, not silent drift.
+- **Task-ID prefix when you pass `task:` and the prefix matches** (e.g., `title: "mt#123: foo"` + `task: "mt#123"`): the prefix is silently stripped before composition. Final title becomes `feat(mt#123): foo`.
+- **Task-ID prefix when you pass `task:` and the prefix mismatches** (e.g., `title: "md#409: foo"` + `task: "mt#123"`): the helper throws `ValidationError` (`"Title task-ID prefix \`md#409:\` does not match supplied taskId (mt#123)..."`). Project-code mismatch (md vs mt) and digit mismatch are both caught.
+- **Task-ID prefix when you do NOT pass `task:`** (e.g., `title: "#123: foo"` with no `task` parameter): the prefix is **preserved verbatim** — the helper can't validate against a missing reference, so it doesn't strip. Visible title becomes `feat: #123: foo`. Avoid this; pass `task:` so the helper can deduplicate.
+
+(`session_pr_create` accepts `task:` in its parameters and passes it through to the composer as `taskId:`. They're the same thing under different names.)
 
 **What the visible PR title looks like (composed by the tool):**
 
-The visible title on GitHub will be `<type>(<task-id>): <your description>`. This is intentional and follows conventional commits.
+The visible title on GitHub depends on whether `task:` was supplied:
 
 | You pass                                                                     | GitHub displays                                 |
 | ---------------------------------------------------------------------------- | ----------------------------------------------- |
 | `title: "Add session file read MCP tool"`, `type: "feat"`, `task: "mt#123"`  | `feat(mt#123): Add session file read MCP tool`  |
 | `title: "Mask credentials in config.show"`, `type: "fix"`, `task: "mt#1262"` | `fix(mt#1262): Mask credentials in config.show` |
+| `title: "Add new feature"`, `type: "feat"` (no `task:`)                      | `feat: Add new feature`                         |
 
-If a reviewer flags the visible PR title for "containing a conventional prefix or task ID," they're misreading this rule — the rule applies to author input, not to what GitHub displays. The visible composition is correct and intentional.
+This is intentional and follows conventional commits. If a reviewer flags the visible PR title for "containing a conventional prefix or task ID," they're misreading this rule — the rule applies to author input, not to what GitHub displays. The visible composition is correct and intentional.
 
 ### 5. Create the PR
 
