@@ -537,6 +537,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.PROVENANCE,
       CommandCategory.AUTHORSHIP,
       CommandCategory.WORKSPACE,
+      CommandCategory.TRANSCRIPTS,
     ],
     ...config,
   });

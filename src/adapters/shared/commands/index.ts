@@ -29,6 +29,7 @@ import { registerProvenanceCommands } from "./provenance";
 import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
+import { registerTranscriptCommands } from "./transcripts";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -106,6 +107,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register workspace commands (workspace.info — always available, no setup required)
   registerWorkspaceCommands();
 
+  // Register transcript commands (transcripts.ingest — mt#1351)
+  registerTranscriptCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -135,4 +139,5 @@ export {
   registerAuthorshipCommands,
   registerCompileCommands,
   registerWorkspaceCommands,
+  registerTranscriptCommands,
 };
