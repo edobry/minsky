@@ -155,6 +155,30 @@ describe("parsePrRef", () => {
     });
   });
 
+  test("tolerates query string after pull number (e.g. ?diff=split)", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787?diff=split")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates fragment after pull number (e.g. #discussion-r12345)", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787#discussion-r12345")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates combined query and fragment after pull number", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787?w=1#issuecomment-999")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
   // ------------------------------------------------------------------
   // Rejection cases
   // ------------------------------------------------------------------

@@ -68,8 +68,9 @@ interface ParsedPrRef {
  * 2. Full URL (https/http): `https://github.com/<owner>/<repo>/pull/<N>[/...]`
  * 3. URL without scheme:    `github.com/<owner>/<repo>/pull/<N>[/...]`
  *
- * Trailing path segments after the PR number are tolerated (e.g. `/files`,
- * `/commits`) so that copy-pasted GitHub URLs with extra path info work too.
+ * Trailing path segments, query strings, and fragments after the PR number are
+ * tolerated (e.g. `/files`, `?diff=split`, `#discussion-r12345`) so that
+ * copy-pasted GitHub URLs with extra path info work too.
  * Only `github.com` host matches — gitlab.com and other forges do not.
  * Only `/pull/` path segment matches — `/issues/` and other paths do not.
  */
@@ -77,9 +78,9 @@ const PR_REF_PATTERNS = [
   // Colon-prefixed form: github-pr:owner/repo/123
   /^github-pr:([^/]+)\/([^/]+)\/(\d+)$/,
   // URL form with scheme: https://github.com/owner/repo/pull/123 (also accept http://)
-  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/,
+  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/,
   // URL form without scheme: github.com/owner/repo/pull/123
-  /^github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/,
+  /^github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/,
 ];
 
 /**
