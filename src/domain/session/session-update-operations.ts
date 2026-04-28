@@ -164,6 +164,11 @@ export async function updateSessionImpl(
       }
     }
 
+    // Tracks whether a merge is currently in progress (conflict markers in working tree).
+    // When true, popStash must be skipped: git stash pop during an in-progress merge
+    // is refused by git or corrupts the working tree.
+    let mergeInProgress = false;
+
     try {
       // Fetch latest changes
       log.debug("Fetching latest changes", { workdir, remote: remote || "origin" });
@@ -336,6 +341,10 @@ export async function updateSessionImpl(
             updateResult.conflictedFiles.forEach((f) => log.cli(`   ${f}`));
             log.cli("\nUse session_edit_file or session_search_replace to resolve,");
             log.cli("then run session_commit to complete the merge.");
+
+            // Signal that a merge is now in-progress so the catch block skips popStash.
+            // git stash pop during an active merge is refused or corrupts the working tree.
+            mergeInProgress = true;
           }
 
           throw new MinskyError(conflictMessage);
@@ -384,8 +393,11 @@ export async function updateSessionImpl(
 
       return sessionRecord as Session;
     } catch (error) {
-      // If there's an error during update, try to clean up any stashed changes
-      if (!noStash) {
+      // If there's an error during update, try to clean up any stashed changes.
+      // Exception: when a merge is in-progress (conflict markers in working tree),
+      // skip popStash — git refuses or corrupts the working tree when popping a
+      // stash during an active merge.
+      if (!noStash && !mergeInProgress) {
         try {
           await deps.gitService.popStash(workdir);
           log.debug("Restored stashed changes after error");

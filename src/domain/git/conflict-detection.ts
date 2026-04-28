@@ -320,24 +320,46 @@ export class ConflictDetectionService {
             prediction,
           };
         } catch (mergeError) {
-          // Check for conflicts
+          // Check for conflicts by parsing the full set of conflict status codes.
+          // porcelain v1 can quote paths with spaces (surrounding double-quotes)
+          // and uses "old -> new" notation for renames. We strip quotes and take
+          // the destination path for renames so callers get a clean file list.
           const statusResult = await this.deps.execAsync(`git -C ${repoPath} status --porcelain`);
           const status = String(statusResult?.stdout || "");
-          const hasConflicts =
-            status.includes("UU") || status.includes("AA") || status.includes("DD");
+
+          // Collect the list of conflicted file paths from git status output.
+          // This is the authoritative source — hasConflicts is derived from it
+          // rather than being computed separately so both stay in sync.
+          const conflictedFiles = status
+            .split("\n")
+            .filter((line) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(line))
+            .map((line) => {
+              // Slice off the two-char XY code plus the space separator
+              let rawPath = line.slice(3).trim();
+              // Strip surrounding double-quotes added by git for paths with spaces
+              if (rawPath.startsWith('"') && rawPath.endsWith('"')) {
+                rawPath = rawPath.slice(1, -1);
+              }
+              // For renames ("old -> new"), take the destination path
+              const renameSep = rawPath.indexOf(" -> ");
+              if (renameSep !== -1) {
+                rawPath = rawPath.slice(renameSep + 4).trim();
+                // Strip quotes on the destination side too
+                if (rawPath.startsWith('"') && rawPath.endsWith('"')) {
+                  rawPath = rawPath.slice(1, -1);
+                }
+              }
+              return rawPath;
+            })
+            .filter(Boolean);
+
+          const hasConflicts = conflictedFiles.length > 0;
 
           if (hasConflicts) {
             // Leave the merge in progress so conflict markers remain in the
             // working tree. Agents can resolve them via session_edit_file /
             // session_search_replace and then commit.
             // Do NOT call git merge --abort here.
-
-            // Collect the list of conflicted file paths from git status output
-            const conflictedFiles = status
-              .split("\n")
-              .filter((line) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(line))
-              .map((line) => line.slice(3).trim())
-              .filter(Boolean);
 
             return {
               workdir: repoPath,

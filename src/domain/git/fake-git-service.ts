@@ -65,6 +65,8 @@ export class FakeGitService implements GitServiceInterface {
   readonly recordedCommands: Array<{ workdir: string; command: string }> = [];
   /** All calls to push(), in order. */
   readonly pushedCalls: Array<PushOptions> = [];
+  /** All calls to popStash(), in order (repoPath values). */
+  readonly popStashCalls: Array<string> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -103,6 +105,7 @@ export class FakeGitService implements GitServiceInterface {
   resetCallCount(): void {
     this.recordedCommands.length = 0;
     this.pushedCalls.length = 0;
+    this.popStashCalls.length = 0;
   }
 
   /** Configure a response for a specific command pattern. First match wins. */
@@ -215,6 +218,7 @@ export class FakeGitService implements GitServiceInterface {
   }
 
   async popStash(_repoPath: string): Promise<StashResult> {
+    this.popStashCalls.push(_repoPath);
     return { workdir: this.mockWorkdir, stashed: false };
   }
 

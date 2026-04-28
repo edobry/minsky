@@ -206,6 +206,155 @@ describe("ConflictDetectionService", () => {
     });
   });
 
+  describe("mergeWithConflictPrevention — conflict status code coverage (mt#1367)", () => {
+    /**
+     * Helper that builds a ConflictDetectionService with injected deps where:
+     * - the first execAsync call (rev-parse HEAD before merge) returns a hash
+     * - the second execAsync call (the merge itself) throws to simulate a conflict
+     * - the third execAsync call (git status --porcelain after merge fails) returns statusOutput
+     */
+    function makeServiceWithStatusOutput(statusOutput: string): ConflictDetectionService {
+      let callIndex = 0;
+      const mockExecAsync = mock((_cmd: string) => {
+        callIndex++;
+        if (callIndex === 1) {
+          // git rev-parse HEAD (before merge)
+          return Promise.resolve({ stdout: "before-hash", stderr: "" });
+        }
+        if (callIndex === 2) {
+          // git merge <branch> — simulate conflict by throwing
+          return Promise.reject(new Error("merge failed: conflicts"));
+        }
+        if (callIndex === 3) {
+          // git status --porcelain
+          return Promise.resolve({ stdout: statusOutput, stderr: "" });
+        }
+        return Promise.resolve({ stdout: "", stderr: "" });
+      });
+
+      const mockDeps: ConflictDetectionDeps = {
+        execAsync: mockExecAsync as unknown as ExecAsyncFn,
+        gitFetchWithTimeout: mock(() =>
+          Promise.resolve({ stdout: "", stderr: "" })
+        ) as unknown as GitFetchFn,
+        log: { debug: mock(() => {}), warn: mock(() => {}), error: mock(() => {}) },
+      };
+
+      return new ConflictDetectionService(mockDeps);
+    }
+
+    test("AU status code surfaces as hasConflicts=true with correct file path", async () => {
+      const service = makeServiceWithStatusOutput("AU src/added-by-us.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/added-by-us.ts");
+    });
+
+    test("UA status code surfaces as hasConflicts=true with correct file path", async () => {
+      const service = makeServiceWithStatusOutput("UA src/added-by-them.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/added-by-them.ts");
+    });
+
+    test("DU status code surfaces as hasConflicts=true with correct file path", async () => {
+      const service = makeServiceWithStatusOutput("DU src/deleted-by-us.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/deleted-by-us.ts");
+    });
+
+    test("UD status code surfaces as hasConflicts=true with correct file path", async () => {
+      const service = makeServiceWithStatusOutput("UD src/deleted-by-them.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/deleted-by-them.ts");
+    });
+
+    test("UU status code continues to surface as hasConflicts=true", async () => {
+      const service = makeServiceWithStatusOutput("UU src/both-modified.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/both-modified.ts");
+    });
+
+    test("mixed AU and UU status codes all appear in conflictedFiles", async () => {
+      const service = makeServiceWithStatusOutput(
+        "UU src/content.ts\nAU src/added.ts\nUA src/theirs.ts\n"
+      );
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/content.ts");
+      expect(result.conflictedFiles).toContain("src/added.ts");
+      expect(result.conflictedFiles).toContain("src/theirs.ts");
+      expect(result.conflictedFiles).toHaveLength(3);
+    });
+
+    test("path with spaces has surrounding quotes stripped", async () => {
+      const service = makeServiceWithStatusOutput('UU "src/path with spaces.ts"\n');
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/path with spaces.ts");
+    });
+
+    test("rename status uses destination path, not old -> new literal", async () => {
+      const service = makeServiceWithStatusOutput("UU src/old-name.ts -> src/new-name.ts\n");
+      const result = await service.mergeWithConflictPrevention(
+        testRepoPath,
+        "origin/main",
+        sessionBranch,
+        { skipConflictCheck: true }
+      );
+
+      expect(result.conflicts).toBe(true);
+      expect(result.conflictedFiles).toContain("src/new-name.ts");
+      // The old path must NOT appear in the list
+      expect(result.conflictedFiles).not.toContain("src/old-name.ts");
+    });
+  });
+
   describe("smartSessionUpdate (mt#990 regression)", () => {
     const CALL_EXEC_ASYNC = "execAsync";
     const CALL_GIT_FETCH = "gitFetchWithTimeout";

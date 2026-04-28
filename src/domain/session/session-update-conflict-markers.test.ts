@@ -233,6 +233,35 @@ describe("updateSessionImpl — conflict marker preservation (mt#1367)", () => {
     expect(gitService.pushedCalls).toHaveLength(0);
   });
 
+  it("does not call popStash when merge is in-progress (B2 regression)", async () => {
+    // noStash=false means the implementation WOULD call popStash on success.
+    // But when a merge is in progress (conflictedFiles present), it must skip popStash
+    // because git stash pop is refused or corrupts the working tree during an active merge.
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [sessionRecord],
+      sessionWorkdir: WORKDIR,
+    });
+    const conflictedFiles = ["src/foo.ts"];
+    const gitService = makeConflictingGitService(conflictedFiles);
+
+    try {
+      await updateSessionImpl(
+        makeBaseParams({ noStash: false }), // noStash=false: stash would normally be restored
+        {
+          gitService,
+          sessionDB,
+          getCurrentSession: async () => undefined,
+        }
+      );
+    } catch {
+      // Expected to throw — we only care about whether popStash was called
+    }
+
+    // popStash must NOT have been called during the in-progress merge
+    expect(gitService.popStashCalls).toHaveLength(0);
+  });
+
   it("autoResolveDeleteConflicts path does not surface conflict markers (delete conflicts are auto-resolved)", async () => {
     const sessionRecord = makeSessionRecord();
     const sessionDB = new FakeSessionProvider({
