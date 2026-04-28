@@ -30,6 +30,7 @@ import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
+import { composeReviewBody } from "./compose-review";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -99,12 +100,20 @@ export interface ReviewResult {
  * must have non-empty content — otherwise GitHub shows what looks like an
  * "approved with no issues" review that is actually "model produced no content".
  *
+ * When `outputToolsActive` is true (OpenAI + output-tools path), a review with
+ * empty text but non-empty toolCalls is treated as successful — the model
+ * emitted structured output via tool calls, which is the expected behavior on
+ * that path (gpt-5 emits tool calls with output.text === "").
+ *
  * Exported for tests; runReview calls this right after the model response.
  */
 export function validateReviewOutput(
-  output: ReviewOutput
+  output: ReviewOutput,
+  outputToolsActive: boolean = false
 ): { ok: true } | { ok: false; reason: string } {
   if (output.text.trim().length > 0) return { ok: true };
+  // On the output-tools-active path, non-empty toolCalls is also a success signal.
+  if (outputToolsActive && output.toolCalls.length > 0) return { ok: true };
   const u = output.usage;
   const tokenBreakdown = u
     ? `prompt=${u.promptTokens ?? "?"} completion=${u.completionTokens ?? "?"} reasoning=${u.reasoningTokens ?? "?"} total=${u.totalTokens ?? "?"}`
@@ -168,6 +177,9 @@ export interface CallWithRetryResult {
  * Tool context (mt#1126) passes through to both attempts when provided, so
  * the retry gets the same file-access capabilities as the first call.
  *
+ * When `outputToolsActive` is true, passes that flag through to
+ * `validateReviewOutput` so non-empty toolCalls count as a success signal.
+ *
  * @param callReviewerFn test seam; defaults to the real `callReviewer` from `./providers`
  */
 export async function callReviewerWithRetry(
@@ -175,10 +187,11 @@ export async function callReviewerWithRetry(
   systemPrompt: string,
   userPrompt: string,
   tools?: ReviewerToolContext,
-  callReviewerFn: CallReviewerFn = callReviewer
+  callReviewerFn: CallReviewerFn = callReviewer,
+  outputToolsActive: boolean = false
 ): Promise<CallWithRetryResult> {
   const first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
-  const firstValidation = validateReviewOutput(first);
+  const firstValidation = validateReviewOutput(first, outputToolsActive);
   if (firstValidation.ok) {
     return {
       output: first,
@@ -202,7 +215,7 @@ export async function callReviewerWithRetry(
   const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, {
     reasoningEffort: "low",
   });
-  const retryValidation = validateReviewOutput(retry);
+  const retryValidation = validateReviewOutput(retry, outputToolsActive);
   return {
     output: retry,
     validation: retryValidation,
@@ -527,7 +540,13 @@ export async function runReview(
   const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
     defaultForkAccessProbe(octokit, pr)
   );
-  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket);
+
+  // Output tools (submit_finding, conclude_review, etc.) follow the same gate
+  // as reviewer tools: OpenAI-only (mt#1399 wires them only for OpenAI). When
+  // both toolsActive and provider=openai, the model sees and uses output tools.
+  const outputToolsActive = toolsActive && config.provider === "openai";
+
+  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket, outputToolsActive);
 
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
@@ -542,12 +561,15 @@ export async function runReview(
   // callReviewerWithRetry (mt#1131) wraps callReviewer with single-retry-on-
   // empty semantics: if the first call returns empty on OpenAI, it retries
   // once with reasoningEffort="low" before giving up. Tools pass through to
-  // both attempts.
+  // both attempts. outputToolsActive is passed so validateReviewOutput treats
+  // non-empty toolCalls as a success signal on the output-tools path.
   const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
     systemPrompt,
     userPrompt,
-    toolsActive ? toolContext : undefined
+    toolsActive ? toolContext : undefined,
+    callReviewer,
+    outputToolsActive
   );
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
@@ -595,6 +617,96 @@ export async function runReview(
       priorReviewIngestion,
     };
   }
+
+  // -------------------------------------------------------------------------
+  // Post-validation flow: branch on outputToolsActive
+  //
+  // OpenAI + output-tools-active path: compose review body from toolCalls,
+  // then submit. Sanitizer runs on output.text (the scratch channel) for
+  // defensive logging only — its result never gates what is posted.
+  //
+  // All other paths (Gemini/Anthropic, or feature flag off): preserve the
+  // existing sanitize → decidePostSanitizeOutcome flow exactly as before.
+  // -------------------------------------------------------------------------
+
+  if (outputToolsActive) {
+    // Compose the structured review body from tool calls.
+    const composed = composeReviewBody(output.toolCalls);
+
+    // Structural blockingCount: count submit_finding calls with severity=BLOCKING.
+    // No regex needed — the data is already parsed and typed.
+    const blockingCount = output.toolCalls.filter(
+      (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+    ).length;
+
+    // Self-review override: structural event from composeReviewBody, but force
+    // COMMENT when the reviewer identity matches the PR author (GitHub blocks
+    // self-approval at the platform level — same rule as the prose path).
+    const event = isSelfReview ? "COMMENT" : composed.event;
+
+    // Defensive sanitizer logging: run the sanitizer on output.text (the
+    // free-text scratch channel). If it fires, emit a structured log event
+    // so operators can see CoT leakage via the scratch channel — but do NOT
+    // use the sanitizer's result to gate what is posted. The tool calls are
+    // the authoritative output on this path.
+    const scratchSanitized = sanitizeReviewBody(output.text);
+    if (scratchSanitized.action !== "passthrough") {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.cot_leak_detected_in_scratch",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          originalLength: scratchSanitized.meta.originalLength,
+          cleanedLength: scratchSanitized.meta.cleanedLength,
+          reason: scratchSanitized.meta.reason,
+          provider: output.provider,
+          model: output.model,
+        })
+      );
+    }
+
+    const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
+    const review = await submitReview(octokit, owner, repo, prNumber, event, reviewBody);
+
+    const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
+      (acc, n) => acc + n,
+      0
+    );
+    const acknowledgedCount = countAcknowledgedFindings(composed.body);
+    console.log(
+      JSON.stringify(
+        buildConvergenceMetricLog(
+          pr.number,
+          pr.headSha,
+          priorReviewIngestion.iterationCount + 1,
+          priorBlockerTotal,
+          blockingCount,
+          acknowledgedCount
+        )
+      )
+    );
+
+    const reviewerLogin = reviewerIdentity.login;
+    return {
+      status: "reviewed",
+      review,
+      reason: `Posted ${event} review as ${reviewerLogin} (provider=${output.provider}, model=${output.model}, attempt=${attempt}) [output-tools]`,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+      attempt,
+      retryAttempted,
+      taskSpecFetch,
+      scope: prScope,
+      priorReviewIngestion,
+      blockingCount,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Prose path (non-OpenAI or output-tools-off): CoT-leakage guard + sanitize
+  // -------------------------------------------------------------------------
 
   // CoT-leakage guard (mt#1212): detect model scratch leaking into the visible
   // review body. Distinct from the empty-output guard above — here the model

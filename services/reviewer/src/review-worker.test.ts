@@ -23,6 +23,10 @@ import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
 import type { PriorReview } from "./prior-review-summary";
 
+// Shared constant for the first-attempt trace string — used in multiple
+// describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
+const ATTEMPT_FIRST_SUCCESS = "first-attempt-success" as const;
+
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
     expect(parseReviewEvent("Approves cleanly.\n\nREQUEST_CHANGES", true)).toBe("COMMENT");
@@ -284,7 +288,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
 
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.options).toBeUndefined();
-    expect(result.attempt).toBe("first-attempt-success");
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
     expect(result.retryAttempted).toBe(false);
     expect(result.validation.ok).toBe(true);
     expect(result.output).toBe(substantive);
@@ -440,7 +444,7 @@ describe("decidePostSanitizeOutcome", () => {
     reviewerLogin: REVIEWER_LOGIN,
     provider: "openai",
     model: "gpt-5",
-    attempt: "first-attempt-success" as const,
+    attempt: ATTEMPT_FIRST_SUCCESS,
   };
 
   const passthrough: SanitizeResult = {
@@ -1111,5 +1115,173 @@ describe("buildSubmitFailureLog", () => {
     });
     const serialized = log["submitError"] as { message: string };
     expect(serialized.message).toBe("string-throw");
+  });
+});
+
+// =============================================================================
+// validateReviewOutput — outputToolsActive path (mt#1402)
+//
+// When outputToolsActive=true, non-empty toolCalls must count as a success
+// signal even when output.text is empty — gpt-5 emits tool calls with
+// output.text === "" on the output-tools path.
+// =============================================================================
+
+describe("validateReviewOutput — outputToolsActive path", () => {
+  const baseOutput: ReviewOutput = {
+    text: "",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 5000,
+    usage: {
+      promptTokens: 3000,
+      completionTokens: 2000,
+      reasoningTokens: 1500,
+      totalTokens: 5000,
+    },
+    toolCalls: [],
+  };
+
+  test("empty text + empty toolCalls + outputToolsActive=true → fails (nothing was produced)", () => {
+    const result = validateReviewOutput(baseOutput, true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("empty content");
+    }
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → ok (tool calls are the output)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "Two blocking findings." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=false → fails (default prose path)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues found." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, false);
+    expect(result.ok).toBe(false);
+  });
+
+  test("non-empty text + non-empty toolCalls + outputToolsActive=true → ok (text passes first)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      text: "some scratch text",
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// =============================================================================
+// callReviewerWithRetry — outputToolsActive forwarding (mt#1402)
+//
+// Verify that the outputToolsActive flag is forwarded to validateReviewOutput
+// so non-empty toolCalls count as success on the output-tools path.
+// =============================================================================
+
+describe("callReviewerWithRetry — outputToolsActive forwarding", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  type Invocation = { options?: import("./providers").CallReviewerOptions };
+  function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      const next = outputs[i];
+      if (next === undefined) {
+        throw new Error(`fakeReviewer ran out of outputs (invocation ${i + 1})`);
+      }
+      i++;
+      return next;
+    };
+  }
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → first-attempt-success, no retry", async () => {
+    const invocations: Invocation[] = [];
+    const output: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "BLOCKING",
+            file: "src/foo.ts",
+            line: 1,
+            summary: "Null check missing",
+            details: "The condition fails when x is null.",
+          },
+        },
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "One blocking issue found." },
+        },
+      ],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([output], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(true);
+  });
+
+  test("empty text + empty toolCalls + outputToolsActive=true → retry attempted (still empty)", async () => {
+    const invocations: Invocation[] = [];
+    const emptyOutput: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([emptyOutput, emptyOutput], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(2);
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(false);
   });
 });
