@@ -463,6 +463,78 @@ describe("OUTPUT_TOOL_DEFINITIONS", () => {
 });
 
 // ---------------------------------------------------------------------------
+// String min-length enforcement (mt#1404)
+// ---------------------------------------------------------------------------
+
+describe("string min-length enforcement (mt#1404)", () => {
+  test("submit_finding throws when file is empty", () => {
+    expect(() =>
+      parseToolCall(
+        TOOL_SUBMIT_FINDING,
+        JSON.stringify({
+          severity: "BLOCKING",
+          file: "",
+          line: 1,
+          summary: "x",
+          details: "y",
+        })
+      )
+    ).toThrow();
+  });
+
+  test("submit_inline_comment throws when file is empty", () => {
+    expect(() =>
+      parseToolCall(
+        TOOL_SUBMIT_INLINE_COMMENT,
+        JSON.stringify({
+          file: "",
+          line: 1,
+          body: "some comment",
+        })
+      )
+    ).toThrow();
+  });
+
+  test("submit_spec_verification throws when criterion is empty", () => {
+    expect(() =>
+      parseToolCall(
+        TOOL_SUBMIT_SPEC_VERIFICATION,
+        JSON.stringify({
+          criterion: "",
+          status: "Met",
+          evidence: "some evidence",
+        })
+      )
+    ).toThrow();
+  });
+
+  test("submit_spec_verification throws when evidence is empty", () => {
+    expect(() =>
+      parseToolCall(
+        TOOL_SUBMIT_SPEC_VERIFICATION,
+        JSON.stringify({
+          criterion: "some criterion",
+          status: "Met",
+          evidence: "",
+        })
+      )
+    ).toThrow();
+  });
+
+  test("conclude_review throws when summary is empty", () => {
+    expect(() =>
+      parseToolCall(
+        TOOL_CONCLUDE_REVIEW,
+        JSON.stringify({
+          event: "APPROVE",
+          summary: "",
+        })
+      )
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Type-level check — ReviewToolCall is a discriminated union
 // ---------------------------------------------------------------------------
 
