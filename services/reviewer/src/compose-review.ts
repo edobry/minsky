@@ -94,8 +94,15 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   const concludeCall =
     concludeCalls.length > 0 ? concludeCalls[concludeCalls.length - 1] : undefined;
 
-  const event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" =
-    concludeCall !== undefined ? concludeCall.args.event : "COMMENT";
+  // When conclude_review is absent, derive the event from severity counts:
+  // any BLOCKING finding → REQUEST_CHANGES; otherwise → COMMENT.
+  let event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  if (concludeCall !== undefined) {
+    event = concludeCall.args.event;
+  } else {
+    const blockingCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
+    event = blockingCount > 0 ? "REQUEST_CHANGES" : "COMMENT";
+  }
 
   // ------------------------------------------------------------------
   // Build body sections
@@ -104,8 +111,11 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
 
   // Section 0: Warning if no conclude_review was emitted; Section 1: Executive summary
   if (noConclude || concludeCall === undefined) {
+    const blockingCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
+    const nonBlockingCount = findings.filter((tc) => tc.args.severity === "NON-BLOCKING").length;
+    const preExistingCount = findings.filter((tc) => tc.args.severity === "PRE-EXISTING").length;
     sections.push(
-      "⚠️ **Reviewer did not emit a conclude_review call.** No executive summary or explicit verdict was produced; defaulting to COMMENT."
+      `⚠️ **Reviewer did not emit a \`conclude_review\` call.** Event derived from severity counts: ${event} (${blockingCount} BLOCKING / ${nonBlockingCount} NON-BLOCKING / ${preExistingCount} PRE-EXISTING findings). Executive summary unavailable.`
     );
   } else {
     sections.push(concludeCall.args.summary);

@@ -464,6 +464,23 @@ describe("buildCriticConstitution — output tools mode (mt#1401)", () => {
     expect(prompt).toContain("conclude_review");
   });
 
+  test("outputToolsActive=true output-tools prompt includes tightened conclude_review directive (mt#1413)", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    // The tightened language must be present: review is INCOMPLETE without conclude_review
+    expect(prompt).toContain("INCOMPLETE without");
+    // The FINAL tool call language must be present
+    expect(prompt).toContain("FINAL tool call MUST be");
+    // The consequence of failure must be stated
+    expect(prompt).toContain("will default to COMMENT regardless of your findings");
+  });
+
+  test("outputToolsActive=false (prose mode) does NOT include the tightened conclude_review directive", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    // The prose format does not use the tightened tool-emission language
+    expect(prompt).not.toContain("INCOMPLETE without");
+    expect(prompt).not.toContain("FINAL tool call MUST be");
+  });
+
   test("outputToolsActive=false (default) preserves prose output format — no submit_finding, no internal scratch", () => {
     const prompt = buildCriticConstitution(true, "normal", false);
     expect(prompt).not.toContain("submit_finding");
