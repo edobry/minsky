@@ -403,46 +403,78 @@ export function createStartCommand(
 
         log.cli("Press Ctrl+C to stop");
 
+        // Hard timeout for drain+close path (mt#1417).
+        // Configurable via PG_DRAIN_TIMEOUT_MS; defaults to 5000ms.
+        const PG_DRAIN_TIMEOUT_MS = parseInt(process.env.PG_DRAIN_TIMEOUT_MS ?? "5000", 10);
+
+        // Idempotency flag: once a shutdown race is in flight, skip re-entry.
+        let shutdownInFlight = false;
+
         // Handle termination signals gracefully
         const cleanup = async () => {
+          if (shutdownInFlight) return;
+          shutdownInFlight = true;
+
           log.cli("\nStopping Minsky MCP Server...");
-          try {
-            // Stop the scheduler first so in-flight syncs complete before closing.
-            if (scheduler) {
-              await scheduler.stop();
-              log.debug("[scheduler] Knowledge sync scheduler stopped");
+
+          // Race the drain+close path against a hard timeout so the process
+          // never hangs indefinitely (e.g. when Claude Code closes the stdio pipe
+          // without sending a signal — mt#1417).
+          const drainAndClose = async (): Promise<void> => {
+            try {
+              // Stop the scheduler first so in-flight syncs complete before closing.
+              if (scheduler) {
+                await scheduler.stop();
+                log.debug("[scheduler] Knowledge sync scheduler stopped");
+              }
+              await server.drain();
+            } catch (error) {
+              log.warn("Error during server cleanup", {
+                error: getErrorMessage(error),
+              });
             }
-            await server.drain();
-          } catch (error) {
-            log.warn("Error during server cleanup", {
-              error: getErrorMessage(error),
-            });
-          }
-          // Release DB sockets promptly so another MCP instance (e.g. Railway
-          // redeploy rolling over to a new container) can claim pool slots
-          // without waiting for TCP timeout (mt#1193).
-          try {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            if (
-              persistence &&
-              typeof (persistence as { close?: () => Promise<void> }).close === "function"
-            ) {
-              await (persistence as { close: () => Promise<void> }).close();
-              log.debug("[persistence] PostgreSQL connections closed");
+            // Release DB sockets promptly so another MCP instance (e.g. Railway
+            // redeploy rolling over to a new container) can claim pool slots
+            // without waiting for TCP timeout (mt#1193).
+            try {
+              const persistence = container?.has("persistence")
+                ? container.get("persistence")
+                : undefined;
+              if (
+                persistence &&
+                typeof (persistence as { close?: () => Promise<void> }).close === "function"
+              ) {
+                await (persistence as { close: () => Promise<void> }).close();
+                log.debug("[persistence] PostgreSQL connections closed");
+              }
+            } catch (error) {
+              log.warn("Error closing persistence during shutdown", {
+                error: getErrorMessage(error),
+              });
             }
-          } catch (error) {
-            log.warn("Error closing persistence during shutdown", {
-              error: getErrorMessage(error),
-            });
+          };
+
+          const hardTimeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("shutdown timeout")), PG_DRAIN_TIMEOUT_MS)
+          );
+
+          try {
+            await Promise.race([drainAndClose(), hardTimeout]);
+            process.exit(0);
+          } catch {
+            log.warn(`Shutdown timed out after ${PG_DRAIN_TIMEOUT_MS}ms; forcing exit`);
+            process.exit(1);
           }
-          process.exit(0);
         };
 
         const proc = process as Record<string, unknown>;
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
+        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+
+        // When the Claude Code parent closes its stdio pipe (without sending a signal),
+        // trigger the same shutdown path (mt#1417).
+        process.stdin.on("close", cleanup);
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {});
