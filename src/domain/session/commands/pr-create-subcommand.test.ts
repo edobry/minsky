@@ -29,6 +29,10 @@ describe("parsePrNumber", () => {
     expect(parsePrNumber("https://github.com/owner/repo/pull/42?foo=bar")).toBe(42);
   });
 
+  test("extracts number from GitHub Enterprise host (lenient match)", () => {
+    expect(parsePrNumber("https://github.mycompany.com/owner/repo/pull/77")).toBe(77);
+  });
+
   test("returns undefined for non-PR URL", () => {
     expect(parsePrNumber("https://github.com/owner/repo/issues/123")).toBeUndefined();
   });
@@ -163,14 +167,49 @@ describe("fileQualityReviewAsk", () => {
     expect(fakeAskRepo.all[0]?.contextRefs).toEqual([]);
   });
 
-  test("emits empty contextRefs when prUrl is unparseable", async () => {
+  test("preserves raw URL as ref for GitHub Enterprise hosts", async () => {
+    // Enterprise URLs aren't parseable by parseGithubPrUrl (strict github.com),
+    // but parsePrNumber is lenient so the title still gets the number, and the
+    // raw URL is preserved on the contextRef for click-through. The reconciler
+    // skips this ref gracefully because parsePrRef returns null on non-canonical.
+    const enterpriseUrl = "https://github.mycompany.com/owner/repo/pull/77";
     await fileQualityReviewAsk(fakeAskRepo, {
-      prUrl: "not-a-github-url",
+      prUrl: enterpriseUrl,
       sessionId: SESSION_ID,
     });
 
-    expect(fakeAskRepo.all[0]?.contextRefs).toEqual([]);
-    expect(fakeAskRepo.all[0]?.title).toBe("Review PR");
+    const ask = fakeAskRepo.all[0];
+    expect(ask).toBeDefined();
+    if (!ask) return;
+    expect(ask.title).toBe("Review PR #77");
+
+    const ref = ask.contextRefs?.[0];
+    expect(ref).toBeDefined();
+    if (!ref) return;
+    expect(ref.kind).toBe("github-pr");
+    expect(ref.ref).toBe(enterpriseUrl);
+    expect(ref.description).toContain(enterpriseUrl);
+  });
+
+  test("preserves raw URL as ref when URL is unparseable but provided", async () => {
+    // Even for arbitrary non-PR strings, if the caller provides a prUrl we
+    // preserve it on the contextRef rather than dropping it entirely. Title
+    // falls back to generic when no PR number can be extracted.
+    const opaqueUrl = "not-a-github-url";
+    await fileQualityReviewAsk(fakeAskRepo, {
+      prUrl: opaqueUrl,
+      sessionId: SESSION_ID,
+    });
+
+    const ask = fakeAskRepo.all[0];
+    expect(ask).toBeDefined();
+    if (!ask) return;
+    expect(ask.title).toBe("Review PR");
+
+    const ref = ask.contextRefs?.[0];
+    expect(ref).toBeDefined();
+    if (!ref) return;
+    expect(ref.ref).toBe(opaqueUrl);
   });
 
   test("uses fallback requestor when sessionId is omitted", async () => {
@@ -179,6 +218,30 @@ describe("fileQualityReviewAsk", () => {
     });
 
     expect(fakeAskRepo.all[0]?.requestor).toBe("minsky.session:unknown");
+  });
+
+  test("Ask-insert failure propagates so the caller can swallow it (regression)", async () => {
+    // sessionPrCreate wraps fileQualityReviewAsk in a try/catch that logs and
+    // continues. The helper itself does NOT swallow — the swallow boundary lives
+    // in the caller. This test pins that contract: a throwing repository
+    // surfaces the error to the caller, who is responsible for not failing
+    // the PR creation response.
+    const throwingRepo = new FakeAskRepository();
+    throwingRepo.create = async () => {
+      throw new Error("Simulated DB failure");
+    };
+
+    let caught: Error | undefined;
+    try {
+      await fileQualityReviewAsk(throwingRepo, {
+        prUrl: PR_URL,
+        sessionId: SESSION_ID,
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).toBeDefined();
+    expect(caught?.message).toBe("Simulated DB failure");
   });
 });
 

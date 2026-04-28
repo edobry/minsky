@@ -115,6 +115,7 @@ export async function sessionPrCreate(
       });
       log.debug("Filed quality.review Ask for PR", {
         prUrl: result.url,
+        prNumber: result.url ? parsePrNumber(result.url) : undefined,
         sessionId,
         taskId,
       });
@@ -151,20 +152,30 @@ export function parseGithubPrUrl(
 }
 
 /**
- * Extract the PR number from a GitHub pull request URL.
+ * Extract the PR number from a pull request URL.
  *
- * Returns `undefined` for non-matching or malformed URLs.
+ * Lenient: matches `/pull/<number>` anywhere in the string, so it works for
+ * github.com, GitHub Enterprise (`https://github.mycompany.com/...`), and any
+ * other forge that exposes the same `/pull/N` path convention. Returns
+ * `undefined` for non-matching or malformed URLs.
+ *
+ * For canonical-ref emission use `parseGithubPrUrl`, which is strict.
  */
 export function parsePrNumber(url: string): number | undefined {
-  return parseGithubPrUrl(url)?.prNumber;
+  const match = /\/pull\/(\d+)/.exec(url);
+  if (!match || !match[1]) return undefined;
+  const n = parseInt(match[1], 10);
+  return isNaN(n) ? undefined : n;
 }
 
 /**
  * File a `quality.review` Ask for a successfully-created PR.
  *
- * The contextRef is written in canonical form (`github-pr:<owner>/<repo>/<n>`)
- * so the reconciler's `parsePrRef` can route it. The full PR URL is preserved
- * in the contextRef `description` for click-through and notification surfaces.
+ * For github.com URLs the contextRef is written in canonical form
+ * (`github-pr:<owner>/<repo>/<n>`) so the reconciler's `parsePrRef` can route
+ * it. For non-github.com URLs (e.g., GitHub Enterprise hosts) the raw URL is
+ * preserved as the contextRef `ref` — the reconciler skips it gracefully via
+ * `parsePrRef` returning null, but operators retain click-through context.
  *
  * Non-fatal — callers should wrap in try/catch and swallow errors so that
  * PR creation never fails on Ask-insert failure.
@@ -179,22 +190,21 @@ export async function fileQualityReviewAsk(
   }
 ): Promise<void> {
   const parsed = params.prUrl ? parseGithubPrUrl(params.prUrl) : undefined;
-  const prNumber = parsed?.prNumber;
+  const prNumber = params.prUrl ? parsePrNumber(params.prUrl) : undefined;
   const canonicalRef = parsed
     ? `github-pr:${parsed.owner}/${parsed.repo}/${parsed.prNumber}`
     : undefined;
 
-  const contextRefs =
-    canonicalRef && params.prUrl
-      ? [
-          {
-            kind: "github-pr",
-            ref: canonicalRef,
-            description:
-              prNumber != null ? `PR #${prNumber} (${params.prUrl})` : `PR (${params.prUrl})`,
-          },
-        ]
-      : [];
+  const contextRefs = params.prUrl
+    ? [
+        {
+          kind: "github-pr",
+          ref: canonicalRef ?? params.prUrl,
+          description:
+            prNumber != null ? `PR #${prNumber} (${params.prUrl})` : `PR (${params.prUrl})`,
+        },
+      ]
+    : [];
 
   await askRepository.create({
     kind: "quality.review",
