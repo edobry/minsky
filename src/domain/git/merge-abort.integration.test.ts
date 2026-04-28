@@ -2,9 +2,14 @@
 /**
  * Integration tests for mergeWithConflictPrevention and smartSessionUpdate.
  *
- * These tests use real git repos (temp dirs) because the bug being fixed is
- * specifically about the git working-tree state-machine: a mid-merge state
- * must not leak out when the operation throws.
+ * These tests use real git repos (temp dirs) because the behavior being tested
+ * is specifically about the git working-tree state-machine.
+ *
+ * mt#1367 fix: when a 3-way merge produces conflicts, the merge is left in
+ * progress (MERGE_HEAD exists, UU status, conflict markers in files) so agents
+ * can resolve via session_edit_file / session_search_replace and then commit.
+ * The previous behavior called git merge --abort which wiped markers, making
+ * resolution impossible.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile } from "fs/promises";
@@ -157,7 +162,7 @@ afterEach(async () => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("mergeWithConflictPrevention — clean working tree invariant", () => {
+describe("mergeWithConflictPrevention — working tree state after merge", () => {
   it("happy path: fast-forward merge, session commit preserved", async () => {
     const { base, session } = repos;
 
@@ -191,7 +196,7 @@ describe("mergeWithConflictPrevention — clean working tree invariant", () => {
     expect(status).toBe("");
   });
 
-  it("conflict path: working tree is clean after abort (no mid-merge state)", async () => {
+  it("conflict path: conflict markers are present in working tree (merge left in progress)", async () => {
     const { base, session } = repos;
 
     // Both sides modify the same file with conflicting content
@@ -219,16 +224,23 @@ describe("mergeWithConflictPrevention — clean working tree invariant", () => {
     expect(result.conflicts).toBe(true);
     expect(result.merged).toBe(false);
 
-    // Critical invariant: working tree must NOT be in a mid-merge state
+    // mt#1367: the merge is left in progress so agents can resolve markers.
+    // Working tree must show a conflict status (UU=both-modified, AA=both-added)
+    // and MERGE_HEAD must exist.
     const status = gitOut(session, "status", "--porcelain");
-    // No "UU" (both-modified) markers — merge was aborted
-    expect(status).not.toContain("UU");
+    const hasConflictStatus =
+      status.includes("UU") || status.includes("AA") || status.includes("DD");
+    expect(hasConflictStatus).toBe(true);
 
-    // MERGE_HEAD should not exist
+    // MERGE_HEAD must exist (merge is in progress)
     const mergeHeadExists = await execAsync(
       `test -f ${join(session, ".git", "MERGE_HEAD")} && echo yes || echo no`
     );
-    expect(mergeHeadExists.stdout.trim()).toBe("no");
+    expect(mergeHeadExists.stdout.trim()).toBe("yes");
+
+    // conflictedFiles must list the conflicted path
+    expect(result.conflictedFiles).toBeDefined();
+    expect(result.conflictedFiles).toContain("shared.txt");
   });
 });
 
@@ -283,7 +295,7 @@ describe("smartSessionUpdate — end-to-end scenarios", () => {
     expect(status).toBe("");
   });
 
-  it("conflict path: returns conflict details and leaves clean working tree", async () => {
+  it("conflict path: returns conflict details and leaves markers in working tree", async () => {
     const { base, session } = repos;
 
     // Both sides modify the same file with conflicting content
@@ -311,13 +323,21 @@ describe("smartSessionUpdate — end-to-end scenarios", () => {
     expect(result.conflictDetails).toBeDefined();
     expect(result.reason).toContain("conflict");
 
-    // Critical: working tree must NOT be in a mid-merge state
+    // mt#1367: merge is left in progress so markers are visible in the working tree.
+    // Agents can resolve them via session_edit_file / session_search_replace.
     const status = gitOut(session, "status", "--porcelain");
-    expect(status).not.toContain("UU");
+    const hasConflictStatus =
+      status.includes("UU") || status.includes("AA") || status.includes("DD");
+    expect(hasConflictStatus).toBe(true);
 
+    // MERGE_HEAD must exist (merge in progress)
     const mergeHeadExists = await execAsync(
       `test -f ${join(session, ".git", "MERGE_HEAD")} && echo yes || echo no`
     );
-    expect(mergeHeadExists.stdout.trim()).toBe("no");
+    expect(mergeHeadExists.stdout.trim()).toBe("yes");
+
+    // conflictedFiles must be populated
+    expect(result.conflictedFiles).toBeDefined();
+    expect(result.conflictedFiles).toContain("conflict.txt");
   });
 });

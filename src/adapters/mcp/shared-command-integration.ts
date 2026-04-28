@@ -489,6 +489,19 @@ export function registerAuthorshipCommandsWithMcp(
 }
 
 /**
+ * Register workspace commands with MCP (e.g., workspace.info)
+ */
+export function registerWorkspaceCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.WORKSPACE],
+    ...config,
+  });
+}
+
+/**
  * Register provenance commands with MCP
  */
 export function registerProvenanceCommandsWithMcp(
@@ -523,6 +536,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.KNOWLEDGE,
       CommandCategory.PROVENANCE,
       CommandCategory.AUTHORSHIP,
+      CommandCategory.WORKSPACE,
     ],
     ...config,
   });

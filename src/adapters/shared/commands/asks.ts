@@ -5,8 +5,8 @@
  *
  * - `asks.list` — read-only inspection of Asks with optional state/kind filters.
  * - `asks.reconcile` — runs one reconcile pass over open quality.review Asks.
- *   In v1 the reconciler ships with a stub GithubReviewClient; production
- *   wiring of a real client is tracked as a follow-up to mt#1240.
+ *   Uses a production GithubReviewClient backed by `listReviews` infrastructure
+ *   and routed through the project's TokenProvider. Wired as mt#1292.
  */
 
 import { z } from "zod";
@@ -14,15 +14,11 @@ import { sharedCommandRegistry, CommandCategory, defineCommand } from "../comman
 import { log } from "../../../utils/logger";
 import { DrizzleAskRepository, type AskRepository } from "../../../domain/ask/repository";
 import type { Ask, AskKind, AskState } from "../../../domain/ask/types";
-import {
-  reconcile,
-  type GithubReview,
-  type GithubReviewClient,
-  type ReconcileResult,
-} from "../../../domain/ask/reconciler";
+import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+import { makeProductionGithubReviewClient } from "./asks-github-client";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -130,22 +126,6 @@ async function gatherAsks(
 
 const asksReconcileParams = {};
 
-/**
- * Stub `GithubReviewClient` used until the production client is wired up.
- *
- * Returns an empty review list and logs a warning so operators understand
- * why no Asks transition. Tracked as a follow-up to mt#1240 (mt#1292); the
- * reconciler module itself is fully functional, this is a wiring concern.
- */
-const stubGithubClient: GithubReviewClient = {
-  async listReviews(_owner: string, _repo: string, _prNumber: number): Promise<GithubReview[]> {
-    log.warn(
-      "asks.reconcile: no GithubReviewClient is wired (mt#1292 follow-up); returning empty review list"
-    );
-    return [];
-  },
-};
-
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -204,8 +184,36 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // Build the token provider from project configuration — the same pattern
+        // used by session-merge-operations and createRepositoryBackend.
+        //
+        // NOTE: reconcile hard-depends on initialized configuration. getConfiguration()
+        // throws if initializeConfiguration() has not been called first (typically done
+        // at process startup via the CLI/MCP adapter entry points). If reconcile is
+        // invoked in a context where configuration is not yet initialised — e.g. a bare
+        // programmatic call or a DI-container-less test harness — the catch block below
+        // surfaces an actionable error rather than letting the raw throw propagate.
+        let tokenProvider;
+        try {
+          const { getConfiguration } = await import("../../../domain/configuration/index");
+          const { createTokenProvider } = await import("../../../domain/auth");
+          const cfg = getConfiguration();
+          const userToken = cfg.github?.token ?? "";
+          const githubCfg = cfg.github ?? {};
+          tokenProvider = createTokenProvider(githubCfg, userToken);
+        } catch (err: unknown) {
+          const cause = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `asks.reconcile requires Minsky configuration to be initialized. ` +
+              `Run \`minsky setup\` (or the appropriate init step) before calling reconcile, ` +
+              `or pass a pre-built TokenProvider through the DI container. Cause: ${cause}`,
+            { cause: err instanceof Error ? err : new Error(String(err)) }
+          );
+        }
+
+        const githubClient = makeProductionGithubReviewClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
-        return reconcile(repo, stubGithubClient, operatorNotify);
+        return reconcile(repo, githubClient, operatorNotify);
       },
     })
   );

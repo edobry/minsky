@@ -9,6 +9,8 @@ import {
   defaultForkAccessProbe,
   buildRunReviewStartLog,
   buildConvergenceMetricLog,
+  buildSubmitFailureLog,
+  serializeSubmitError,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
@@ -901,5 +903,207 @@ describe("buildConvergenceMetricLog (SC-5, mt#1189)", () => {
     expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(0);
     expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(3);
     expect(log[FIELD_ITERATION_INDEX]).toBe(4);
+  });
+});
+
+// =============================================================================
+// serializeSubmitError (mt#1370): unit coverage for the structured-log error
+// serializer used by the two defensive submitReview catch blocks.
+// =============================================================================
+
+describe("serializeSubmitError", () => {
+  test("octokit-shaped HttpError captures name, message, status, code, stack", () => {
+    const err = new Error("API rate limit exceeded") as Error & {
+      status?: number;
+      code?: string;
+    };
+    err.name = "HttpError";
+    err.status = 403;
+    err.code = "RATE_LIMITED";
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("HttpError");
+    expect(out.message).toBe("API rate limit exceeded");
+    expect(out.status).toBe(403);
+    expect(out.code).toBe("RATE_LIMITED");
+    expect(typeof out.stack).toBe("string");
+    expect((out.stack ?? "").length).toBeGreaterThan(0);
+  });
+
+  test("string-typed status is preserved (some HTTP libs use string codes)", () => {
+    const err = new Error("transient") as Error & { status?: string };
+    err.status = "500";
+    const out = serializeSubmitError(err);
+    expect(out.status).toBe("500");
+  });
+
+  test("plain Error with no status/code captures only name + message + stack", () => {
+    const err = new Error("plain failure");
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("Error");
+    expect(out.message).toBe("plain failure");
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(typeof out.stack).toBe("string");
+  });
+
+  test("non-string status is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { status?: unknown };
+    err.status = { weird: "object" };
+    const out = serializeSubmitError(err);
+    expect(out.status).toBeUndefined();
+    expect(out.message).toBe("weird");
+  });
+
+  test("non-string code is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { code?: unknown };
+    err.code = 42;
+    const out = serializeSubmitError(err);
+    expect(out.code).toBeUndefined();
+  });
+
+  test("string throw becomes message=String(err), no other fields", () => {
+    const out = serializeSubmitError("just a string");
+    expect(out.message).toBe("just a string");
+    expect(out.name).toBeUndefined();
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(out.stack).toBeUndefined();
+  });
+
+  test("number throw becomes message=String(err)", () => {
+    const out = serializeSubmitError(42);
+    expect(out.message).toBe("42");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("plain object throw becomes message=String(err) (i.e., [object Object])", () => {
+    const out = serializeSubmitError({ foo: "bar" });
+    expect(out.message).toBe("[object Object]");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("stack longer than 1024 chars is truncated with marker", () => {
+    const err = new Error("big stack");
+    // Synthesize a long stack by overwriting it.
+    const longStack = "a".repeat(2000);
+    Object.defineProperty(err, "stack", { value: longStack, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeDefined();
+    const stack = out.stack ?? "";
+    expect(stack.length).toBeLessThanOrEqual(1024 + "...[truncated]".length);
+    expect(stack.endsWith("...[truncated]")).toBe(true);
+  });
+
+  test("missing stack on Error is gracefully omitted", () => {
+    const err = new Error("no stack");
+    Object.defineProperty(err, "stack", { value: undefined, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeUndefined();
+    expect(out.message).toBe("no stack");
+  });
+});
+
+// =============================================================================
+// buildSubmitFailureLog (mt#1370 R4): payload-builder for the two structured
+// log events emitted from the defensive submitReview catch blocks. Tests the
+// payload shape independent of the catch block itself, addressing the round-4
+// BLOCKING that the catch-block emission lacked field-stability coverage.
+// =============================================================================
+
+const EV_SKIP_NOTICE_FAILED = "reviewer.submit_skip_notice_failed" as const;
+const EV_ERROR_NOTICE_FAILED = "reviewer.submit_error_notice_failed" as const;
+
+describe("buildSubmitFailureLog", () => {
+  const baseArgs = {
+    prCoords: { owner: "edobry", repo: "minsky", prNumber: 830, sha: "abc1234" },
+    primaryReason: "test-reason",
+    submitErr: new Error("submit failed"),
+    provider: "openai",
+    model: "gpt-5",
+  };
+
+  test("skip_notice_failed variant has all expected fields", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect(log["event"]).toBe(EV_SKIP_NOTICE_FAILED);
+    expect(log["prUrl"]).toBe("https://github.com/edobry/minsky/pull/830");
+    expect(log["sha"]).toBe("abc1234");
+    expect(log["commitSha"]).toBe("abc1234");
+    expect(log["primaryReason"]).toBe("test-reason");
+    expect(log["provider"]).toBe("openai");
+    expect(log["model"]).toBe("gpt-5");
+    expect(log["submitError"]).toBeDefined();
+    expect((log["submitError"] as { message: string }).message).toBe("submit failed");
+  });
+
+  test("error_notice_failed variant accepts and includes sanitizeReason", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:long-narrative-prefix",
+    });
+    expect(log["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(log["sanitizeReason"]).toBe("cot-leak:long-narrative-prefix");
+  });
+
+  test("sanitizeReason is omitted when not provided", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect("sanitizeReason" in log).toBe(false);
+  });
+
+  test("sha and commitSha are both populated from the same source", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "x", repo: "y", prNumber: 1, sha: "deadbeef" },
+    });
+    expect(log["sha"]).toBe("deadbeef");
+    expect(log["commitSha"]).toBe("deadbeef");
+  });
+
+  test("prUrl is constructed from owner+repo+prNumber", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "different-owner", repo: "different-repo", prNumber: 42, sha: "x" },
+    });
+    expect(log["prUrl"]).toBe("https://github.com/different-owner/different-repo/pull/42");
+  });
+
+  test("submitError nests serializeSubmitError output (octokit-shaped throw)", () => {
+    const httpErr = new Error("rate limited") as Error & { status?: number; code?: string };
+    httpErr.name = "HttpError";
+    httpErr.status = 403;
+    httpErr.code = "RATE_LIMITED";
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: httpErr,
+    });
+    const serialized = log["submitError"] as {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+    };
+    expect(serialized.name).toBe("HttpError");
+    expect(serialized.status).toBe(403);
+    expect(serialized.code).toBe("RATE_LIMITED");
+    expect(serialized.message).toBe("rate limited");
+  });
+
+  test("payload is JSON-stringifiable without throwing (used at the call site)", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:blank-line-run",
+    });
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const roundtripped = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(roundtripped["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(roundtripped["sanitizeReason"]).toBe("cot-leak:blank-line-run");
+  });
+
+  test("non-Error throw still produces a valid payload via serializeSubmitError fallback", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: "string-throw",
+    });
+    const serialized = log["submitError"] as { message: string };
+    expect(serialized.message).toBe("string-throw");
   });
 });
