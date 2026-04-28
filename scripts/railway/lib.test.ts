@@ -1,0 +1,277 @@
+import { describe, test, expect } from "bun:test";
+import {
+  secret,
+  isSecretRef,
+  defineRailwayConfig,
+  resolveSecret,
+  computeDiff,
+  buildVariablePatches,
+  buildJsonPatch,
+  formatDiffOutput,
+  summarizeDiff,
+  type SecretsFileReader,
+  type CurrentVar,
+  type VariableValue,
+  type DiffEntry,
+} from "./lib";
+
+// Shared constants to satisfy no-magic-string-duplication rule
+const SECRETS_FILE_PATH = "/mock/railway-secrets.json";
+const SECRETS_FILE_ENV_VAR = "MINSKY_RAILWAY_SECRETS_FILE";
+const KIND_CHANGE_SEALED_FLAG = "CHANGE-SEALED-FLAG";
+const KIND_CHANGE_VALUE = "CHANGE-VALUE";
+const ENV_KEY_REDACTION = "REDACTION_TEST_SECRET";
+
+/** In-memory secrets file reader — avoids real fs in tests. */
+function makeFileReader(files: Record<string, string>): SecretsFileReader {
+  return {
+    exists: (path) => path in files,
+    read: (path) => {
+      const content = files[path];
+      if (content === undefined) throw new Error(`mock file not found: ${path}`);
+      return content;
+    },
+  };
+}
+
+describe("secret()", () => {
+  test("returns a SecretRef sentinel", () => {
+    const ref = secret("MY_VAR");
+    expect(isSecretRef(ref)).toBe(true);
+    expect(ref.envVarName).toBe("MY_VAR");
+  });
+
+  test("isSecretRef returns false for plain strings", () => {
+    expect(isSecretRef("plain")).toBe(false);
+    expect(isSecretRef(null)).toBe(false);
+    expect(isSecretRef(42)).toBe(false);
+  });
+});
+
+describe("defineRailwayConfig()", () => {
+  test("returns the config unchanged", () => {
+    const config = defineRailwayConfig({
+      projectId: "proj-1",
+      environmentId: "env-1",
+      serviceId: "svc-1",
+      variables: { FOO: "bar" },
+    });
+    expect(config.projectId).toBe("proj-1");
+    expect(config.variables["FOO"]).toBe("bar");
+  });
+});
+
+describe("resolveSecret()", () => {
+  test("resolves from process.env (env var takes priority)", () => {
+    process.env["TEST_SECRET_VAR_XYZ"] = "env-value";
+    const reader = makeFileReader({
+      [SECRETS_FILE_PATH]: JSON.stringify({ TEST_SECRET_VAR_XYZ: "file-value" }),
+    });
+    // Even with file present, env var wins
+    const result = resolveSecret("TEST_SECRET_VAR_XYZ", reader);
+    expect(result).toBe("env-value");
+    delete process.env["TEST_SECRET_VAR_XYZ"];
+  });
+
+  test("resolves from secrets file when env var not set", () => {
+    delete process.env["TEST_SECRET_VAR_XYZ"];
+    const reader = makeFileReader({
+      [SECRETS_FILE_PATH]: JSON.stringify({ TEST_SECRET_VAR_XYZ: "file-value" }),
+    });
+    process.env[SECRETS_FILE_ENV_VAR] = SECRETS_FILE_PATH;
+    const result = resolveSecret("TEST_SECRET_VAR_XYZ", reader);
+    expect(result).toBe("file-value");
+    delete process.env[SECRETS_FILE_ENV_VAR];
+  });
+
+  test("throws with missing var name when neither source resolves", () => {
+    delete process.env["TEST_SECRET_VAR_XYZ"];
+    const reader = makeFileReader({});
+    process.env[SECRETS_FILE_ENV_VAR] = SECRETS_FILE_PATH;
+    expect(() => resolveSecret("TEST_SECRET_VAR_XYZ", reader)).toThrow("TEST_SECRET_VAR_XYZ");
+    delete process.env[SECRETS_FILE_ENV_VAR];
+  });
+});
+
+describe("computeDiff()", () => {
+  const makeCurrentVar = (value: string, isSealed?: boolean): CurrentVar => ({ value, isSealed });
+  const emptyReader = makeFileReader({});
+
+  test("classifies new variables as ADD", () => {
+    const desired: Record<string, VariableValue> = { NEW_VAR: "hello" };
+    const current: Record<string, CurrentVar> = {};
+    const diff = computeDiff(desired, current, emptyReader);
+    expect(diff).toHaveLength(1);
+    expect(diff[0]?.kind).toBe("ADD");
+    expect(diff[0]?.key).toBe("NEW_VAR");
+  });
+
+  test("classifies missing variables as REMOVE", () => {
+    const desired: Record<string, VariableValue> = {};
+    const current: Record<string, CurrentVar> = { OLD_VAR: makeCurrentVar("old") };
+    const diff = computeDiff(desired, current, emptyReader);
+    expect(diff).toHaveLength(1);
+    expect(diff[0]?.kind).toBe("REMOVE");
+    expect(diff[0]?.key).toBe("OLD_VAR");
+  });
+
+  test("classifies matching variables as NO-CHANGE", () => {
+    const desired: Record<string, VariableValue> = { MY_VAR: "same" };
+    const current: Record<string, CurrentVar> = { MY_VAR: makeCurrentVar("same", false) };
+    const diff = computeDiff(desired, current, emptyReader);
+    expect(diff).toHaveLength(1);
+    expect(diff[0]?.kind).toBe("NO-CHANGE");
+  });
+
+  test("classifies value-changed variables as CHANGE-VALUE", () => {
+    const desired: Record<string, VariableValue> = { MY_VAR: "new-value" };
+    const current: Record<string, CurrentVar> = { MY_VAR: makeCurrentVar("old-value", false) };
+    const diff = computeDiff(desired, current, emptyReader);
+    expect(diff).toHaveLength(1);
+    expect(diff[0]?.kind).toBe(KIND_CHANGE_VALUE);
+    if (diff[0]?.kind === KIND_CHANGE_VALUE) {
+      expect(diff[0].patch.value).toBe("new-value");
+      expect(diff[0].patch.isSealed).toBe(false);
+    }
+  });
+
+  test("classifies sealed-flag-only changes as CHANGE-SEALED-FLAG", () => {
+    process.env["SEALED_TEST_VAR"] = "same-value";
+    const desired: Record<string, VariableValue> = { SEALED_TEST_VAR: secret("SEALED_TEST_VAR") };
+    const current: Record<string, CurrentVar> = {
+      SEALED_TEST_VAR: makeCurrentVar("same-value", false),
+    };
+    const diff = computeDiff(desired, current, emptyReader);
+    expect(diff[0]?.kind).toBe(KIND_CHANGE_SEALED_FLAG);
+    if (diff[0]?.kind === KIND_CHANGE_SEALED_FLAG) {
+      expect(diff[0].patch.isSealed).toBe(true);
+    }
+    delete process.env["SEALED_TEST_VAR"];
+  });
+
+  test("handles multiple vars with mixed classifications", () => {
+    process.env["SECRET_A"] = "secret-a-value";
+    const desired: Record<string, VariableValue> = {
+      KEEP: "same",
+      CHANGE: "new",
+      ADD: "brand-new",
+      SECRET_A: secret("SECRET_A"),
+    };
+    const current: Record<string, CurrentVar> = {
+      KEEP: makeCurrentVar("same", false),
+      CHANGE: makeCurrentVar("old", false),
+      REMOVE: makeCurrentVar("goodbye", false),
+      SECRET_A: makeCurrentVar("secret-a-value", true),
+    };
+    const diff = computeDiff(desired, current, emptyReader);
+    const summary = summarizeDiff(diff);
+
+    expect(summary.noChange).toHaveLength(2);
+    expect(summary.toChangeValue).toHaveLength(1);
+    expect(summary.toChangeValue[0]?.key).toBe("CHANGE");
+    expect(summary.toAdd).toHaveLength(1);
+    expect(summary.toAdd[0]?.key).toBe("ADD");
+    expect(summary.toRemove).toHaveLength(1);
+    expect(summary.toRemove[0]?.key).toBe("REMOVE");
+
+    delete process.env["SECRET_A"];
+  });
+});
+
+describe("buildVariablePatches()", () => {
+  test("includes ADD, CHANGE-VALUE, CHANGE-SEALED-FLAG entries", () => {
+    const diff: DiffEntry[] = [
+      { kind: "ADD", key: "A", patch: { value: "a", isSealed: false } },
+      { kind: "REMOVE", key: "B" },
+      { kind: KIND_CHANGE_VALUE, key: "C", patch: { value: "c", isSealed: false } },
+      { kind: KIND_CHANGE_SEALED_FLAG, key: "D", patch: { value: "d", isSealed: true } },
+      { kind: "NO-CHANGE", key: "E" },
+    ];
+    const patches = buildVariablePatches(diff);
+    expect(Object.keys(patches)).toEqual(["A", "C", "D"]);
+    expect(patches["A"]).toEqual({ value: "a", isSealed: false });
+    expect(patches["C"]).toEqual({ value: "c", isSealed: false });
+    expect(patches["D"]).toEqual({ value: "d", isSealed: true });
+  });
+});
+
+describe("buildJsonPatch()", () => {
+  test("constructs the correct patch shape", () => {
+    const patches = {
+      FOO: { value: "bar", isSealed: false },
+      SECRET: { value: "s3cr3t", isSealed: true },
+    };
+    const result = buildJsonPatch("svc-123", patches);
+    expect(result).toEqual({
+      services: {
+        "svc-123": {
+          variables: {
+            FOO: { value: "bar", isSealed: false },
+            SECRET: { value: "s3cr3t", isSealed: true },
+          },
+        },
+      },
+    });
+  });
+});
+
+describe("formatDiffOutput() — secret redaction", () => {
+  test("never prints resolved secret values", () => {
+    const secretValue = "super-secret-do-not-log";
+    process.env[ENV_KEY_REDACTION] = secretValue;
+
+    const desired: Record<string, VariableValue> = {
+      [ENV_KEY_REDACTION]: secret(ENV_KEY_REDACTION),
+      PLAIN: "visible",
+    };
+    const diff: DiffEntry[] = [
+      { kind: "ADD", key: ENV_KEY_REDACTION, patch: { value: secretValue, isSealed: true } },
+      { kind: "ADD", key: "PLAIN", patch: { value: "visible", isSealed: false } },
+    ];
+
+    const output = formatDiffOutput(diff, desired);
+    expect(output).not.toContain(secretValue);
+    expect(output).toContain("(sealed)");
+    expect(output).toContain("PLAIN = visible");
+
+    delete process.env[ENV_KEY_REDACTION];
+  });
+
+  test("shows (sealed) for CHANGE-VALUE with secret ref", () => {
+    const secretValue = "another-secret-12345";
+    process.env["ANOTHER_SECRET"] = secretValue;
+
+    const desired: Record<string, VariableValue> = {
+      ANOTHER_SECRET: secret("ANOTHER_SECRET"),
+    };
+    const diff: DiffEntry[] = [
+      {
+        kind: KIND_CHANGE_VALUE,
+        key: "ANOTHER_SECRET",
+        patch: { value: secretValue, isSealed: true },
+      },
+    ];
+
+    const output = formatDiffOutput(diff, desired);
+    expect(output).not.toContain(secretValue);
+    expect(output).toContain("(sealed)");
+
+    delete process.env["ANOTHER_SECRET"];
+  });
+
+  test("shows plain value for non-secret ADD", () => {
+    const desired: Record<string, VariableValue> = { PLAIN_VAR: "1000" };
+    const diff: DiffEntry[] = [
+      { kind: "ADD", key: "PLAIN_VAR", patch: { value: "1000", isSealed: false } },
+    ];
+    const output = formatDiffOutput(diff, desired);
+    expect(output).toContain("PLAIN_VAR = 1000");
+  });
+
+  test("returns 'No changes.' when diff is empty or all NO-CHANGE", () => {
+    const desired: Record<string, VariableValue> = { X: "y" };
+    const diff: DiffEntry[] = [{ kind: "NO-CHANGE", key: "X" }];
+    const output = formatDiffOutput(diff, desired);
+    expect(output).toBe("No changes.");
+  });
+});
