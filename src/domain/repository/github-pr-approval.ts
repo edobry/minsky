@@ -8,7 +8,7 @@
 import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
+import type { ApprovalInfo, ApprovalStatus, RawReviewEntry } from "./approval-types";
 import { handleOctokitError } from "./github-error-handler";
 import {
   type GitHubContext,
@@ -36,11 +36,12 @@ interface GitHubCommitStatus {
 
 /**
  * Extended PR data shape that includes fields not present in the official
- * Octokit TypeScript types (e.g. `mergeable_state`).
+ * Octokit TypeScript types (e.g. `mergeable_state`, `draft`).
  */
 interface GitHubPRExtended {
   state: string;
   merged: boolean;
+  draft?: boolean;
   mergeable: boolean | null;
   mergeable_state: string;
   head: { ref: string; sha: string };
@@ -171,22 +172,24 @@ export async function getPullRequestApprovalStatus(
         : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     });
 
-    // Get PR details and reviews in parallel
-    const [prResponse, reviewsResponse] = await Promise.all([
+    // Get PR details and ALL reviews (paginated to avoid the ~30 default cap).
+    // listReviews without pagination silently drops reviews beyond the first page;
+    // a minsky-reviewer[bot] review on page 2+ would be missed by the waiver gate.
+    const [prResponse, reviews] = await Promise.all([
       octokit.rest.pulls.get({
         owner: gh.owner,
         repo: gh.repo,
         pull_number: prNumber,
       }),
-      octokit.rest.pulls.listReviews({
+      octokit.paginate(octokit.rest.pulls.listReviews, {
         owner: gh.owner,
         repo: gh.repo,
         pull_number: prNumber,
+        per_page: 100,
       }),
     ]);
 
     const pr = prResponse.data;
-    const reviews = reviewsResponse.data;
 
     const approvals = reviews.filter((r) => r.state === "APPROVED");
     const rejections = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
@@ -211,11 +214,46 @@ export async function getPullRequestApprovalStatus(
     const isApproved =
       (requiredApprovals === 0 && rejections.length === 0) ||
       (requiredApprovals > 0 && approvals.length >= requiredApprovals && rejections.length === 0);
-    const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
+
+    // Capture draft state: GitHub returns state="open" for draft PRs, so we need
+    // to check the separate `draft` boolean (B3).
+    const prExtended = pr as typeof pr & { draft?: boolean };
+    const isDraft = prExtended.draft === true;
+
+    const canMerge = isApproved && !!pr.mergeable && pr.state === "open" && !isDraft;
+
+    // hasNonApprovalMergeBlockers is computed independently of isApproved so the
+    // acceptStaleReviewerSilence waiver can use it. canMerge is always false when
+    // isApproved=false, making canMerge useless inside the waiver path (B1).
+    let nonApprovalBlockerDescription: string | undefined;
+    if (isDraft) {
+      nonApprovalBlockerDescription = "draft PR";
+    } else if (!pr.mergeable) {
+      nonApprovalBlockerDescription = "merge conflicts";
+    } else if (pr.state !== "open") {
+      nonApprovalBlockerDescription = `PR not open (state: ${pr.state})`;
+    }
+    const hasNonApprovalMergeBlockers = nonApprovalBlockerDescription !== undefined;
+
+    // prState: surface "draft" when the PR is a draft rather than surfacing the
+    // misleading GitHub state value "open" (B3).
+    const prState: "open" | "closed" | "merged" | "draft" = isDraft
+      ? "draft"
+      : (pr.state as "open" | "closed" | "merged") || "open";
+
+    const rawReviews: RawReviewEntry[] = reviews.map((review) => ({
+      reviewId: String(review.id),
+      reviewerLogin: review.user?.login || "unknown",
+      state: review.state,
+      submittedAt: review.submitted_at || "",
+      body: review.body || undefined,
+    }));
 
     return {
       isApproved,
       canMerge,
+      hasNonApprovalMergeBlockers,
+      nonApprovalBlockerDescription,
       approvals: approvals.map((review) => ({
         reviewId: String(review.id),
         approvedBy: review.user?.login || "unknown",
@@ -224,7 +262,8 @@ export async function getPullRequestApprovalStatus(
         prNumber,
       })),
       requiredApprovals,
-      prState: (pr.state as "open" | "closed" | "merged" | "draft") || "open",
+      prState,
+      rawReviews,
       metadata: {
         github: {
           statusChecks: [],
