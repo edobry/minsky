@@ -15,6 +15,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
+import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -29,6 +30,13 @@ export interface ReviewOutput {
   usage?: ReviewUsage;
   provider: ReviewerConfig["provider"];
   model: string;
+  /**
+   * Structured output tool calls emitted by the model during review. Each
+   * entry is a parsed, validated discriminated-union call (submit_finding,
+   * submit_inline_comment, submit_spec_verification, or conclude_review).
+   * Always an array — never undefined; empty when no output tools were called.
+   */
+  toolCalls: ReviewToolCall[];
 }
 
 /**
@@ -136,7 +144,7 @@ export function buildListDirectoryEnvelope(entries: DirEntry[] | null): ListDire
   return { ok: true, entries };
 }
 
-/** OpenAI function definitions for the reviewer tools. */
+/** OpenAI function definitions for the reviewer read-only tools. */
 const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -175,6 +183,32 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
       },
     },
   },
+];
+
+/** Set of output tool names for fast membership checks in the tool-use loop. */
+const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.function.name));
+
+/**
+ * All tools registered with the model in the tool-use loop: the two
+ * read-only reviewer tools (read_file, list_directory) plus the four
+ * structured output tools (submit_finding, submit_inline_comment,
+ * submit_spec_verification, conclude_review).
+ *
+ * OutputToolDefinition.function.parameters uses a concrete shape (type, properties,
+ * required, additionalProperties) while OpenAI's FunctionParameters is typed as
+ * Record<string, unknown>. We map each definition to rebuild the object with the
+ * OpenAI-SDK-compatible parameter type instead of casting.
+ */
+const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  ...REVIEWER_TOOL_DEFINITIONS,
+  ...OUTPUT_TOOL_DEFINITIONS.map((def) => ({
+    type: "function" as const,
+    function: {
+      name: def.function.name,
+      description: def.function.description,
+      parameters: def.function.parameters as Record<string, unknown>,
+    },
+  })),
 ];
 
 /**
@@ -241,6 +275,7 @@ export async function callOpenAIWithClient(
       },
       provider: "openai",
       model,
+      toolCalls: [],
     };
   }
 
@@ -249,6 +284,9 @@ export async function callOpenAIWithClient(
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
 
+  /** Accumulated output tool calls parsed during the loop. */
+  const accumulatedToolCalls: ReviewToolCall[] = [];
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
@@ -256,7 +294,7 @@ export async function callOpenAIWithClient(
       ...baseParams,
       messages,
       // On the last round, force the model to respond with text only.
-      ...(isLastRound ? {} : { tools: REVIEWER_TOOL_DEFINITIONS, tool_choice: "auto" }),
+      ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
     });
 
     const usage = response.usage;
@@ -269,10 +307,10 @@ export async function callOpenAIWithClient(
     const message = response.choices[0]?.message;
     if (!message) break;
 
-    const toolCalls = message.tool_calls;
+    const rawToolCalls = message.tool_calls;
 
     // No tool calls: model is done — return the text response.
-    if (!toolCalls || toolCalls.length === 0) {
+    if (!rawToolCalls || rawToolCalls.length === 0) {
       const text =
         message.content ??
         (isLastRound
@@ -290,6 +328,7 @@ export async function callOpenAIWithClient(
         },
         provider: "openai",
         model,
+        toolCalls: accumulatedToolCalls,
       };
     }
 
@@ -297,28 +336,61 @@ export async function callOpenAIWithClient(
     messages.push(message);
 
     // Execute all tool calls and append results.
-    for (const toolCall of toolCalls) {
+    for (const toolCall of rawToolCalls) {
       const fnName = toolCall.function.name;
       let resultContent: string;
 
-      try {
-        const args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-        const path = typeof args.path === "string" ? args.path : "";
-
-        if (fnName === "read_file") {
-          const content = await tools.readFile(path);
-          resultContent = JSON.stringify(buildReadFileEnvelope(content));
-        } else if (fnName === "list_directory") {
-          const entries = await tools.listDirectory(path);
-          resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
-        } else {
-          resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
+      if (OUTPUT_TOOL_NAMES.has(fnName)) {
+        // Output tool: parse and accumulate; return a stub success response so
+        // the loop continues normally.
+        try {
+          const parsed = parseToolCall(fnName, toolCall.function.arguments);
+          accumulatedToolCalls.push(parsed);
+          const count = accumulatedToolCalls.length;
+          console.log(
+            JSON.stringify({
+              event: "reviewer.output_tool_call",
+              provider: "openai",
+              tool: fnName,
+              count,
+            })
+          );
+          resultContent = JSON.stringify({ ok: true, recorded: true });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.log(
+            JSON.stringify({
+              event: "reviewer.output_tool_call_parse_error",
+              provider: "openai",
+              tool: fnName,
+              error: errMsg,
+            })
+          );
+          // Malformed call: do NOT add to accumulatedToolCalls; return an error
+          // envelope so the model can self-correct.
+          resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
         }
-      } catch (err: unknown) {
-        resultContent = JSON.stringify({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      } else {
+        // Read-only tool (read_file, list_directory) or unknown tool.
+        try {
+          const args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+          const path = typeof args.path === "string" ? args.path : "";
+
+          if (fnName === "read_file") {
+            const content = await tools.readFile(path);
+            resultContent = JSON.stringify(buildReadFileEnvelope(content));
+          } else if (fnName === "list_directory") {
+            const entries = await tools.listDirectory(path);
+            resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
+          } else {
+            resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
+          }
+        } catch (err: unknown) {
+          resultContent = JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       messages.push({
@@ -343,6 +415,7 @@ export async function callOpenAIWithClient(
     },
     provider: "openai",
     model,
+    toolCalls: accumulatedToolCalls,
   };
 }
 
@@ -395,6 +468,7 @@ async function callGoogle(
     },
     provider: "google",
     model: config.providerModel,
+    toolCalls: [],
   };
 }
 
@@ -434,5 +508,6 @@ async function callAnthropic(
     },
     provider: "anthropic",
     model: config.providerModel,
+    toolCalls: [],
   };
 }
