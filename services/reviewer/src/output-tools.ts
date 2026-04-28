@@ -36,7 +36,7 @@ export const SubmitFindingArgsSchema = z.object({
   severity: z.enum(["BLOCKING", "NON-BLOCKING", "PRE-EXISTING"]),
 
   /** Path to the file the finding refers to, relative to the repository root. */
-  file: z.string(),
+  file: z.string().min(1),
 
   /**
    * Line number in the file where the finding applies (1-based). Use the line
@@ -76,7 +76,7 @@ export type SubmitFindingArgs = z.infer<typeof SubmitFindingArgsSchema>;
  */
 export const SubmitInlineCommentArgsSchema = z.object({
   /** Path to the file, relative to the repository root. */
-  file: z.string(),
+  file: z.string().min(1),
 
   /** Line number in the file (1-based). */
   line: z.number().int().positive(),
@@ -95,7 +95,7 @@ export type SubmitInlineCommentArgs = z.infer<typeof SubmitInlineCommentArgsSche
  */
 export const SubmitSpecVerificationArgsSchema = z.object({
   /** The exact text of the success criterion being evaluated. */
-  criterion: z.string(),
+  criterion: z.string().min(1),
 
   /**
    * Verification result:
@@ -109,7 +109,7 @@ export const SubmitSpecVerificationArgsSchema = z.object({
    * Evidence supporting the verdict. Reference specific file paths, line
    * numbers, or code snippets that demonstrate whether the criterion is met.
    */
-  evidence: z.string(),
+  evidence: z.string().min(1),
 });
 
 export type SubmitSpecVerificationArgs = z.infer<typeof SubmitSpecVerificationArgsSchema>;
@@ -136,7 +136,7 @@ export const ConcludeReviewArgsSchema = z.object({
    * overall quality of the change, highlight the most significant findings,
    * and state whether the PR can proceed.
    */
-  summary: z.string(),
+  summary: z.string().min(1),
 });
 
 export type ConcludeReviewArgs = z.infer<typeof ConcludeReviewArgsSchema>;
@@ -193,6 +193,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
           },
           file: {
             type: "string",
+            minLength: 1,
             description: "File path relative to the repository root (e.g. src/domain/session.ts).",
           },
           line: {
@@ -241,6 +242,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         properties: {
           file: {
             type: "string",
+            minLength: 1,
             description: "File path relative to the repository root.",
           },
           line: {
@@ -274,6 +276,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         properties: {
           criterion: {
             type: "string",
+            minLength: 1,
             description: "The exact text of the success criterion being evaluated.",
           },
           status: {
@@ -284,6 +287,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
           },
           evidence: {
             type: "string",
+            minLength: 1,
             description:
               "Evidence supporting the verdict. Reference file paths, line numbers, or code snippets.",
           },
@@ -314,6 +318,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
           },
           summary: {
             type: "string",
+            minLength: 1,
             description:
               "2-5 sentence summary of the review. Describe overall quality, highlight key findings, and state whether the PR can proceed.",
           },
