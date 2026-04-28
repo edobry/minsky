@@ -246,7 +246,7 @@ If a task spec is provided, call submit_spec_verification(criterion, status, evi
 - status: "Met", "Not Met", or "N/A".
 - evidence: the file:line or diff reference that supports the verdict.
 
-Conclude with exactly one conclude_review(event, summary) call.
+Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
 - event: APPROVE if you have no blocking findings and no non-trivial concerns; REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; COMMENT otherwise (or if you are the same App identity as the PR author — GitHub blocks self-approval).
 - summary: 2-5 sentence executive summary describing overall quality, key findings, and verdict.
 

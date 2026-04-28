@@ -152,9 +152,10 @@ describe("composeReviewBody", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 3: No conclude_review → warning prepended, event COMMENT
+  // Test 3: No conclude_review → warning prepended, event derived from severity
+  // (BLOCKING present → REQUEST_CHANGES)
   // -------------------------------------------------------------------------
-  test("3: no conclude_review → warning prepended, event COMMENT", () => {
+  test("3: no conclude_review with BLOCKING finding → event REQUEST_CHANGES, warning with severity counts", () => {
     const toolCalls: ReviewToolCall[] = [
       {
         name: "submit_finding",
@@ -170,14 +171,55 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    expect(result.event).toBe("COMMENT");
-    expect(result.body).toContain("⚠️ **Reviewer did not emit a conclude_review call.**");
-    expect(result.body).toContain("defaulting to COMMENT");
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.body).toContain("⚠️ **Reviewer did not emit a `conclude_review` call.**");
+    expect(result.body).toContain("Event derived from severity counts: REQUEST_CHANGES");
+    expect(result.body).toContain("1 BLOCKING");
+    expect(result.body).toContain("0 NON-BLOCKING");
+    expect(result.body).toContain("0 PRE-EXISTING");
+    expect(result.body).toContain("Executive summary unavailable");
 
     // Warning should be at the start of the body
     const warningPos = result.body.indexOf("⚠️");
     const findingPos = result.body.indexOf("## Findings");
     expect(warningPos).toBeLessThan(findingPos);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3b: No conclude_review with only NON-BLOCKING findings → COMMENT
+  // -------------------------------------------------------------------------
+  test("3b: no conclude_review with only NON-BLOCKING findings → event COMMENT, warning with counts", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: "submit_finding",
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/a.ts",
+          line: 1,
+          summary: "nit 1",
+          details: "nit details",
+        },
+      },
+      {
+        name: "submit_finding",
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/b.ts",
+          line: 2,
+          summary: "nit 2",
+          details: "nit details 2",
+        },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("COMMENT");
+    expect(result.body).toContain("⚠️ **Reviewer did not emit a `conclude_review` call.**");
+    expect(result.body).toContain("Event derived from severity counts: COMMENT");
+    expect(result.body).toContain("0 BLOCKING");
+    expect(result.body).toContain("2 NON-BLOCKING");
+    expect(result.body).toContain("Executive summary unavailable");
   });
 
   // -------------------------------------------------------------------------
@@ -364,6 +406,54 @@ describe("composeReviewBody", () => {
     if (tableRow === undefined) throw new Error("Expected one table row matching '| Handle A'");
     const unescapedPipeCount = (tableRow.match(/(?<!\\)\|/g) ?? []).length;
     expect(unescapedPipeCount).toBe(4);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3c: Empty toolCalls → still returns no-findings body and COMMENT
+  //           (regression: severity-derived path must NOT fire on empty input)
+  // -------------------------------------------------------------------------
+  test("3c: empty toolCalls → no-findings body, event COMMENT (regression check)", () => {
+    const result = composeReviewBody([]);
+
+    expect(result.event).toBe("COMMENT");
+    expect(result.body).toContain("The reviewer ran but produced no findings.");
+    // Must NOT contain the severity-derived warning (empty fast-path only)
+    expect(result.body).not.toContain("Event derived from severity counts");
+    expect(result.body).not.toContain("## Findings");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3d: conclude_review present → derived path NOT taken; event from conclude_review
+  // -------------------------------------------------------------------------
+  test("3d: conclude_review present with BLOCKING findings → derived path not taken, conclude_review.event wins", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: "submit_finding",
+        args: {
+          severity: "BLOCKING",
+          file: "src/y.ts",
+          line: 5,
+          summary: "a blocking issue",
+          details: "blocking details",
+        },
+      },
+      {
+        name: "conclude_review",
+        args: {
+          event: "APPROVE",
+          summary: "Reviewer explicitly approved despite findings.",
+        },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    // conclude_review.event must win, NOT the derived REQUEST_CHANGES
+    expect(result.event).toBe("APPROVE");
+    expect(result.body).toContain("Reviewer explicitly approved despite findings.");
+    // Must NOT contain the severity-derived warning
+    expect(result.body).not.toContain("Event derived from severity counts");
+    expect(result.body).not.toContain("⚠️ **Reviewer did not emit");
   });
 
   // -------------------------------------------------------------------------
