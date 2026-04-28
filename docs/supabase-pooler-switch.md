@@ -20,6 +20,17 @@ Every Supabase project on Micro Compute and above has a dedicated PgBouncer runn
 
 Compute upgrade is NOT required; Micro is sufficient.
 
+## CRITICAL: IPv4 reachability gap (verified 2026-04-28, switch ABORTED)
+
+The dedicated PgBouncer endpoint `db.{ref}.supabase.co` resolves only to an **IPv6 address**. Empirical verification 2026-04-28 — both attempted switches FAILED:
+
+- **Local laptop**: `getaddrinfo` returns NOTFOUND despite `dig AAAA` returning the address. Investigation showed VPN tunnel interfaces (`utun0/1/2`) hijack the IPv6 default route without actually carrying IPv6 traffic; `psql` and Node's `dns.lookup` silently fail.
+- **Railway production minsky-mcp container**: setting `MINSKY_SESSIONDB_POSTGRES_URL` to the dedicated-pooler hostname caused service to hang on DB ping. Health endpoint returned headers but never completed body. Service degraded ~3 minutes until rollback. Suggests Railway egress in the linked region also lacks reliable IPv6 to Supabase's dedicated-pooler endpoints, or a DNS-resolution gap inside the container's network.
+
+**The fix is the Supabase IPv4 Address add-on (~$4/month per project).** Without it, the dedicated pooler is reachable only from genuinely-dual-stack networks. Until purchased, **stay on Supavisor everywhere** — that's the correct steady state, not a workaround.
+
+The cost-benefit decision (2026-04-28): Option A (stay on Supavisor) chosen. The 2026-04-28 incident's root cause was zombie processes (mt#1417) + ingestion bug (mt#1419), not Supavisor. Pooler choice was orthogonal to the actual failure mode; defer the IPv4 add-on until we see a real shared-pooler-noisy-neighbor incident.
+
 ## The switch (three places)
 
 ### 1. Local `~/.config/minsky/config.yaml`
