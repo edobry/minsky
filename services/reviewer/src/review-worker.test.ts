@@ -72,6 +72,7 @@ describe("validateReviewOutput", () => {
       reasoningTokens: 1500,
       totalTokens: 5000,
     },
+    toolCalls: [],
   };
 
   test("passes through non-empty content", () => {
@@ -118,6 +119,7 @@ describe("validateReviewOutput", () => {
       provider: "openai",
       model: "gpt-5",
       tokensUsed: 8192,
+      toolCalls: [],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -152,6 +154,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       reasoningTokens: 12000,
       totalTokens: 16000,
     },
+    toolCalls: [],
   };
 
   test("starts with the skip marker", () => {
@@ -182,6 +185,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       text: "",
       provider: "anthropic",
       model: "claude-opus-4-6",
+      toolCalls: [],
     });
     expect(notice).not.toContain("reasoning phase");
   });
@@ -240,6 +244,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     model: "gpt-5",
     tokensUsed: 500,
     usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
   };
 
   function makeEmpty(provider: "openai" | "google" | "anthropic"): ReviewOutput {
@@ -259,6 +264,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
         reasoningTokens: 12000,
         totalTokens: 16000,
       },
+      toolCalls: [],
     };
   }
 
