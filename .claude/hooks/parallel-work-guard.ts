@@ -190,42 +190,62 @@ interface PrInfo {
 }
 
 /**
- * Fetch open PRs from the repository using paginated gh api calls.
- * The --paginate flag fetches all pages; jq decomposes the array into one
- * JSON object per line so we can parse them individually.
+ * Server-side cap for the open-PR fetch. Aligned with `MAX_PRS_TO_SCAN` in
+ * `checkOpenPrs` — if you raise one, raise the other.
+ */
+const FETCH_OPEN_PRS_LIMIT = 200;
+
+/**
+ * Per-subprocess timeout in milliseconds for gh/git calls. The PreToolUse
+ * hook has a 30s overall budget; per-call caps prevent a single slow
+ * subprocess from consuming it. Treat timeouts as warnings (fail-open).
+ */
+const GH_GIT_TIMEOUT_MS = 10_000;
+
+/**
+ * Fetch open PRs from the repository.
+ *
+ * Uses `gh pr list --state=open --limit N` so the cap is enforced
+ * **at the server**: we never walk past N PRs over the network, even when
+ * the repo has thousands. This bounds the work for the per-PR sweep and
+ * keeps the hook within its 30s budget.
  *
  * Throws on non-zero exit so the caller (runParallelWorkChecks) can surface
  * the failure as a warning rather than silently returning [].
  */
 export function fetchOpenPrs(repo: string): PrInfo[] {
-  const result = execWithPath([
-    "gh",
-    "api",
-    `/repos/${repo}/pulls?state=open&per_page=100`,
-    "--paginate",
-    "--jq",
-    ".[] | {number, title, headRefName: .head.ref}",
-  ]);
+  const result = execWithPath(
+    [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "open",
+      "--limit",
+      String(FETCH_OPEN_PRS_LIMIT),
+      "--json",
+      "number,title,headRefName",
+    ],
+    { timeout: GH_GIT_TIMEOUT_MS }
+  );
 
   if (result.exitCode !== 0) {
-    throw new Error(`gh api /pulls exited ${result.exitCode}: ${result.stderr || result.stdout}`);
+    throw new Error(`gh pr list exited ${result.exitCode}: ${result.stderr || result.stdout}`);
   }
 
   if (!result.stdout.trim()) {
     return [];
   }
 
-  const prs: PrInfo[] = [];
-  for (const line of result.stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      prs.push(JSON.parse(trimmed) as PrInfo);
-    } catch {
-      // Skip malformed lines
-    }
+  try {
+    return JSON.parse(result.stdout) as PrInfo[];
+  } catch (err) {
+    throw new Error(
+      `gh pr list returned unparseable JSON: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
-  return prs;
 }
 
 /**
@@ -236,18 +256,21 @@ export function fetchOpenPrs(repo: string): PrInfo[] {
  * pushes to the provided warnings array and returns [].
  */
 export function fetchPrFiles(repo: string, prNumber: number, warnings: string[] = []): string[] {
-  const result = execWithPath([
-    "gh",
-    "pr",
-    "view",
-    String(prNumber),
-    "--repo",
-    repo,
-    "--json",
-    "files",
-    "--jq",
-    ".files[].path",
-  ]);
+  const result = execWithPath(
+    [
+      "gh",
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      repo,
+      "--json",
+      "files",
+      "--jq",
+      ".files[].path",
+    ],
+    { timeout: GH_GIT_TIMEOUT_MS }
+  );
 
   if (result.exitCode !== 0) {
     warnings.push(
@@ -408,13 +431,18 @@ interface GitLogEntry {
  */
 export function detectDefaultBranch(repoDir: string): { ref: string | null; warning?: string } {
   // Probe 1: symbolic ref
-  const symbolic = execWithPath(["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"]);
+  const symbolic = execWithPath(
+    ["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"],
+    { timeout: GH_GIT_TIMEOUT_MS }
+  );
   if (symbolic.exitCode === 0 && symbolic.stdout.trim()) {
     return { ref: symbolic.stdout.trim().replace(/^refs\/remotes\//, "") };
   }
 
   // Probe 2: `git remote show origin` — parses "HEAD branch: <name>"
-  const remoteShow = execWithPath(["git", "-C", repoDir, "remote", "show", "origin"]);
+  const remoteShow = execWithPath(["git", "-C", repoDir, "remote", "show", "origin"], {
+    timeout: GH_GIT_TIMEOUT_MS,
+  });
   if (remoteShow.exitCode === 0) {
     const headMatch = remoteShow.stdout.match(/^\s*HEAD branch:\s*(\S+)\s*$/m);
     if (headMatch && headMatch[1] !== "(unknown)") {
@@ -424,14 +452,10 @@ export function detectDefaultBranch(repoDir: string): { ref: string | null; warn
 
   // Probes 3 and 4: try common defaults explicitly
   for (const candidate of ["main", "master"]) {
-    const probe = execWithPath([
-      "git",
-      "-C",
-      repoDir,
-      "rev-parse",
-      "--verify",
-      `origin/${candidate}`,
-    ]);
+    const probe = execWithPath(
+      ["git", "-C", repoDir, "rev-parse", "--verify", `origin/${candidate}`],
+      { timeout: GH_GIT_TIMEOUT_MS }
+    );
     if (probe.exitCode === 0) {
       return { ref: `origin/${candidate}` };
     }
@@ -471,19 +495,22 @@ export function fetchRecentMerges(
   const branchRef = defaultBranchRef ?? "origin/main";
 
   // Get log with file names in the last N hours on the default branch
-  const result = execWithPath([
-    "git",
-    "-C",
-    repoDir,
-    "log",
-    branchRef,
-    `--since=${since}`,
-    "--first-parent",
-    "-m",
-    "--diff-merges=first-parent",
-    "--name-only",
-    "--format=COMMIT:%H %s",
-  ]);
+  const result = execWithPath(
+    [
+      "git",
+      "-C",
+      repoDir,
+      "log",
+      branchRef,
+      `--since=${since}`,
+      "--first-parent",
+      "-m",
+      "--diff-merges=first-parent",
+      "--name-only",
+      "--format=COMMIT:%H %s",
+    ],
+    { timeout: GH_GIT_TIMEOUT_MS }
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`git log exited ${result.exitCode}: ${result.stderr || result.stdout}`);
@@ -727,7 +754,9 @@ export function parseGitHubRemoteUrl(url: string): string | null {
  * look like a GitHub URL.
  */
 export function deriveRepoFromGit(repoDir: string): string | null {
-  const result = execWithPath(["git", "-C", repoDir, "remote", "get-url", "origin"]);
+  const result = execWithPath(["git", "-C", repoDir, "remote", "get-url", "origin"], {
+    timeout: GH_GIT_TIMEOUT_MS,
+  });
   if (result.exitCode !== 0 || !result.stdout.trim()) {
     return null;
   }
@@ -810,7 +839,9 @@ if (import.meta.main) {
   // Detect the actual current branch (most reliable own-branch signal). If
   // the call fails, isOwnBranch falls back to a token-based regex on the
   // normalized task ID.
-  const branchProbe = execWithPath(["git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const branchProbe = execWithPath(["git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"], {
+    timeout: GH_GIT_TIMEOUT_MS,
+  });
   const currentBranch =
     branchProbe.exitCode === 0 && branchProbe.stdout.trim() ? branchProbe.stdout.trim() : null;
 
