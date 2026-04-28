@@ -346,9 +346,10 @@ export function checkOpenPrs(
   const collisions: ParallelWorkCollision[] = [];
 
   // Bound the per-PR sweep so we don't blow past the 30s hook timeout in
-  // repos with hundreds of open PRs. 100 covers the realistic working set;
+  // repos with hundreds of open PRs. 200 covers the realistic working set
+  // and matches the open-PR fetch upper bound from `gh api` pagination;
   // beyond that we warn and stop scanning.
-  const MAX_PRS_TO_SCAN = 100;
+  const MAX_PRS_TO_SCAN = 200;
   const prsToScan = prs.slice(0, MAX_PRS_TO_SCAN);
   if (prs.length > MAX_PRS_TO_SCAN) {
     warnings.push(
@@ -689,19 +690,29 @@ export function fetchTaskSpec(taskId: string): string | null {
  * Parse an `owner/repo` slug out of a GitHub remote URL. Returns null if the
  * URL doesn't look like a GitHub remote.
  *
- * Supports both SSH (`git@github.com:owner/repo.git`) and HTTPS
- * (`https://github.com/owner/repo[.git]`) forms. Pure function — no I/O.
+ * Supports four forms:
+ *   - SCP-style SSH:    `git@github.com:owner/repo[.git]`
+ *   - URL-style SSH:    `ssh://git@github.com/owner/repo[.git]` or `ssh://github.com/owner/repo[.git]`
+ *   - HTTPS:            `https://github.com/owner/repo[.git][/]`
+ *
+ * Pure function — no I/O.
  */
 export function parseGitHubRemoteUrl(url: string): string | null {
   const trimmed = url.trim();
 
-  // SSH form: git@github.com:owner/repo[.git]
+  // SCP-style SSH: git@github.com:owner/repo[.git]
   const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
   if (sshMatch) {
     return sshMatch[1];
   }
 
-  // HTTPS form: https://github.com/owner/repo[.git]
+  // URL-style SSH: ssh://[git@]github.com/owner/repo[.git][/]
+  const sshUrlMatch = trimmed.match(/^ssh:\/\/(?:git@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  if (sshUrlMatch) {
+    return sshUrlMatch[1];
+  }
+
+  // HTTPS form: https://github.com/owner/repo[.git][/]
   const httpsMatch = trimmed.match(/^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
   if (httpsMatch) {
     return httpsMatch[1];
@@ -735,11 +746,18 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const taskId = (input.tool_input.taskId as string | undefined) ?? "";
+  // The MCP `session_start` tool exposes its task identifier as `task`. We
+  // also accept `taskId` for forward compatibility in case the surface is
+  // renamed; whichever is present wins.
+  const taskFromInput =
+    (input.tool_input.task as string | undefined) ??
+    (input.tool_input.taskId as string | undefined) ??
+    "";
+  const taskId = taskFromInput;
   if (!taskId) {
-    // No task ID — can't run check; warn and allow
+    // No task identifier — can't run check; warn and allow
     process.stdout.write(
-      `[parallel-work-guard] No taskId in session_start input — check skipped\n`
+      `[parallel-work-guard] No 'task' (or 'taskId') in session_start input — check skipped\n`
     );
     process.exit(0);
   }

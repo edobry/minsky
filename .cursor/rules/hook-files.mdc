@@ -21,7 +21,7 @@ criterion (g) and `/implement-task` §0a.
 
 **Checks run:**
 1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
-2. Recently-merged sweep — commits on `origin/main` in the last 24 hours touching in-scope paths.
+2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
 
 **On hit:** the hook blocks `session_start` with a structured message listing the colliding
 PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).

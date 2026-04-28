@@ -503,12 +503,24 @@ Implement a PreToolUse hook...
 // ---------------------------------------------------------------------------
 
 describe("parseGitHubRemoteUrl", () => {
-  it("parses SSH form with .git suffix", () => {
+  it("parses SCP-style SSH form with .git suffix", () => {
     expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git")).toBe("edobry/minsky");
   });
 
-  it("parses SSH form without .git suffix", () => {
+  it("parses SCP-style SSH form without .git suffix", () => {
     expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses URL-style ssh:// with git@ user", () => {
+    expect(parseGitHubRemoteUrl("ssh://git@github.com/edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("parses URL-style ssh:// without user", () => {
+    expect(parseGitHubRemoteUrl("ssh://github.com/edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("parses URL-style ssh:// without .git suffix", () => {
+    expect(parseGitHubRemoteUrl("ssh://git@github.com/edobry/minsky")).toBe("edobry/minsky");
   });
 
   it("parses HTTPS form with .git suffix", () => {
@@ -661,8 +673,8 @@ describe("detectDefaultBranch", () => {
 // ---------------------------------------------------------------------------
 
 describe("runParallelWorkChecks — round-5 PR cap behaviour", () => {
-  it("caps the per-PR sweep at 100 and emits a warning when exceeded", () => {
-    const HOW_MANY = 150;
+  it("caps the per-PR sweep at 200 and emits a warning when exceeded", () => {
+    const HOW_MANY = 250;
     const manyPrs = Array.from({ length: HOW_MANY }, (_, i) => ({
       number: i + 1,
       title: `feat: PR ${i + 1}`,
@@ -686,8 +698,8 @@ describe("runParallelWorkChecks — round-5 PR cap behaviour", () => {
     });
 
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", null, cappedDeps);
-    expect(fetchPrFilesCalls).toBe(100);
-    expect(result.warnings.some((w) => w.includes("capped at 100"))).toBe(true);
+    expect(fetchPrFilesCalls).toBe(200);
+    expect(result.warnings.some((w) => w.includes("capped at 200"))).toBe(true);
     expect(result.blocked).toBe(false);
   });
 });
