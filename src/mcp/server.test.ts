@@ -802,4 +802,244 @@ describe("MCP Server", () => {
 
     await server.close();
   });
+
+  // ---------------------------------------------------------------------------
+  // Admission control: concurrent-session cap (mt#1204)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Helper: spin up MinskyMCPServer in HTTP mode with env-injected cap behind an
+   * Express app on a random port. Returns { baseUrl, httpServer, server }.
+   * The caller is responsible for cleanup (httpServer.close + server.close).
+   */
+  async function startHttpServer(maxSessions?: string): Promise<{
+    baseUrl: string;
+    httpServer: ReturnType<typeof import("net").createServer>;
+    server: import("./server").MinskyMCPServer;
+  }> {
+    // Temporarily set the env var before constructing the server so the
+    // constructor reads the injected value.
+    const originalEnv = process.env.MINSKY_MCP_MAX_SESSIONS;
+    if (maxSessions !== undefined) {
+      process.env.MINSKY_MCP_MAX_SESSIONS = maxSessions;
+    } else {
+      delete process.env.MINSKY_MCP_MAX_SESSIONS;
+    }
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Restore original env after construction
+    if (originalEnv !== undefined) {
+      process.env.MINSKY_MCP_MAX_SESSIONS = originalEnv;
+    } else {
+      delete process.env.MINSKY_MCP_MAX_SESSIONS;
+    }
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const addr = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${addr.port}/mcp`;
+
+    return { baseUrl, httpServer: httpServer as any, server };
+  }
+
+  function makeInitBody(clientName: string): string {
+    return JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: clientName, version: "0.1" },
+      },
+    });
+  }
+
+  async function doInit(baseUrl: string, clientName: string): Promise<Response> {
+    return fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: ACCEPT_MCP,
+      },
+      body: makeInitBody(clientName),
+    });
+  }
+
+  test("admission control: sub-cap initialize requests succeed", async () => {
+    // With MINSKY_MCP_MAX_SESSIONS=2, two concurrent initializes must both succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      expect(server.getMaxSessions()).toBe(2);
+
+      const [r1, r2] = await Promise.all([doInit(baseUrl, "c1"), doInit(baseUrl, "c2")]);
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(r1.headers.get("mcp-session-id")).toBeTruthy();
+      expect(r2.headers.get("mcp-session-id")).toBeTruthy();
+      await r1.text();
+      await r2.text();
+
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: initialize beyond cap returns 503 + Retry-After", async () => {
+    // With cap=2, the third initialize must get 503 Service Unavailable with a
+    // Retry-After header. The first two succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      const r1 = await doInit(baseUrl, "c1");
+      expect(r1.status).toBe(200);
+      await r1.text();
+
+      const r2 = await doInit(baseUrl, "c2");
+      expect(r2.status).toBe(200);
+      await r2.text();
+
+      // Cap is now full — third request must be rejected.
+      const r3 = await doInit(baseUrl, "c3");
+      expect(r3.status).toBe(503);
+
+      const retryAfter = r3.headers.get("retry-after");
+      expect(retryAfter).toBeTruthy();
+      const retryAfterNum = Number(retryAfter);
+      expect(retryAfterNum).toBeGreaterThan(0);
+
+      const body = await r3.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32603 },
+        id: null,
+      });
+      expect((body.error.message as string).toLowerCase()).toContain("cap");
+
+      // Session count stays at 2.
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: session close releases capacity for a new session", async () => {
+    // After closing one of the two capped sessions, a new initialize must succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      const r1 = await doInit(baseUrl, "c1");
+      expect(r1.status).toBe(200);
+      const sid1 = r1.headers.get("mcp-session-id");
+      await r1.text();
+
+      const r2 = await doInit(baseUrl, "c2");
+      expect(r2.status).toBe(200);
+      await r2.text();
+
+      // Cap reached — verify rejection before releasing.
+      const rejected = await doInit(baseUrl, "c3-before-release");
+      expect(rejected.status).toBe(503);
+      await rejected.text();
+
+      // Tear down session 1 by sending DELETE (MCP session-close convention).
+      // The SDK transport also removes the session from httpSessions on DELETE.
+      // We simulate natural close by directly deleting from the internal map
+      // (same effect as a client calling DELETE /mcp with the session id).
+      if (sid1) {
+        const sessions = (
+          server as unknown as {
+            httpSessions: Map<
+              string,
+              { server: unknown; transport: { close: () => Promise<void> }; lastActiveAt: number }
+            >;
+          }
+        ).httpSessions;
+        const entry = sessions.get(sid1);
+        if (entry) {
+          sessions.delete(sid1);
+          await entry.transport.close();
+        }
+      }
+
+      // Now a new initialize must succeed — capacity was freed.
+      const r4 = await doInit(baseUrl, "c4-after-release");
+      expect(r4.status).toBe(200);
+      await r4.text();
+
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: no cap when MINSKY_MCP_MAX_SESSIONS is unset", async () => {
+    // Without the env var, sessions must not be capped regardless of count.
+    const { baseUrl, httpServer, server } = await startHttpServer(undefined);
+
+    try {
+      expect(server.getMaxSessions()).toBeNull();
+
+      // Three concurrent initializes must all succeed.
+      const [r1, r2, r3] = await Promise.all([
+        doInit(baseUrl, "c1"),
+        doInit(baseUrl, "c2"),
+        doInit(baseUrl, "c3"),
+      ]);
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(r3.status).toBe(200);
+
+      await r1.text();
+      await r2.text();
+      await r3.text();
+
+      expect(server.getSessionCount()).toBe(3);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: getSessionCount returns 0 for stdio transport", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    expect(server.getSessionCount()).toBe(0);
+    expect(server.getMaxSessions()).toBeNull();
+    await server.close();
+  });
 });
