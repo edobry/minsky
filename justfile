@@ -37,6 +37,36 @@ test-binary: build
     ./minsky --version
     ./minsky --help
 
+# ---------------------------------------------------------------------------
+# Supabase operations
+# ---------------------------------------------------------------------------
+# All recipes need SUPABASE_ACCESS_TOKEN in env. The Supabase CLI stores its
+# access token at ~/Library/Application Support/supabase/access-token (macOS).
+# Source it once per shell:
+#   export SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"
+# Or generate a scoped PAT at https://supabase.com/dashboard/account/tokens.
+# See docs/supabase-alerts.md for the full alert-rule runbook.
+
+PROJECT_REF := "yvkkrpyjhoiilmizlnac"  # minsky (dev 2)
+
+# List notification rules currently configured on the project
+supabase-alerts-list:
+    @[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "SUPABASE_ACCESS_TOKEN not set; see justfile header"; exit 1; }
+    curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/notifications" | jq
+
+# List the project's daily/usage stats — useful for setting threshold values
+supabase-usage:
+    @[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "SUPABASE_ACCESS_TOKEN not set; see justfile header"; exit 1; }
+    curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage" | jq
+
+# Probe DB health via the local supabase CLI's auth (no PAT required if linked)
+supabase-health:
+    supabase projects list
+    @echo "---"
+    @echo "DB ping via execute_sql is in the Minsky MCP supabase tool; no CLI equivalent."
+
 # Test macOS binaries specifically (runs on macOS)
 test-macos-binaries: build-macos build-macos-arm64
     @echo "Testing macOS x64 binary:"
