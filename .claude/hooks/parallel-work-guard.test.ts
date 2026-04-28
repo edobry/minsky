@@ -690,6 +690,33 @@ describe("detectDefaultBranch", () => {
 // ---------------------------------------------------------------------------
 
 describe("runParallelWorkChecks — round-5 PR cap behaviour", () => {
+  it("emits server-cap warning when prs.length === 200 (likely truncated)", () => {
+    // Round-9 reviewer: in production, gh pr list --limit 200 truncates at
+    // the server, so prs.length > 200 never fires. Pin the equality-cap
+    // path that DOES fire in production.
+    const exactlyAtCap = Array.from({ length: 200 }, (_, i) => ({
+      number: i + 1,
+      title: `feat: PR ${i + 1}`,
+      headRefName: `feature/pr-${i + 1}`,
+    }));
+
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#9999",
+      inScopeFiles: [FIXTURE_HOOK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    const atCapDeps: ParallelWorkCheckDeps = makeDeps({
+      fetchOpenPrs: () => exactlyAtCap,
+      fetchPrFiles: () => ["unrelated/file.ts"],
+    });
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", null, atCapDeps);
+    expect(result.warnings.some((w) => w.includes("server cap of 200"))).toBe(true);
+    expect(result.blocked).toBe(false);
+  });
+
   it("caps the per-PR sweep at 200 and emits a warning when exceeded", () => {
     const HOW_MANY = 250;
     const manyPrs = Array.from({ length: HOW_MANY }, (_, i) => ({

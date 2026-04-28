@@ -391,15 +391,27 @@ export function checkOpenPrs(
   const collisions: ParallelWorkCollision[] = [];
 
   // Bound the per-PR sweep two ways:
-  //   1. Hard cap at MAX_PRS_TO_SCAN (200) — server-side limit matches.
+  //   1. Hard cap at MAX_PRS_TO_SCAN (200) — matches the server-side cap
+  //      in fetchOpenPrs. Because gh pr list --limit truncates at the
+  //      server, in production prs.length will never exceed 200; this
+  //      slice is a defense-in-depth check for tests that bypass that
+  //      cap via injected deps.
   //   2. Wall-clock budget — stop early if cumulative scan time approaches
   //      the 30s hook timeout, so we always emit a structured allow/deny
   //      rather than getting SIGTERM'd mid-call.
   const MAX_PRS_TO_SCAN = 200;
   const prsToScan = prs.slice(0, MAX_PRS_TO_SCAN);
+  // Emit warning when:
+  //   (a) injected deps returned > 200 PRs (test-only path), OR
+  //   (b) production fetch hit the server-side cap exactly (likely
+  //       truncated — total open PR count is unknown but ≥200).
   if (prs.length > MAX_PRS_TO_SCAN) {
     warnings.push(
       `Open-PR sweep capped at ${MAX_PRS_TO_SCAN} of ${prs.length} open PRs (preserves 30s hook budget)`
+    );
+  } else if (prs.length === MAX_PRS_TO_SCAN) {
+    warnings.push(
+      `Open-PR sweep at server cap of ${MAX_PRS_TO_SCAN} PRs — total count unknown, additional PRs may exist beyond this set`
     );
   }
 
@@ -735,21 +747,21 @@ export function formatBlockMessage(taskId: string, collisions: ParallelWorkColli
 
 /**
  * Fetch task spec content via the minsky CLI. Returns null on failure.
+ *
+ * Routed through execWithPath with the same per-call timeout as gh/git
+ * subprocesses so a slow minsky CLI can't consume the 30s PreToolUse
+ * budget. Per round-9 reviewer feedback.
  */
 export function fetchTaskSpec(taskId: string): string | null {
-  const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-
-  const result = Bun.spawnSync(["minsky", "tasks", "spec", "get", taskId], {
-    env: { ...process.env, PATH: pathPrefix },
-    stdout: "pipe",
-    stderr: "pipe",
+  const result = execWithPath(["minsky", "tasks", "spec", "get", taskId], {
+    timeout: GH_GIT_TIMEOUT_MS,
   });
 
   if (result.exitCode !== 0) {
     return null;
   }
 
-  return result.stdout.toString();
+  return result.stdout;
 }
 
 // ---------------------------------------------------------------------------
