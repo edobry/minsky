@@ -123,12 +123,16 @@ silent on GitHub for 11+ minutes after a re-trigger push. Event names:
 `reviewer.convergence_metric` in the same file) and include `prUrl`,
 `sha`, `commitSha` (deprecated alias), `primaryReason`, `submitError`
 (serialized via `serializeSubmitError` to capture `name`, `status`,
-`code`, `message` from octokit errors), `provider`, and `model`. The
-CoT-error event additionally includes `sanitizeReason` (the joined
-signal list from the sanitizer, e.g. `cot-leak:long-narrative-prefix`)
-so operators can correlate the secondary failure with the specific CoT
-trigger that fired the error path. The events are correlatable with the
-primary `reviewer.cot_leak_detected` event (same `prUrl` + `sha`).
+`code`, `message`, plus a truncated `stack` field bounded at 1024 chars
+with a `...[truncated]` marker), `provider`, and `model`. The CoT-error
+event additionally includes `sanitizeReason` (the joined signal list
+from the sanitizer, e.g. `cot-leak:long-narrative-prefix`) so operators
+can correlate the secondary failure with the specific CoT trigger that
+fired the error path. The events are correlatable with the primary
+`reviewer.cot_leak_detected` event (same `prUrl` + `sha`). The payload
+itself is constructed by `buildSubmitFailureLog` (exported from
+`review-worker.ts`) so the field shape is unit-testable independent of
+the catch blocks themselves.
 
 **Observability.** When the guard fires, `review-worker.ts` logs a
 structured event `reviewer.cot_leak_detected` with:

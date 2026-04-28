@@ -570,16 +570,15 @@ export async function runReview(
       await submitReview(octokit, owner, repo, prNumber, "COMMENT", skipNotice);
     } catch (submitErr) {
       console.log(
-        JSON.stringify({
-          event: "reviewer.submit_skip_notice_failed",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha, // canonical field name (aligned with reviewer.cot_leak_detected)
-          commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
-          primaryReason: validation.reason,
-          submitError: serializeSubmitError(submitErr),
-          provider: output.provider,
-          model: output.model,
-        })
+        JSON.stringify(
+          buildSubmitFailureLog("reviewer.submit_skip_notice_failed", {
+            prCoords: { owner, repo, prNumber, sha: pr.headSha },
+            primaryReason: validation.reason,
+            submitErr,
+            provider: output.provider,
+            model: output.model,
+          })
+        )
       );
     }
     return {
@@ -654,17 +653,16 @@ export async function runReview(
       // the bot tried-and-failed or never tried at all. Symptom case: PR #830
       // 2026-04-27, second commit 7e7be76a9 silent for 11+ minutes.
       console.log(
-        JSON.stringify({
-          event: "reviewer.submit_error_notice_failed",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha, // canonical field name (aligned with reviewer.cot_leak_detected)
-          commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
-          primaryReason: outcome.reason,
-          sanitizeReason: sanitized.meta.reason,
-          submitError: serializeSubmitError(submitErr),
-          provider: output.provider,
-          model: output.model,
-        })
+        JSON.stringify(
+          buildSubmitFailureLog("reviewer.submit_error_notice_failed", {
+            prCoords: { owner, repo, prNumber, sha: pr.headSha },
+            primaryReason: outcome.reason,
+            sanitizeReason: sanitized.meta.reason,
+            submitErr,
+            provider: output.provider,
+            model: output.model,
+          })
+        )
       );
     }
     return {
@@ -763,6 +761,52 @@ function annotateReviewBody(
     }\n\n---\n\n`;
 
   return header + text;
+}
+
+/**
+ * Build the structured-log payload for a defensive submitReview failure
+ * (mt#1370). One builder serves both event variants:
+ *
+ *   - `reviewer.submit_skip_notice_failed` (empty-output guard catch)
+ *   - `reviewer.submit_error_notice_failed` (CoT-leakage error guard catch)
+ *
+ * The two events share the same field set except for `sanitizeReason`, which
+ * is only meaningful in the CoT-error path (the empty-output path doesn't run
+ * the sanitizer). Pass `sanitizeReason` only in that case.
+ *
+ * Both catch blocks call this builder and pass the returned payload to
+ * `JSON.stringify` + `console.log` (stdout, matching reviewer.cot_leak_detected
+ * and reviewer.convergence_metric in the same file).
+ *
+ * Exported so the payload shape is unit-testable independent of the catch
+ * blocks themselves (round-4 review BLOCKING).
+ */
+export function buildSubmitFailureLog(
+  eventName: "reviewer.submit_skip_notice_failed" | "reviewer.submit_error_notice_failed",
+  args: {
+    prCoords: { owner: string; repo: string; prNumber: number; sha: string };
+    primaryReason: string;
+    sanitizeReason?: string;
+    submitErr: unknown;
+    provider: string;
+    model: string;
+  }
+): Record<string, unknown> {
+  const { prCoords, primaryReason, sanitizeReason, submitErr, provider, model } = args;
+  const payload: Record<string, unknown> = {
+    event: eventName,
+    prUrl: `https://github.com/${prCoords.owner}/${prCoords.repo}/pull/${prCoords.prNumber}`,
+    sha: prCoords.sha, // canonical field name (aligned with reviewer.cot_leak_detected)
+    commitSha: prCoords.sha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
+    primaryReason,
+    submitError: serializeSubmitError(submitErr),
+    provider,
+    model,
+  };
+  if (sanitizeReason !== undefined) {
+    payload.sanitizeReason = sanitizeReason;
+  }
+  return payload;
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   defaultForkAccessProbe,
   buildRunReviewStartLog,
   buildConvergenceMetricLog,
+  buildSubmitFailureLog,
   serializeSubmitError,
   type CallReviewerFn,
   type ReviewResult,
@@ -999,5 +1000,110 @@ describe("serializeSubmitError", () => {
     const out = serializeSubmitError(err);
     expect(out.stack).toBeUndefined();
     expect(out.message).toBe("no stack");
+  });
+});
+
+// =============================================================================
+// buildSubmitFailureLog (mt#1370 R4): payload-builder for the two structured
+// log events emitted from the defensive submitReview catch blocks. Tests the
+// payload shape independent of the catch block itself, addressing the round-4
+// BLOCKING that the catch-block emission lacked field-stability coverage.
+// =============================================================================
+
+const EV_SKIP_NOTICE_FAILED = "reviewer.submit_skip_notice_failed" as const;
+const EV_ERROR_NOTICE_FAILED = "reviewer.submit_error_notice_failed" as const;
+
+describe("buildSubmitFailureLog", () => {
+  const baseArgs = {
+    prCoords: { owner: "edobry", repo: "minsky", prNumber: 830, sha: "abc1234" },
+    primaryReason: "test-reason",
+    submitErr: new Error("submit failed"),
+    provider: "openai",
+    model: "gpt-5",
+  };
+
+  test("skip_notice_failed variant has all expected fields", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect(log["event"]).toBe(EV_SKIP_NOTICE_FAILED);
+    expect(log["prUrl"]).toBe("https://github.com/edobry/minsky/pull/830");
+    expect(log["sha"]).toBe("abc1234");
+    expect(log["commitSha"]).toBe("abc1234");
+    expect(log["primaryReason"]).toBe("test-reason");
+    expect(log["provider"]).toBe("openai");
+    expect(log["model"]).toBe("gpt-5");
+    expect(log["submitError"]).toBeDefined();
+    expect((log["submitError"] as { message: string }).message).toBe("submit failed");
+  });
+
+  test("error_notice_failed variant accepts and includes sanitizeReason", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:long-narrative-prefix",
+    });
+    expect(log["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(log["sanitizeReason"]).toBe("cot-leak:long-narrative-prefix");
+  });
+
+  test("sanitizeReason is omitted when not provided", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect("sanitizeReason" in log).toBe(false);
+  });
+
+  test("sha and commitSha are both populated from the same source", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "x", repo: "y", prNumber: 1, sha: "deadbeef" },
+    });
+    expect(log["sha"]).toBe("deadbeef");
+    expect(log["commitSha"]).toBe("deadbeef");
+  });
+
+  test("prUrl is constructed from owner+repo+prNumber", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "different-owner", repo: "different-repo", prNumber: 42, sha: "x" },
+    });
+    expect(log["prUrl"]).toBe("https://github.com/different-owner/different-repo/pull/42");
+  });
+
+  test("submitError nests serializeSubmitError output (octokit-shaped throw)", () => {
+    const httpErr = new Error("rate limited") as Error & { status?: number; code?: string };
+    httpErr.name = "HttpError";
+    httpErr.status = 403;
+    httpErr.code = "RATE_LIMITED";
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: httpErr,
+    });
+    const serialized = log["submitError"] as {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+    };
+    expect(serialized.name).toBe("HttpError");
+    expect(serialized.status).toBe(403);
+    expect(serialized.code).toBe("RATE_LIMITED");
+    expect(serialized.message).toBe("rate limited");
+  });
+
+  test("payload is JSON-stringifiable without throwing (used at the call site)", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:blank-line-run",
+    });
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const roundtripped = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(roundtripped["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(roundtripped["sanitizeReason"]).toBe("cot-leak:blank-line-run");
+  });
+
+  test("non-Error throw still produces a valid payload via serializeSubmitError fallback", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: "string-throw",
+    });
+    const serialized = log["submitError"] as { message: string };
+    expect(serialized.message).toBe("string-throw");
   });
 });
