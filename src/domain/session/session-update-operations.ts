@@ -116,7 +116,7 @@ export async function updateSessionImpl(
 
           // Create session record
           const newSessionRecord: SessionRecord = {
-            session: sessionId,
+            sessionId: sessionId,
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),
@@ -164,12 +164,90 @@ export async function updateSessionImpl(
       }
     }
 
+    // Tracks whether a merge is currently in progress (conflict markers in working tree).
+    // When true, popStash must be skipped: git stash pop during an in-progress merge
+    // is refused by git or corrupts the working tree.
+    let mergeInProgress = false;
+
     try {
       // Fetch latest changes
       log.debug("Fetching latest changes", { workdir, remote: remote || "origin" });
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await deps.gitService.fetchLatest!(workdir, remote || "origin");
       log.debug("Latest changes fetched");
+
+      // Pre-push safety check: detect if origin/<currentBranch> has advanced beyond local.
+      // If it has, a push would silently orphan the remote commits.
+      // We refuse with a clear message rather than allow silent data loss.
+      // Skip when force=true (caller accepts the risk) or noPush=true (no push will happen anyway).
+      if (!force && !noPush) {
+        // Resolve the actual upstream ref. If the branch has an upstream configured (via
+        // `git branch --set-upstream-to`), use it directly. Fall back to
+        // `${remote || "origin"}/${currentBranch}` only when no upstream is set.
+        let remoteRef: string;
+        try {
+          const upstreamOutput = await deps.gitService.execInRepository(
+            workdir,
+            "git rev-parse --abbrev-ref --symbolic-full-name @{u}"
+          );
+          remoteRef = upstreamOutput.trim();
+          log.debug("Resolved upstream ref from branch tracking config", { remoteRef });
+        } catch (_upstreamError) {
+          // No upstream configured — fall back to the conventional ref name
+          remoteRef = `${remote || "origin"}/${currentBranch}`;
+          log.debug("No upstream configured, using conventional remote ref", { remoteRef });
+        }
+
+        // Use an explicit existence check instead of relying on rev-list error messages.
+        // `git show-ref --verify` exits non-zero when the ref does not exist.
+        // This avoids fragility around git-version-specific error message wording.
+        let remoteRefExists = false;
+        try {
+          // Convert tracking ref (e.g. "origin/branch") to the full refspec for show-ref
+          const refspecForShowRef = remoteRef.includes("/")
+            ? `refs/remotes/${remoteRef}`
+            : `refs/remotes/origin/${remoteRef}`;
+          await deps.gitService.execInRepository(
+            workdir,
+            `git show-ref --verify --quiet ${refspecForShowRef}`
+          );
+          remoteRefExists = true;
+        } catch (_existenceError) {
+          // Non-zero exit means the ref does not exist — this is the new-branch / first-push path.
+          remoteRefExists = false;
+          log.debug("Remote ref does not exist yet (new branch / first push), skipping check", {
+            remoteRef,
+          });
+        }
+
+        if (remoteRefExists) {
+          // The remote ref exists — check whether it has advanced beyond local.
+          // Any rev-list error here is genuinely unexpected, so we rethrow.
+          const divergenceOutput = await deps.gitService.execInRepository(
+            workdir,
+            `git rev-list --left-right --count ${currentBranch}...${remoteRef}`
+          );
+          const parts = divergenceOutput.trim().split(/\s+/);
+          const remoteAheadPart = parts.length >= 2 ? parts[1] : undefined;
+          const remoteAheadCount =
+            remoteAheadPart !== undefined ? parseInt(remoteAheadPart, 10) : 0;
+          if (!isNaN(remoteAheadCount) && remoteAheadCount > 0) {
+            // Remote has commits the local does not — pushing would orphan them.
+            const localSha = await deps.gitService.execInRepository(workdir, "git rev-parse HEAD");
+            const remoteSha = await deps.gitService.execInRepository(
+              workdir,
+              `git rev-parse ${remoteRef}`
+            );
+            throw new MinskyError(
+              `Remote branch ${remoteRef} has advanced ${remoteAheadCount} commit(s) beyond ` +
+                `local ${currentBranch}. ` +
+                `Local HEAD: ${localSha.trim()}, remote HEAD: ${remoteSha.trim()}. ` +
+                `Pushing now would orphan those ${remoteAheadCount} commit(s). ` +
+                `Fetch and integrate the remote commits before re-running session_update.`
+            );
+          }
+        }
+      }
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
@@ -204,9 +282,10 @@ export async function updateSessionImpl(
       // ConflictDetectionService expects plain branch names and adds origin/ internally
       const normalizedBaseBranch = branchToMerge;
 
-      // Use smart session update for enhanced conflict handling (only if not forced)
+      // Use smart session update for enhanced conflict handling (only if not forced).
+      // Route through deps.gitService so tests can inject a fake implementation.
       if (!force) {
-        const updateResult = await ConflictDetectionService.smartSessionUpdate(
+        const updateResult = await deps.gitService.smartSessionUpdate(
           workdir,
           currentBranch,
           normalizedBaseBranch,
@@ -228,23 +307,47 @@ export async function updateSessionImpl(
 
         if (!updateResult.updated && updateResult.conflictDetails) {
           // Enhanced conflict guidance
-          log.cli("🚫 Update failed due to merge conflicts:");
+          log.cli("Update failed due to merge conflicts:");
           log.cli(updateResult.conflictDetails);
 
           if (updateResult.divergenceAnalysis) {
             const analysis = updateResult.divergenceAnalysis;
-            log.cli("\n📊 Branch Analysis:");
-            log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
-            log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
-            log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+            log.cli("\nBranch Analysis:");
+            log.cli(`   Session ahead: ${analysis.aheadCommits} commits`);
+            log.cli(`   Session behind: ${analysis.behindCommits} commits`);
+            log.cli(`   Recommended action: ${analysis.recommendedAction}`);
 
             if (analysis.sessionChangesInBase) {
-              log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+              log.cli(`\nYour changes appear to already be in ${branchToMerge}. Try:`);
             }
           }
 
-          // Make output more human-friendly (avoid raw JSON)
-          throw new MinskyError(updateResult.conflictDetails);
+          // Build the conflict error message. When conflictedFiles are available the
+          // merge is still in progress and markers are present in the working tree,
+          // so tell the agent which files to edit and what to do next.
+          let conflictMessage = updateResult.conflictDetails;
+          if (updateResult.conflictedFiles && updateResult.conflictedFiles.length > 0) {
+            const fileList = updateResult.conflictedFiles.map((f) => `  - ${f}`).join("\n");
+            conflictMessage =
+              `${updateResult.conflictDetails}\n\n` +
+              `Conflict markers (<<<<<<<) are present in the working tree. ` +
+              `Resolve the conflicts in the following files, then stage and commit:\n` +
+              `${fileList}\n\n` +
+              `Use session_edit_file or session_search_replace to edit conflicted files, ` +
+              `then run session_commit to complete the merge.`;
+
+            log.cli("\nConflict markers are present in the working tree.");
+            log.cli("Resolve conflicts in:");
+            updateResult.conflictedFiles.forEach((f) => log.cli(`   ${f}`));
+            log.cli("\nUse session_edit_file or session_search_replace to resolve,");
+            log.cli("then run session_commit to complete the merge.");
+
+            // Signal that a merge is now in-progress so the catch block skips popStash.
+            // git stash pop during an active merge is refused or corrupts the working tree.
+            mergeInProgress = true;
+          }
+
+          throw new MinskyError(conflictMessage);
         }
 
         log.debug("Enhanced merge completed successfully", { updateResult });
@@ -290,8 +393,11 @@ export async function updateSessionImpl(
 
       return sessionRecord as Session;
     } catch (error) {
-      // If there's an error during update, try to clean up any stashed changes
-      if (!noStash) {
+      // If there's an error during update, try to clean up any stashed changes.
+      // Exception: when a merge is in-progress (conflict markers in working tree),
+      // skip popStash — git refuses or corrupts the working tree when popping a
+      // stash during an active merge.
+      if (!noStash && !mergeInProgress) {
         try {
           await deps.gitService.popStash(workdir);
           log.debug("Restored stashed changes after error");

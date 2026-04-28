@@ -45,7 +45,7 @@ export class FakeSessionProvider implements SessionProviderInterface {
     this.repoPath = options.repoPath ?? "/mock/repo/path";
     this.sessionWorkdir = options.sessionWorkdir ?? "/mock/session/workdir";
     for (const record of options.initialSessions ?? []) {
-      this.store.set(record.session, record);
+      this.store.set(record.sessionId, record);
     }
   }
 
@@ -68,7 +68,7 @@ export class FakeSessionProvider implements SessionProviderInterface {
   }
 
   async addSession(record: SessionRecord): Promise<void> {
-    this.store.set(record.session, record);
+    this.store.set(record.sessionId, record);
   }
 
   async updateSession(

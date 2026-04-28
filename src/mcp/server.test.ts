@@ -3,7 +3,7 @@
  * @migrated Already using native Bun patterns
  * @refactored Uses project utilities and proper TypeScript imports
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { Server as SdkServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
@@ -14,6 +14,12 @@ import { log } from "../utils/logger";
 // Shared HTTP content-type constants used across integration tests
 const CONTENT_TYPE_JSON = "application/json";
 const ACCEPT_MCP = "application/json, text/event-stream";
+
+// Shared response body constants
+const SESSION_NOT_FOUND_MSG = "Session not found";
+
+// Shared staleness-signal constants
+const STALENESS_LOGGER = "minsky-staleness";
 
 describe("MCP Server", () => {
   beforeEach(() => {
@@ -378,10 +384,11 @@ describe("MCP Server", () => {
     }
   });
 
-  test("HTTP transport: unknown session id returns 400 JSON-RPC -32600", async () => {
+  test("HTTP transport: unknown session id returns 404 JSON-RPC -32001", async () => {
     // Regression guard: posting to a non-existent session ID must be rejected with
-    // 400 and JSON-RPC error code -32600 (Invalid Request) so clients get a clear
-    // protocol-level signal rather than accidentally creating a new session.
+    // 404 and JSON-RPC error code -32001 ("Session not found"), matching the MCP
+    // Streamable HTTP spec and the SDK's webStandardStreamableHttp behavior. This
+    // gives compliant clients a retryable signal distinct from malformed-request errors.
     const { MinskyMCPServer } = await import("./server");
     const server = new MinskyMCPServer({
       name: "Test Server",
@@ -412,11 +419,11 @@ describe("MCP Server", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
       const body = await res.json();
       expect(body).toMatchObject({
         jsonrpc: "2.0",
-        error: { code: -32600 },
+        error: { code: -32001, message: "Session not found" },
         id: null,
       });
     } finally {
@@ -425,5 +432,614 @@ describe("MCP Server", () => {
       );
       await server.close();
     }
+  });
+
+  test("HTTP transport GET: missing mcp-session-id header returns 404 plain text", async () => {
+    // GET /mcp without an mcp-session-id header has no session to attach to;
+    // the resource does not exist — the correct response is 404, not 405.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, { method: "GET" });
+
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
+      const body = await res.text();
+      expect(body).toBe(SESSION_NOT_FOUND_MSG);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("HTTP transport GET: unknown mcp-session-id returns 404 plain text", async () => {
+    // GET /mcp with an unrecognised session ID must return 404 (not 405).
+    // GET is a valid method when a session exists; the error is a missing
+    // resource, not a disallowed method.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const { port } = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}/mcp`;
+
+    try {
+      const res = await fetch(baseUrl, {
+        method: "GET",
+        headers: { "mcp-session-id": "00000000-0000-0000-0000-000000000000" },
+      });
+
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
+      const body = await res.text();
+      expect(body).toBe(SESSION_NOT_FOUND_MSG);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("tools/call success path triggers staleness signal when detector reports stale", async () => {
+    // Regression guard for the handler wiring, not just triggerStaleSignal in isolation.
+    // If the `if (this.stalenessDetector.getStaleWarning() ...)` check were removed from
+    // the success branch of setupRequestHandlers, THIS test would fail even though the
+    // existing triggerStaleSignal unit test would still pass.
+    //
+    // Strategy: invoke the registered tools/call handler directly via the SDK Server's
+    // internal _requestHandlers map (keyed by method name "tools/call"), bypassing the
+    // MCP protocol layer.  This is the same code path as a real client tool call without
+    // the overhead of a full network round-trip.
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a trivial tool that returns a deterministic value.
+    server.addTool({
+      name: "greet",
+      description: "Returns a greeting",
+      handler: async () => "hello from greet",
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    const fakeStartupHead = "aabbccdd";
+    const fakeCurrentHead = "eeff0011";
+    const fakeStaleMessage =
+      `\n\n The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection so we don't actually exit.
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the SDK server instance.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    // Invoke the registered tools/call handler via the SDK Protocol's internal
+    // _requestHandlers map (keyed by "tools/call"). This exercises the actual
+    // wiring in setupRequestHandlers — the getStaleWarning() check must be present
+    // for sendLoggingMessage to fire here.
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const syntheticRequest = {
+      method: "tools/call",
+      params: {
+        name: "greet",
+        arguments: {},
+      },
+    };
+
+    const response = await toolsCallHandler(syntheticRequest, {});
+
+    // The tool response must be returned correctly regardless of staleness.
+    expect(response).toMatchObject({
+      content: [{ type: "text", text: "hello from greet" }],
+    });
+
+    // sendLoggingMessage must have been called once with the correct shape —
+    // proving the handler wiring (not just triggerStaleSignal itself) is intact.
+    expect(loggingCalls.length).toBe(1);
+    const call = loggingCalls[0];
+    if (!call) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(call.level).toBe("alert");
+    expect(call.logger).toBe(STALENESS_LOGGER);
+    const data = call.data as { text: string; startupHead: string; currentHead: string };
+    expect(data.text).toContain("reconnect via /mcp");
+    expect(data.startupHead).toBe(fakeStartupHead);
+    expect(data.currentHead).toBe(fakeCurrentHead);
+
+    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+
+    await server.close();
+  });
+
+  test("tools/call error path triggers staleness signal when detector reports stale", async () => {
+    // Parallel to the success-path wiring test above. Verifies that the error branch
+    // of the tools/call handler also checks for staleness — removing the
+    // getStaleWarning() check from the catch block would make this test fail.
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a tool that always throws.
+    server.addTool({
+      name: "fail",
+      description: "Always fails",
+      handler: async () => {
+        throw new Error("deliberate failure");
+      },
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    const fakeStartupHead = "11223344";
+    const fakeCurrentHead = "55667788";
+    const fakeStaleMessage =
+      `\n\n The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection.
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the SDK server instance.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const syntheticRequest = {
+      method: "tools/call",
+      params: {
+        name: "fail",
+        arguments: {},
+      },
+    };
+
+    // The handler re-throws — verify the error reaches the caller.
+    await expect(toolsCallHandler(syntheticRequest, {})).rejects.toThrow(
+      "Tool execution failed: deliberate failure"
+    );
+
+    // sendLoggingMessage must still fire even on the error path.
+    expect(loggingCalls.length).toBe(1);
+    const call = loggingCalls[0];
+    if (!call) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(call.level).toBe("alert");
+    expect(call.logger).toBe(STALENESS_LOGGER);
+
+    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+
+    await server.close();
+  });
+
+  test("staleness signal: sendLoggingMessage called at alert level and exit scheduled when stale", async () => {
+    // Verifies that when StalenessDetector returns a non-null warning:
+    // (a) the tool response is still returned correctly,
+    // (b) server.sendLoggingMessage is called once with level="alert" and
+    //     logger="minsky-staleness",
+    // (c) the exit indirection is invoked (not the real process.exit).
+    const { MinskyMCPServer } = await import("./server");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a trivial tool
+    server.addTool({
+      name: "echo",
+      description: "Echo a value",
+      handler: async (args: Record<string, unknown>) => String(args.value ?? "ok"),
+    });
+
+    // Inject a fake StalenessDetector that always reports stale.
+    // The stale message uses real-looking hex commit hashes so triggerStaleSignal's
+    // regex ([0-9a-f]{7,8}) can extract them. Mirrors the format from StalenessDetector.
+    const fakeStartupHead = "abc01234";
+    const fakeCurrentHead = "def56789";
+    const fakeStaleMessage =
+      `\n\n⚠️ The Minsky MCP server was loaded from commit ${fakeStartupHead} ` +
+      `but the workspace is now at ${fakeCurrentHead}. Source files have changed. ` +
+      `Run: /mcp then reconnect minsky`;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    // Intercept the exit indirection so we don't actually exit
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    // Intercept sendLoggingMessage on the internal SDK server instance.
+    // The private `server` field holds the SDK Server for stdio mode.
+    const loggingCalls: Array<{ level: string; logger?: string; data: unknown }> = [];
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(
+      async (params: { level: string; logger?: string; data: unknown }) => {
+        loggingCalls.push(params);
+      }
+    );
+
+    // Access the private setupRequestHandlers result by invoking the handler directly.
+    // We exercise it via the internal tools map + the handler logic in setupRequestHandlers,
+    // which is invoked by calling the registered CallToolRequestSchema handler.
+    // Since MinskyMCPServer wires handlers to its private `server`, we call the handler
+    // by simulating a tool call via the internal handler map.
+    const toolsMap = server.getTools();
+    const echoTool = toolsMap.get("echo");
+    if (!echoTool) throw new Error("Expected echo tool to be registered");
+
+    // Simulate the tools/call handler internals: call the tool handler and check staleness.
+    // We replicate the handler's logic here to avoid needing a full MCP protocol round-trip.
+    // The actual staleness check lives in setupRequestHandlers which is already called
+    // during construction. We test triggerStaleSignal directly.
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+
+    // Verify tool call succeeds
+    const result = await echoTool.handler({ value: "hello" });
+    expect(result).toBe("hello");
+
+    // Verify stale signal not yet triggered
+    expect(exitCalls.length).toBe(0);
+    expect(loggingCalls.length).toBe(0);
+
+    // Trigger the stale signal (as the handler would)
+    triggerStaleSignal(sdkServer as any);
+
+    // sendLoggingMessage should be called immediately (before the setTimeout fires)
+    expect(loggingCalls.length).toBe(1);
+    const firstCall = loggingCalls[0];
+    if (!firstCall) throw new Error("Expected loggingCalls[0] to be defined");
+    expect(firstCall.level).toBe("alert");
+    expect(firstCall.logger).toBe(STALENESS_LOGGER);
+    const data = firstCall.data as { text: string; startupHead: string; currentHead: string };
+    expect(data.text).toContain("reconnect via /mcp");
+    expect(data.startupHead).toBe(fakeStartupHead);
+    expect(data.currentHead).toBe(fakeCurrentHead);
+
+    // hasTriggeredStaleSignal should now be true — calling again is a no-op
+    triggerStaleSignal(sdkServer as any);
+    expect(loggingCalls.length).toBe(1); // no second call
+
+    // exit is scheduled via setTimeout(200ms) — advance using fake timers isn't
+    // available in bun:test, so we wait for the timer to fire naturally.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(exitCalls.length).toBe(1);
+    const firstExitCode = exitCalls[0];
+    if (firstExitCode === undefined) throw new Error("Expected exitCalls[0] to be defined");
+    expect(firstExitCode).toBe(0);
+
+    await server.close();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Admission control: concurrent-session cap (mt#1204)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Helper: spin up MinskyMCPServer in HTTP mode with env-injected cap behind an
+   * Express app on a random port. Returns { baseUrl, httpServer, server }.
+   * The caller is responsible for cleanup (httpServer.close + server.close).
+   */
+  async function startHttpServer(maxSessions?: string): Promise<{
+    baseUrl: string;
+    httpServer: ReturnType<typeof import("net").createServer>;
+    server: import("./server").MinskyMCPServer;
+  }> {
+    // Temporarily set the env var before constructing the server so the
+    // constructor reads the injected value.
+    const originalEnv = process.env.MINSKY_MCP_MAX_SESSIONS;
+    if (maxSessions !== undefined) {
+      process.env.MINSKY_MCP_MAX_SESSIONS = maxSessions;
+    } else {
+      delete process.env.MINSKY_MCP_MAX_SESSIONS;
+    }
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "http",
+      httpConfig: { port: 0, host: "127.0.0.1", endpoint: "/mcp" },
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Restore original env after construction
+    if (originalEnv !== undefined) {
+      process.env.MINSKY_MCP_MAX_SESSIONS = originalEnv;
+    } else {
+      delete process.env.MINSKY_MCP_MAX_SESSIONS;
+    }
+
+    const app = express();
+    app.use(express.json());
+    app.all("/mcp", async (req, res) => {
+      await server.handleHttpRequest(req, res);
+    });
+
+    const httpServer = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => httpServer.on("listening", () => resolve()));
+    const addr = httpServer.address() as import("net").AddressInfo;
+    const baseUrl = `http://127.0.0.1:${addr.port}/mcp`;
+
+    return { baseUrl, httpServer: httpServer as any, server };
+  }
+
+  function makeInitBody(clientName: string): string {
+    return JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: clientName, version: "0.1" },
+      },
+    });
+  }
+
+  async function doInit(baseUrl: string, clientName: string): Promise<Response> {
+    return fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: ACCEPT_MCP,
+      },
+      body: makeInitBody(clientName),
+    });
+  }
+
+  test("admission control: sub-cap initialize requests succeed", async () => {
+    // With MINSKY_MCP_MAX_SESSIONS=2, two concurrent initializes must both succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      expect(server.getMaxSessions()).toBe(2);
+
+      const [r1, r2] = await Promise.all([doInit(baseUrl, "c1"), doInit(baseUrl, "c2")]);
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(r1.headers.get("mcp-session-id")).toBeTruthy();
+      expect(r2.headers.get("mcp-session-id")).toBeTruthy();
+      await r1.text();
+      await r2.text();
+
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: initialize beyond cap returns 503 + Retry-After", async () => {
+    // With cap=2, the third initialize must get 503 Service Unavailable with a
+    // Retry-After header. The first two succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      const r1 = await doInit(baseUrl, "c1");
+      expect(r1.status).toBe(200);
+      await r1.text();
+
+      const r2 = await doInit(baseUrl, "c2");
+      expect(r2.status).toBe(200);
+      await r2.text();
+
+      // Cap is now full — third request must be rejected.
+      const r3 = await doInit(baseUrl, "c3");
+      expect(r3.status).toBe(503);
+
+      const retryAfter = r3.headers.get("retry-after");
+      expect(retryAfter).toBeTruthy();
+      const retryAfterNum = Number(retryAfter);
+      expect(retryAfterNum).toBeGreaterThan(0);
+
+      const body = await r3.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32603 },
+        id: null,
+      });
+      expect((body.error.message as string).toLowerCase()).toContain("cap");
+
+      // Session count stays at 2.
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: session close releases capacity for a new session", async () => {
+    // After closing one of the two capped sessions, a new initialize must succeed.
+    const { baseUrl, httpServer, server } = await startHttpServer("2");
+
+    try {
+      const r1 = await doInit(baseUrl, "c1");
+      expect(r1.status).toBe(200);
+      const sid1 = r1.headers.get("mcp-session-id");
+      await r1.text();
+
+      const r2 = await doInit(baseUrl, "c2");
+      expect(r2.status).toBe(200);
+      await r2.text();
+
+      // Cap reached — verify rejection before releasing.
+      const rejected = await doInit(baseUrl, "c3-before-release");
+      expect(rejected.status).toBe(503);
+      await rejected.text();
+
+      // Tear down session 1 by sending DELETE (MCP session-close convention).
+      // The SDK transport also removes the session from httpSessions on DELETE.
+      // We simulate natural close by directly deleting from the internal map
+      // (same effect as a client calling DELETE /mcp with the session id).
+      if (sid1) {
+        const sessions = (
+          server as unknown as {
+            httpSessions: Map<
+              string,
+              { server: unknown; transport: { close: () => Promise<void> }; lastActiveAt: number }
+            >;
+          }
+        ).httpSessions;
+        const entry = sessions.get(sid1);
+        if (entry) {
+          sessions.delete(sid1);
+          await entry.transport.close();
+        }
+      }
+
+      // Now a new initialize must succeed — capacity was freed.
+      const r4 = await doInit(baseUrl, "c4-after-release");
+      expect(r4.status).toBe(200);
+      await r4.text();
+
+      expect(server.getSessionCount()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: no cap when MINSKY_MCP_MAX_SESSIONS is unset", async () => {
+    // Without the env var, sessions must not be capped regardless of count.
+    const { baseUrl, httpServer, server } = await startHttpServer(undefined);
+
+    try {
+      expect(server.getMaxSessions()).toBeNull();
+
+      // Three concurrent initializes must all succeed.
+      const [r1, r2, r3] = await Promise.all([
+        doInit(baseUrl, "c1"),
+        doInit(baseUrl, "c2"),
+        doInit(baseUrl, "c3"),
+      ]);
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(r3.status).toBe(200);
+
+      await r1.text();
+      await r2.text();
+      await r3.text();
+
+      expect(server.getSessionCount()).toBe(3);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()))
+      );
+      await server.close();
+    }
+  });
+
+  test("admission control: getSessionCount returns 0 for stdio transport", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    expect(server.getSessionCount()).toBe(0);
+    expect(server.getMaxSessions()).toBeNull();
+    await server.close();
   });
 });

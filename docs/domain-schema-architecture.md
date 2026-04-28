@@ -131,7 +131,7 @@ import {
 
 // Read a file with line range
 const readParams = {
-  sessionName: "my-session",
+  sessionId: "my-session",
   path: "src/file.ts",
   start_line_one_indexed: 10,
   end_line_one_indexed_inclusive: 20,

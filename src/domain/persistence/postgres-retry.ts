@@ -23,6 +23,17 @@ export interface PgPoolRetryOptions {
   jitter?: () => number;
 }
 
+// Attempt-vs-wait relationship (mt#1277): `maxAttempts` counts total
+// invocations of `fn`, not the number of retry waits. With the defaults
+// below — maxAttempts=3, initialDelay=150ms, factor=2 — the sequence is:
+//   attempt 1: call fn → fail → wait ~150ms
+//   attempt 2: call fn → fail → wait ~300ms
+//   attempt 3: call fn → fail → throw (no further wait)
+// i.e. 3 attempts = 1 initial call + 2 retry waits, totaling ~450ms before
+// surfacing the error. This is intentional: the retry exists to absorb
+// transient pool overlap (e.g. Railway redeploys), not to wait through a
+// full deploy cycle. See `docs/persistence-configuration.md` for the
+// operator-facing schedule.
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_INITIAL_DELAY_MS = 150;
 const DEFAULT_MAX_DELAY_MS = 2000;

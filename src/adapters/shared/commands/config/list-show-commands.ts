@@ -39,9 +39,20 @@ const configListParams = composeParams(configCommandParams, {
 });
 
 /**
- * Parameters for config show command
+ * Parameters for config show command.
+ *
+ * Mirrors `configListParams.showSecrets`. Without this, `config.show` over
+ * MCP returns the full resolved configuration unmasked — including the
+ * GitHub App private key and AI provider API keys (mt#1262).
  */
-const configShowParams = configCommandParams;
+const configShowParams = composeParams(configCommandParams, {
+  showSecrets: {
+    schema: z.boolean(),
+    description: "Show actual credential values (SECURITY RISK: use with caution)",
+    required: false as const,
+    defaultValue: false,
+  },
+});
 
 /**
  * Config list command definition
@@ -123,9 +134,17 @@ export const configShowRegistration = defineCommand({
       const credentialResolver = new DefaultCredentialResolver();
       const credentials = await gatherCredentialInfo(credentialResolver, config, effectiveValues);
 
+      // Mask sensitive fields unless showSecrets is explicitly true. Without
+      // this, MCP callers receive raw GitHub App private keys, OpenAI API
+      // keys, and Postgres connection strings (mt#1262). The masking helper
+      // (see helpers.ts) is the same one used by config.list and shares
+      // its sensitive-key regex with redaction.ts.
+      const showSecrets = params.showSecrets || false;
+      const maskedConfig = maskCredentials(config, showSecrets);
+
       // Show ALL configuration properties dynamically instead of hardcoding subset
       const resolved = {
-        ...config, // Include all configuration properties
+        ...maskedConfig,
         credentials,
       };
 
@@ -141,7 +160,8 @@ export const configShowRegistration = defineCommand({
           path: source.path,
           error: source.error,
         })),
-        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, false),
+        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, showSecrets),
+        credentialsMasked: !showSecrets,
       };
     } catch (error) {
       log.error("Failed to load configuration", {

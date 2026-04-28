@@ -8,21 +8,21 @@ import { first, elementAt } from "../../utils/array-safety";
 const createMockSessionData = () => {
   const legacySessions: SessionRecord[] = [
     {
-      session: "task123",
+      sessionId: "task123",
       repoName: "test-repo-1",
       repoUrl: "https://github.com/test/repo1",
       createdAt: "2024-01-01T00:00:00Z",
       taskId: "123",
     },
     {
-      session: "task456",
+      sessionId: "task456",
       repoName: "test-repo-2",
       repoUrl: "https://github.com/test/repo2",
       createdAt: "2024-01-02T00:00:00Z",
       taskId: "456",
     },
     {
-      session: "task#789",
+      sessionId: "task#789",
       repoName: "test-repo-3",
       repoUrl: "https://github.com/test/repo3",
       createdAt: "2024-01-03T00:00:00Z",
@@ -32,14 +32,14 @@ const createMockSessionData = () => {
 
   const modernSessions: SessionRecord[] = [
     {
-      session: "task-md#100",
+      sessionId: "task-md#100",
       repoName: "modern-repo-1",
       repoUrl: "https://github.com/modern/repo1",
       createdAt: "2024-01-04T00:00:00Z",
       taskId: "md#100",
     },
     {
-      session: "task-gh#200",
+      sessionId: "task-gh#200",
       repoName: "modern-repo-2",
       repoUrl: "https://github.com/modern/repo2",
       createdAt: "2024-01-05T00:00:00Z",
@@ -49,7 +49,7 @@ const createMockSessionData = () => {
 
   const customSessions: SessionRecord[] = [
     {
-      session: "custom-session",
+      sessionId: "custom-session",
       repoName: "custom-repo",
       repoUrl: "https://github.com/custom/repo",
       createdAt: "2024-01-06T00:00:00Z",
@@ -72,7 +72,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
   return {
     listSessions: mock(async () => [...sessions]),
     getSession: mock(
-      async (sessionId: string) => sessions.find((s) => s.session === sessionId) || null
+      async (sessionId: string) => sessions.find((s) => s.sessionId === sessionId) || null
     ),
     getSessionByTaskId: mock(
       async (taskId: string) => sessions.find((s) => s.taskId === taskId) || null
@@ -81,8 +81,8 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       sessions.push(record);
     }),
     updateSession: mock(
-      async (sessionId: string, updates: Partial<Omit<SessionRecord, "session">>) => {
-        const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
+      async (sessionId: string, updates: Partial<Omit<SessionRecord, "sessionId">>) => {
+        const sessionIndex = sessions.findIndex((s) => s.sessionId === sessionId);
         if (sessionIndex !== -1) {
           sessions[sessionIndex] = {
             ...elementAt(sessions, sessionIndex, "migration-command.test updateSession"),
@@ -92,7 +92,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       }
     ),
     deleteSession: mock(async (sessionId: string) => {
-      const sessionIndex = sessions.findIndex((s) => s.session === sessionId);
+      const sessionIndex = sessions.findIndex((s) => s.sessionId === sessionId);
       if (sessionIndex !== -1) {
         sessions.splice(sessionIndex, 1);
         return true;
@@ -165,9 +165,9 @@ describe("Session Migration Command", () => {
         // Ensure result exists before checking properties
         expect(result).toBeDefined();
         expect(result.success).toBe(true);
-        expect(result.original.session).toBe("task123");
+        expect(result.original.sessionId).toBe("task123");
         // Migrated session ID is now a UUID
-        expect(isUuidSessionId(result.migrated?.session || "")).toBe(true);
+        expect(isUuidSessionId(result.migrated?.sessionId || "")).toBe(true);
         expect(result.migrated?.taskId).toBe("md#123");
         expect(result.migrated?.taskBackend).toBe("md");
         expect(result.migrated?.legacyTaskId).toBe("123");
@@ -200,7 +200,7 @@ describe("Session Migration Command", () => {
         // Verify the new session records have UUID IDs
         const addCalls = (sessionDB.addSession as any).mock.calls;
         for (const call of addCalls) {
-          expect(isUuidSessionId(call[0].session)).toBe(true);
+          expect(isUuidSessionId(call[0].sessionId)).toBe(true);
         }
       });
 
@@ -249,14 +249,14 @@ describe("Session Migration Command", () => {
       it("should filter by task backend", async () => {
         const mixedSessions: SessionRecord[] = [
           {
-            session: "task123",
+            sessionId: "task123",
             repoName: "repo1",
             repoUrl: "https://github.com/test/repo1",
             createdAt: "2024-01-01T00:00:00Z",
             taskId: "123", // Will be detected as 'md' backend
           },
           {
-            session: "task-gh#456",
+            sessionId: "task-gh#456",
             repoName: "repo2",
             repoUrl: "https://github.com/test/repo2",
             createdAt: "2024-01-02T00:00:00Z",
@@ -273,20 +273,20 @@ describe("Session Migration Command", () => {
 
         // Should only process the session that would become 'md' backend
         expect(report.results).toHaveLength(1);
-        expect(first(report.results).original.session).toBe("task123");
+        expect(first(report.results).original.sessionId).toBe("task123");
       });
 
       it("should filter by date", async () => {
         const sessionsByDate: SessionRecord[] = [
           {
-            session: "task123",
+            sessionId: "task123",
             repoName: "repo1",
             repoUrl: "https://github.com/test/repo1",
             createdAt: "2024-01-01T00:00:00Z", // Before cutoff
             taskId: "123",
           },
           {
-            session: "task456",
+            sessionId: "task456",
             repoName: "repo2",
             repoUrl: "https://github.com/test/repo2",
             createdAt: "2024-01-15T00:00:00Z", // After cutoff
@@ -303,7 +303,7 @@ describe("Session Migration Command", () => {
 
         // Should only process sessions created before the cutoff
         expect(report.results).toHaveLength(1);
-        expect(first(report.results).original.session).toBe("task123");
+        expect(first(report.results).original.sessionId).toBe("task123");
       });
 
       it("should filter by session ID pattern", async () => {
@@ -317,7 +317,7 @@ describe("Session Migration Command", () => {
 
         // Should match task123 and task456, but not task#789
         expect(report.results).toHaveLength(2);
-        expect(report.results.map((r) => r.original.session)).toEqual(
+        expect(report.results.map((r) => r.original.sessionId)).toEqual(
           expect.arrayContaining(["task123", "task456"])
         );
       });
@@ -327,7 +327,7 @@ describe("Session Migration Command", () => {
       it("should handle migration errors gracefully", async () => {
         const sessionDB = createMockSessionDB([
           {
-            session: "invalid-session",
+            sessionId: "invalid-session",
             repoName: "repo",
             repoUrl: "invalid-url",
             createdAt: "invalid-date", // This might cause issues
@@ -384,7 +384,7 @@ describe("Session Migration Command", () => {
       it("should handle sessions with no task ID", async () => {
         const customSessions: SessionRecord[] = [
           {
-            session: "custom-session",
+            sessionId: "custom-session",
             repoName: "repo",
             repoUrl: "https://github.com/test/repo",
             createdAt: "2024-01-01T00:00:00Z",

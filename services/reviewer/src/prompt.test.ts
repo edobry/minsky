@@ -25,6 +25,8 @@ const NO_TOOLS_SECTION_HEADING = "## Cross-file claims without tool access";
 const IN_REPO_CARVE_OUT_PHRASE = "This rule does NOT apply to in-repo paths";
 const SCOPE_CALIBRATION_HEADING = "## Scope-aware calibration";
 const RESERVE_BLOCKING = "reserve BLOCKING severity";
+const DIFF_VS_DESC_EXCEPTION = "Exception — diff-vs-description mismatch on in-repo paths";
+const INTERNAL_SCRATCH = "internal scratch";
 
 describe("buildCriticConstitution", () => {
   test("includes the Tool access section when toolsAvailable=true", () => {
@@ -133,6 +135,24 @@ describe("out-of-repo reference clause", () => {
     expect(prompt).toContain("Out-of-repo references");
   });
 
+  test("absolute_system scope is explicitly bounded — /home and /Users are excluded from that pattern", () => {
+    // Narrative alignment for mt#1339 BLOCKING #1: the prompt text must
+    // enumerate the exact set of absolute_system paths (/etc, /usr, /var,
+    // /opt, /tmp, /root) and explicitly state that /home and /Users are NOT
+    // included — both paths are routinely in-repo on developer and CI machines.
+    const prompt = buildCriticConstitution(true);
+    // The exhaustive list must be present.
+    expect(prompt).toContain("/etc/");
+    expect(prompt).toContain("/opt/");
+    expect(prompt).toContain("/tmp/");
+    expect(prompt).toContain("/root/");
+    // The exclusion note must be explicit so no reader infers /home or /Users
+    // are detected under the absolute_system pattern.
+    expect(prompt).toContain("/home/");
+    expect(prompt).toContain("/Users/");
+    expect(prompt).toContain("NOT included");
+  });
+
   test("instructs reviewer to treat out-of-repo paths as NON-BLOCKING", () => {
     const prompt = buildCriticConstitution(true);
     // The clause must be present in both tool-access variants
@@ -175,18 +195,22 @@ describe("out-of-repo reference clause", () => {
     expect(prompt).toContain("must be marked NON-BLOCKING");
   });
 
-  test("no-tools variant out-of-repo section does not say 'may be BLOCKING' before the cross-file section", () => {
+  test("no-tools variant out-of-repo section includes the diff-vs-description exception inline", () => {
     const prompt = buildCriticConstitution(false);
-    // "may be BLOCKING" may appear in the NO_TOOLS_SECTION exception (which is
-    // after the out-of-repo section), but must NOT appear in the Out-of-repo
-    // section itself — that was the contradiction the fix addresses.
+    // The diff-vs-description exception is now stated inline in the out-of-repo
+    // section (inside buildInRepoCarveOut(false)) so the rule and its exception
+    // are contiguous — the old structure put "must NON-BLOCKING" in out-of-repo
+    // and "may be BLOCKING" in a later section, risking the model applying the
+    // strong "must" and missing the exception.
     const outOfRepoStart = prompt.indexOf("## Out-of-repo references\n");
     const crossFileStart = prompt.indexOf(NO_TOOLS_SECTION_HEADING);
     expect(outOfRepoStart).toBeGreaterThan(0);
     expect(crossFileStart).toBeGreaterThan(outOfRepoStart);
     const outOfRepoSectionText = prompt.slice(outOfRepoStart, crossFileStart);
-    // The out-of-repo section must not contain "may be BLOCKING" in the no-tools variant.
-    expect(outOfRepoSectionText).not.toContain("may be BLOCKING");
+    // The exception must now be present in the out-of-repo section so the rule
+    // and exception are in one place.
+    expect(outOfRepoSectionText).toContain(DIFF_VS_DESC_EXCEPTION);
+    expect(outOfRepoSectionText).toContain("may be BLOCKING");
   });
 });
 
@@ -197,9 +221,9 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("~/.claude/projects/foo/memory/MEMORY.md");
-    expect(refs[0].kind).toBe("home_tilde");
-    expect(refs[0].source).toBe("PR description");
+    expect(refs[0]?.path).toBe("~/.claude/projects/foo/memory/MEMORY.md");
+    expect(refs[0]?.kind).toBe("home_tilde");
+    expect(refs[0]?.source).toBe("PR description");
   });
 
   test("matches $HOME/... paths (env_home)", () => {
@@ -208,9 +232,9 @@ describe("extractOutOfRepoReferences", () => {
       "task spec"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("$HOME/.config/minsky/settings.json");
-    expect(refs[0].kind).toBe("env_home");
-    expect(refs[0].source).toBe("task spec");
+    expect(refs[0]?.path).toBe("$HOME/.config/minsky/settings.json");
+    expect(refs[0]?.kind).toBe("env_home");
+    expect(refs[0]?.source).toBe("task spec");
   });
 
   test("matches /etc, /usr, /var system paths", () => {
@@ -276,8 +300,8 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("/Users/edobry/.local/state/minsky/sessions/abc123-def456");
-    expect(refs[0].kind).toBe("session_workspace");
+    expect(refs[0]?.path).toBe("/Users/edobry/.local/state/minsky/sessions/abc123-def456");
+    expect(refs[0]?.kind).toBe("session_workspace");
   });
 
   test("matches Linux session workspace path under /home/.../minsky/sessions/...", () => {
@@ -286,8 +310,8 @@ describe("extractOutOfRepoReferences", () => {
       "task spec"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("/home/runner/.local/state/minsky/sessions/xyz");
-    expect(refs[0].kind).toBe("session_workspace");
+    expect(refs[0]?.path).toBe("/home/runner/.local/state/minsky/sessions/xyz");
+    expect(refs[0]?.kind).toBe("session_workspace");
   });
 
   test("deduplicates repeated references within the same source", () => {
@@ -296,7 +320,7 @@ describe("extractOutOfRepoReferences", () => {
       "PR description"
     );
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe("~/.claude/foo.md");
+    expect(refs[0]?.path).toBe("~/.claude/foo.md");
   });
 
   test("strips trailing sentence punctuation", () => {
@@ -404,12 +428,12 @@ describe("buildReviewPrompt out-of-repo section", () => {
   });
 });
 
-describe("NO_TOOLS_SECTION in-repo exception clause", () => {
+describe("no-tools in-repo diff-vs-description exception clause", () => {
   test("carves out diff-vs-description mismatch on in-repo paths from the MUST-non-blocking rule", () => {
     const prompt = buildCriticConstitution(false);
-    // The exception must be present so the in-repo carve-out from the
-    // Out-of-repo clause doesn't conflict with the no-tools blanket rule.
-    expect(prompt).toContain("Exception — diff-vs-description mismatch on in-repo paths");
+    // The exception is now inline in the out-of-repo section (inside
+    // buildInRepoCarveOut(false)) so the rule and exception are contiguous.
+    expect(prompt).toContain(DIFF_VS_DESC_EXCEPTION);
     expect(prompt).toContain("may be BLOCKING");
     // The exception must explicitly NOT apply to out-of-repo paths.
     expect(prompt).toContain("does NOT apply to out-of-repo paths");
@@ -418,8 +442,73 @@ describe("NO_TOOLS_SECTION in-repo exception clause", () => {
   test("exception clause only appears in the no-tools variant, not the tools variant", () => {
     const withTools = buildCriticConstitution(true);
     // Tools variant has its own verification mechanism (read_file /
-    // list_directory), so the exception is specific to NO_TOOLS_SECTION.
+    // list_directory), so the diff-vs-description exception is specific to
+    // the no-tools path (inside buildInRepoCarveOut(false)).
     expect(withTools).not.toContain("Exception — diff-vs-description mismatch on in-repo paths");
+  });
+});
+
+describe("buildCriticConstitution — output tools mode (mt#1401)", () => {
+  test("outputToolsActive=true includes tool-emission directive and submit_finding", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("submit_finding");
+    expect(prompt).toContain("Emit your review via structured tool calls only");
+    expect(prompt).toContain(INTERNAL_SCRATCH);
+  });
+
+  test("outputToolsActive=true includes all four output tools", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("submit_finding");
+    expect(prompt).toContain("submit_inline_comment");
+    expect(prompt).toContain("submit_spec_verification");
+    expect(prompt).toContain("conclude_review");
+  });
+
+  test("outputToolsActive=true output-tools prompt includes tightened conclude_review directive (mt#1413)", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    // The tightened language must be present: review is INCOMPLETE without conclude_review
+    expect(prompt).toContain("INCOMPLETE without");
+    // The FINAL tool call language must be present
+    expect(prompt).toContain("FINAL tool call MUST be");
+    // The consequence of failure must be stated
+    expect(prompt).toContain("will default to COMMENT regardless of your findings");
+  });
+
+  test("outputToolsActive=false (prose mode) does NOT include the tightened conclude_review directive", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    // The prose format does not use the tightened tool-emission language
+    expect(prompt).not.toContain("INCOMPLETE without");
+    expect(prompt).not.toContain("FINAL tool call MUST be");
+  });
+
+  test("outputToolsActive=false (default) preserves prose output format — no submit_finding, no internal scratch", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).not.toContain("submit_finding");
+    expect(prompt).not.toContain(INTERNAL_SCRATCH);
+    // The prose format includes the Findings list heading.
+    expect(prompt).toContain("Findings list");
+  });
+
+  test("outputToolsActive=false default matches explicit false", () => {
+    // The default value must be false; calling with 2 args equals calling with false.
+    expect(buildCriticConstitution(true, "normal")).toBe(
+      buildCriticConstitution(true, "normal", false)
+    );
+  });
+
+  test("outputToolsActive=true but toolsAvailable=false falls back to prose (no tool channel)", () => {
+    // Without tools wired, the output-tools format is not effective — free-text
+    // is the only output channel, so prose instructions must be used.
+    const prompt = buildCriticConstitution(false, "normal", true);
+    expect(prompt).not.toContain("submit_finding");
+    expect(prompt).not.toContain(INTERNAL_SCRATCH);
+    expect(prompt).toContain("Findings list");
+  });
+
+  test("legacy CRITIC_CONSTITUTION export still matches buildCriticConstitution(true) with default params", () => {
+    // Backward-compatibility shim: the two-arg default must equal the zero-extra-arg legacy.
+    expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true));
+    expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true, "normal", false));
   });
 });
 

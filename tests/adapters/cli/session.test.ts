@@ -54,7 +54,7 @@ describe("Session CLI Commands", () => {
     const fakeSessionProvider = new FakeSessionProvider();
     fakeSessionProvider.getSession = (sessionId: string) =>
       Promise.resolve({
-        session: sessionId,
+        sessionId: sessionId,
         repoName: "test/repo",
         taskId: sessionId === "test-session" ? "123" : undefined,
         repoUrl: "https://github.com/test/repo.git",
@@ -68,7 +68,7 @@ describe("Session CLI Commands", () => {
     fakeSessionProvider.listSessions = () =>
       Promise.resolve([
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test/repo",
           taskId: "123",
           repoUrl: "https://github.com/test/repo.git",
@@ -111,7 +111,7 @@ describe("Session CLI Commands", () => {
       const mockSessionProviderWithTask = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "task-123",
+            sessionId: "task-123",
             repoName: "test/repo",
             taskId: "md#123",
             repoUrl: "https://github.com/test/repo.git",
@@ -144,7 +144,7 @@ describe("Session CLI Commands", () => {
       const mockSessionProviderCurrent = new FakeSessionProvider({
         initialSessions: [
           {
-            session: "current-session",
+            sessionId: "current-session",
             repoName: "test/repo",
             taskId: "456",
             repoUrl: "https://github.com/test/repo.git",
@@ -177,7 +177,7 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const sessionRecord: SessionRecord = {
-        session: "update-session",
+        sessionId: "update-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "update-session",
@@ -212,7 +212,7 @@ describe("Session CLI Commands", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.session).toBe("update-session");
+      expect(result.sessionId).toBe("update-session");
     });
 
     test("should handle session update with git operations", async () => {
@@ -224,7 +224,7 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const sessionRecord: SessionRecord = {
-        session: "git-session",
+        sessionId: "git-session",
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: "git-session",
@@ -262,14 +262,14 @@ describe("Session CLI Commands", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.session).toBeDefined();
+      expect(result.sessionId).toBeDefined();
     });
   });
 
   describe("getCurrentSession", () => {
     test("should get current session from workspace", async () => {
       const sessionRecord: SessionRecord = {
-        session: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
+        sessionId: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
@@ -311,7 +311,7 @@ describe("Session CLI Commands", () => {
   describe("getSessionFromWorkspace", () => {
     test("should get session from workspace directory", async () => {
       const sessionRecord: SessionRecord = {
-        session: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
+        sessionId: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
         repoName: "test/repo",
         createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,

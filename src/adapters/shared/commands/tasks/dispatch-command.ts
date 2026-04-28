@@ -144,7 +144,7 @@ export function createTasksDispatchCommand(
         noStatusUpdate: false,
       });
 
-      if (!sessionResult?.session) {
+      if (!sessionResult?.sessionId) {
         return {
           success: false,
           error: `Task ${taskId} created but session start failed`,
@@ -154,7 +154,9 @@ export function createTasksDispatchCommand(
       }
 
       const sessionId =
-        typeof sessionResult.session === "string" ? sessionResult.session : sessionResult.session;
+        typeof sessionResult.sessionId === "string"
+          ? sessionResult.sessionId
+          : sessionResult.sessionId;
       log.debug("[tasks.dispatch] Session started", { sessionId });
 
       // Step 4: Generate the subagent prompt
@@ -206,6 +208,7 @@ export function createTasksDispatchCommand(
         prompt: promptResult.prompt,
         suggestedModel: promptResult.suggestedModel,
         agentType: promptResult.agentType,
+        skillsEmbedded: promptResult.skillsEmbedded,
         scopeWarning: promptResult.scopeWarning,
         batches: promptResult.batches,
       };

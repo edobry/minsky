@@ -10,7 +10,7 @@ export type { EnhancedMergeResult } from "./conflict-detection";
 
 // Minimal session record shape used by git dependencies
 interface SessionRecord {
-  session: string;
+  sessionId: string;
   repoUrl: string;
   taskId?: string;
 }

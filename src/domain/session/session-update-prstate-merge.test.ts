@@ -12,7 +12,7 @@ describe("updatePrStateOnMerge — prState key projection", () => {
   it("strips commitHash and unknown keys from persisted prState on merge", async () => {
     // Arrange: session record with legacy commitHash + rogue foo key in prState
     const sessionRecord: SessionRecord = {
-      session: "test-session-1077",
+      sessionId: "test-session-1077",
       repoName: "minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -54,7 +54,7 @@ describe("updatePrStateOnMerge — prState key projection", () => {
 
   it("is idempotent — clean prState stays clean after second call", async () => {
     const sessionRecord: SessionRecord = {
-      session: "test-session-clean",
+      sessionId: "test-session-clean",
       repoName: "minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2024-01-01T00:00:00.000Z",
@@ -85,7 +85,7 @@ describe("updatePrStateOnMerge — prState key projection", () => {
 
   it("returns early without error when prState is absent", async () => {
     const sessionRecord: SessionRecord = {
-      session: "test-session-no-prstate",
+      sessionId: "test-session-no-prstate",
       repoName: "minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2024-01-01T00:00:00.000Z",

@@ -68,7 +68,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       const skippedDueToChanges: Array<{ sessionId: string; reason: string }> = [];
 
       for (const candidate of candidates) {
-        const sessionId = candidate.session.session;
+        const sessionId = candidate.session.sessionId;
         const hasChanges = await sessionHasUncommittedChanges(sessionId, deps.gitService);
         if (hasChanges) {
           const msg = `Session '${sessionId}' has uncommitted changes — skipping`;
@@ -80,7 +80,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       }
 
       const candidateSummary = safeToDelete.map((c) => ({
-        sessionId: c.session.session,
+        sessionId: c.session.sessionId,
         taskId: c.session.taskId,
         reason: c.reason,
         liveness: c.liveness,
@@ -122,7 +122,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       const deletionErrors: Array<{ sessionId: string; error: string }> = [];
 
       for (const candidate of safeToDelete) {
-        const sessionId = candidate.session.session;
+        const sessionId = candidate.session.sessionId;
         try {
           const result = await deleteSessionImpl(
             { sessionId, force: false },

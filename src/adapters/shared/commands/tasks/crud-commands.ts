@@ -396,7 +396,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
             const session = await sessionProvider.getSessionByTaskId(validatedTaskId);
             if (session) {
               extras.session = {
-                sessionId: session.session,
+                sessionId: session.sessionId,
                 status: session.status,
                 lastActivityAt: session.lastActivityAt,
                 liveness: deriveSessionLiveness(session),

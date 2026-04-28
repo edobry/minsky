@@ -21,7 +21,7 @@ import type { SessionRecord } from "./types";
 
 /** Minimal in-memory session provider sufficient for deleteSessionImpl. */
 function makeSessionDB(sessions: SessionRecord[]) {
-  const store = new Map(sessions.map((s) => [s.session, s]));
+  const store = new Map(sessions.map((s) => [s.sessionId, s]));
   return {
     getSession: mock(async (id: string) => store.get(id) ?? null),
     getSessionByTaskId: mock(async () => null),
@@ -47,7 +47,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
 
   beforeEach(() => {
     sessionRecord = {
-      session: SESSION_ID,
+      sessionId: SESSION_ID,
       repoUrl: "https://github.com/edobry/minsky.git",
       repoName: "minsky",
       taskId: TASK_ID,

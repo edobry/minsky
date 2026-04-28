@@ -17,7 +17,7 @@ export function assertSessionMutable(session: SessionRecord, operation: string):
   if (session.prState?.mergedAt) {
     const taskId = session.taskId ?? "<task-id>";
     throw new MinskyError(
-      `Cannot ${operation}: session "${session.session}" has a merged PR ` +
+      `Cannot ${operation}: session "${session.sessionId}" has a merged PR ` +
         `(merged at ${session.prState.mergedAt}). Per the one-session-one-merge ` +
         `invariant, merged sessions are frozen for write operations.\n\n` +
         `To continue work, create a subtask for the next phase:\n` +

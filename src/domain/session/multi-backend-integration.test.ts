@@ -73,7 +73,7 @@ describe("Session Multi-Backend Integration", () => {
     describe("enhanceSessionRecord", () => {
       it("should enhance records with qualified task IDs", () => {
         const sessionRecord: SessionRecord = {
-          session: "task-md#123",
+          sessionId: "task-md#123",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -89,7 +89,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should passthrough legacy records without enrichment", () => {
         const sessionRecord: SessionRecord = {
-          session: "task123",
+          sessionId: "task123",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -105,7 +105,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should handle records without task IDs", () => {
         const sessionRecord: SessionRecord = {
-          session: "custom-session",
+          sessionId: "custom-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -120,7 +120,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should handle different backend types", () => {
         const ghSessionRecord: SessionRecord = {
-          session: "task-gh#456",
+          sessionId: "task-gh#456",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -187,7 +187,7 @@ describe("Session Multi-Backend Integration", () => {
     describe("getTaskBackend", () => {
       it("should extract backend from enhanced records", () => {
         const enhanced: MultiBackendSessionRecord = {
-          session: "task-md#123",
+          sessionId: "task-md#123",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -200,7 +200,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should extract backend from qualified task IDs", () => {
         const record: SessionRecord = {
-          session: "task-gh#456",
+          sessionId: "task-gh#456",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -212,7 +212,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should default to markdown for legacy records", () => {
         const record: SessionRecord = {
-          session: "task123",
+          sessionId: "task123",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
@@ -224,7 +224,7 @@ describe("Session Multi-Backend Integration", () => {
 
       it("should return null for records without task IDs", () => {
         const record: SessionRecord = {
-          session: "custom-session",
+          sessionId: "custom-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2024-01-01T00:00:00Z",

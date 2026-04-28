@@ -22,6 +22,7 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
       "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky " +
       "using the configured bot identity",
     parameters: sessionPrReviewSubmitCommandParams,
+    mutating: true,
     execute: withErrorLogging(
       "session.pr.review.submit",
       async (params: Record<string, unknown>) => {

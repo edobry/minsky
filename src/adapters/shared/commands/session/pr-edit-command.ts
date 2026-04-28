@@ -183,6 +183,7 @@ export function createSessionPrEditCommand(getDeps: LazySessionDeps): CommandDef
     name: "edit",
     description: "Update an existing pull request for a session",
     parameters: sessionPrEditCommandParams,
+    mutating: true,
     execute: async (params, context) => {
       try {
         const deps = await getDeps();

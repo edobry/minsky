@@ -38,7 +38,7 @@ Use `session pr` for current session workflow or `session changeset`/`session cs
 minsky session pr create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
 minsky session pr edit --title "Updated title" [--body "..."]
 minsky session pr list [--status open]
-minsky session pr get [sessionName]
+minsky session pr get [sessionId]
 minsky session pr approve [--review-comment "LGTM"]
 minsky session pr merge
 ```

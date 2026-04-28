@@ -84,7 +84,7 @@ describe("Session Database BaseDir Bug", () => {
   it("should fail with posix_spawn error when session database has incorrect baseDir", async () => {
     // Set up session record
     const sessionRecord: SessionRecord = {
-      session: "task335",
+      sessionId: "task335",
       repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "md#335",
@@ -140,7 +140,7 @@ describe("Session Database BaseDir Bug", () => {
   it("should succeed when session database has correct baseDir", async () => {
     // Set up session record
     const sessionRecord: SessionRecord = {
-      session: "task335",
+      sessionId: "task335",
       repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "md#335",
@@ -208,7 +208,7 @@ describe("Session Database BaseDir Bug", () => {
     });
 
     const sessionRecord: SessionRecord = {
-      session: "test-session",
+      sessionId: "test-session",
       repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "123",
@@ -241,7 +241,7 @@ describe("Session Database BaseDir Bug", () => {
     });
 
     const sessionRecord: SessionRecord = {
-      session: "test-session",
+      sessionId: "test-session",
       repoUrl: "https://github.com/test/repo.git",
       repoName: "test-repo",
       taskId: "123",

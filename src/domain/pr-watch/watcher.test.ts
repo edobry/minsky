@@ -16,9 +16,15 @@
  *     - lastSeen absent → fires on first review
  *   check-status-changed event
  *     - No change in conclusion → no-match
- *     - Conclusion changes from null to "success" → no-match (pending→success skip)
+ *     - Conclusion changes from null (lastSeen.lastConclusion=null) to "success" → fired
  *     - Conclusion changes from "success" to "failure" → fired
- *     - Still pending → no-match
+ *     - Still pending (check run conclusion=null) → no-match
+ *     - Stale mixed with success → success (stale filtered, success determines result)
+ *     - Stale mixed with neutral → neutral
+ *     - Stale mixed with cancelled → cancelled
+ *     - Stale mixed with failure → failure
+ *     - All stale → stale
+ *     - timed_out + cancelled → failure (timed_out outranks cancelled)
  *   Error isolation
  *     - One watch throws → error outcome, others still processed
  *   One-shot vs persistent cleanup
@@ -392,6 +398,341 @@ describe("check-status-changed event", () => {
     expect(second.fired).toBe(0);
     expect(second.unchanged).toBe(1);
     expect(notify.bells).toBe(1); // unchanged
+  });
+
+  // ---------------------------------------------------------------------------
+  // New conclusion values: cancelled, neutral, action_required, stale
+  // ---------------------------------------------------------------------------
+
+  it("fires when conclusion changes from success to cancelled", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "cancelled" }]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.title).toBe("Minsky: PR check status changed");
+    expect(note.body).toContain("cancelled");
+    // Verify lastSeen was updated with the new conclusion
+    // (watch deleted since keep=false, so we check the repo is empty)
+    expect(repo.all).toHaveLength(0);
+  });
+
+  it("fires when conclusion changes from success to neutral", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "neutral" }]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("neutral");
+    expect(repo.all).toHaveLength(0);
+  });
+
+  it("fires when conclusion changes from success to action_required", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "action_required" }]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("action_required");
+    expect(repo.all).toHaveLength(0);
+  });
+
+  it("fires when conclusion changes from success to stale", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "stale" }]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    expect(notify.bells).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("stale");
+    expect(repo.all).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Aggregation precedence — mixed check runs
+  // ---------------------------------------------------------------------------
+
+  it("aggregation: failure outranks cancelled when both present", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // failure + cancelled → overall should be failure (rule 2 > rule 3)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "failure" },
+      { name: "lint", conclusion: "cancelled" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("failure");
+  });
+
+  it("aggregation: neutral wins over success+skipped mix (not all success/skipped)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "failure" },
+      })
+    );
+    // success + neutral → overall should be neutral (rule 6: neutral/success/skipped mix)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "success" },
+      { name: "lint", conclusion: "neutral" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("neutral");
+  });
+
+  it("aggregation: action_required wins over success", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // action_required + success → overall should be action_required (rule 4)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "action_required" },
+      { name: "lint", conclusion: "success" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("action_required");
+  });
+
+  it("aggregation: cancelled outranks action_required", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // cancelled + action_required → overall should be cancelled (rule 3 > rule 4)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "cancelled" },
+      { name: "lint", conclusion: "action_required" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("cancelled");
+  });
+
+  it("aggregation: neutral-only fresh runs → neutral", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    // neutral + neutral → overall should be neutral (rule 6: neutral/success/skipped mix)
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "neutral" },
+      { name: "lint", conclusion: "neutral" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("neutral");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Stale-as-non-contributing aggregation
+  // ---------------------------------------------------------------------------
+
+  it("aggregation: stale + success → success (stale filtered out)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "failure" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "stale" },
+      { name: "lint", conclusion: "success" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("success");
+  });
+
+  it("aggregation: stale + neutral → neutral (stale filtered out)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "failure" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "stale" },
+      { name: "lint", conclusion: "neutral" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("neutral");
+  });
+
+  it("aggregation: stale + cancelled → cancelled (stale filtered out)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "stale" },
+      { name: "lint", conclusion: "cancelled" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("cancelled");
+  });
+
+  it("aggregation: stale + failure → failure (stale filtered out)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "stale" },
+      { name: "lint", conclusion: "failure" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("failure");
+  });
+
+  it("aggregation: all stale → stale", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "stale" },
+      { name: "lint", conclusion: "stale" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("stale");
+  });
+
+  it("aggregation: timed_out + cancelled → failure (timed_out outranks cancelled)", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: false,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [
+      { name: "ci", conclusion: "timed_out" },
+      { name: "lint", conclusion: "cancelled" },
+    ]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    const note = firstNotification(notify);
+    expect(note.body).toContain("failure");
+  });
+
+  it("updateLastSeen called with new conclusion when firing cancelled", async () => {
+    repo._seed(
+      makeBaseWatch({
+        event: EVENT_CHECK_STATUS_CHANGED,
+        keep: true,
+        lastSeen: { lastConclusion: "success" },
+      })
+    );
+    client.setCheckRuns("acme", "monorepo", 42, [{ name: "ci", conclusion: "cancelled" }]);
+
+    const result = await runWatcher(repo, client, notify);
+
+    expect(result.fired).toBe(1);
+    // For keep=true, watch remains but lastSeen should be updated
+    expect(repo.all).toHaveLength(1);
+    const w = firstWatch(repo);
+    expect(w.lastSeen?.lastConclusion).toBe("cancelled");
   });
 });
 

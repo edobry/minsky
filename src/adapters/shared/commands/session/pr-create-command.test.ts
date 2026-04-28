@@ -31,7 +31,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const sessionId = "test-session-fix-368";
 
       const sessionRecord = {
-        session: sessionId,
+        sessionId: sessionId,
         taskId: taskId,
         prState: {
           commitHash: "abc123",

@@ -46,6 +46,7 @@ export enum CommandCategory {
   AUTHORSHIP = "AUTHORSHIP",
   MEMORY = "MEMORY",
   COMPILE = "COMPILE",
+  WORKSPACE = "WORKSPACE",
 }
 
 /**
@@ -148,6 +149,13 @@ export interface CommandDefinition<
    * that are responsible for initialization themselves.
    */
   requiresSetup?: boolean;
+  /**
+   * Whether this command performs external side effects that must not run
+   * when the MCP server is stale (loaded commit !== workspace HEAD).
+   * Examples: session_pr_create, session_pr_merge, session_pr_review_dismiss,
+   * session_update, session_commit. Read-only commands leave this unset.
+   */
+  mutating?: boolean;
 }
 
 /**
@@ -215,6 +223,7 @@ export interface SharedCommand<
     context: CommandExecutionContext
   ) => Promise<ValidatedContext<C> | void>;
   requiresSetup?: boolean;
+  mutating?: boolean;
 }
 
 /**

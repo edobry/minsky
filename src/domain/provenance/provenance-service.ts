@@ -31,7 +31,7 @@ import {
   type AuthorshipJudgment,
   type AuthorshipJudge,
 } from "./authorship-judge";
-import type { TranscriptService } from "./transcript-service";
+import type { AgentTranscriptService } from "./transcript-service";
 import { log } from "../../utils/logger";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
@@ -201,7 +201,7 @@ export class ProvenanceService {
   async recomputeAll(options: {
     dryRun: boolean;
     judge: AuthorshipJudge;
-    transcriptService: TranscriptService;
+    transcriptService: AgentTranscriptService;
   }): Promise<RecomputeSummary> {
     const { dryRun, judge, transcriptService } = options;
 

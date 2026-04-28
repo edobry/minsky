@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeReviewBody } from "./sanitize";
+import { sanitizeReviewBody, redactForLog } from "./sanitize";
 
 // Shared test constants — extracted to satisfy the no-magic-string-duplication
 // lint rule and to keep scratch-signal names in sync with sanitize.ts.
 const CALLING_READ_FILE = "Calling read_file on src/foo.ts.";
 const SIGNAL_TOOL_CALL = "scratch:tool-call-narration";
+const SIGNAL_LONG_NARRATIVE = "long-narrative-prefix";
+// Narrative intro string used by mt#1264 boundary tests. 31 chars including trailing space.
+const NARRATIVE_INTRO = "I will quickly check the diff. ";
 
 const CLEAN_REVIEW = `## Findings
 
@@ -155,7 +158,7 @@ describe("sanitizeReviewBody", () => {
     const body = `${longNarrative}\n\n## Findings\n\n- ok`;
     const result = sanitizeReviewBody(body);
     expect(result.action).toBe("stripped");
-    expect(result.meta.reason).toContain("long-narrative-prefix");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
   });
 
   // Regression: live bot review on PR #758 itself exhibited the exact
@@ -212,7 +215,7 @@ describe("sanitizeReviewBody", () => {
     const body = `${longNarrative}\n\n## Findings\n\n- ok`;
     const result = sanitizeReviewBody(body);
     expect(result.action).toBe("stripped");
-    expect(result.meta.reason).toContain("long-narrative-prefix");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
   });
 
   test("Unicode curly apostrophe in Let’s try again / I’ll just proceed triggers strong patterns", () => {
@@ -286,5 +289,103 @@ describe("sanitizeReviewBody", () => {
     expect(result.body).not.toMatch(/mt#\d+/);
     // But it should still point readers at the docs for operator context.
     expect(result.body).toContain("docs/architecture/critic-constitution-reliability.md");
+  });
+
+  // mt#1264 — boundary fixtures around NARRATIVE_TOLERANCE_CHARS = 300.
+  // Calibration via replay corpus (see docs/architecture/critic-constitution-reliability.md)
+  // showed 0 samples in the at-risk zone; these fixtures lock the threshold behavior.
+  test("narrative phrase + 250-char prefix → passthrough (below threshold)", () => {
+    const padding = "x".repeat(220);
+    const body = `I will quickly check the diff. ${padding}\n## Findings\n- ok`;
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("narrative phrase + 310-char prefix → stripped (sole long-narrative-prefix signal)", () => {
+    const padding = "x".repeat(280);
+    const body = `I will quickly check the diff. ${padding}\n## Findings\n- ok`;
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("stripped");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
+    // Should be the only signal (boundary behavior)
+    expect(result.meta.reason).toBe(`cot-leak:${SIGNAL_LONG_NARRATIVE}`);
+  });
+
+  test("narrative phrase + 450-char prefix → stripped", () => {
+    const padding = "x".repeat(420);
+    const body = `I will quickly check the diff. ${padding}\n## Findings\n- ok`;
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("stripped");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
+  });
+
+  test("narrative phrase + long prefix + no heading → errored", () => {
+    const padding = "x".repeat(400);
+    const body = `I will quickly check the diff. ${padding}`;
+    const result = sanitizeReviewBody(body);
+    expect(result.action).toBe("errored");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
+  });
+
+  // mt#1264 R3 NON-BLOCKING: lock the strict `>` boundary at the canonical
+  // threshold. Sanitize uses `prefix.length > NARRATIVE_TOLERANCE_CHARS`
+  // (strict greater-than), so 299 and 300 are passthrough; 301 trips.
+  // Helper builds a prefix of EXACTLY targetLen chars followed by a heading.
+  function makeBoundaryBody(targetLen: number): string {
+    const padding = "x".repeat(targetLen - NARRATIVE_INTRO.length - 1);
+    return `${NARRATIVE_INTRO}${padding}\n## Findings\n- ok`;
+  }
+
+  test("narrative phrase at exactly threshold-1 (299 chars) → passthrough (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(299));
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("narrative phrase at exactly threshold (300 chars) → passthrough (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(300));
+    expect(result.action).toBe("passthrough");
+  });
+
+  test("narrative phrase at exactly threshold+1 (301 chars) → stripped (boundary lock)", () => {
+    const result = sanitizeReviewBody(makeBoundaryBody(301));
+    expect(result.action).toBe("stripped");
+    expect(result.meta.reason).toContain(SIGNAL_LONG_NARRATIVE);
+  });
+});
+
+// mt#1264 — redactForLog tests
+describe("redactForLog", () => {
+  test("redacts URLs", () => {
+    const text = "See https://example.com/secret and http://internal.local/x for details.";
+    const out = redactForLog(text);
+    expect(out).toContain("[url]");
+    expect(out).not.toContain("example.com");
+    expect(out).not.toContain("internal.local");
+  });
+
+  test("redacts email addresses", () => {
+    const text = "Contact alice@example.com or bob.smith+tag@company.co.uk for access.";
+    const out = redactForLog(text);
+    expect(out).toContain("[email]");
+    expect(out).not.toContain("alice@");
+    expect(out).not.toContain("bob.smith");
+  });
+
+  test("truncates to default 200 chars", () => {
+    const text = "a".repeat(500);
+    const out = redactForLog(text);
+    expect(out.length).toBeLessThanOrEqual(200);
+  });
+
+  test("truncates to custom maxChars", () => {
+    const text = "a".repeat(500);
+    const out = redactForLog(text, 50);
+    expect(out.length).toBeLessThanOrEqual(50);
+  });
+
+  test("plain text passes through unchanged below threshold", () => {
+    const text = "Some plain text without urls or emails.";
+    const out = redactForLog(text);
+    expect(out).toBe(text);
   });
 });

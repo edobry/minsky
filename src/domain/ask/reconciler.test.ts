@@ -104,11 +104,84 @@ function seedRoutedAsk(repo: FakeAskRepository, id: string, prRef: string): Ask 
 // ---------------------------------------------------------------------------
 
 describe("parsePrRef", () => {
+  // ------------------------------------------------------------------
+  // Regression: existing colon-prefixed form must still work (mt#1414)
+  // ------------------------------------------------------------------
   test("parses canonical github-pr ref", () => {
     const result = parsePrRef("github-pr:owner/repo/99");
     expect(result).toEqual({ owner: "owner", repo: "repo", prNumber: 99 });
   });
 
+  test("regression: colon-prefixed form with real owner/repo/number (mt#1414)", () => {
+    expect(parsePrRef("github-pr:edobry/minsky/787")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // URL forms (mt#1414 — producers write URLs, parser must accept them)
+  // ------------------------------------------------------------------
+  test("parses https URL form", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("parses http URL form", () => {
+    expect(parsePrRef("http://github.com/edobry/minsky/pull/787")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("parses scheme-less github.com URL form", () => {
+    expect(parsePrRef("github.com/edobry/minsky/pull/787")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates trailing path after pull number (e.g. /files)", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787/files")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates query string after pull number (e.g. ?diff=split)", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787?diff=split")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates fragment after pull number (e.g. #discussion-r12345)", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787#discussion-r12345")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  test("tolerates combined query and fragment after pull number", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/pull/787?w=1#issuecomment-999")).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 787,
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Rejection cases
+  // ------------------------------------------------------------------
   test("returns null for unrelated ref", () => {
     expect(parsePrRef("github-issue:owner/repo/99")).toBeNull();
   });
@@ -117,6 +190,18 @@ describe("parsePrRef", () => {
     expect(parsePrRef("github-pr:owner/repo")).toBeNull();
     expect(parsePrRef("github-pr:owner/repo/abc")).toBeNull();
     expect(parsePrRef("")).toBeNull();
+  });
+
+  test("returns null for non-github host", () => {
+    expect(parsePrRef("https://gitlab.com/edobry/minsky/pull/787")).toBeNull();
+  });
+
+  test("returns null for github.com URL with /issues/ instead of /pull/", () => {
+    expect(parsePrRef("https://github.com/edobry/minsky/issues/787")).toBeNull();
+  });
+
+  test("returns null for plain string", () => {
+    expect(parsePrRef("not a ref")).toBeNull();
   });
 });
 

@@ -12,6 +12,7 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
   const auth = createAppAuth({
@@ -53,6 +54,79 @@ export interface PullRequestContext {
    * Fetched from the pulls.listFiles endpoint alongside the diff.
    */
   filesChanged: string[];
+  /**
+   * Authoritative changed-files count from the PR API (`pulls.get` →
+   * `changed_files`). The classifier compares this against
+   * `filesChanged.length` to detect listFiles truncation (cap exceeded, error
+   * fallback, etc.) and downgrade to `normal` rather than classify on a
+   * partial view.
+   */
+  changedFilesCount: number;
+}
+
+/**
+ * Hard limit on the number of changed files fetched per PR to avoid runaway
+ * pagination on PRs that touch thousands of files (GitHub caps at 3000 files
+ * per PR but the classifier's heuristics work on far fewer). When the cap is
+ * hit we return [] so the scope classifier falls through to conservative
+ * `normal` scope rather than classifying on partial data.
+ */
+export const MAX_FILES_FETCHED = 1000;
+
+/**
+ * Fetch the list of files changed by a PR, following Link headers via
+ * octokit.paginate. Returns an array of filename strings.
+ *
+ * Safety cap: if more than MAX_FILES_FETCHED files are returned the cap is
+ * exceeded and [] is returned (scope classifier falls through to normal).
+ * On any error an empty array is also returned; both cases emit a structured
+ * JSON log so the failure is observable in the service logs.
+ *
+ * Exported for tests.
+ */
+export async function fetchListFiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<string[]> {
+  let allFiles: Array<{ filename: string }>;
+  try {
+    allFiles = await octokit.paginate(octokit.rest.pulls.listFiles, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_listfiles_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+      })
+    );
+    return [];
+  }
+
+  if (allFiles.length > MAX_FILES_FETCHED) {
+    console.log(
+      JSON.stringify({
+        event: "pr_scope_files_cap_exceeded",
+        owner,
+        repo,
+        pr: prNumber,
+        fileCount: allFiles.length,
+        cap: MAX_FILES_FETCHED,
+      })
+    );
+    return [];
+  }
+
+  return allFiles.map((f) => f.filename);
 }
 
 export async function fetchPullRequestContext(
@@ -61,7 +135,7 @@ export async function fetchPullRequestContext(
   repo: string,
   prNumber: number
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, filesResponse] = await Promise.all([
+  const [prResponse, diffResponse, filesChanged] = await Promise.all([
     octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
     octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
       owner,
@@ -69,25 +143,7 @@ export async function fetchPullRequestContext(
       pull_number: prNumber,
       mediaType: { format: "diff" },
     }),
-    // Fetch changed file paths for the scope classifier (mt#1188).
-    // per_page=300 covers the vast majority of PRs; GitHub caps at 3000 files
-    // per PR, but the classifier's heuristics work well enough on the first
-    // 300 — the scope check is advisory, not security-critical.
-    //
-    // Fall back to an empty list on failure (rare 422 on >3000-file PRs,
-    // transient 5xx). The classifier then produces conservative `normal`
-    // scope and the review still runs — matching the "advisory, not
-    // security-critical" framing above. The failure is observable via the
-    // warning log.
-    octokit.rest.pulls
-      .listFiles({ owner, repo, pull_number: prNumber, per_page: 300 })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[mt#1188] pulls.listFiles failed for ${owner}/${repo}#${prNumber}; falling back to empty filesChanged (scope will default to normal): ${message}`
-        );
-        return { data: [] as Array<{ filename: string }> };
-      }),
+    fetchListFiles(octokit, owner, repo, prNumber),
   ]);
 
   const pr = prResponse.data;
@@ -95,7 +151,6 @@ export async function fetchPullRequestContext(
   // string at runtime even though the typed response is PullRequest. String()
   // safely coerces the runtime value without the as-unknown double cast.
   const diff = String(diffResponse.data);
-  const filesChanged = filesResponse.data.map((f) => f.filename);
 
   // Head repository coords may differ from base coords for forked PRs.
   // pr.head.repo is null in rare cases (deleted fork); fall back to base.
@@ -117,6 +172,7 @@ export async function fetchPullRequestContext(
     diff,
     headSha: pr.head.sha,
     filesChanged,
+    changedFilesCount: pr.changed_files,
   };
 }
 
@@ -145,6 +201,72 @@ export async function submitReview(
     id: response.data.id,
     htmlUrl: response.data.html_url,
   };
+}
+
+/**
+ * Hard limit on the number of reviews fetched per PR to avoid runaway pagination
+ * on pathological PRs with hundreds of reviews. listReviews returns oldest-first,
+ * so we take the first MAX_REVIEWS_FETCHED (oldest) and log a warning when truncated.
+ */
+const MAX_REVIEWS_FETCHED = 500;
+
+/**
+ * Fetch prior reviews on a PR posted by the reviewer bot.
+ *
+ * Filters to reviews from the ALLOWED_REVIEWER_BOT_LOGINS allowlist that also
+ * contain the Chinese-wall marker. Drops DISMISSED and PENDING reviews.
+ * Returns the remaining reviews sorted ascending by submittedAt (oldest first),
+ * ready for summarizePriorReviews.
+ *
+ * Uses octokit.paginate to fetch all pages (GitHub's listReviews caps at 100
+ * per page). Capped at MAX_REVIEWS_FETCHED (500) to avoid runaway fetches on
+ * pathological PRs; a warning is logged when the cap is hit.
+ *
+ * Filter logic lives in isBotReviewerEntry (prior-review-summary.ts) so it
+ * can be tested without importing @octokit dependencies.
+ */
+export async function fetchPriorReviews(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<PriorReview[]> {
+  // paginate fetches all pages automatically. listReviews returns oldest-first.
+  const allReviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
+    owner,
+    repo,
+    pull_number: prNumber,
+    per_page: 100,
+  });
+
+  let rawReviews = allReviews;
+  if (rawReviews.length > MAX_REVIEWS_FETCHED) {
+    console.warn(
+      `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
+        `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
+    );
+    rawReviews = rawReviews.slice(0, MAX_REVIEWS_FETCHED);
+  }
+
+  const reviews = rawReviews
+    .map(
+      (r): PriorReview => ({
+        id: r.id,
+        state: r.state as PriorReview["state"],
+        submittedAt: r.submitted_at ?? new Date(0).toISOString(),
+        commitId: r.commit_id ?? "",
+        userLogin: r.user?.login ?? "",
+        // GitHub's Reviews API returns null for empty approve/comment bodies.
+        // Coalesce to "" so downstream body.includes(...) in
+        // isBotReviewerEntry doesn't throw on PRs containing empty reviews.
+        body: r.body ?? "",
+      })
+    )
+    .filter((r) => isBotReviewerEntry(r))
+    // Sort ascending by submittedAt — oldest first
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+  return reviews;
 }
 
 /**
@@ -213,6 +335,18 @@ function isBinaryBuffer(buf: Buffer, sampleBytes = 8192): boolean {
 }
 
 /**
+ * Extract a numeric HTTP status from an Octokit RequestError-shaped value.
+ * Returns undefined when err is not a status-bearing object.
+ */
+function getErrorStatus(err: unknown): number | undefined {
+  if (err instanceof Error && "status" in err) {
+    const status = (err as { status?: unknown }).status;
+    return typeof status === "number" ? status : undefined;
+  }
+  return undefined;
+}
+
+/**
  * Read the content of a file at a specific git ref.
  *
  * Returns a discriminated union:
@@ -266,11 +400,7 @@ export async function readFileAtRef(
     }
     return { kind: "text", content: buf.toString("utf-8"), truncated };
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      "status" in (err as Record<string, unknown>) &&
-      (err as Record<string, unknown>).status === 404
-    ) {
+    if (getErrorStatus(err) === 404) {
       return null;
     }
     throw err;
@@ -316,11 +446,7 @@ export async function listDirectoryAtRef(
       )
       .map((entry) => ({ name: entry.name, type: entry.type }));
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      "status" in (err as Record<string, unknown>) &&
-      (err as Record<string, unknown>).status === 404
-    ) {
+    if (getErrorStatus(err) === 404) {
       return null;
     }
     throw err;

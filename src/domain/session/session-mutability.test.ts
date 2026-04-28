@@ -12,7 +12,7 @@ import type { SessionRecord } from "./types";
 
 function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
-    session: "test-session",
+    sessionId: "test-session",
     repoName: "test-repo",
     repoUrl: "https://github.com/edobry/minsky.git",
     createdAt: new Date().toISOString(),
@@ -98,7 +98,7 @@ describe("approveSessionPr refuses on merged session", () => {
 describe("session_start refusal differentiates merged vs active", () => {
   test("merged existing session: error mentions merged + delete-first", async () => {
     const sessionDB = new FakeSessionProvider({
-      initialSessions: [mergedRecord({ session: "task-md#684", taskId: "md#684" })],
+      initialSessions: [mergedRecord({ sessionId: "task-md#684", taskId: "md#684" })],
     });
     const { startSessionImpl } = await import("./start-session-operations");
     await expect(
@@ -120,7 +120,7 @@ describe("session_start refusal differentiates merged vs active", () => {
 
   test("active existing session: error mentions 'actively in use'", async () => {
     const sessionDB = new FakeSessionProvider({
-      initialSessions: [makeRecord({ session: "task-md#684", taskId: "md#684" })],
+      initialSessions: [makeRecord({ sessionId: "task-md#684", taskId: "md#684" })],
     });
     const { startSessionImpl } = await import("./start-session-operations");
     await expect(

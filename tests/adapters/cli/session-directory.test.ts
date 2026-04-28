@@ -130,17 +130,17 @@ describe("session dir command", () => {
     // Assert: This demonstrates the FIXED behavior
     expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
     expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
-    expect(session?.session).toBe("task#160"); // Fixed: correct session returned
+    expect(session?.sessionId).toBe("task#160"); // Fixed: correct session returned
     expect(session?.taskId).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
   });
 
   test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
     // Test edge case where database might have sessions with different task ID formats
     const edgeCaseSessions = [
-      { session: "old-session", taskId: null },
-      { session: "task160", taskId: "160" }, // Without # prefix
-      { session: "task#160", taskId: "160" }, // With # prefix
-      { session: "task-160-v2", taskId: "160" }, // Another session with same task ID
+      { sessionId: "old-session", taskId: null },
+      { sessionId: "task160", taskId: "160" }, // Without # prefix
+      { sessionId: "task#160", taskId: "160" }, // With # prefix
+      { sessionId: "task-160-v2", taskId: "160" }, // Another session with same task ID
     ];
 
     const normalizeTaskId = (taskId: string) => taskId.replace(/^#/, "");
@@ -154,6 +154,6 @@ describe("session dir command", () => {
 
     // Should find all sessions that match the normalized task ID
     expect(correctSessions).toHaveLength(3);
-    expect(correctSessions.map((s) => s.session)).toEqual(["task160", "task#160", "task-160-v2"]);
+    expect(correctSessions.map((s) => s.sessionId)).toEqual(["task160", "task#160", "task-160-v2"]);
   });
 });

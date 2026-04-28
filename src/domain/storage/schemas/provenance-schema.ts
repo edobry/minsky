@@ -26,7 +26,7 @@ export const provenanceTable = pgTable(
     // Causal chain (plain text refs, no FKs per convention)
     taskId: text("task_id"), // originating task (nullable for taskless sessions)
     sessionId: text("session_id"), // Minsky session ID
-    transcriptId: text("transcript_id"), // future: reference to stored transcript
+    transcriptId: text("transcript_id"), // references agent_transcripts(agent_session_id)
 
     // Static signals
     taskOrigin: text("task_origin"), // 'human' | 'agent' | 'automated'

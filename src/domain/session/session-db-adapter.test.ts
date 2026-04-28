@@ -20,8 +20,8 @@ const mockStorage = {
       success: true,
       data: {
         sessions: [
-          { session: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
-          { session: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
+          { sessionId: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
+          { sessionId: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
         ],
         baseDir: "/test/path",
       },
@@ -30,8 +30,8 @@ const mockStorage = {
   writeState: mock(() => Promise.resolve({ success: true })),
   getEntities: mock(() =>
     Promise.resolve([
-      { session: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
-      { session: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
+      { sessionId: "test-session-1", taskId: "mt#123", branch: "task/mt-123" },
+      { sessionId: "test-session-2", taskId: "mt#456", branch: "task/mt-456" },
     ] as SessionRecord[])
   ),
 };
@@ -102,7 +102,7 @@ describe("createSessionProvider", () => {
     // Verify it calls the persistence layer
     expect(mockStorage.readState).toHaveBeenCalledTimes(1);
     expect(sessions).toHaveLength(2);
-    expect(first(sessions).session).toBe("test-session-1");
+    expect(first(sessions).sessionId).toBe("test-session-1");
   });
 
   test("SessionDbAdapter.getSessionByTaskId() filters correctly", async () => {
@@ -234,8 +234,8 @@ describe("SessionDbAdapter", () => {
 describe("SessionDbAdapter.listSessions(options) — pagination push-down (mt#933)", () => {
   test("with options, routes through storage.getEntities and skips readState", async () => {
     const records: SessionRecord[] = [
-      { session: "s1", taskId: "1" } as SessionRecord,
-      { session: "s2", taskId: "2" } as SessionRecord,
+      { sessionId: "s1", taskId: "1" } as SessionRecord,
+      { sessionId: "s2", taskId: "2" } as SessionRecord,
     ];
     const getEntitiesMock = mock((opts: unknown) => Promise.resolve(records));
     const readStateMock = mock(() =>
@@ -271,7 +271,7 @@ describe("SessionDbAdapter.listSessions(options) — pagination push-down (mt#93
       Promise.resolve({
         success: true,
         data: {
-          sessions: [{ session: "legacy", taskId: "1" } as SessionRecord],
+          sessions: [{ sessionId: "legacy", taskId: "1" } as SessionRecord],
           baseDir: "/x",
         },
       })

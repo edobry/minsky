@@ -23,12 +23,66 @@ import type { ReviewListEntry } from "./index";
 export interface ReviewComment {
   /** Relative path of the file to comment on */
   path: string;
-  /** Line number in the file (1-based) */
+  /** Line number in the file (1-based). When startLine is set, this is the END of the range. */
   line: number;
   /** Review comment body */
   body: string;
-  /** Which side of a diff hunk to attach the comment to (default: RIGHT) */
+  /**
+   * Which side of a diff hunk to attach the comment to.
+   *
+   * Defaulting:
+   *  - If startSide is provided alone, side inherits from startSide.
+   *  - Otherwise side defaults to RIGHT (the head/incoming side).
+   *
+   * Use side: "LEFT" to comment on a deletion or pre-change code; the default
+   * RIGHT will not anchor to a deleted line and GitHub may reject the payload.
+   */
   side?: "LEFT" | "RIGHT";
+  /**
+   * First line of a multi-line comment range (1-based, inclusive).
+   * Must be strictly less than `line`. When absent, the comment is single-line.
+   */
+  startLine?: number;
+  /**
+   * Diff side for the start of a multi-line range.
+   * GitHub requires startSide === side when both are provided
+   * (https://docs.github.com/en/rest/pulls/comments).
+   * When startLine is set and side is omitted, side is inferred from startSide
+   * (and vice versa) so the resulting payload is always consistent.
+   */
+  startSide?: "LEFT" | "RIGHT";
+}
+
+/**
+ * Validate a ReviewComment's multi-line range fields before forwarding to the GitHub API.
+ *
+ * Rules (from GitHub API docs:
+ *   https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request):
+ *  - If startLine is present, line must be strictly greater than startLine.
+ *  - If startSide is present and side is provided, they must be equal — GitHub
+ *    requires both sides of a multi-line range to anchor on the same diff side.
+ *    Mismatched sides return 422 Unprocessable Entity.
+ *
+ * @throws MinskyError with a descriptive message when a constraint is violated.
+ */
+export function validateReviewComment(comment: ReviewComment): void {
+  if (comment.startLine !== undefined) {
+    if (comment.startLine >= comment.line) {
+      throw new MinskyError(
+        `Invalid multi-line comment range: startLine (${comment.startLine}) must be ` +
+          `strictly less than line (${comment.line}) on path "${comment.path}".`
+      );
+    }
+  }
+
+  if (comment.startSide !== undefined && comment.side !== undefined) {
+    if (comment.startSide !== comment.side) {
+      throw new MinskyError(
+        `Invalid multi-line comment: startSide ("${comment.startSide}") must equal ` +
+          `side ("${comment.side}") on path "${comment.path}". GitHub rejects mismatched sides.`
+      );
+    }
+  }
 }
 
 export interface SubmitReviewOptions {
@@ -84,14 +138,41 @@ export async function submitReview(
       );
     }
 
+    // Validate all comments before touching the network.
+    if (options.comments) {
+      for (const comment of options.comments) {
+        validateReviewComment(comment);
+      }
+    }
+
     // Map our ReviewComment[] to the shape expected by the Octokit REST API.
-    // The API accepts { path, line, body, side } directly.
-    const apiComments = options.comments?.map((c) => ({
-      path: c.path,
-      line: c.line,
-      body: c.body,
-      side: (c.side ?? "RIGHT") as "LEFT" | "RIGHT",
-    }));
+    // The API accepts { path, line, body, side, start_line, start_side }.
+    //
+    // Side defaulting:
+    //   - If side is provided, use it.
+    //   - Else if startSide is provided (multi-line range), use it — this keeps
+    //     side and start_side consistent so callers can't accidentally produce
+    //     a mismatched payload by setting only startSide.
+    //   - Else default to RIGHT.
+    //
+    // Multi-line fields are spread conditionally so they are absent (not undefined)
+    // on single-line comments — Octokit serializes undefined as null on some
+    // endpoints, and GitHub rejects null start_line.
+    const apiComments = options.comments?.map((c) => {
+      const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+      return {
+        path: c.path,
+        line: c.line,
+        body: c.body,
+        side: resolvedSide,
+        ...(c.startLine !== undefined
+          ? {
+              start_line: c.startLine,
+              start_side: (c.startSide ?? resolvedSide) as "LEFT" | "RIGHT",
+            }
+          : {}),
+      };
+    });
 
     const reviewResponse = await octokit.rest.pulls.createReview({
       owner: gh.owner,

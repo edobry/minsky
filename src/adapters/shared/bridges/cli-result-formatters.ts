@@ -36,7 +36,7 @@ export function formatSessionDetails(session: Record<string, unknown>): void {
 
   if (session.taskId) log.cli(`   Task: ${formatTaskIdForDisplay(session.taskId as string)}`);
   if (session.branchName) log.cli(`   Branch: ${session.branchName}`);
-  if (session.session) log.cli(`   Session ID: ${session.session}`);
+  if (session.sessionId) log.cli(`   Session ID: ${session.sessionId}`);
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
@@ -89,11 +89,11 @@ export function formatSessionSummary(session: Record<string, unknown>): void {
   if (session.taskId) {
     const taskDisplay = formatTaskIdForDisplay(session.taskId as string);
     const branchName = session.branch ? ` (${session.branch})` : "";
-    const uuid = session.session ? ` [${(session.session as string).substring(0, 8)}...]` : "";
+    const uuid = session.sessionId ? ` [${(session.sessionId as string).substring(0, 8)}...]` : "";
     log.cli(`${indicator} ${taskDisplay}${branchName}${uuid}`);
   } else {
     // Taskless session: just show UUID
-    const sessionId = session.session || "unknown";
+    const sessionId = session.sessionId || "unknown";
     const branchName = session.branch ? ` [${session.branch}]` : "";
     log.cli(`${indicator} ${sessionId}${branchName}`);
   }

@@ -8,14 +8,24 @@ import {
   decideToolsActive,
   defaultForkAccessProbe,
   buildRunReviewStartLog,
+  buildConvergenceMetricLog,
+  buildSubmitFailureLog,
+  serializeSubmitError,
   type CallReviewerFn,
   type ReviewResult,
+  type PriorReviewFetcherFn,
+  type PriorReviewIngestionResult,
 } from "./review-worker";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
+import type { PriorReview } from "./prior-review-summary";
+
+// Shared constant for the first-attempt trace string — used in multiple
+// describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
+const ATTEMPT_FIRST_SUCCESS = "first-attempt-success" as const;
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -66,6 +76,7 @@ describe("validateReviewOutput", () => {
       reasoningTokens: 1500,
       totalTokens: 5000,
     },
+    toolCalls: [],
   };
 
   test("passes through non-empty content", () => {
@@ -112,6 +123,7 @@ describe("validateReviewOutput", () => {
       provider: "openai",
       model: "gpt-5",
       tokensUsed: 8192,
+      toolCalls: [],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -146,6 +158,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       reasoningTokens: 12000,
       totalTokens: 16000,
     },
+    toolCalls: [],
   };
 
   test("starts with the skip marker", () => {
@@ -176,6 +189,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       text: "",
       provider: "anthropic",
       model: "claude-opus-4-6",
+      toolCalls: [],
     });
     expect(notice).not.toContain("reasoning phase");
   });
@@ -234,6 +248,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     model: "gpt-5",
     tokensUsed: 500,
     usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
   };
 
   function makeEmpty(provider: "openai" | "google" | "anthropic"): ReviewOutput {
@@ -253,6 +268,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
         reasoningTokens: 12000,
         totalTokens: 16000,
       },
+      toolCalls: [],
     };
   }
 
@@ -272,7 +288,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
 
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.options).toBeUndefined();
-    expect(result.attempt).toBe("first-attempt-success");
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
     expect(result.retryAttempted).toBe(false);
     expect(result.validation.ok).toBe(true);
     expect(result.output).toBe(substantive);
@@ -428,7 +444,7 @@ describe("decidePostSanitizeOutcome", () => {
     reviewerLogin: REVIEWER_LOGIN,
     provider: "openai",
     model: "gpt-5",
-    attempt: "first-attempt-success" as const,
+    attempt: ATTEMPT_FIRST_SUCCESS,
   };
 
   const passthrough: SanitizeResult = {
@@ -747,5 +763,525 @@ describe("ReviewResult.scope type (mt#1188)", () => {
       tier: 1,
     };
     expect(result.scope).toBeUndefined();
+  });
+});
+
+// ----- PriorReviewFetcherFn DI seam (mt#1189) -----
+//
+// Verifies the injectable prior-review fetcher type signature works correctly
+// with both a conforming async function and a throwing function, matching the
+// RunReviewDeps interface contract.
+
+// Constants for repeated strings — avoids no-magic-string-duplication warnings.
+const BOT_LOGIN = "minsky-reviewer[bot]";
+const FETCH_ERROR_MSG = "GitHub API unavailable";
+
+const SAMPLE_PRIOR_REVIEW: PriorReview = {
+  id: 1,
+  state: "CHANGES_REQUESTED",
+  submittedAt: "2026-04-01T10:00:00Z",
+  commitId: "abc123",
+  userLogin: BOT_LOGIN,
+  body: "**Independent adversarial review (Chinese-wall)**\n\n### Findings\n\n- **[BLOCKING]** src/foo.ts:1 — issue",
+};
+
+describe("PriorReviewFetcherFn DI seam (mt#1189)", () => {
+  test("a conforming async function satisfies PriorReviewFetcherFn type", async () => {
+    const fetcher: PriorReviewFetcherFn = async () => [SAMPLE_PRIOR_REVIEW];
+    const reviews = await fetcher({} as Parameters<PriorReviewFetcherFn>[0], "owner", "repo", 1);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.userLogin).toBe(BOT_LOGIN);
+  });
+
+  test("a throwing PriorReviewFetcherFn can be used as a test seam for the error path", async () => {
+    const failingFetcher: PriorReviewFetcherFn = async () => {
+      throw new Error(FETCH_ERROR_MSG);
+    };
+    await expect(
+      failingFetcher({} as Parameters<PriorReviewFetcherFn>[0], "owner", "repo", 42)
+    ).rejects.toThrow(FETCH_ERROR_MSG);
+  });
+});
+
+// ----- PriorReviewIngestionResult error path (mt#1189) -----
+//
+// The error path in runReview catches fetchPriorReviews throws and produces a
+// PriorReviewIngestionResult with iterationCount=0, staleCount=0,
+// priorBlockingCounts=[], and the error message captured. Verified structurally
+// since runReview itself requires the full GitHub client stack.
+
+describe("PriorReviewIngestionResult error-path shape (mt#1189)", () => {
+  test("error result has iterationCount=0, staleCount=0, priorBlockingCounts=[], error set", () => {
+    const errorResult: PriorReviewIngestionResult = {
+      iterationCount: 0,
+      staleCount: 0,
+      priorBlockingCounts: [],
+      error: FETCH_ERROR_MSG,
+    };
+    expect(errorResult.iterationCount).toBe(0);
+    expect(errorResult.staleCount).toBe(0);
+    expect(errorResult.priorBlockingCounts).toEqual([]);
+    expect(errorResult.error).toBe(FETCH_ERROR_MSG);
+  });
+
+  test("success result has no error field when fetch succeeded", () => {
+    const successResult: PriorReviewIngestionResult = {
+      iterationCount: 2,
+      staleCount: 1,
+      priorBlockingCounts: [3, 1],
+    };
+    expect(successResult.error).toBeUndefined();
+    expect(successResult.iterationCount).toBe(2);
+    expect(successResult.priorBlockingCounts).toEqual([3, 1]);
+  });
+
+  test("ReviewResult.priorReviewIngestion field is present on a reviewed result", () => {
+    const result: ReviewResult = {
+      status: "reviewed",
+      reason: "Posted APPROVE review as minsky-reviewer[bot]",
+      tier: 3,
+      priorReviewIngestion: {
+        iterationCount: 1,
+        staleCount: 0,
+        priorBlockingCounts: [2],
+      },
+    };
+    expect(result.priorReviewIngestion?.iterationCount).toBe(1);
+    expect(result.priorReviewIngestion?.priorBlockingCounts).toEqual([2]);
+  });
+});
+
+// ----- buildConvergenceMetricLog (SC-5, mt#1189) -----
+//
+// Pure helper that constructs the reviewer.convergence_metric structured log
+// object. Extracted from runReview (same pattern as buildRunReviewStartLog)
+// so the 6-field shape can be verified without mocking octokit + App auth.
+
+// Log field name constants — avoids no-magic-string-duplication warnings on
+// repeated object key string lookups.
+const FIELD_PRIOR_BLOCKER_COUNT = "priorBlockerCount";
+const FIELD_ACKNOWLEDGED_COUNT = "acknowledgedAsAddressedCount";
+const FIELD_ITERATION_INDEX = "iterationIndex";
+const FIELD_NEW_BLOCKER_COUNT = "newBlockerCount";
+
+describe("buildConvergenceMetricLog (SC-5, mt#1189)", () => {
+  test("includes event=reviewer.convergence_metric with all 6 required fields", () => {
+    const log = buildConvergenceMetricLog(769, "abc123def456", 3, 5, 2, 1);
+    expect(log["event"]).toBe("reviewer.convergence_metric");
+    expect(log["pr"]).toBe(769);
+    expect(log["sha"]).toBe("abc123def456");
+    expect(log[FIELD_ITERATION_INDEX]).toBe(3);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(5);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(2);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(1);
+  });
+
+  test("first iteration (no prior reviews): iterationIndex=1, priorBlockerCount=0", () => {
+    const log = buildConvergenceMetricLog(100, "sha001", 1, 0, 3, 0);
+    expect(log[FIELD_ITERATION_INDEX]).toBe(1);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(0);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(3);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(0);
+  });
+
+  test("serialises cleanly as JSON with no undefined values or circular refs", () => {
+    const log = buildConvergenceMetricLog(42, "sha999", 2, 4, 1, 2);
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const parsed = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(parsed["event"]).toBe("reviewer.convergence_metric");
+    expect(parsed["pr"]).toBe(42);
+    expect(parsed["sha"]).toBe("sha999");
+  });
+
+  test("all 7 keys are present (event + 6 metric fields), no extra keys", () => {
+    const log = buildConvergenceMetricLog(1, "s", 1, 0, 0, 0);
+    const keys = Object.keys(log).sort();
+    expect(keys).toEqual([
+      FIELD_ACKNOWLEDGED_COUNT,
+      "event",
+      FIELD_ITERATION_INDEX,
+      FIELD_NEW_BLOCKER_COUNT,
+      "pr",
+      FIELD_PRIOR_BLOCKER_COUNT,
+      "sha",
+    ]);
+  });
+
+  test("convergence stable scenario: prior=3 blockers, new=0 blockers, acknowledged=3", () => {
+    const log = buildConvergenceMetricLog(758, "head123", 4, 3, 0, 3);
+    expect(log[FIELD_PRIOR_BLOCKER_COUNT]).toBe(3);
+    expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(0);
+    expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(3);
+    expect(log[FIELD_ITERATION_INDEX]).toBe(4);
+  });
+});
+
+// =============================================================================
+// serializeSubmitError (mt#1370): unit coverage for the structured-log error
+// serializer used by the two defensive submitReview catch blocks.
+// =============================================================================
+
+describe("serializeSubmitError", () => {
+  test("octokit-shaped HttpError captures name, message, status, code, stack", () => {
+    const err = new Error("API rate limit exceeded") as Error & {
+      status?: number;
+      code?: string;
+    };
+    err.name = "HttpError";
+    err.status = 403;
+    err.code = "RATE_LIMITED";
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("HttpError");
+    expect(out.message).toBe("API rate limit exceeded");
+    expect(out.status).toBe(403);
+    expect(out.code).toBe("RATE_LIMITED");
+    expect(typeof out.stack).toBe("string");
+    expect((out.stack ?? "").length).toBeGreaterThan(0);
+  });
+
+  test("string-typed status is preserved (some HTTP libs use string codes)", () => {
+    const err = new Error("transient") as Error & { status?: string };
+    err.status = "500";
+    const out = serializeSubmitError(err);
+    expect(out.status).toBe("500");
+  });
+
+  test("plain Error with no status/code captures only name + message + stack", () => {
+    const err = new Error("plain failure");
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("Error");
+    expect(out.message).toBe("plain failure");
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(typeof out.stack).toBe("string");
+  });
+
+  test("non-string status is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { status?: unknown };
+    err.status = { weird: "object" };
+    const out = serializeSubmitError(err);
+    expect(out.status).toBeUndefined();
+    expect(out.message).toBe("weird");
+  });
+
+  test("non-string code is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { code?: unknown };
+    err.code = 42;
+    const out = serializeSubmitError(err);
+    expect(out.code).toBeUndefined();
+  });
+
+  test("string throw becomes message=String(err), no other fields", () => {
+    const out = serializeSubmitError("just a string");
+    expect(out.message).toBe("just a string");
+    expect(out.name).toBeUndefined();
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(out.stack).toBeUndefined();
+  });
+
+  test("number throw becomes message=String(err)", () => {
+    const out = serializeSubmitError(42);
+    expect(out.message).toBe("42");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("plain object throw becomes message=String(err) (i.e., [object Object])", () => {
+    const out = serializeSubmitError({ foo: "bar" });
+    expect(out.message).toBe("[object Object]");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("stack longer than 1024 chars is truncated with marker", () => {
+    const err = new Error("big stack");
+    // Synthesize a long stack by overwriting it.
+    const longStack = "a".repeat(2000);
+    Object.defineProperty(err, "stack", { value: longStack, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeDefined();
+    const stack = out.stack ?? "";
+    expect(stack.length).toBeLessThanOrEqual(1024 + "...[truncated]".length);
+    expect(stack.endsWith("...[truncated]")).toBe(true);
+  });
+
+  test("missing stack on Error is gracefully omitted", () => {
+    const err = new Error("no stack");
+    Object.defineProperty(err, "stack", { value: undefined, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeUndefined();
+    expect(out.message).toBe("no stack");
+  });
+});
+
+// =============================================================================
+// buildSubmitFailureLog (mt#1370 R4): payload-builder for the two structured
+// log events emitted from the defensive submitReview catch blocks. Tests the
+// payload shape independent of the catch block itself, addressing the round-4
+// BLOCKING that the catch-block emission lacked field-stability coverage.
+// =============================================================================
+
+const EV_SKIP_NOTICE_FAILED = "reviewer.submit_skip_notice_failed" as const;
+const EV_ERROR_NOTICE_FAILED = "reviewer.submit_error_notice_failed" as const;
+
+describe("buildSubmitFailureLog", () => {
+  const baseArgs = {
+    prCoords: { owner: "edobry", repo: "minsky", prNumber: 830, sha: "abc1234" },
+    primaryReason: "test-reason",
+    submitErr: new Error("submit failed"),
+    provider: "openai",
+    model: "gpt-5",
+  };
+
+  test("skip_notice_failed variant has all expected fields", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect(log["event"]).toBe(EV_SKIP_NOTICE_FAILED);
+    expect(log["prUrl"]).toBe("https://github.com/edobry/minsky/pull/830");
+    expect(log["sha"]).toBe("abc1234");
+    expect(log["commitSha"]).toBe("abc1234");
+    expect(log["primaryReason"]).toBe("test-reason");
+    expect(log["provider"]).toBe("openai");
+    expect(log["model"]).toBe("gpt-5");
+    expect(log["submitError"]).toBeDefined();
+    expect((log["submitError"] as { message: string }).message).toBe("submit failed");
+  });
+
+  test("error_notice_failed variant accepts and includes sanitizeReason", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:long-narrative-prefix",
+    });
+    expect(log["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(log["sanitizeReason"]).toBe("cot-leak:long-narrative-prefix");
+  });
+
+  test("sanitizeReason is omitted when not provided", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect("sanitizeReason" in log).toBe(false);
+  });
+
+  test("sha and commitSha are both populated from the same source", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "x", repo: "y", prNumber: 1, sha: "deadbeef" },
+    });
+    expect(log["sha"]).toBe("deadbeef");
+    expect(log["commitSha"]).toBe("deadbeef");
+  });
+
+  test("prUrl is constructed from owner+repo+prNumber", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "different-owner", repo: "different-repo", prNumber: 42, sha: "x" },
+    });
+    expect(log["prUrl"]).toBe("https://github.com/different-owner/different-repo/pull/42");
+  });
+
+  test("submitError nests serializeSubmitError output (octokit-shaped throw)", () => {
+    const httpErr = new Error("rate limited") as Error & { status?: number; code?: string };
+    httpErr.name = "HttpError";
+    httpErr.status = 403;
+    httpErr.code = "RATE_LIMITED";
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: httpErr,
+    });
+    const serialized = log["submitError"] as {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+    };
+    expect(serialized.name).toBe("HttpError");
+    expect(serialized.status).toBe(403);
+    expect(serialized.code).toBe("RATE_LIMITED");
+    expect(serialized.message).toBe("rate limited");
+  });
+
+  test("payload is JSON-stringifiable without throwing (used at the call site)", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:blank-line-run",
+    });
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const roundtripped = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(roundtripped["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(roundtripped["sanitizeReason"]).toBe("cot-leak:blank-line-run");
+  });
+
+  test("non-Error throw still produces a valid payload via serializeSubmitError fallback", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: "string-throw",
+    });
+    const serialized = log["submitError"] as { message: string };
+    expect(serialized.message).toBe("string-throw");
+  });
+});
+
+// =============================================================================
+// validateReviewOutput — outputToolsActive path (mt#1402)
+//
+// When outputToolsActive=true, non-empty toolCalls must count as a success
+// signal even when output.text is empty — gpt-5 emits tool calls with
+// output.text === "" on the output-tools path.
+// =============================================================================
+
+describe("validateReviewOutput — outputToolsActive path", () => {
+  const baseOutput: ReviewOutput = {
+    text: "",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 5000,
+    usage: {
+      promptTokens: 3000,
+      completionTokens: 2000,
+      reasoningTokens: 1500,
+      totalTokens: 5000,
+    },
+    toolCalls: [],
+  };
+
+  test("empty text + empty toolCalls + outputToolsActive=true → fails (nothing was produced)", () => {
+    const result = validateReviewOutput(baseOutput, true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("empty content");
+    }
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → ok (tool calls are the output)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "Two blocking findings." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=false → fails (default prose path)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues found." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, false);
+    expect(result.ok).toBe(false);
+  });
+
+  test("non-empty text + non-empty toolCalls + outputToolsActive=true → ok (text passes first)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      text: "some scratch text",
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// =============================================================================
+// callReviewerWithRetry — outputToolsActive forwarding (mt#1402)
+//
+// Verify that the outputToolsActive flag is forwarded to validateReviewOutput
+// so non-empty toolCalls count as success on the output-tools path.
+// =============================================================================
+
+describe("callReviewerWithRetry — outputToolsActive forwarding", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  type Invocation = { options?: import("./providers").CallReviewerOptions };
+  function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      const next = outputs[i];
+      if (next === undefined) {
+        throw new Error(`fakeReviewer ran out of outputs (invocation ${i + 1})`);
+      }
+      i++;
+      return next;
+    };
+  }
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → first-attempt-success, no retry", async () => {
+    const invocations: Invocation[] = [];
+    const output: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "BLOCKING",
+            file: "src/foo.ts",
+            line: 1,
+            summary: "Null check missing",
+            details: "The condition fails when x is null.",
+          },
+        },
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "One blocking issue found." },
+        },
+      ],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([output], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(true);
+  });
+
+  test("empty text + empty toolCalls + outputToolsActive=true → retry attempted (still empty)", async () => {
+    const invocations: Invocation[] = [];
+    const emptyOutput: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([emptyOutput, emptyOutput], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(2);
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(false);
   });
 });

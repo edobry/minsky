@@ -206,7 +206,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const sessionGetSpy = mock(() =>
         Promise.resolve({
-          session: TEST_UUID,
+          sessionId: TEST_UUID,
           repoUrl: TEST_REPO_URL,
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
@@ -246,7 +246,7 @@ describe("Session Start Consistency Tests", () => {
       const listSessionsSpy = mock(() =>
         Promise.resolve([
           {
-            session: "different-session",
+            sessionId: "different-session",
             taskId: "md#160", // Use qualified task ID format to match
             repoUrl: TEST_REPO_URL,
             repoName: "local-minsky",
@@ -379,7 +379,7 @@ describe("Session Start Consistency Tests", () => {
         taskId: "md#160",
       });
       // Session ID is now a UUID
-      expect(result.session).toMatch(
+      expect(result.sessionId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       );
     });

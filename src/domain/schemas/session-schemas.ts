@@ -191,7 +191,7 @@ export const SessionCommitParametersSchema = z.object({
  * Base session data schema
  */
 export const BaseSessionDataSchema = z.object({
-  name: SessionIdSchema,
+  sessionId: SessionIdSchema,
   description: SessionDescriptionSchema,
   taskId: TaskIdSchema.optional(),
   branch: GitBranchSchema,

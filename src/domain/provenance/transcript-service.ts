@@ -1,18 +1,24 @@
 /**
- * Transcript Service
+ * Agent Transcript Service
  *
  * Ingests Claude Code JSONL session transcripts into the database and provides
  * message statistics for authorship tier judging. Only `user` and `assistant`
  * messages are retained; metadata types are filtered out.
  *
+ * Transitional note (mt#1324): During this phase, the Minsky session ID is used as
+ * the `agent_session_id` and `harness` is set to `'legacy'`. The mt#1325 sweeper will
+ * re-ingest transcripts under their correct Claude Code session UUIDs.
+ *
  * @see mt#968 — Phase 4a: transcript DB schema and ingestion pipeline
+ * @see mt#1324 — Foundation schema migration + TranscriptService rename
+ * @see mt#1325 — Harness-agnostic ingestion (fixes agent_session_id keying)
  */
 
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { promises as fs } from "fs";
 
-import { sessionTranscriptsTable } from "../storage/schemas/transcript-schema";
+import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { provenanceTable } from "../storage/schemas/provenance-schema";
 import { log } from "../../utils/logger";
 
@@ -81,12 +87,15 @@ function countCorrections(messages: TranscriptMessage[]): number {
 }
 
 // eslint-disable-next-line custom/require-injectable -- Not yet registered in DI container; will be wired in Phase 4b
-export class TranscriptService {
+export class AgentTranscriptService {
   constructor(private readonly db: PostgresJsDatabase) {}
 
   /**
    * Ingest a Claude Code JSONL transcript file into the database.
    * Filters to only user/assistant messages and stores essential fields.
+   *
+   * Transitional: uses the Minsky session ID as agent_session_id with harness='legacy'.
+   * mt#1325 will re-ingest under the correct Claude Code session UUID.
    */
   async ingestTranscript(sessionId: string, jsonlPath: string): Promise<MessageStats> {
     const raw = String(await fs.readFile(jsonlPath, "utf-8"));
@@ -114,31 +123,27 @@ export class TranscriptService {
     const assistantMessages = messages.filter((m) => m.type === "assistant").length;
     const corrections = countCorrections(messages);
 
-    // Upsert into DB
+    // Upsert into agent_transcripts using the Minsky session ID as agent_session_id.
+    // harness='legacy' signals that this row was ingested via the transitional path.
     const existing = await this.db
       .select()
-      .from(sessionTranscriptsTable)
-      .where(eq(sessionTranscriptsTable.sessionId, sessionId))
+      .from(agentTranscriptsTable)
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
       .limit(1);
 
     if (existing.length > 0) {
       await this.db
-        .update(sessionTranscriptsTable)
+        .update(agentTranscriptsTable)
         .set({
           transcript: messages,
-          messageCount: messages.length,
-          humanMessageCount: humanMessages,
-          assistantMessageCount: assistantMessages,
           ingestedAt: new Date(),
         })
-        .where(eq(sessionTranscriptsTable.sessionId, sessionId));
+        .where(eq(agentTranscriptsTable.agentSessionId, sessionId));
     } else {
-      await this.db.insert(sessionTranscriptsTable).values({
-        sessionId,
+      await this.db.insert(agentTranscriptsTable).values({
+        agentSessionId: sessionId,
+        harness: "legacy",
         transcript: messages,
-        messageCount: messages.length,
-        humanMessageCount: humanMessages,
-        assistantMessageCount: assistantMessages,
       });
     }
 
@@ -156,8 +161,8 @@ export class TranscriptService {
   async getTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
     const rows = await this.db
       .select()
-      .from(sessionTranscriptsTable)
-      .where(eq(sessionTranscriptsTable.sessionId, sessionId))
+      .from(agentTranscriptsTable)
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
       .limit(1);
 
     const row = rows[0];

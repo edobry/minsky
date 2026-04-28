@@ -358,7 +358,7 @@ psql -c "SELECT * FROM pg_stat_activity WHERE datname = 'minsky_sessions';"
 
    ```bash
    minsky config set sessiondb.maxConnections 5
-   minsky config set sessiondb.idleTimeout 30000
+   minsky config set sessiondb.idleTimeout 30
    ```
 
 3. **Monitor memory usage**:

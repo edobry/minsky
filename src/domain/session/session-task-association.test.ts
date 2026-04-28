@@ -15,21 +15,21 @@ import { FakeSessionProvider } from "./fake-session-provider";
 // Mock session data
 const mockSessions: SessionRecord[] = [
   {
-    session: "test-session-md123",
+    sessionId: "test-session-md123",
     repoName: "test-repo",
     repoUrl: "https://github.com/test/repo.git",
     createdAt: "2023-01-01T00:00:00Z",
     taskId: "123", // Plain format without prefix
   },
   {
-    session: "another-session",
+    sessionId: "another-session",
     repoName: "test-repo",
     repoUrl: "https://github.com/test/repo.git",
     createdAt: "2023-01-01T00:00:00Z",
     taskId: "456",
   },
   {
-    session: "unrelated-session",
+    sessionId: "unrelated-session",
     repoName: "test-repo",
     repoUrl: "https://github.com/test/repo.git",
     createdAt: "2023-01-01T00:00:00Z",
@@ -74,7 +74,7 @@ describe("Session Task Association", () => {
     test("should update multiple sessions with same task ID", async () => {
       // Add another session with same task ID
       const extraSession: SessionRecord = {
-        session: "duplicate-session",
+        sessionId: "duplicate-session",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo.git",
         createdAt: "2023-01-01T00:00:00Z",

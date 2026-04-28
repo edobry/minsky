@@ -30,7 +30,11 @@ export {
   buildMergeTrailers,
   type MergeIdentity,
 } from "./authorship-labels";
-export { TranscriptService, type TranscriptMessage, type MessageStats } from "./transcript-service";
+export {
+  AgentTranscriptService,
+  type TranscriptMessage,
+  type MessageStats,
+} from "./transcript-service";
 export {
   AuthorshipJudge,
   AUTHORSHIP_POLICY_VERSION,

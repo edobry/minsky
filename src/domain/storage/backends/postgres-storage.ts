@@ -38,7 +38,8 @@ function pickPostgresOrderColumn(field: string) {
     case "created_at":
       return postgresSessions.createdAt;
     case "session":
-      return postgresSessions.session;
+    case "sessionId":
+      return postgresSessions.sessionId;
     case "taskId":
     case "task_id":
       return postgresSessions.taskId;
@@ -351,7 +352,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     const result = await this.db
       .select()
       .from(postgresSessions)
-      .where(eq(postgresSessions.session, id))
+      .where(eq(postgresSessions.sessionId, id))
       .limit(1);
 
     return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
@@ -466,7 +467,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         await this.db
           .update(postgresSessions)
           .set(insertData)
-          .where(eq(postgresSessions.session, id));
+          .where(eq(postgresSessions.sessionId, id));
         return updated;
       }, "postgres-storage.updateEntity");
     } catch (error) {
@@ -487,8 +488,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       const deleted = await this.db
         .delete(postgresSessions)
-        .where(eq(postgresSessions.session, id))
-        .returning({ session: postgresSessions.session });
+        .where(eq(postgresSessions.sessionId, id))
+        .returning({ sessionId: postgresSessions.sessionId });
       return deleted.length > 0;
     }, "postgres-storage.deleteEntity");
   }
@@ -502,9 +503,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         await this.ensureConnection();
 
         const result = await this.db
-          .select({ session: postgresSessions.session })
+          .select({ sessionId: postgresSessions.sessionId })
           .from(postgresSessions)
-          .where(eq(postgresSessions.session, id))
+          .where(eq(postgresSessions.sessionId, id))
           .limit(1);
 
         return result.length > 0;
