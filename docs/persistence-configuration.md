@@ -216,3 +216,70 @@ the critical contract that keeps this file safe to include in a broad `bun test`
 An always-on saturation branch costs roughly $10/mo. For CI usage where the branch is created and
 destroyed per run, the cost is negligible (a few cents per month at typical nightly cadence).
 Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no longer needed.
+
+## Local Raw-Postgres Saturation Harness (mt#1365)
+
+`tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts` provides the
+**durable contract test** for the pool-saturation retry path: a single Postgres container
+(`pgvector/pgvector:pg16`) started with `max_connections = 5`, managed by Testcontainers, with
+the same `runSaturationSuite` helper from mt#1364 driving the four acceptance tests against the
+container's connection string.
+
+### Why this exists alongside the Supabase harness
+
+`isPgPoolExhaustionError` matches three pooler error shapes:
+
+| Shape                               | Source                                         | End-to-end coverage                         |
+| ----------------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `SQLSTATE 53300`                    | Raw Postgres (any deployment)                  | **THIS file** (mt#1365 — durable)           |
+| `XX000 "max clients reached"`       | Supavisor (currently fronts our prod Postgres) | mt#1364 (Supabase branch — vendor-specific) |
+| `"sorry, too many clients already"` | PgBouncer                                      | Unit tests only (not in our prod path)      |
+
+The Supabase harness always has Supavisor in front, so it never produces the bare `53300` shape.
+This harness is the only place we exercise that path against a real driver. It also stays valid
+regardless of which managed Postgres host Minsky uses — `53300` is a stable Postgres protocol
+error, not a vendor-specific message. If/when Minsky migrates off Supabase, mt#1364 should be
+retired or repointed at the new pooler; this file stays put.
+
+### Requirements
+
+- A reachable docker daemon (Testcontainers handles container lifecycle from inside the test).
+- No external credentials, no per-run cost.
+
+### Run
+
+```bash
+RUN_INTEGRATION_TESTS=1 \
+  bun test --preload ./tests/setup.ts --timeout=120000 \
+    tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts
+```
+
+The single env-var gate keeps this file safe to include in a broad `bun test` run — when
+`RUN_INTEGRATION_TESTS` is unset, the file produces zero tests and zero failures (matches the
+contract used by the Supabase wrapper).
+
+If `RUN_INTEGRATION_TESTS=1` is set but the docker daemon is unreachable, container start throws
+with a clear error rather than silently passing — silent passes on missing infra are a
+false-negative class we explicitly avoid.
+
+### Lifecycle
+
+`beforeAll` (top-level await) starts the container and computes the connection string;
+`afterAll` stops the container. No manual `docker run` / `docker rm` between test runs;
+Testcontainers handles cleanup automatically (and reaps orphaned containers via Ryuk on next
+start if a previous run was killed mid-flight).
+
+### Choosing a harness
+
+| Scenario                                                 | Harness                           |
+| -------------------------------------------------------- | --------------------------------- |
+| CI on every commit (no Supabase credentials)             | mt#1365 (Testcontainers)          |
+| Authoritative production-shape verification              | mt#1364 (Supabase preview branch) |
+| Catch raw-Postgres `53300` regressions                   | mt#1365                           |
+| Catch Supavisor `XX000` regressions                      | mt#1364                           |
+| Quick local iteration on the saturation tests themselves | mt#1365 (no provisioning step)    |
+| Verify against the actual production pooler              | mt#1364                           |
+
+Both harnesses share the same `runSaturationSuite` helper, so adding a new acceptance test
+covers both backends with one change. Convergent results across both is the strongest signal
+that the retry path behaves correctly.
