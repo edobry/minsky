@@ -53,11 +53,6 @@ export interface GithubReviewClient {
 // PR contextRef parsing helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Expected format for a PR contextRef: `github-pr:<owner>/<repo>/<pr-number>`
- */
-const PR_REF_PATTERN = /^github-pr:([^/]+)\/([^/]+)\/(\d+)$/;
-
 interface ParsedPrRef {
   owner: string;
   repo: string;
@@ -65,19 +60,51 @@ interface ParsedPrRef {
 }
 
 /**
+ * Patterns recognised by `parsePrRef`.
+ *
+ * Tried in order; the first match wins.
+ *
+ * 1. Colon-prefixed form:   `github-pr:<owner>/<repo>/<pr-number>`
+ * 2. Full URL (https/http): `https://github.com/<owner>/<repo>/pull/<N>[/...]`
+ * 3. URL without scheme:    `github.com/<owner>/<repo>/pull/<N>[/...]`
+ *
+ * Trailing path segments after the PR number are tolerated (e.g. `/files`,
+ * `/commits`) so that copy-pasted GitHub URLs with extra path info work too.
+ * Only `github.com` host matches — gitlab.com and other forges do not.
+ * Only `/pull/` path segment matches — `/issues/` and other paths do not.
+ */
+const PR_REF_PATTERNS = [
+  // Colon-prefixed form: github-pr:owner/repo/123
+  /^github-pr:([^/]+)\/([^/]+)\/(\d+)$/,
+  // URL form with scheme: https://github.com/owner/repo/pull/123 (also accept http://)
+  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/,
+  // URL form without scheme: github.com/owner/repo/pull/123
+  /^github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/,
+];
+
+/**
  * Parse a `github-pr` contextRef into owner/repo/prNumber.
- * Returns `null` when the ref does not match the expected format.
+ *
+ * Accepts two forms:
+ *  - Colon-prefixed: `github-pr:<owner>/<repo>/<pr-number>`
+ *  - GitHub URL:     `https://github.com/<owner>/<repo>/pull/<N>` (http:// and
+ *                    scheme-less `github.com/...` variants also accepted)
+ *
+ * Returns `null` when the ref does not match any recognised format.
  */
 export function parsePrRef(ref: string): ParsedPrRef | null {
-  const match = PR_REF_PATTERN.exec(ref);
-  if (!match) return null;
-  const ownerPart = match[1];
-  const repoPart = match[2];
-  const prNumberStr = match[3];
-  if (!ownerPart || !repoPart || !prNumberStr) return null;
-  const prNumber = parseInt(prNumberStr, 10);
-  if (isNaN(prNumber)) return null;
-  return { owner: ownerPart, repo: repoPart, prNumber };
+  for (const pattern of PR_REF_PATTERNS) {
+    const match = pattern.exec(ref);
+    if (!match) continue;
+    const ownerPart = match[1];
+    const repoPart = match[2];
+    const prNumberStr = match[3];
+    if (!ownerPart || !repoPart || !prNumberStr) continue;
+    const prNumber = parseInt(prNumberStr, 10);
+    if (isNaN(prNumber)) continue;
+    return { owner: ownerPart, repo: repoPart, prNumber };
+  }
+  return null;
 }
 
 /**
