@@ -216,3 +216,99 @@ the critical contract that keeps this file safe to include in a broad `bun test`
 An always-on saturation branch costs roughly $10/mo. For CI usage where the branch is created and
 destroyed per run, the cost is negligible (a few cents per month at typical nightly cadence).
 Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no longer needed.
+
+## Local Raw-Postgres Saturation Harness (mt#1365)
+
+`tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts` provides the
+**durable contract test** for the pool-saturation retry path: a single Postgres container
+(`pgvector/pgvector:pg16`) started with `max_connections = 10`, managed by Testcontainers, with
+the same `runSaturationSuite` helper from mt#1364 driving the four acceptance tests against the
+container's connection string. The shared helper holds 8 long-lived clients to consume the
+ceiling and races 13 more that must retry — saturation is guaranteed even with a few
+connections taken by Postgres background workers (autovacuum, superuser-reserved slots).
+
+### Why this exists alongside the Supabase harness
+
+`isPgPoolExhaustionError` matches three pooler error shapes:
+
+| Shape                               | Source                                         | End-to-end coverage                         |
+| ----------------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `SQLSTATE 53300`                    | Raw Postgres (any deployment)                  | **THIS file** (mt#1365 — durable)           |
+| `XX000 "max clients reached"`       | Supavisor (currently fronts our prod Postgres) | mt#1364 (Supabase branch — vendor-specific) |
+| `"sorry, too many clients already"` | PgBouncer                                      | Unit tests only (not in our prod path)      |
+
+The Supabase harness always has Supavisor in front, so it never produces the bare `53300` shape.
+This harness is the only place we exercise that path against a real driver. It also stays valid
+regardless of which managed Postgres host Minsky uses — `53300` is a stable Postgres protocol
+error, not a vendor-specific message. If/when Minsky migrates off Supabase, mt#1364 should be
+retired or repointed at the new pooler; this file stays put.
+
+### Requirements
+
+- A reachable docker daemon (Testcontainers handles container lifecycle from inside the test).
+- No external credentials, no per-run cost.
+
+### Run
+
+The dedicated script handles env vars and the longer timeout this test needs:
+
+```bash
+bun run test:integration:docker
+```
+
+Or manually:
+
+```bash
+RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1 \
+  bun test --preload ./tests/setup.ts --timeout=180000 \
+    tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts
+```
+
+### Two-level gate
+
+Unlike `mt#1364`'s Supabase wrapper (one env var), this test sits behind **two** env vars:
+`RUN_INTEGRATION_TESTS=1` AND `RUN_TESTCONTAINER_TESTS=1`. Both must be set for the file to
+register any tests; otherwise it produces zero tests and zero failures.
+
+The second gate exists because container-based tests have stricter preconditions than other
+integration tests — they need a Docker daemon, and first-time image pull can exceed the default
+30s `test:integration` timeout by minutes. The dedicated `test:integration:docker` script uses
+`--timeout=180000` to give bun:test enough headroom for the test bodies after container startup.
+Sitting behind a second sentinel keeps the standard `bun run test:integration` script free of
+this Docker requirement.
+
+If both env vars are set but the Docker daemon is unreachable, container start throws with a
+clear error rather than silently passing — silent passes on missing infra are a false-negative
+class we explicitly avoid.
+
+### Lifecycle
+
+A top-level `await` starts the container and computes the connection string; the file then
+registers a `describe` block whose `afterAll` stops the container. Container startup happens
+outside Bun's per-test timeout — Testcontainers' own `withStartupTimeout(120_000)` is the only
+protection during the start phase, which is why `test:integration:docker` uses `--timeout=180000`
+for the test bodies that follow. Testcontainers handles cleanup automatically and reaps orphaned
+containers via Ryuk on next start if a previous run was killed mid-flight.
+
+### Bun + Testcontainers compatibility note
+
+Testcontainers is primarily validated on Node.js. We use it under Bun, which has been working in
+local testing but is not the upstream's primary support target — if the Docker socket interaction,
+child-process management, or TLS layer regresses with a future Bun release, this test may need a
+Node-based invocation path. If you hit such issues, pin a known-compatible Testcontainers version
+and consider running this single test under `node` rather than `bun`.
+
+### Choosing a harness
+
+| Scenario                                                 | Harness                           |
+| -------------------------------------------------------- | --------------------------------- |
+| CI on every commit (no Supabase credentials)             | mt#1365 (Testcontainers)          |
+| Authoritative production-shape verification              | mt#1364 (Supabase preview branch) |
+| Catch raw-Postgres `53300` regressions                   | mt#1365                           |
+| Catch Supavisor `XX000` regressions                      | mt#1364                           |
+| Quick local iteration on the saturation tests themselves | mt#1365 (no provisioning step)    |
+| Verify against the actual production pooler              | mt#1364                           |
+
+Both harnesses share the same `runSaturationSuite` helper, so adding a new acceptance test
+covers both backends with one change. Convergent results across both is the strongest signal
+that the retry path behaves correctly.
