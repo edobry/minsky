@@ -31,25 +31,19 @@ The 2026-04-28 disk-I/O exhaustion incident — three concurrent `transcripts in
 2. **Add notification rule** → Email channel → metric / threshold / severity per the table above.
 3. Save each rule individually.
 
-### Option B: Management API (scripted, drift-resistant)
+### Option B: Management API (NOT AVAILABLE — confirmed 2026-04-28)
 
-This is the path the runbook eventually wants — single source of truth in this repo, idempotent provisioning. It is **not yet end-to-end automated**: the `POST /notifications` body schema needs to be discovered and pinned. mt#1422 is the task that finishes this.
+The public Supabase Management API does not expose notification-rule CRUD. Empirical verification (2026-04-28): all 107 endpoints in `/api/v1/openapi.json` reviewed; zero match `notif` or `alert`. Tested paths `/v1/projects/{ref}/notifications`, `/api/v1/projects/{ref}/notifications`, `/platform/projects/{ref}/notifications` — all 404 or 401. The dashboard's notification rules page uses a separate dashboard-internal API not exposed publicly.
 
-Prerequisite: a Supabase Personal Access Token in `SUPABASE_ACCESS_TOKEN` env. Source from the Supabase CLI's stored token (one-line in your shell rc):
+**The only programmatic alternative** is to scrape Supabase's Prometheus-compatible Metrics API (~200 Postgres health metrics) into your own time-series store and configure alerts in Prometheus / Grafana / a custom cockpit panel. This is significantly more work than the dashboard but more flexible. Tracked as a sibling of mt#1422.
 
-```bash
-export SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"
-```
+Practically: **set the rules in the dashboard (Option A above).** mt#1422 has been re-scoped accordingly.
 
-Or generate a scoped PAT at https://supabase.com/dashboard/account/tokens and paste it in.
+### Operator JSON-source-of-truth for dashboard rules
 
-Once set, list current rules:
+To keep the dashboard config in this repo as a checkable artifact, the runbook documents the canonical rule set in the table above. After any future dashboard change, paste the rules' JSON (you can copy from the dashboard's network tab) into `docs/supabase-alerts.json` so the source-of-truth lives next to the rest of the operator config.
 
-```bash
-just supabase-alerts-list
-```
-
-This is the discovery step. The response shape from `GET /v1/projects/{ref}/notifications` shows the field names and enums needed to build a `POST` body. mt#1422 captures the full create/update flow once the schema is pinned.
+That file isn't shipped yet — it's a follow-up; for now the table in this doc is the canonical reference.
 
 ## Verifying after a project restart
 
