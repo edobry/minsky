@@ -1,3 +1,7 @@
+-- Hand-augmented: gen_random_uuid() requires pgcrypto. drizzle-kit doesn't auto-emit CREATE EXTENSION;
+-- adding it here ensures the migration succeeds on fresh databases. See PR #849 review (mt#1306).
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+--> statement-breakpoint
 CREATE TABLE "reviewer_convergence_metrics" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"pr_owner" text NOT NULL,
