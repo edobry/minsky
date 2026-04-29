@@ -9,9 +9,66 @@
 import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
 
+// ---------------------------------------------------------------------------
+// CI check_runs presence — exported for tests
+// ---------------------------------------------------------------------------
+
+export interface CheckRunsParseSuccess {
+  ok: true;
+  count: number;
+}
+export interface CheckRunsParseFailure {
+  ok: false;
+  error: string;
+}
+export type CheckRunsParseResult = CheckRunsParseSuccess | CheckRunsParseFailure;
+
 export interface CheckRunsPresenceResult {
   deny: boolean;
   reason?: string;
+}
+
+// Parse a `gh api repos/.../commits/<sha>/check-runs` response. Distinguishes
+// API/parse failure (exit code != 0, empty/non-JSON body, missing fields) from
+// "zero check_runs" so the merge-gate can give an accurate diagnosis.
+export function parseCheckRunsResponse(result: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}): CheckRunsParseResult {
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `gh api exited ${result.exitCode}: ${result.stderr || "(no stderr)"}`,
+    };
+  }
+  const trimmed = result.stdout.trim();
+  if (!trimmed) {
+    return { ok: false, error: "gh api returned empty response" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `failed to parse gh api response as JSON: ${(e as Error).message}`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: false, error: "gh api response is not an object" };
+  }
+  const obj = parsed as { total_count?: unknown; check_runs?: unknown };
+  if (typeof obj.total_count === "number") {
+    return { ok: true, count: obj.total_count };
+  }
+  if (Array.isArray(obj.check_runs)) {
+    return { ok: true, count: obj.check_runs.length };
+  }
+  return {
+    ok: false,
+    error: "gh api response missing total_count and check_runs[]",
+  };
 }
 
 // mt#1309: detect the GitHub Actions webhook-miss class (PR #763 lineage).
@@ -19,12 +76,26 @@ export interface CheckRunsPresenceResult {
 // drops produce a PR with zero check_runs. Without this gate, such PRs can
 // merge with no CI signal at all. The recovery path (push an empty commit to
 // wake the webhook) is documented in /review-pr step 7a.
+//
+// API/parse failures are kept distinct from the webhook-miss case so the
+// denial reason is actionable: a transport error needs investigation, not the
+// empty-commit recovery.
 export function evaluateCheckRunsPresence(
-  checkRunsCount: number,
+  parseResult: CheckRunsParseResult,
   prNumber: string,
   headSha: string
 ): CheckRunsPresenceResult {
-  if (checkRunsCount > 0) {
+  if (!parseResult.ok) {
+    return {
+      deny: true,
+      reason:
+        `Unable to query CI check_runs for PR #${prNumber} HEAD ${headSha.slice(0, 7)}: ${parseResult.error}. ` +
+        `This is distinct from the webhook-miss class — it indicates a gh api transport/parse failure. ` +
+        `Investigate the gh api error before retrying. ` +
+        `If the failure persists, escalate via the bypass-merge path documented in /review-pr step 7a.`,
+    };
+  }
+  if (parseResult.count > 0) {
     return { deny: false };
   }
   return {
@@ -135,22 +206,12 @@ if (import.meta.main) {
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
   // Skipped when headSha is unavailable (the gh pr list query above returned no row).
   if (headSha) {
-    const checkRunsJson = execSync([
-      "gh",
-      "api",
-      `repos/edobry/minsky/commits/${headSha}/check-runs`,
-    ]);
-    let checkRunsCount = 0;
-    try {
-      const parsed = JSON.parse(checkRunsJson.stdout.trim()) as {
-        total_count?: number;
-        check_runs?: unknown[];
-      };
-      checkRunsCount = parsed.total_count ?? parsed.check_runs?.length ?? 0;
-    } catch {
-      checkRunsCount = 0;
-    }
-    const checkRunsResult = evaluateCheckRunsPresence(checkRunsCount, pr, headSha);
+    const checkRunsResp = execSync(
+      ["gh", "api", `repos/edobry/minsky/commits/${headSha}/check-runs`],
+      { timeout: 10000 }
+    );
+    const parseResult = parseCheckRunsResponse(checkRunsResp);
+    const checkRunsResult = evaluateCheckRunsPresence(parseResult, pr, headSha);
     if (checkRunsResult.deny && checkRunsResult.reason) {
       writeOutput({
         hookSpecificOutput: {
