@@ -80,6 +80,42 @@ describe("parseCheckRunsResponse (mt#1309)", () => {
       expect(result.error).toContain("missing total_count");
     }
   });
+
+  it("returns failure with a distinct timeout reason when execSync times out", () => {
+    const result = parseCheckRunsResponse({
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("timed out");
+    }
+  });
+
+  it("timeout is detected even when stderr carries a message", () => {
+    const result = parseCheckRunsResponse({
+      exitCode: 1,
+      stdout: "",
+      stderr: "killed",
+      timedOut: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("timed out");
+      expect(result.error).toContain("killed");
+    }
+  });
+
+  it("treats total_count as authoritative even when check_runs.length disagrees (pagination case)", () => {
+    // GitHub returns total_count=42 with only 1 item when ?per_page=1.
+    // The parser must trust total_count, not check_runs.length.
+    const result = parseCheckRunsResponse(
+      ok('{"total_count":42,"check_runs":[{"id":1,"name":"build"}]}')
+    );
+    expect(result).toEqual({ ok: true, count: 42 });
+  });
 });
 
 describe("evaluateCheckRunsPresence (mt#1309)", () => {

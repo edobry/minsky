@@ -29,13 +29,27 @@ export interface CheckRunsPresenceResult {
 }
 
 // Parse a `gh api repos/.../commits/<sha>/check-runs` response. Distinguishes
-// API/parse failure (exit code != 0, empty/non-JSON body, missing fields) from
-// "zero check_runs" so the merge-gate can give an accurate diagnosis.
+// API/parse failure (exit code != 0, timeout, empty/non-JSON body, missing
+// fields) from "zero check_runs" so the merge-gate can give an accurate
+// diagnosis.
+//
+// The response shape is GitHub's Checks API: { total_count, check_runs[] }.
+// We always trust total_count when present (canonical, pagination-safe). The
+// caller queries with ?per_page=1 to keep the call cheap; check_runs.length is
+// only a defensive fallback for unexpected response shapes — it is NOT a valid
+// substitute for total_count when pagination is in play.
 export function parseCheckRunsResponse(result: {
   exitCode: number;
   stdout: string;
   stderr: string;
+  timedOut?: boolean;
 }): CheckRunsParseResult {
+  if (result.timedOut) {
+    return {
+      ok: false,
+      error: `gh api timed out: ${result.stderr || "(no stderr)"}`,
+    };
+  }
   if (result.exitCode !== 0) {
     return {
       ok: false,
@@ -205,9 +219,11 @@ if (import.meta.main) {
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
   // Skipped when headSha is unavailable (the gh pr list query above returned no row).
+  // ?per_page=1 keeps the response tiny — the gate only reads total_count, which
+  // is the canonical pagination-safe field on GitHub's Checks API.
   if (headSha) {
     const checkRunsResp = execSync(
-      ["gh", "api", `repos/edobry/minsky/commits/${headSha}/check-runs`],
+      ["gh", "api", `repos/edobry/minsky/commits/${headSha}/check-runs?per_page=1`],
       { timeout: 10000 }
     );
     const parseResult = parseCheckRunsResponse(checkRunsResp);

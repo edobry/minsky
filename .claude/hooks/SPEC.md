@@ -147,10 +147,12 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 7. **Spec verification:** deny if no review body matches `/spec[- ]verification/i`
 8. **Documentation impact:** deny if no review body matches `/documentation[- ]impact/i`
 9. **Review freshness:** of the reviews containing spec verification, the most recent one's `commit_id` must equal the PR HEAD sha; otherwise deny as stale (covers an older commit). Skipped only when the PR-list query did not return a head sha.
-10. **CI check_runs presence (mt#1309 webhook-miss regression detection):** fetch `gh api repos/.../commits/<headSha>/check-runs` (10s timeout). The response is run through `parseCheckRunsResponse`, which returns either `{ok:true, count}` or `{ok:false, error}`. `evaluateCheckRunsPresence` then:
-    - **deny with API-failure reason** if `{ok:false}` (non-zero exit, empty body, non-JSON, missing fields, etc.). The reason is distinct from the webhook-miss text — it instructs the operator to investigate the gh api error before retrying.
+10. **CI check_runs presence (mt#1309 webhook-miss regression detection):** fetch `gh api repos/.../commits/<headSha>/check-runs?per_page=1` (10s timeout). The `?per_page=1` query keeps the response tiny — the gate only reads `total_count`, which is the canonical pagination-safe field on GitHub's Checks API. The response is run through `parseCheckRunsResponse`, which returns either `{ok:true, count}` or `{ok:false, error}`. `evaluateCheckRunsPresence` then:
+    - **deny with API-failure reason** if `{ok:false}` (timeout via `timedOut:true`, non-zero exit, empty body, non-JSON, missing fields, etc.). The reason is distinct from the webhook-miss text — it instructs the operator to investigate the gh api error before retrying. Timeouts get a distinct "gh api timed out" prefix.
     - **deny with webhook-miss reason** if `{ok:true, count:0}`. The reason names mt#1309 / PR #763 lineage and points at the empty-commit-to-wake-the-webhook recovery path documented in `/review-pr` step 7a.
     - **allow** if `{ok:true, count>0}`. Status of the runs is intentionally not checked here — that policy is "presence-only, status-agnostic".
+
+The check is skipped entirely when `headSha` is unavailable (the `gh pr list` lookup at step 3 returned no row). This is a soft skip — the hook continues to allow the merge based on the prior review/spec/doc/freshness gates that already passed.
 
 ### Ordering
 
