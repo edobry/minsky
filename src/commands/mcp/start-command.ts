@@ -405,7 +405,20 @@ export function createStartCommand(
 
         // Hard timeout for drain+close path (mt#1417).
         // Configurable via PG_DRAIN_TIMEOUT_MS; defaults to 5000ms.
-        const PG_DRAIN_TIMEOUT_MS = parseInt(process.env.PG_DRAIN_TIMEOUT_MS ?? "5000", 10);
+        // Sanitize: parseInt produces NaN for non-numeric values, which setTimeout
+        // would coerce to 0 and fire the hard-timeout immediately, forcing exit(1)
+        // even when a clean drain would have succeeded. Fall back to default and
+        // clamp to a sane range (PR #881 R1 BLOCKING).
+        const PG_DRAIN_TIMEOUT_DEFAULT_MS = 5000;
+        const PG_DRAIN_TIMEOUT_MIN_MS = 100;
+        const PG_DRAIN_TIMEOUT_MAX_MS = 60_000;
+        const parsedDrainTimeout = parseInt(
+          process.env.PG_DRAIN_TIMEOUT_MS ?? String(PG_DRAIN_TIMEOUT_DEFAULT_MS),
+          10
+        );
+        const PG_DRAIN_TIMEOUT_MS = Number.isFinite(parsedDrainTimeout)
+          ? Math.min(Math.max(parsedDrainTimeout, PG_DRAIN_TIMEOUT_MIN_MS), PG_DRAIN_TIMEOUT_MAX_MS)
+          : PG_DRAIN_TIMEOUT_DEFAULT_MS;
 
         // Idempotency flag: once a shutdown race is in flight, skip re-entry.
         let shutdownInFlight = false;
@@ -454,16 +467,27 @@ export function createStartCommand(
             }
           };
 
-          const hardTimeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("shutdown timeout")), PG_DRAIN_TIMEOUT_MS)
-          );
+          // Capture the timeout handle so we can clear it after the race resolves.
+          // Otherwise the timer lingers until process.exit, harmless today but a
+          // real footgun if the race shape evolves (PR #881 R1 NON-BLOCKING).
+          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+          const hardTimeout = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(
+              () => reject(new Error("shutdown timeout")),
+              PG_DRAIN_TIMEOUT_MS
+            );
+          });
 
           try {
             await Promise.race([drainAndClose(), hardTimeout]);
-            process.exit(0);
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            // Route through the shared exit helper for consistent termination
+            // semantics + Bun-vs-Node parity (PR #881 R1 BLOCKING).
+            exit(0);
           } catch {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
             log.warn(`Shutdown timed out after ${PG_DRAIN_TIMEOUT_MS}ms; forcing exit`);
-            process.exit(1);
+            exit(1);
           }
         };
 
@@ -473,8 +497,14 @@ export function createStartCommand(
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
-        // trigger the same shutdown path (mt#1417).
-        process.stdin.on("close", cleanup);
+        // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard
+        // inside `cleanup` makes this listener idempotent even if it fires more
+        // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
+        // HTTP-mode containers don't use stdin and may run with stdin closed at
+        // startup, which would falsely trigger.
+        if (!options.http) {
+          process.stdin.on("close", cleanup);
+        }
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {});
