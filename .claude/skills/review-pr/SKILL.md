@@ -161,10 +161,11 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 - Use `event: "COMMENT"` if you are the PR author, if the review is from the same identity that opened the PR, or if there are only non-blocking issues.
 - Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria.
 
-**Self-authored bot PRs (Tier-3 default flow):** When the PR was opened by `minsky-ai[bot]` (label `authorship/co-authored`), the merge will not converge through APPROVE submitted by the same App identity. Plan for this from the start, not as an exception:
+**Self-authored bot PRs (Tier-3 default flow):** When the PR was opened by `minsky-ai[bot]` — primary cue is the PR `user.login` field; the `authorship/co-authored` label is the secondary cue but may not always be applied — the merge will not converge through APPROVE submitted by the same App identity. Plan for this from the start, not as an exception:
 
 - The cross-identity reviewer (`minsky-reviewer[bot]`) is the only in-tool path to a non-self APPROVE.
-- If the reviewer bot's APPROVE never lands within branch protection's required-review window, the merge requires either a human APPROVE in the GitHub UI or a `gh api PUT /repos/.../pulls/N/merge` bypass. See `feedback_self_authored_pr_merge_constraints` and `feedback_gh_api_bypass` in memory for the bypass pattern (use `merge_method=merge`, never `squash`).
+- If the reviewer bot's APPROVE never lands within branch protection's required-review window, the merge requires either a human APPROVE in the GitHub UI or a `gh api PUT /repos/.../pulls/N/merge` bypass. See `feedback_self_authored_pr_merge_constraints` and `feedback_gh_api_bypass` in memory (paths under `~/.claude/projects/-Users-edobry-Projects-minsky/memory/`) for the bypass pattern (use `merge_method=merge`, never `squash`).
+- Before invoking the bypass, confirm the repo's branch protection allows the chosen `merge_method` (some configurations restrict to `squash` or `rebase`). The Minsky convention is `merge` to preserve PR-branch history per `docs/pr-workflow.md`.
 - mt#1065 is the planned fix for review-time token routing that will make this automatic.
 
 **Stale CHANGES_REQUESTED dismissal:** When `minsky-reviewer[bot]` (or any prior reviewer) left a `CHANGES_REQUESTED` review on a commit that is no longer HEAD and the BLOCKING finding has been addressed in a subsequent commit, dismiss the stale review with:
@@ -172,6 +173,8 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 ```
 mcp__minsky__session_pr_review_dismiss(reviewId, message)
 ```
+
+To get the `reviewId`: read it from `mcp__minsky__session_pr_review_context.reviews` (preferred — bundles PR context) or from `mcp__github__pull_request_read` with `method: "get_reviews"`. Match by `commit_id` to find reviews on superseded commits.
 
 The `message` must name what fixed the finding and which commit landed it ("addressed in commit `<sha>`: <one-line summary>"). The pre-merge gate counts dismissed reviews as resolved. Note: GitHub's dismiss endpoint returns `422 "Can not dismiss a commented pull request review"` for `COMMENT`-event reviews — only `APPROVE` and `REQUEST_CHANGES` reviews can be dismissed. For COMMENT reviews, no action is needed (they don't gate the merge).
 
@@ -182,7 +185,7 @@ After pushing a follow-up commit that addresses BLOCKING findings, `minsky-revie
 **Diagnosis steps:**
 
 1. Confirm the latest push reached GitHub: `mcp__minsky__session_pr_get` and check `head.sha` matches your local HEAD.
-2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks`. If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue.
+2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks` (or `mcp__github__pull_request_read` with `method: "get_check_runs"` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309.
 3. Wait at most 5 minutes. Do not loop indefinitely.
 
 **Unblock options** (in preference order):
