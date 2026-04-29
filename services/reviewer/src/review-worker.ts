@@ -702,6 +702,13 @@ export async function runReview(
     )
   );
 
+  // Convergence metric is intentionally only emitted on the successful-review path.
+  // Earlier early-returns (routing skip, empty output, sanitize-errored) do NOT
+  // invoke the recorder because they don't have meaningful prior/new/acknowledged
+  // blocker counts to record — writing zero-row metrics for service-level failures
+  // would contaminate the calibration trajectory we're trying to measure.
+  // See PR #849 iter-2 review (mt#1306) for context.
+  //
   // mt#1306: persist convergence metric to Postgres alongside stdout log.
   // Uses injected metricsRecorder if provided (test seam), falls back to
   // real recordConvergenceMetric. Skipped entirely when no db is injected
