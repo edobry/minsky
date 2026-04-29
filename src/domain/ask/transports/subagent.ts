@@ -346,37 +346,36 @@ function buildPrompt(routedAsk: RoutedAsk): string {
 }
 
 /**
+ * Classify token cost into an ordinal bucket for the response payload.
+ *
+ * Pure token-cost classification — does NOT represent operator cognitive
+ * load (per ADR-008, `operatorCost` is only present when the ask was
+ * escalated to a human; this transport never reaches the operator at v1).
+ *
+ * "quick" < 2 000 tokens; "medium" < 10 000; "deep" otherwise.
+ * If tokenCost is absent, default to "medium" (unknown).
+ */
+function classifyTokenCostOrdinal(tokenCost: number | undefined): "quick" | "medium" | "deep" {
+  if (tokenCost === undefined) return "medium";
+  if (tokenCost < 2_000) return "quick";
+  if (tokenCost < 10_000) return "medium";
+  return "deep";
+}
+
+/**
  * Build attention cost metadata for a subagent-resolved Ask.
  *
- * `operatorCost` is intentionally absent — operator was never reached.
+ * `operatorCost` is intentionally absent — operator was never reached on
+ * this transport at v1. Per ADR-008 §Attention accounting, `operatorCost`
+ * is "Present when the ask was escalated to a human"; populating it from
+ * a token-count threshold would be a category error.
  */
 function buildAttentionCost(subagentResponse: SubagentResponse): AttentionCost {
-  const tokenCost = subagentResponse.tokenCost;
-
-  // Classify cost ordinal by token count (rough heuristic for v1).
-  // "quick" < 2 000 tokens; "medium" < 10 000; "deep" otherwise.
-  // If tokenCost is absent, default to "medium" (unknown).
-  let costKind: "quick" | "medium" | "deep";
-  if (tokenCost === undefined) {
-    costKind = "medium";
-  } else if (tokenCost < 2_000) {
-    costKind = "quick";
-  } else if (tokenCost < 10_000) {
-    costKind = "medium";
-  } else {
-    costKind = "deep";
-  }
-
-  const cost: AttentionCost = {
-    tokenCost,
+  return {
+    tokenCost: subagentResponse.tokenCost,
     transport: "subagent",
     resolvedIn: "subagent",
-    operatorCost: {
-      kind: costKind,
-    },
   };
-
-  return cost;
 }
 
 /**
@@ -398,6 +397,7 @@ function buildSuccessClose(
   };
 
   const attentionCost = buildAttentionCost(subagentResponse);
+  const tokenOrdinal = classifyTokenCostOrdinal(subagentResponse.tokenCost);
 
   const responder: AgentId | "operator" | "policy" | "timeout" =
     subagentResponse.responderId ?? "subagent";
@@ -416,7 +416,7 @@ function buildSuccessClose(
         text: subagentResponse.text,
         attentionCost: {
           tokenCost: subagentResponse.tokenCost,
-          kind: attentionCost.operatorCost?.kind ?? "medium",
+          kind: tokenOrdinal,
         },
       },
       attentionCost,
