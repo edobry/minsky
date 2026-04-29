@@ -134,8 +134,12 @@ export async function sessionPrCreate(
 /**
  * Parse a GitHub pull request URL into its `{owner, repo, prNumber}` parts.
  *
- * Canonical form: `https://github.com/<owner>/<repo>/pull/<number>`. Returns
- * `undefined` when the URL does not match.
+ * Canonical form: `https://github.com/<owner>/<repo>/pull/<number>`. The
+ * pattern is intentionally not anchored at the end — trailing segments like
+ * `/files`, `/commits`, or a query string still match (e.g.,
+ * `https://github.com/owner/repo/pull/42/files` returns `prNumber: 42`).
+ * This matches how PR URLs appear in the wild from GitHub's UI. Returns
+ * `undefined` when the host is not github.com or the URL is malformed.
  */
 export function parseGithubPrUrl(
   url: string
@@ -204,7 +208,7 @@ export async function fileQualityReviewAsk(
             prNumber != null ? `PR #${prNumber} (${params.prUrl})` : `PR (${params.prUrl})`,
         },
       ]
-    : [];
+    : undefined;
 
   await askRepository.create({
     kind: "quality.review",

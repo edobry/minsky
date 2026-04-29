@@ -159,12 +159,14 @@ describe("fileQualityReviewAsk", () => {
     expect(fakeAskRepo.all[0]?.question).toBe("Review the changes in this PR.");
   });
 
-  test("emits empty contextRefs when prUrl is omitted", async () => {
+  test("leaves contextRefs undefined when prUrl is omitted", async () => {
+    // undefined matches the Drizzle schema mapper's NULL handling
+    // (src/domain/ask/repository.ts:66) and avoids storing an empty JSON array.
     await fileQualityReviewAsk(fakeAskRepo, {
       sessionId: SESSION_ID,
     });
 
-    expect(fakeAskRepo.all[0]?.contextRefs).toEqual([]);
+    expect(fakeAskRepo.all[0]?.contextRefs).toBeUndefined();
   });
 
   test("preserves raw URL as ref for GitHub Enterprise hosts", async () => {
@@ -358,6 +360,7 @@ describe("session_pr_create → reconcile end-to-end", () => {
       classifierVersion: "v1.0.0",
       requestor: SESSION_ID,
       parentSessionId: SESSION_ID,
+      parentTaskId: TASK_ID,
       title: "Review PR #99",
       question: "review",
       contextRefs: [
