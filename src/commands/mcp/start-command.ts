@@ -134,6 +134,9 @@ function resolveProjectContext(
 
 /**
  * Start the MCP server with HTTP transport.
+ *
+ * Returns the resolved port/host/endpoint so the caller can emit readiness
+ * logs AFTER registering shutdown handlers (mt#1417 ordering fix).
  */
 async function startHttpServer(
   server: MinskyMCPServer,
@@ -142,9 +145,8 @@ async function startHttpServer(
     host: string;
     endpoint: string;
     requireAuth?: boolean;
-  },
-  projectContext?: ReturnType<typeof createProjectContext>
-): Promise<void> {
+  }
+): Promise<{ port: number; host: string; endpoint: string }> {
   const app = express();
   app.use(express.json());
 
@@ -222,21 +224,20 @@ async function startHttpServer(
     });
   });
 
-  // Start the HTTP server
+  // Start the HTTP server and wait for it to be bound before returning.
+  // Readiness logs are intentionally NOT emitted here — the caller emits them
+  // after registering shutdown handlers (mt#1417 ordering fix).
   const httpPort = parseInt(options.port, 10);
-  app.listen(httpPort, options.host, () => {
-    log.cli("Minsky MCP Server started with HTTP transport");
-    log.cli(`Server listening on ${options.host}:${httpPort}`);
-    log.cli(`MCP endpoint: http://${options.host}:${httpPort}${options.endpoint}`);
-    log.cli(`Health check: http://${options.host}:${httpPort}/health`);
-    if (projectContext) {
-      log.cli(`Repository path: ${projectContext.repositoryPath}`);
-    }
-    log.cli("Ready to receive MCP requests via HTTP");
+  await new Promise<void>((resolve) => {
+    app.listen(httpPort, options.host, () => {
+      resolve();
+    });
   });
 
   // Initialize the MCP server (without connecting transport since HTTP is on-demand)
   await server.start();
+
+  return { port: httpPort, host: options.host, endpoint: options.endpoint };
 }
 
 /**
@@ -362,18 +363,16 @@ export function createStartCommand(
           }
         }
 
-        // Start the server
+        // Start the server. For HTTP, capture the resolved config so readiness
+        // logs can be emitted after shutdown handlers are attached (mt#1417).
+        let httpServerInfo: { port: number; host: string; endpoint: string } | undefined;
         if (transportType === "http") {
-          await startHttpServer(
-            server,
-            {
-              port: options.port,
-              host: options.host,
-              endpoint: options.endpoint,
-              requireAuth: options.requireAuth,
-            },
-            projectContext
-          );
+          httpServerInfo = await startHttpServer(server, {
+            port: options.port,
+            host: options.host,
+            endpoint: options.endpoint,
+            requireAuth: options.requireAuth,
+          });
         } else {
           // Stdio transport
           if (!options.withInspector) {
@@ -381,7 +380,10 @@ export function createStartCommand(
             if (projectContext) {
               log.cli(`Repository path: ${projectContext.repositoryPath}`);
             }
-            log.cli("Ready to receive MCP requests via stdin/stdout");
+            // NOTE: readiness log intentionally omitted here.
+            // Handlers (SIGTERM/SIGINT/SIGHUP/stdin "close") are registered below.
+            // "Press Ctrl+C to stop" is emitted AFTER handler registration and
+            // serves as the canonical readiness marker (mt#1417).
           }
         }
 
@@ -510,10 +512,24 @@ export function createStartCommand(
           process.stdin.on("close", cleanup);
         }
 
-        // Print readiness AFTER all shutdown handlers are attached (PR #881 R2 BLOCKING):
-        // tests + parent processes use this line as the deterministic ready signal,
-        // so emitting it before handlers register opens a race window where an
-        // immediate shutdown event hits the kernel default action and bypasses cleanup.
+        // Emit readiness logs AFTER all shutdown handlers are attached (mt#1417).
+        // For HTTP: server info is logged here rather than inside startHttpServer's
+        // app.listen callback, which would fire before handlers register.
+        // For stdio: server.start() already wired the transport; no extra info needed.
+        // "Press Ctrl+C to stop" is the canonical readiness marker that tests and
+        // parent processes wait for (waitForReady in start-command.test.ts).
+        if (httpServerInfo) {
+          log.cli("Minsky MCP Server started with HTTP transport");
+          log.cli(`Server listening on ${httpServerInfo.host}:${httpServerInfo.port}`);
+          log.cli(
+            `MCP endpoint: http://${httpServerInfo.host}:${httpServerInfo.port}${httpServerInfo.endpoint}`
+          );
+          log.cli(`Health check: http://${httpServerInfo.host}:${httpServerInfo.port}/health`);
+          if (projectContext) {
+            log.cli(`Repository path: ${projectContext.repositoryPath}`);
+          }
+          log.cli("Ready to receive MCP requests via HTTP");
+        }
         log.cli("Press Ctrl+C to stop");
 
         // Keep the process alive by waiting indefinitely
