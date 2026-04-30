@@ -66,6 +66,8 @@ export function conflictingLabels(event: "APPROVE" | "COMMENT" | "REQUEST_CHANGE
 // ── Octokit interface (minimal surface for label ops) ───────────────────────
 
 export interface OctokitReviewLabelClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  paginate<T>(method: (params: any) => Promise<{ data: T[] }>, params: object): Promise<T[]>;
   rest: {
     issues: {
       getLabel(params: { owner: string; repo: string; name: string }): Promise<unknown>;
@@ -92,6 +94,7 @@ export interface OctokitReviewLabelClient {
         owner: string;
         repo: string;
         issue_number: number;
+        per_page?: number;
       }): Promise<{ data: Array<{ name: string }> }>;
     };
   };
@@ -162,6 +165,8 @@ export async function ensureReviewStateLabelsExist(
  * - Removes any conflicting labels (e.g., applying `review:bot-approved`
  *   removes `review:needs-changes`).
  * - Idempotent: if the label is already present, no spurious GitHub activity.
+ *   When listLabelsOnIssue fails (degraded read), removals are attempted
+ *   unconditionally (best-effort) to preserve exclusivity.
  *
  * Failures are logged but not thrown — callers should treat this as best-effort.
  */
@@ -178,25 +183,29 @@ export async function applyReviewStateLabel(
   const targetLabel = reviewEventToLabel(event);
   const toRemove = conflictingLabels(event);
 
-  // Fetch current labels on the PR to enable idempotency checks
-  let currentLabelNames: Set<string>;
+  // Fetch ALL current labels on the PR (paginated) to enable idempotency checks.
+  // Uses paginate to handle PRs with >30 labels (GitHub's default page size).
+  let currentLabelNames: Set<string> | null;
   try {
-    const response = await octokit.rest.issues.listLabelsOnIssue({
+    const allLabels = await octokit.paginate(octokit.rest.issues.listLabelsOnIssue, {
       owner,
       repo,
       issue_number: prNumber,
+      per_page: 100,
     });
-    currentLabelNames = new Set(response.data.map((l) => l.name));
+    currentLabelNames = new Set(allLabels.map((l) => l.name));
   } catch (error) {
     log.warn(
       `Failed to list labels on PR #${prNumber}: ${getErrorMessage(error)}. ` +
-        `Proceeding without idempotency check.`
+        `Proceeding without idempotency check; removals will be attempted unconditionally.`
     );
-    currentLabelNames = new Set();
+    currentLabelNames = null;
   }
 
-  // Add the target label (idempotent: skip if already present)
-  if (!currentLabelNames.has(targetLabel)) {
+  // Add the target label.
+  // Idempotent when the read succeeded: skip if the label is already present.
+  // When the read failed (null), attempt the add (GitHub will no-op if already present).
+  if (currentLabelNames === null || !currentLabelNames.has(targetLabel)) {
     try {
       await octokit.rest.issues.addLabels({
         owner,
@@ -215,9 +224,13 @@ export async function applyReviewStateLabel(
     log.debug(`Review-state label "${targetLabel}" already on PR #${prNumber}; skipping add`);
   }
 
-  // Remove conflicting labels (idempotent: skip if not present)
+  // Remove conflicting labels.
+  // When the read succeeded: skip labels that are not present (idempotent).
+  // When the read failed (null): attempt ALL removals unconditionally so that
+  // conflicting labels are not left co-resident with the newly added label.
+  // Each removal is wrapped in its own try/catch so one failure does not abort the rest.
   for (const labelName of toRemove) {
-    if (!currentLabelNames.has(labelName)) {
+    if (currentLabelNames !== null && !currentLabelNames.has(labelName)) {
       log.debug(`Conflicting label "${labelName}" not on PR #${prNumber}; skipping remove`);
       continue;
     }

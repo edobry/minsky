@@ -35,6 +35,7 @@ interface FakeState {
   addLabelCalls: Array<{ prNumber: number; labels: string[] }>;
   removeLabelCalls: Array<{ prNumber: number; name: string }>;
   listLabelsCalls: number[];
+  listLabelsThrows?: boolean;
   getLabelThrows?: (name: string) => Error | null;
   addLabelsThrows?: (prNumber: number) => Error | null;
   removeLabelsThrows?: (prNumber: number, name: string) => Error | null;
@@ -42,6 +43,15 @@ interface FakeState {
 
 function buildFakeClient(state: FakeState): OctokitReviewLabelClient {
   return {
+    // Fake paginate: calls the method with the given params and returns the data array.
+
+    paginate: async (method: (params: any) => Promise<{ data: any[] }>, params: object) => {
+      if (state.listLabelsThrows) {
+        throw new Error("listLabelsOnIssue network error");
+      }
+      const result = await method(params);
+      return result.data;
+    },
     rest: {
       issues: {
         getLabel: async ({ name }: { owner: string; repo: string; name: string }) => {
@@ -223,15 +233,9 @@ describe("ensureReviewStateLabelsExist", () => {
     await ensureReviewStateLabelsExist(client, "owner", "repo");
 
     const byName = Object.fromEntries(state.createLabelCalls.map((c) => [c.name, c.color]));
-    // Red family
-    expect(byName[LABEL_NEEDS_CHANGES]).toMatch(/^b|^c|^d|^e|^f|^[0-9]/); // any hex that starts with red-ish
-    // We just verify each has a color assigned and they are non-empty strings
-    expect(byName[LABEL_NEEDS_CHANGES]).toBeTruthy();
-    expect(byName[LABEL_BOT_APPROVED]).toBeTruthy();
-    expect(byName[LABEL_BOT_COMMENTED]).toBeTruthy();
-    // And that they are distinct colors
-    const colors = new Set(Object.values(byName));
-    expect(colors.size).toBe(3);
+    expect(byName[LABEL_NEEDS_CHANGES]).toBe("b60205");
+    expect(byName[LABEL_BOT_APPROVED]).toBe("0e8a16");
+    expect(byName[LABEL_BOT_COMMENTED]).toBe("0075ca");
   });
 });
 
@@ -374,5 +378,54 @@ describe("applyReviewStateLabel — graceful degradation", () => {
     await expect(
       applyReviewStateLabel(client, "owner", "repo", 42, "REQUEST_CHANGES")
     ).resolves.toBeUndefined();
+  });
+});
+
+// ── Exclusivity on failed label read (BLOCKING 1) ────────────────────────────
+
+describe("applyReviewStateLabel — exclusivity on failed read", () => {
+  test("removes conflicting labels unconditionally when listLabelsOnIssue throws", async () => {
+    // BLOCKING 1: when the label-list read fails, conflicting labels must still be removed
+    // unconditionally so that exclusivity is preserved even in degraded mode.
+    const state = makeState({ prLabels: { 42: [LABEL_BOT_APPROVED] } });
+    state.listLabelsThrows = true;
+    const client = buildFakeClient(state);
+
+    // Should not throw even though paginate fails
+    await expect(
+      applyReviewStateLabel(client, "owner", "repo", 42, "REQUEST_CHANGES")
+    ).resolves.toBeUndefined();
+
+    // Even though listLabelsOnIssue threw, removeLabel must have been called for
+    // each conflicting label (LABEL_BOT_APPROVED) unconditionally.
+    expect(state.removeLabelCalls.some((c) => c.name === LABEL_BOT_APPROVED)).toBe(true);
+    expect(state.removeLabelCalls.some((c) => c.prNumber === 42)).toBe(true);
+  });
+});
+
+// ── Pagination (BLOCKING 3) ──────────────────────────────────────────────────
+
+describe("applyReviewStateLabel — pagination", () => {
+  test("reads all labels via paginate (35 labels) and skips add when target is already present", async () => {
+    // BLOCKING 3: applyReviewStateLabel uses paginate to fetch all PR labels.
+    // Build a PR with 35 labels where the 35th is the target label.
+    // The FakeState buildFakeClient.paginate calls listLabelsOnIssue once and returns result.data,
+    // so all 35 labels are returned in a single call (simulating paginate collecting all pages).
+
+    // Build 34 filler labels + the target label as the 35th entry
+    const fillerLabels = Array.from({ length: 34 }, (_, i) => `filler-label-${i + 1}`);
+    const allPrLabels = [...fillerLabels, LABEL_NEEDS_CHANGES]; // 35 total; target is last
+
+    const state = makeState({ prLabels: { 77: allPrLabels } });
+    const client = buildFakeClient(state);
+
+    await applyReviewStateLabel(client, "owner", "repo", 77, "REQUEST_CHANGES");
+
+    // Because the target label is already on the PR (seen via paginate), addLabels must NOT
+    // be called (idempotency preserved even when the label list is large).
+    expect(state.addLabelCalls).toHaveLength(0);
+
+    // Confirm that listLabelsOnIssue was actually called (paginate ran)
+    expect(state.listLabelsCalls).toContain(77);
   });
 });
