@@ -19,7 +19,7 @@ The argument is a PR number (e.g., `/review-pr 328`) or a GitHub PR URL.
 
 ### 1. Gather context
 
-Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the diff, and the task spec.
+Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the raw diff, the structured `parsedDiff` (with hunks for line-anchored comment selection), the task spec, and existing review threads with resolved/outdated state.
 
 If the session tool fails (e.g., no session exists for this PR), fall back to fetching in parallel:
 

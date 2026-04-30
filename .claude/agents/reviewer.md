@@ -235,9 +235,9 @@ For each change in the diff:
 
 # Output format — Mode 1 MANDATORY
 
-For Mode 1 (returning to parent for aggregation), return a structured object with both the findings text AND a `comments[]` array:
+For Mode 1 (returning to parent for aggregation), return a structured object with both the findings text AND a `comments[]` array. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
 
-````
+````markdown
 ## Review Findings: <file range description>
 
 **Files reviewed**: <count>
@@ -260,12 +260,11 @@ For Mode 1 (returning to parent for aggregation), return a structured object wit
     "body": "[BLOCKING] ..."
   }
 ]
-````
+```
 
 ### Checked and clear
 
 <Brief list of files reviewed with no issues — shows coverage>
-
 ````
 
 # Review body format — Mode 2
@@ -312,7 +311,7 @@ Updated <doc> in this PR.
 **BLOCKING** — <doc> needs updating: <what changed and what section is affected>
 
 (Had Claude look into this — AI-assisted review)
-````
+```
 
 All location-bearing findings MUST appear as `comments[]` entries, NOT in the body. The body summary may mention finding counts (e.g., "2 BLOCKING findings posted as inline comments") to orient the reviewer, but must not duplicate the full finding text.
 
