@@ -140,15 +140,16 @@ export async function dispatchToElicitation(
   const { server, repo, timeoutMs = DEFAULT_ELICITATION_TIMEOUT_MS } = options;
 
   // -----------------------------------------------------------------------
-  // Walk state machine: detected → classified → routed → suspended
+  // Walk state machine forward to "suspended" from whatever the persisted
+  // current state is.
   // -----------------------------------------------------------------------
-  // Each step calls repo.transition which guards via state-machine.ts.
-  // If the Ask is already past one of these states (e.g. caller pre-walked),
-  // the guard throws — caller is responsible for passing a freshly-created
-  // Ask or one in "detected" state.
-  await repo.transition(routedAsk.id, "classified");
-  await repo.transition(routedAsk.id, "routed");
-  await repo.transition(routedAsk.id, "suspended");
+  // The persisted Ask's current state may be anywhere from "detected" (the
+  // typical createAsk → policyFirstRoute → here flow, where intermediate
+  // transitions are not persisted) up through "suspended" (a recovery
+  // re-dispatch from operator CLI, mt#1458). We read the current state and
+  // only advance through the gaps so re-entry is idempotent and we never
+  // hit InvalidAskTransitionError on a legitimate caller.
+  await advanceToSuspended(repo, routedAsk.id);
 
   // -----------------------------------------------------------------------
   // Issue elicitation/create
@@ -189,6 +190,58 @@ export async function dispatchToElicitation(
   await repo.close(routedAsk.id, { response: responsePayload });
 
   return buildAcceptedClose(routedAsk, result.content, responsePayload.attentionCost);
+}
+
+// ---------------------------------------------------------------------------
+// State machine helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a persisted Ask forward to `"suspended"` from whatever its current
+ * state is. Idempotent: if the Ask is already at `"suspended"`, this is a
+ * no-op. Throws if the persisted state is past `"suspended"` (responded /
+ * closed / cancelled / expired) — those are caller errors (re-dispatching
+ * a terminal Ask is invalid).
+ *
+ * Transition table (from `state-machine.ts`):
+ *   detected → classified → routed → suspended
+ */
+async function advanceToSuspended(repo: AskRepository, askId: string): Promise<void> {
+  const persisted = await repo.getById(askId);
+  if (!persisted) {
+    throw new Error(`elicitation transport: Ask not found: ${askId}`);
+  }
+
+  switch (persisted.state) {
+    case "detected":
+      await repo.transition(askId, "classified");
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "classified":
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "routed":
+      await repo.transition(askId, "suspended");
+      return;
+    case "suspended":
+      // Already at the target state — no-op for re-dispatch / recovery.
+      return;
+    case "responded":
+    case "closed":
+    case "cancelled":
+    case "expired":
+      throw new Error(
+        `elicitation transport: cannot dispatch Ask in terminal/post-suspended state "${persisted.state}" — re-dispatch is invalid`
+      );
+    default:
+      // Exhaustiveness guard via assertNever pattern would require importing
+      // it; the explicit case list above covers all 8 AskState values, and
+      // adding a new state would surface here as a missing case at runtime
+      // (caught by tests) and as a compile error at the switch statement.
+      throw new Error(`elicitation transport: unhandled Ask state "${persisted.state}"`);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -243,4 +243,53 @@ describe("createAsk", () => {
       agentType: "general-purpose",
     });
   });
+
+  // -------------------------------------------------------------------------
+  // capability-aware routing wiring (mt#1457)
+  // -------------------------------------------------------------------------
+
+  test("routes direction.decide to elicitation when capabilityRegistry reports hasElicitation=true", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Test",
+        question: "Pick X or Y",
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => true,
+          activeElicitationServer: () => null,
+        },
+      }
+    );
+
+    expect(result.transport.kind).toBe("elicitation");
+    expect(result.routingTarget).toBe("operator");
+  });
+
+  test("falls back to inbox when capabilityRegistry reports hasElicitation=false", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => false,
+          activeElicitationServer: () => null,
+        },
+      }
+    );
+
+    expect(result.transport.kind).toBe("inbox");
+  });
 });

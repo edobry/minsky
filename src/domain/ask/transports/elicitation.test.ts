@@ -335,3 +335,90 @@ describe("dispatchToElicitation — error path", () => {
     expect(persisted?.state).toBe("suspended");
   });
 });
+
+// ---------------------------------------------------------------------------
+// State-machine re-entry — PR #919 reviewer-bot finding
+// ---------------------------------------------------------------------------
+
+describe("dispatchToElicitation — state-machine re-entry", () => {
+  test("dispatching an Ask already in 'classified' state advances forward without throwing", async () => {
+    const repo = new FakeAskRepository();
+    const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
+
+    // Caller pre-walks the persisted Ask to "classified".
+    await repo.transition(routed.id, "classified");
+
+    const server = new FakeElicitationServer();
+    server.setResult({ action: "accept", content: { chosen: "x" } });
+
+    const result = await dispatchToElicitation(routed, { server, repo });
+
+    expect(result.state).toBe("closed");
+    const persisted = await repo.getById(routed.id);
+    expect(persisted?.state).toBe("closed");
+  });
+
+  test("dispatching an Ask already in 'routed' state advances forward without throwing", async () => {
+    const repo = new FakeAskRepository();
+    const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
+
+    await repo.transition(routed.id, "classified");
+    await repo.transition(routed.id, "routed");
+
+    const server = new FakeElicitationServer();
+    server.setResult({ action: "accept", content: { chosen: "x" } });
+
+    const result = await dispatchToElicitation(routed, { server, repo });
+
+    expect(result.state).toBe("closed");
+  });
+
+  test("dispatching an Ask already in 'suspended' state proceeds (recovery re-entry)", async () => {
+    // This is the operator-CLI recovery path — the Ask was previously
+    // stranded in suspended state and we're re-attempting dispatch.
+    const repo = new FakeAskRepository();
+    const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
+
+    await repo.transition(routed.id, "classified");
+    await repo.transition(routed.id, "routed");
+    await repo.transition(routed.id, "suspended");
+
+    const server = new FakeElicitationServer();
+    server.setResult({ action: "accept", content: { chosen: "x" } });
+
+    const result = await dispatchToElicitation(routed, { server, repo });
+
+    expect(result.state).toBe("closed");
+  });
+
+  test("dispatching an Ask in terminal state ('closed') throws with a clear error", async () => {
+    const repo = new FakeAskRepository();
+    const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
+
+    // Walk to closed via responded.
+    await repo.transition(routed.id, "classified");
+    await repo.transition(routed.id, "routed");
+    await repo.transition(routed.id, "suspended");
+    await repo.transition(routed.id, "responded");
+    await repo.transition(routed.id, "closed");
+
+    const server = new FakeElicitationServer();
+
+    await expect(dispatchToElicitation(routed, { server, repo })).rejects.toThrow(
+      /cannot dispatch.*terminal/
+    );
+  });
+
+  test("dispatching an Ask in terminal state ('cancelled') throws with a clear error", async () => {
+    const repo = new FakeAskRepository();
+    const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
+
+    await repo.transition(routed.id, "cancelled");
+
+    const server = new FakeElicitationServer();
+
+    await expect(dispatchToElicitation(routed, { server, repo })).rejects.toThrow(
+      /cannot dispatch.*terminal/
+    );
+  });
+});

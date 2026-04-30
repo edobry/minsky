@@ -255,6 +255,49 @@ export interface CreateAskParams {
  * Exposed (rather than inlined into the command's `execute` closure) so
  * tests can exercise the producer end-to-end with a `FakeAskRepository`.
  */
+/**
+ * Walk a persisted Ask forward to `"suspended"` from any pre-suspended state.
+ *
+ * Used by the strand-recovery path in `asks.create` when the router decided
+ * elicitation but no active MCP server is reachable. Mirrors the helper in
+ * the elicitation transport but lives here to avoid an import cycle (the
+ * transport imports from this file's surface).
+ *
+ * Throws on terminal/post-suspended states — re-suspending a closed Ask is
+ * a programming error.
+ */
+async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): Promise<void> {
+  const persisted = await repo.getById(askId);
+  if (!persisted) {
+    throw new Error(`asks.create: Ask not found: ${askId}`);
+  }
+  switch (persisted.state) {
+    case "detected":
+      await repo.transition(askId, "classified");
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "classified":
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "routed":
+      await repo.transition(askId, "suspended");
+      return;
+    case "suspended":
+      return;
+    case "responded":
+    case "closed":
+    case "cancelled":
+    case "expired":
+      throw new Error(
+        `asks.create: cannot strand-suspend Ask in terminal state "${persisted.state}"`
+      );
+    default:
+      throw new Error(`asks.create: unhandled Ask state "${persisted.state}"`);
+  }
+}
+
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
@@ -429,12 +472,29 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             return await dispatchToElicitation(routed, { server, repo });
           }
           // Defensive: capability registry said hasElicitation() but no
-          // server is currently active. Fall through and return the routed
-          // Ask as-is; the operator CLI (mt#1458) is the recovery path.
+          // server is currently active (race between hasElicitation()
+          // returning true and activeElicitationServer() lookup —
+          // disconnect mid-call, etc.).
+          //
+          // Walk the Ask to "suspended" with transport=elicitation persisted
+          // so the operator CLI (mt#1458) can pick it up. Returning a
+          // non-progressing "routed" Ask would strand it: nothing else in
+          // the system polls for routed Asks. Reviewer-bot finding on PR
+          // #919: stranded-routed must transition to suspended for recovery.
           log.warn(
-            "asks.create: routed to elicitation but no active server — returning routed Ask",
+            "asks.create: elicitation routed but no active server — walking to suspended for recovery",
             { askId: routed.id }
           );
+          await advanceRoutedAskToSuspended(repo, routed.id);
+          // RoutedAsk.state is narrowed to "routed" | "closed" by mt#1069;
+          // the strand-suspend path widens through ElicitationClosedAsk's
+          // shape (Omit<RoutedAsk, "state"> + suspended) to honor that.
+          const suspended: ElicitationClosedAsk = {
+            ...routed,
+            state: "suspended",
+            routingTarget: "operator",
+          };
+          return suspended;
         }
 
         return routed;
