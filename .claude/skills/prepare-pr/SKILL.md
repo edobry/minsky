@@ -113,10 +113,10 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 
 **If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
 
-1. Prefix the PR title with `[unverified-tests]` — e.g., `[unverified-tests] Add session liveness tests`.
+1. Include `[unverified-tests]` in your input title — e.g., `[unverified-tests] Add session liveness tests`. The tool will prepend the conventional-commit prefix, so the rendered GitHub title becomes `feat(mt#X): [unverified-tests] Add session liveness tests`; the tag appears mid-title, not at position 0. The merge-time hook (mt#1459) detects the tag anywhere in the title, so position does not matter.
 2. Add a TODO in the PR body identifying the specific gap: which test file(s) could not be run and why.
 
-The `[unverified-tests]` prefix is recognized by the merge-time PreToolUse hook (mt#1459), which will block merge until the prefix is removed or a maintainer explicitly clears it. Making the convention legible here ensures the agent opening the PR and the hook guarding the merge share the same signal.
+The `[unverified-tests]` tag is detected anywhere in the visible PR title by the merge-time PreToolUse hook (mt#1459), which will block merge until the tag is removed or a maintainer explicitly clears it. Making the convention legible here ensures the agent opening the PR and the hook guarding the merge share the same signal.
 
 **Reviewer-side:** when reviewing a PR that adds new test files, confirm the PR body either contains `Execution evidence:` output OR the PR title carries `[unverified-tests]` with a documented reason. If neither is present, request the evidence before approving.
 
