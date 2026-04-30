@@ -22,6 +22,7 @@ import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
 import type { RequestExtras } from "../domain/agent-identity/layer2";
 import type { AppContainerInterface } from "../composition/types";
+import type { MCPClientCapabilityRegistry } from "./client-capabilities";
 
 /**
  * Transport type for MCP server
@@ -79,6 +80,19 @@ export interface MinskyMCPServerOptions {
    * Provided by the MCP start command after tool registration.
    */
   container?: AppContainerInterface;
+
+  /**
+   * MCP client capability registry (mt#1457). When provided, each `Server`
+   * instance created by `createConfiguredServer` is registered so the Ask
+   * router can detect elicitation-capable connections. HTTP-mode session
+   * cleanup paths unregister servers as connections close. Stdio mode
+   * registers once for the process lifetime.
+   *
+   * When undefined (the typical bare-CLI / test path), capability tracking
+   * is disabled — the no-op registry in CLI composition suffices for those
+   * code paths.
+   */
+  clientCapabilityRegistry?: MCPClientCapabilityRegistry;
 }
 
 // Tool definitions for MCP server
@@ -130,6 +144,9 @@ export class MinskyMCPServer {
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
+  /** Optional capability registry — when set, every Server created in
+   * createConfiguredServer is register/unregister-tracked. */
+  private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -193,6 +210,10 @@ export class MinskyMCPServer {
 
     // DI container for service access (e.g. sessionProvider for agentId writes)
     this.container = options.container;
+
+    // mt#1457: capability registry for the Ask router. When provided, each
+    // Server created via createConfiguredServer is registered.
+    this.clientCapabilityRegistry = options.clientCapabilityRegistry;
 
     // Parse session cap from env var. Non-positive or non-numeric values → no cap.
     const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
@@ -302,6 +323,14 @@ export class MinskyMCPServer {
       }
     );
     this.diag.captureInit(server);
+
+    // mt#1457: register with the capability registry so the Ask router can
+    // detect this connection's elicitation capability once initialize completes.
+    // Capabilities are read live from the SDK Server (no caching), so registering
+    // here pre-init is safe — the SDK populates getClientCapabilities() on
+    // initialize. HTTP onclose / idle reaper / close() handle unregistration.
+    this.clientCapabilityRegistry?.registerServer(server);
+
     this.setupRequestHandlers(server);
     return server;
   }
@@ -469,6 +498,9 @@ export class MinskyMCPServer {
             this.httpSessions.delete(closedId);
             log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
           }
+          // mt#1457: unregister from the capability registry so a closed
+          // connection's stale capabilities don't influence routing decisions.
+          this.clientCapabilityRegistry?.unregisterServer(server);
           // Only close the Server if no external initiator claimed ownership —
           // the initiator (reaper / MinskyMCPServer.close) is responsible for
           // closing the Server directly.
@@ -565,6 +597,9 @@ export class MinskyMCPServer {
       // Mark external initiator so onclose doesn't also call server.close().
       (session as typeof session & { markExternalClose?: () => void }).markExternalClose?.();
       this.httpSessions.delete(id);
+      // mt#1457: unregister from capability registry. Idempotent — safe even
+      // if onclose also fires and unregisters again.
+      this.clientCapabilityRegistry?.unregisterServer(session.server);
       const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
       log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
       try {
@@ -981,6 +1016,8 @@ export class MinskyMCPServer {
         // call server.close().
         for (const [sessionId, entry] of this.httpSessions.entries()) {
           (entry as typeof entry & { markExternalClose?: () => void }).markExternalClose?.();
+          // mt#1457: unregister from capability registry on shutdown.
+          this.clientCapabilityRegistry?.unregisterServer(entry.server);
           try {
             await entry.transport.close();
             log.debug("Closed HTTP transport", { sessionId });
@@ -1002,6 +1039,10 @@ export class MinskyMCPServer {
         }
         this.httpSessions.clear();
       }
+
+      // mt#1457: unregister the singleton stdio Server (HTTP sessions are
+      // unregistered above). Idempotent for the http-mode path.
+      this.clientCapabilityRegistry?.unregisterServer(this.server);
 
       await this.server.close();
       log.debug("MCP Server closed");

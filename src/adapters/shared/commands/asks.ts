@@ -28,9 +28,14 @@ import {
   type RoutedAsk,
   type PolicyFirstRouteOptions,
 } from "../../../domain/ask/router";
+import {
+  dispatchToElicitation,
+  type ElicitationClosedAsk,
+} from "../../../domain/ask/transports/elicitation";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 
 // ---------------------------------------------------------------------------
@@ -373,7 +378,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       description: "Create an Ask and route it via the policy-first router (ADR-008)",
       requiresSetup: true,
       parameters: asksCreateParams,
-      execute: async (params): Promise<RoutedAsk> => {
+      execute: async (params): Promise<RoutedAsk | ElicitationClosedAsk> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
@@ -381,19 +386,58 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        return createAsk(repo, {
-          kind: params.kind as AskKind,
-          title: params.title as string,
-          question: params.question as string,
-          options: params.options as AskOption[] | undefined,
-          contextRefs: params.contextRefs as ContextRef[] | undefined,
-          parentTaskId: params.parentTaskId as string | undefined,
-          parentSessionId: params.parentSessionId as string | undefined,
-          deadline: params.deadline as string | undefined,
-          metadata: params.metadata as Record<string, unknown> | undefined,
-          classifierVersion: params.classifierVersion as string | undefined,
-          requestor: params.requestor as string | undefined,
-        });
+        // mt#1457: pull the capability registry from the container so the
+        // router consults it and the elicitation transport can dispatch
+        // through the active MCP Server. CLI execution gets the no-op fake
+        // (registered in cli.ts); MCP execution gets MCPClientCapabilityRegistry
+        // (overridden in start-command.ts).
+        const capabilityRegistry =
+          container?.has("clientCapabilityRegistry") &&
+          (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
+
+        const routerOptions: PolicyFirstRouteOptions = capabilityRegistry
+          ? { capabilityRegistry }
+          : {};
+
+        const routed = await createAsk(
+          repo,
+          {
+            kind: params.kind as AskKind,
+            title: params.title as string,
+            question: params.question as string,
+            options: params.options as AskOption[] | undefined,
+            contextRefs: params.contextRefs as ContextRef[] | undefined,
+            parentTaskId: params.parentTaskId as string | undefined,
+            parentSessionId: params.parentSessionId as string | undefined,
+            deadline: params.deadline as string | undefined,
+            metadata: params.metadata as Record<string, unknown> | undefined,
+            classifierVersion: params.classifierVersion as string | undefined,
+            requestor: params.requestor as string | undefined,
+          },
+          routerOptions
+        );
+
+        // mt#1457: when the router decided elicitation, dispatch through the
+        // active MCP Server. Other transports (subagent in mt#1070, inbox in
+        // mt#454/mt#1458) are dispatched elsewhere; asks.create only owns
+        // the elicitation path because that's the synchronous one whose
+        // result we can return inline. Async transports leave routed.state
+        // = "routed" and the caller polls / receives notification later.
+        if (routed.transport.kind === "elicitation" && capabilityRegistry) {
+          const server = capabilityRegistry.activeElicitationServer();
+          if (server) {
+            return await dispatchToElicitation(routed, { server, repo });
+          }
+          // Defensive: capability registry said hasElicitation() but no
+          // server is currently active. Fall through and return the routed
+          // Ask as-is; the operator CLI (mt#1458) is the recovery path.
+          log.warn(
+            "asks.create: routed to elicitation but no active server — returning routed Ask",
+            { askId: routed.id }
+          );
+        }
+
+        return routed;
       },
     })
   );

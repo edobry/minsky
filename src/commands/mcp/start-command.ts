@@ -29,6 +29,7 @@ import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
+import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -289,12 +290,24 @@ export function createStartCommand(
 
         const projectContext = resolveProjectContext(options.repo);
 
+        // mt#1457: build the MCP-backed capability registry and wire it both
+        // into the container (for asks.create / router consumers) and into
+        // the MinskyMCPServer (for register/unregister of Server instances).
+        // The CLI composition root (`createCliContainer`) registers a no-op
+        // by default; this override replaces it for MCP-server execution so
+        // routing decisions reflect actual host capabilities.
+        const clientCapabilityRegistry = new MCPClientCapabilityRegistry();
+        if (container) {
+          container.set("clientCapabilityRegistry", clientCapabilityRegistry);
+        }
+
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
           transportType: transportType as "stdio" | "http",
+          clientCapabilityRegistry,
           ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),

@@ -137,13 +137,25 @@ export interface AttentionCost {
   transport: TransportKind;
 
   /** How the Ask was ultimately resolved. */
-  resolvedIn: "policy" | "subagent" | "retriever" | "inbox" | "mesh" | "agui" | "timeout";
+  resolvedIn:
+    | "policy"
+    | "subagent"
+    | "retriever"
+    | "inbox"
+    | "mesh"
+    | "agui"
+    | "elicitation"
+    | "timeout";
 }
 
 /**
  * Transport kinds that can carry an Ask to its resolver.
  *
  * Derived from the transport-binding matrix in ADR-008.
+ *
+ * `"elicitation"` (mt#1457) is the capability-aware transport for sync ask
+ * kinds when the active MCP client advertises elicitation support — the
+ * router prefers it over the static kind→inbox fallback for sync kinds.
  */
 export type TransportKind =
   | "policy"
@@ -152,6 +164,7 @@ export type TransportKind =
   | "inbox"
   | "mesh"
   | "agui"
+  | "elicitation"
   | "timeout";
 
 /**

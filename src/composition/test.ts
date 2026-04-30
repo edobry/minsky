@@ -112,11 +112,12 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
       }),
     } as unknown as AppServices["taskRoutingService"],
 
-    // mt#1456: no-op MCP client capability registry. Tests that exercise
-    // capability-aware routing (mt#1457) override with a stub that returns
-    // true from hasElicitation().
+    // mt#1456 / mt#1457: no-op MCP client capability registry. Tests that
+    // exercise capability-aware routing override with a stub that returns
+    // true from hasElicitation() and a fake server from activeElicitationServer().
     clientCapabilityRegistry: {
       hasElicitation: () => false,
+      activeElicitationServer: () => null,
     },
   };
 
