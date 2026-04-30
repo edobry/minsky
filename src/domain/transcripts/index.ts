@@ -20,3 +20,15 @@ export {
   AgentTranscriptIngestService,
   type IngestAllResult,
 } from "./agent-transcript-ingest-service";
+export {
+  extractTaskIds,
+  extractPrNumbers,
+  extractMetadata,
+  extractMetadataFromJsonb,
+  type TranscriptLine,
+  type ExtractedMetadata,
+} from "./metadata-extractor";
+export {
+  MetadataExtractionPipeline,
+  type ExtractionPipelineResult,
+} from "./metadata-extraction-pipeline";

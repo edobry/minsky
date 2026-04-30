@@ -68,7 +68,7 @@ const ALL_KINDS: AskKind[] = [
  * Returns null when the provider does not support SQL capability or when no
  * DB connection is available; callers should surface a clear error in that case.
  */
-async function buildAskRepository(
+export async function buildAskRepository(
   container: AppContainerInterface | undefined
 ): Promise<AskRepository | null> {
   if (!container?.has("persistence")) return null;

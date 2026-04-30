@@ -10,14 +10,28 @@
 
 // --- Enum-like constants ---
 
+/**
+ * Single source of truth for all valid memory_type values.
+ * The pgEnum in memory-embeddings.ts and MEMORY_TYPES derive from this.
+ * Adding a value here without updating the DB migration will be caught by
+ * the drift-check test in enum-drift.test.ts.
+ */
+export const MEMORY_TYPE_VALUES = ["user", "feedback", "project", "reference"] as const;
+
+export type MemoryType = (typeof MEMORY_TYPE_VALUES)[number];
+
+/**
+ * Object-map form retained for consumers that use MEMORY_TYPES.key notation.
+ * The exhaustive-key satisfies clause forces this object to define a key for
+ * every MemoryType — adding a value to MEMORY_TYPE_VALUES without updating
+ * MEMORY_TYPES is a compile error.
+ */
 export const MEMORY_TYPES = {
   user: "user",
   feedback: "feedback",
   project: "project",
   reference: "reference",
-} as const;
-
-export type MemoryType = (typeof MEMORY_TYPES)[keyof typeof MEMORY_TYPES];
+} as const satisfies { [K in MemoryType]: K };
 
 export const MEMORY_SCOPES = {
   project: "project",
