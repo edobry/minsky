@@ -194,11 +194,19 @@ export interface ParsedDiff {
    */
   removed: Map<string, Array<[number, number]>>;
   /**
-   * Bidirectional rename mapping: oldPath → newPath. Pre-PR-#922-R2 the
-   * parser ignored `rename from`/`rename to` headers, so a finding that
-   * cited the OLD path saw zero added lines on a renamed file and was
-   * incorrectly downgraded. Now: applyMonotonicityRecovery uses this to
-   * resolve the new path's added ranges when a finding cites the old path.
+   * Rename mapping: oldPath → newPath. One-directional — the only consumer
+   * (applyMonotonicityRecovery) looks up by old path to resolve to the new
+   * path's added ranges. PR #922 R3 doc-correction: pre-fix the comment
+   * said "Bidirectional" but the implementation only populates oldPath →
+   * newPath. If a future caller needs new → old, it can build the inverse
+   * map at the call site.
+   *
+   * Pre-PR-#922-R2 the parser ignored `rename from`/`rename to` headers
+   * entirely, so a finding citing the OLD path saw zero added-line
+   * overlap on a renamed file and was incorrectly downgraded. Now:
+   * applyMonotonicityRecovery uses this map to resolve old-path lookups
+   * to the new-path added ranges, AND treats renamed files as
+   * conservative-preserve regardless of overlap.
    */
   renames: Map<string, string>;
 }
@@ -246,6 +254,13 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
   // The pair completes when both lines have been seen; the mapping is
   // recorded on the second one. PR #922 R2#2 addition.
   let pendingRenameFrom: string | null = null;
+  // Track the old-file path captured from `--- a/...` headers. Used to key
+  // removed ranges on the OLD path when `+++ /dev/null` arrives (full file
+  // deletion) — pre-PR-#922-R3 the parser set currentFile=null on
+  // `+++ /dev/null` and dropped the entire deletion's removed lines, which
+  // caused unspecified-side findings on deleted files to be over-eagerly
+  // downgraded.
+  let oldFilePath: string | null = null;
 
   /** Coalesce or append a range on the appropriate map. */
   function pushRange(map: Map<string, Array<[number, number]>>, file: string, line: number): void {
@@ -263,6 +278,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
   for (const line of lines) {
     if (line.startsWith("diff --git ")) {
       currentFile = null;
+      oldFilePath = null;
       inHunk = false;
       pendingRenameFrom = null;
       continue;
@@ -285,6 +301,16 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
     }
 
     if (line.startsWith("--- ")) {
+      // Capture the old-file path so we can key removed ranges on it when
+      // `+++ /dev/null` arrives (full file deletion). PR #922 R3 catch.
+      const path = line.slice(4);
+      if (path === "/dev/null") {
+        oldFilePath = null;
+      } else if (path.startsWith("a/")) {
+        oldFilePath = path.slice(2);
+      } else {
+        oldFilePath = null;
+      }
       currentFile = null;
       inHunk = false;
       continue;
@@ -293,7 +319,17 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
     if (line.startsWith("+++ ")) {
       const path = line.slice(4);
       if (path === "/dev/null") {
-        currentFile = null;
+        // File fully deleted. Use the old-file path as currentFile so the
+        // subsequent hunk's `-` lines are recorded under the old path. The
+        // file will have ZERO added lines (no `+` lines in a deleted-file
+        // hunk), but recording the removed ranges lets unspecified-side
+        // findings preserve BLOCKING when their cited range overlaps the
+        // deletion.
+        currentFile = oldFilePath;
+        if (currentFile !== null) {
+          if (!added.has(currentFile)) added.set(currentFile, []);
+          if (!removed.has(currentFile)) removed.set(currentFile, []);
+        }
       } else if (path.startsWith("b/")) {
         currentFile = path.slice(2);
         if (!added.has(currentFile)) added.set(currentFile, []);

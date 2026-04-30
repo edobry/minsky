@@ -683,20 +683,23 @@ export async function runReview(
         );
       }
       if (recovery.downgrades.length > 0) {
-        // Both pre- and post-recovery counts are emitted so operators can
-        // correlate downgrades with effect on the final review event
-        // (REQUEST_CHANGES vs APPROVE/COMMENT) and with classification mix.
-        // PR #922 R2 catch + R2#4 NON-BLOCKING follow-up: include
-        // post-recovery NON-BLOCKING count and total finding count for
-        // dashboard simplicity.
-        const findings = output.toolCalls.filter((tc) => tc.name === "submit_finding");
-        const totalFindingCount = findings.length;
-        const originalBlockingCount = findings.filter(
+        // PR #922 R3 catch: pre-fix this mixed pre- and post-recovery bases
+        // for the dashboard counts (totalFindingCount derived from the
+        // pre-recovery output.toolCalls; post-recovery counts derived from
+        // toolCallsForComposition). Now ALL totals are derived from the
+        // SAME basis (post-recovery toolCallsForComposition), with the
+        // pre-recovery BLOCKING count as a separate field for delta math.
+        // Recovery doesn't add or remove findings — it only changes
+        // severity — so totalFindingCount is identical pre- and post-,
+        // but using one basis avoids future drift if the recovery ever
+        // gains a filtering responsibility.
+        const originalBlockingCount = output.toolCalls.filter(
           (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
         ).length;
         const postRecoveryFindings = toolCallsForComposition.filter(
           (tc) => tc.name === "submit_finding"
         );
+        const totalFindingCount = postRecoveryFindings.length;
         const postRecoveryBlockingCount = postRecoveryFindings.filter(
           (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
         ).length;

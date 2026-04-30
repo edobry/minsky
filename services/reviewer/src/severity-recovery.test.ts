@@ -124,7 +124,12 @@ describe("parseDiffAddedRanges", () => {
     expect(result.get("src/other.ts")).toEqual([[2, 2]]);
   });
 
-  test("ignores deleted-file diffs (+++ /dev/null)", () => {
+  test("deleted-file diffs (+++ /dev/null) report empty added ranges (PR #922 R3)", () => {
+    // Pre-PR-#922-R3 the parseDiffAddedRanges shim was expected to drop
+    // deleted files entirely (the old `currentFile = null` branch). Now:
+    // the parser captures the OLD path and records removed ranges under
+    // it, so the file IS in the map but with an empty added array.
+    // Backwards-compat shim returns just the added ranges.
     const diff = `diff --git a/gone.ts b/gone.ts
 --- a/gone.ts
 +++ /dev/null
@@ -134,7 +139,8 @@ describe("parseDiffAddedRanges", () => {
 -line
 `;
     const result = parseDiffAddedRanges(diff);
-    expect(result.has("gone.ts")).toBe(false);
+    // gone.ts now appears in the map (with empty added range).
+    expect(result.get("gone.ts")).toEqual([]);
   });
 
   test("multiple hunks on same file accumulate ranges", () => {
@@ -230,6 +236,50 @@ diff --git a/b.ts b/b.ts
     expect(result.removed.get("x.ts")).toEqual([[11, 12]]);
     // No additions in this hunk → empty added entry.
     expect(result.added.get("x.ts")).toEqual([]);
+  });
+
+  test("parseUnifiedDiff captures removed lines on deleted files (PR #922 R3)", () => {
+    // Pre-PR-#922-R3 the parser saw `+++ /dev/null` and set currentFile=null,
+    // dropping the deletion's `-` lines entirely. Now: the parser captures
+    // the OLD path from the `--- a/X` header and uses it as currentFile
+    // when `+++ /dev/null` arrives, so removed ranges are recorded under
+    // the deleted file's path.
+    const diff = `diff --git a/deleted.ts b/deleted.ts
+deleted file mode 100644
+--- a/deleted.ts
++++ /dev/null
+@@ -1,3 +0,0 @@
+-line1
+-line2
+-line3
+`;
+    const result = parseUnifiedDiff(diff);
+    expect(result.removed.get("deleted.ts")).toEqual([[1, 3]]);
+    // No additions on a deleted file.
+    expect(result.added.get("deleted.ts")).toEqual([]);
+  });
+
+  test("applyMonotonicityRecovery preserves BLOCKING on deleted file (PR #922 R3)", () => {
+    // Combined effect: deleted-file removed ranges + unspecified-side
+    // overlap check. Pre-PR-#922-R3 a finding citing a line in a fully
+    // deleted file would always be downgraded; now it's preserved when
+    // the cited line is in the deleted range.
+    const prior: FlatPriorFinding[] = [{ file: "deleted.ts", severity: "NON-BLOCKING", line: 2 }];
+    const tc = [finding("BLOCKING", "deleted.ts", 2)];
+    const diff = `diff --git a/deleted.ts b/deleted.ts
+deleted file mode 100644
+--- a/deleted.ts
++++ /dev/null
+@@ -1,3 +0,0 @@
+-line1
+-line2
+-line3
+`;
+    const result = applyMonotonicityRecovery(tc, prior, diff);
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+    expect(result.downgrades).toHaveLength(0);
   });
 
   test("parseUnifiedDiff captures rename mappings (PR #922 R2#2)", () => {
