@@ -739,6 +739,35 @@ export const sessionPrReviewDismissCommandParams = {
 };
 
 /**
+ * Session PR Review Thread Resolve command parameters
+ * Resolves or unresolves a GitHub PR review thread (GraphQL-only operation)
+ * through Minsky using the configured bot identity.
+ *
+ * `threadId` is the GraphQL node ID of the `PullRequestReviewThread`. It is
+ * surfaced as `node_id` on individual review comments from the REST API
+ * (`GET /repos/{owner}/{repo}/pulls/{n}/comments`) or as `id` on
+ * `PullRequestReviewThread` nodes in the GraphQL API.
+ */
+export const sessionPrReviewThreadResolveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  threadId: {
+    schema: z.string().min(1),
+    description:
+      "GraphQL node ID of the PullRequestReviewThread to act on. " +
+      "Surfaced as node_id on review comments from the REST API, or as id in the GraphQL API.",
+    required: true,
+  },
+  action: {
+    schema: z.enum(["resolve", "unresolve"]),
+    description: 'Action to perform: "resolve" marks the thread as done; "unresolve" reopens it.',
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */

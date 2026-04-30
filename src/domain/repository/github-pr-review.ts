@@ -4,8 +4,10 @@
  * Contains:
  * - submitReview — posts a review (APPROVE, COMMENT, REQUEST_CHANGES)
  * - dismissReview — dismisses a stale or superseded review
+ * - resolveReviewThread — marks a review thread as resolved (GraphQL-only)
+ * - unresolveReviewThread — marks a resolved thread as unresolved (GraphQL-only)
  *
- * Both route through the service-account / bot token via `gh.getToken()`
+ * All route through the service-account / bot token via `gh.getToken()`
  * (TokenProvider-aware).
  */
 
@@ -377,6 +379,149 @@ export async function listReviews(
       owner: gh.owner,
       repo: gh.repo,
       prNumber,
+    });
+    throw error;
+  }
+}
+
+// ── GraphQL thread resolution mutations ─────────────────────────────────────
+
+/**
+ * GraphQL response shape for resolveReviewThread and unresolveReviewThread.
+ */
+interface ResolveThreadResponse {
+  resolveReviewThread?: {
+    thread: {
+      id: string;
+      isResolved: boolean;
+    };
+  };
+}
+
+interface UnresolveThreadResponse {
+  unresolveReviewThread?: {
+    thread: {
+      id: string;
+      isResolved: boolean;
+    };
+  };
+}
+
+const RESOLVE_REVIEW_THREAD_MUTATION = `
+  mutation ResolveReviewThread($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+`;
+
+const UNRESOLVE_REVIEW_THREAD_MUTATION = `
+  mutation UnresolveReviewThread($threadId: ID!) {
+    unresolveReviewThread(input: { threadId: $threadId }) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+`;
+
+/**
+ * Resolve a GitHub PR review thread.
+ *
+ * GitHub REST API does not expose review-thread resolution; this is a
+ * GraphQL-only mutation (`resolveReviewThread`). The `threadId` is the
+ * node ID returned by `PullRequestReviewThread.id` in the GraphQL API
+ * (also surfaced in `GET /repos/{owner}/{repo}/pulls/{pull_number}/comments`
+ * as `node_id` on each comment's thread).
+ *
+ * Auth goes through `gh.getToken()` — the same TokenProvider path as other
+ * forge mutations — so the resolution is recorded under the bot identity.
+ *
+ * @param gh     GitHub context (owner, repo, getToken).
+ * @param threadId  GraphQL node ID of the `PullRequestReviewThread` to resolve.
+ */
+export async function resolveReviewThread(
+  gh: GitHubContext,
+  threadId: string,
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<void> {
+  if (!threadId || threadId.trim().length === 0) {
+    throw new MinskyError(
+      "resolveReviewThread requires a non-empty threadId (the GraphQL node ID of the review thread)."
+    );
+  }
+
+  try {
+    const token = await gh.getToken();
+    const octokit = octokitOverride ?? createOctokit(token);
+
+    const response = await octokit.graphql<ResolveThreadResponse>(RESOLVE_REVIEW_THREAD_MUTATION, {
+      threadId,
+    });
+
+    log.info("GitHub PR review thread resolved", {
+      threadId,
+      isResolved: response.resolveReviewThread?.thread.isResolved,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "resolve review thread",
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Unresolve a previously-resolved GitHub PR review thread.
+ *
+ * Mirror of `resolveReviewThread` — uses the `unresolveReviewThread`
+ * GraphQL mutation. Useful for round-trip testing and for reopening a
+ * thread that was resolved prematurely.
+ *
+ * @param gh     GitHub context (owner, repo, getToken).
+ * @param threadId  GraphQL node ID of the `PullRequestReviewThread` to unresolve.
+ */
+export async function unresolveReviewThread(
+  gh: GitHubContext,
+  threadId: string,
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<void> {
+  if (!threadId || threadId.trim().length === 0) {
+    throw new MinskyError(
+      "unresolveReviewThread requires a non-empty threadId (the GraphQL node ID of the review thread)."
+    );
+  }
+
+  try {
+    const token = await gh.getToken();
+    const octokit = octokitOverride ?? createOctokit(token);
+
+    const response = await octokit.graphql<UnresolveThreadResponse>(
+      UNRESOLVE_REVIEW_THREAD_MUTATION,
+      { threadId }
+    );
+
+    log.info("GitHub PR review thread unresolved", {
+      threadId,
+      isResolved: response.unresolveReviewThread?.thread.isResolved,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "unresolve review thread",
+      owner: gh.owner,
+      repo: gh.repo,
     });
     throw error;
   }
