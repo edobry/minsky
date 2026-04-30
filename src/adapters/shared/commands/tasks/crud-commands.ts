@@ -20,8 +20,17 @@ import type { PersistenceProvider } from "../../../../domain/persistence/types";
 import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
 import type { SessionProviderInterface } from "../../../../domain/session/types";
+import type { AskRepository } from "../../../../domain/ask/repository";
+import type { AskKind } from "../../../../domain/ask/types";
 import { log } from "../../../../utils/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
+
+/** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
+export interface BlockingAskInfo {
+  kind: AskKind;
+  id: string;
+  deadline?: string;
+}
 
 /**
  * Parameters for tasks list command
@@ -82,7 +91,8 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
     private readonly getTaskGraphService?: () => TaskGraphService,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    private readonly getAskRepository?: () => Promise<AskRepository | null>
   ) {
     super();
   }
@@ -230,10 +240,51 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     }
 
     this.debug(`Found ${tasks.length} tasks`);
+
+    // Enrich BLOCKED tasks with subtype from open Asks (render-time, no state-machine change)
+    const blockedTaskIds = tasks.filter((t) => t.status === "BLOCKED").map((t) => t.id);
+    const blockedSubtypeMap: Map<string, string> = new Map();
+    const blockingAskMap: Map<string, BlockingAskInfo> = new Map();
+
+    if (blockedTaskIds.length > 0 && this.getAskRepository) {
+      try {
+        const askRepo = await this.getAskRepository();
+        if (askRepo) {
+          const { getOpenAsksByTaskIds } = await import("../../../../domain/ask/queries");
+          const { deriveBlockedSubtype } = await import("../../../../domain/ask/blocked-subtype");
+          const openAsks = await getOpenAsksByTaskIds(askRepo, blockedTaskIds);
+          for (const [taskId, ask] of openAsks) {
+            const subtype = deriveBlockedSubtype(ask);
+            blockedSubtypeMap.set(taskId, `BLOCKED(${subtype})`);
+            if (ask) {
+              blockingAskMap.set(taskId, {
+                kind: ask.kind,
+                id: ask.id,
+                ...(ask.deadline && { deadline: ask.deadline }),
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Best-effort — fall back to plain BLOCKED if ask enrichment fails.
+        // Common cause: persistence provider lacks SQL capability.
+        log.debug("[tasks.list] BLOCKED subtype enrichment skipped", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const wantJson = params.json || ctx.format === "json";
     if (wantJson) {
-      // For JSON output, return tasks array only
-      return tasks;
+      // For JSON output, enrich BLOCKED tasks with blockingAsk field
+      const enrichedTasks = tasks.map((t) => {
+        if (t.status === "BLOCKED") {
+          const blockingAsk = blockingAskMap.get(t.id);
+          return blockingAsk ? { ...t, blockingAsk } : t;
+        }
+        return t;
+      });
+      return enrichedTasks;
     }
 
     // Format output with optional hierarchy and dependency status
@@ -249,7 +300,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
             depSuffix = ` ← BLOCKED by ${depInfo.blockedBy.join(", ")}`;
           }
         }
-        lines.push(`${indent}${task.id}: ${task.title} [${task.status}]${depSuffix}`);
+        // Use enriched BLOCKED subtype status when available
+        const displayStatus =
+          task.status === "BLOCKED" ? (blockedSubtypeMap.get(task.id) ?? task.status) : task.status;
+        lines.push(`${indent}${task.id}: ${task.title} [${displayStatus}]${depSuffix}`);
       }
       return {
         success: true,
@@ -258,11 +312,20 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       };
     }
 
+    // For normal text rendering, build enriched display tasks using subtype status
+    const displayTasks = tasks.map((t) => {
+      if (t.status === "BLOCKED") {
+        const displayStatus = blockedSubtypeMap.get(t.id) ?? t.status;
+        return { ...t, status: displayStatus };
+      }
+      return t;
+    });
+
     return this.formatResult(
       {
         success: true,
         count: tasks.length,
-        tasks,
+        tasks: displayTasks,
         message: `Found ${tasks.length} tasks`,
       },
       false
@@ -283,7 +346,8 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
     private readonly getPersistenceProvider?: () => PersistenceProvider,
     private readonly getTaskGraphService?: () => TaskGraphService,
     private readonly getTaskService?: () => TaskServiceInterface,
-    private readonly getSessionProvider?: () => SessionProviderInterface | undefined
+    private readonly getSessionProvider?: () => SessionProviderInterface | undefined,
+    private readonly getAskRepository?: () => Promise<AskRepository | null>
   ) {
     super();
   }
@@ -368,6 +432,38 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
       const extras: Record<string, unknown> = { task };
       if (subtaskSummary) {
         extras.subtasks = subtaskSummary;
+      }
+
+      // Enrich BLOCKED tasks with blockingAsk from open Ask (render-time, no state-machine change)
+      if (
+        task &&
+        typeof task === "object" &&
+        "status" in task &&
+        task.status === "BLOCKED" &&
+        this.getAskRepository
+      ) {
+        try {
+          const askRepo = await this.getAskRepository();
+          if (askRepo) {
+            const { getOpenAskForTask } = await import("../../../../domain/ask/queries");
+            const openAsk = await getOpenAskForTask(askRepo, validatedTaskId);
+            if (openAsk) {
+              const blockingAsk: BlockingAskInfo = {
+                kind: openAsk.kind,
+                id: openAsk.id,
+                ...(openAsk.deadline && { deadline: openAsk.deadline }),
+              };
+              extras.blockingAsk = blockingAsk;
+            }
+          }
+        } catch (err) {
+          // Best-effort — don't fail task get if ask enrichment fails.
+          // Common cause: persistence provider lacks SQL capability.
+          log.debug("[tasks.get] blockingAsk enrichment skipped", {
+            taskId: validatedTaskId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       // Optionally fetch spec content
@@ -752,21 +848,29 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
 export const createTasksListCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
   getTaskGraphService?: () => TaskGraphService,
-  getTaskService?: () => TaskServiceInterface
+  getTaskService?: () => TaskServiceInterface,
+  getAskRepository?: () => Promise<AskRepository | null>
 ): TasksListCommand =>
-  new TasksListCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
+  new TasksListCommand(
+    getPersistenceProvider,
+    getTaskGraphService,
+    getTaskService,
+    getAskRepository
+  );
 
 export const createTasksGetCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
   getTaskGraphService?: () => TaskGraphService,
   getTaskService?: () => TaskServiceInterface,
-  getSessionProvider?: () => SessionProviderInterface | undefined
+  getSessionProvider?: () => SessionProviderInterface | undefined,
+  getAskRepository?: () => Promise<AskRepository | null>
 ): TasksGetCommand =>
   new TasksGetCommand(
     getPersistenceProvider,
     getTaskGraphService,
     getTaskService,
-    getSessionProvider
+    getSessionProvider,
+    getAskRepository
   );
 
 export const createTasksCreateCommand = (
