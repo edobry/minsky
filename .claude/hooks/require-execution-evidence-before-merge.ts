@@ -35,6 +35,8 @@ import type { ToolHookInput } from "./types";
 export interface PrFile {
   filename: string;
   status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  /** Present for renamed/copied files — the filename before the rename/copy */
+  previous_filename?: string;
 }
 
 /** Result of the execution-evidence check */
@@ -71,10 +73,30 @@ export function isTestFile(filename: string): boolean {
 }
 
 /**
- * Filters a list of PrFile objects to only those that are newly ADDED test files.
+ * Filters a list of PrFile objects to only those that are newly introduced test files.
+ *
+ * "Newly introduced" means:
+ *   - status === "added": file is brand new.
+ *   - status === "renamed" or "copied": the new filename matches a test pattern AND
+ *     the previous filename did NOT match a test pattern (i.e. this is a conversion
+ *     into a test file, not merely a rename of an existing test file).
  */
 export function findNewTestFiles(files: PrFile[]): string[] {
-  return files.filter((f) => f.status === "added" && isTestFile(f.filename)).map((f) => f.filename);
+  return files
+    .filter((f) => {
+      if (!isTestFile(f.filename)) return false;
+      if (f.status === "added") return true;
+      if (f.status === "renamed" || f.status === "copied") {
+        // Only count if the source was NOT already a test file (new-test-file conversion)
+        if (f.previous_filename !== undefined) {
+          return !isTestFile(f.previous_filename);
+        }
+        // No previous_filename info available — conservatively include it
+        return true;
+      }
+      return false;
+    })
+    .map((f) => f.filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,13 +121,17 @@ export function findNewTestFiles(files: PrFile[]): string[] {
  *      heading and before the next Markdown heading or end-of-string.
  */
 export function hasExecutionEvidence(prBody: string): boolean {
+  // Strip HTML comments before scanning. A marker inside <!-- ... --> is invisible
+  // in rendered Markdown and must not count as evidence.
+  const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
+
   // Matches lines that are (optional) Markdown heading + "Execution evidence:"
   // Anchored at start-of-line via the `m` flag.
   // The heading prefix (###, ##, #) is optional; plain "Execution evidence:" also matches.
   // Captures everything on the heading line before the marker for negation check.
   const headingPattern = /^(#{0,6}\s*)(execution evidence:\s*)(.*)$/im;
 
-  const lines = prBody.split("\n");
+  const lines = strippedBody.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const match = line.match(headingPattern);
@@ -141,11 +167,22 @@ export function hasExecutionEvidence(prBody: string): boolean {
 }
 
 /**
- * Returns true when the PR title starts with the bypass prefix `[unverified-tests]`
- * (case-insensitive).
+ * Returns true when the PR title contains the bypass marker `[unverified-tests]`
+ * anywhere in the title (case-insensitive).
+ *
+ * The marker is bracket-delimited, so it must appear as `[unverified-tests]` and
+ * not merely as a substring embedded inside another word. Bracket delimiters provide
+ * natural word-boundary semantics without requiring regex word boundaries (which do
+ * not apply to `[`/`]` characters).
+ *
+ * Rationale: the sibling skill mt#1460 tells agents to put `[unverified-tests]` at
+ * the start of their *input* title, but the `prepare-pr` tool then composes the
+ * visible PR title as `feat(mt#X): <input title>`, placing the marker in the middle
+ * (e.g. `feat(mt#1459): [unverified-tests] real title`). A startsWith check would
+ * silently miss this common case.
  */
 export function hasBypassPrefix(prTitle: string): boolean {
-  return /^\[unverified-tests\]/i.test(prTitle.trim());
+  return /\[unverified-tests\]/i.test(prTitle);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +220,7 @@ export function makeProdPrDeps(cwd?: string): PrDeps {
           `repos/${repo}/pulls/${prNumber}/files`,
           "--paginate",
           "--jq",
-          "[.[] | {filename: .filename, status: .status}]",
+          "[.[] | {filename: .filename, status: .status, previous_filename: .previous_filename}]",
         ],
         { cwd, timeout: 15000 }
       );

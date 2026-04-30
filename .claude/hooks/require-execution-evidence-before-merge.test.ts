@@ -135,6 +135,61 @@ describe("findNewTestFiles", () => {
     ];
     expect(findNewTestFiles(files)).toHaveLength(0);
   });
+
+  // --- Renamed / copied file detection (SUBSTANTIVE #3 from PR #909 round 5) ---
+
+  it("counts renamed non-test → test file as a new test file", () => {
+    // foo-utils.ts renamed to foo-utils.test.ts — new test file introduced
+    const files: PrFile[] = [
+      {
+        filename: "src/domain/foo-utils.test.ts",
+        status: "renamed",
+        previous_filename: "src/domain/foo-utils.ts",
+      },
+    ];
+    expect(findNewTestFiles(files)).toEqual(["src/domain/foo-utils.test.ts"]);
+  });
+
+  it("does NOT count renamed test → test file (just a test relocation)", () => {
+    // src/foo.test.ts renamed to tests/foo.test.ts — still a test file, not a new one
+    const files: PrFile[] = [
+      {
+        filename: "tests/foo.test.ts",
+        status: "renamed",
+        previous_filename: "src/foo.test.ts",
+      },
+    ];
+    expect(findNewTestFiles(files)).toHaveLength(0);
+  });
+
+  it("counts copied non-test → test file as a new test file", () => {
+    // src/utils.ts copied to tests/utils.test.ts — new test file introduced
+    const files: PrFile[] = [
+      {
+        filename: "tests/utils.test.ts",
+        status: "copied",
+        previous_filename: "src/utils.ts",
+      },
+    ];
+    expect(findNewTestFiles(files)).toEqual(["tests/utils.test.ts"]);
+  });
+
+  it("does NOT count renamed non-test → non-test file", () => {
+    const files: PrFile[] = [
+      {
+        filename: "src/domain/bar.ts",
+        status: "renamed",
+        previous_filename: "src/domain/foo.ts",
+      },
+    ];
+    expect(findNewTestFiles(files)).toHaveLength(0);
+  });
+
+  it("counts renamed test file with no previous_filename (conservative include)", () => {
+    // No previous_filename — conservatively treat as new test file
+    const files: PrFile[] = [{ filename: FIXTURE_FOO_TEST_TS, status: "renamed" }];
+    expect(findNewTestFiles(files)).toEqual([FIXTURE_FOO_TEST_TS]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -207,6 +262,31 @@ describe("hasExecutionEvidence", () => {
     const body = `## Summary\nFoo.\n\nNo Execution evidence: N/A\n`;
     expect(hasExecutionEvidence(body)).toBe(false);
   });
+
+  // --- HTML comment stripping (SUBSTANTIVE #2 from PR #909 round 5) ---
+
+  it("returns false when marker is inside an HTML comment", () => {
+    // A commented-out marker is invisible in rendered Markdown and must not match
+    const body = `## Summary\nFoo.\n\n<!-- Execution evidence: bun test passed -->`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when marker is inside a multi-line HTML comment", () => {
+    const body = `## Summary\nFoo.\n\n<!--\n## Execution evidence:\nbun test passed\n-->`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns true when real marker exists outside HTML comment", () => {
+    // Comment does NOT contain the marker; the real marker is outside
+    const body = `## Summary\nFoo.\n\n<!-- some comment here -->\n\n## Execution evidence:\nbun test passed\n`;
+    expect(hasExecutionEvidence(body)).toBe(true);
+  });
+
+  it("returns true when real marker exists alongside a commented-out one", () => {
+    // Both commented and real markers present — the real one should match
+    const body = `<!-- Execution evidence: fake -->\n## Execution evidence:\nbun test passed\n`;
+    expect(hasExecutionEvidence(body)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -214,8 +294,18 @@ describe("hasExecutionEvidence", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasBypassPrefix", () => {
-  it("detects exact prefix", () => {
+  it("detects marker at start of title", () => {
     expect(hasBypassPrefix(TITLE_BYPASS)).toBe(true);
+  });
+
+  it("detects marker in the middle — after conventional-commit prefix", () => {
+    // prepare-pr composes: "feat(mt#1459): [unverified-tests] real title"
+    // The visible PR title puts the marker mid-string; hasBypassPrefix must find it.
+    expect(hasBypassPrefix("feat(mt#1459): [unverified-tests] real title")).toBe(true);
+  });
+
+  it("detects marker at the end of the title", () => {
+    expect(hasBypassPrefix("Add new tests [unverified-tests]")).toBe(true);
   });
 
   it("detects uppercase variant", () => {
@@ -226,9 +316,13 @@ describe("hasBypassPrefix", () => {
     expect(hasBypassPrefix("[Unverified-Tests] My PR title")).toBe(true);
   });
 
-  it("returns false when prefix is absent", () => {
+  it("returns false when marker is absent", () => {
     expect(hasBypassPrefix("Add new session tests")).toBe(false);
-    expect(hasBypassPrefix("Add [unverified-tests] tests")).toBe(false);
+  });
+
+  it("returns false when the word unverified-tests appears without brackets", () => {
+    // Must be bracket-delimited to qualify — bare word does not bypass
+    expect(hasBypassPrefix("unverified-tests Add new tests")).toBe(false);
   });
 
   it("handles leading whitespace in title", () => {
@@ -381,11 +475,27 @@ describe("checkExecutionEvidence — [unverified-tests] bypass prefix", () => {
     expect(result.bypassDetected).toBe(true);
   });
 
-  it("does NOT bypass when [unverified-tests] is in the middle of the title", () => {
-    // Bypass only fires when prefix is at the START of the title
+  it("bypasses when [unverified-tests] is mid-title (after conventional-commit prefix)", () => {
+    // prepare-pr composes: "feat(mt#X): [unverified-tests] real title"
+    // The marker is not at position 0 of the visible title, but must still fire.
     const files: PrFile[] = [{ filename: FIXTURE_FOO_TEST_TS, status: "added" }];
-    const result = checkExecutionEvidence(files, "Add [unverified-tests] tests", BODY_NO_EVIDENCE);
-    // Should block because prefix is not at start and no evidence present
+    const result = checkExecutionEvidence(
+      files,
+      "feat(mt#1459): [unverified-tests] Add new tests",
+      BODY_NO_EVIDENCE
+    );
+    expect(result.blocked).toBe(false);
+    expect(result.bypassDetected).toBe(true);
+  });
+
+  it("does NOT bypass when unverified-tests appears without brackets", () => {
+    // Bracket delimiters are required — bare word must not bypass
+    const files: PrFile[] = [{ filename: FIXTURE_FOO_TEST_TS, status: "added" }];
+    const result = checkExecutionEvidence(
+      files,
+      "unverified-tests Add new tests",
+      BODY_NO_EVIDENCE
+    );
     expect(result.blocked).toBe(true);
     expect(result.bypassDetected).toBe(false);
   });
