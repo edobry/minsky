@@ -157,6 +157,87 @@ describe("parseDiffAddedRanges", () => {
       [12, 12],
     ]);
   });
+
+  test("ignores diff metadata lines between hunks (PR #922 R1#1/R1#2)", () => {
+    // `index abc..def`, `new file mode`, `\ No newline at end of file`,
+    // `rename from/to`, `Binary files` and friends must NOT advance the
+    // new-file line counter when they appear between or after hunks.
+    const diff = `diff --git a/x.ts b/x.ts
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/x.ts
+@@ -0,0 +1,3 @@
++line1
++line2
++line3
+\\ No newline at end of file
+diff --git a/y.ts b/y.ts
+similarity index 90%
+rename from y.ts
+rename to renamed.ts
+index 1234567..7654321 100644
+--- a/y.ts
++++ b/renamed.ts
+@@ -10,2 +10,3 @@
+ keep
++inserted
+ keep2
+`;
+    const result = parseDiffAddedRanges(diff);
+    expect(result.get("x.ts")).toEqual([[1, 3]]);
+    expect(result.get("renamed.ts")).toEqual([[11, 11]]);
+    expect(result.get("y.ts")).toBeUndefined();
+  });
+
+  test("inHunk gate prevents context-line bleed between files (PR #922 R1#1)", () => {
+    // Pre-fix: a non-hunk `diff --git` line between two hunk-less file
+    // sections fell into the generic "context line" branch and advanced
+    // currentNewLine on the previous file. Now: explicit inHunk reset.
+    const diff = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1,2 +1,3 @@
+ keep
++added
+ keep2
+diff --git a/b.ts b/b.ts
+--- a/b.ts
++++ b/b.ts
+@@ -5,2 +5,3 @@
+ keep
++addedB
+ keep2
+`;
+    const result = parseDiffAddedRanges(diff);
+    expect(result.get("a.ts")).toEqual([[2, 2]]);
+    expect(result.get("b.ts")).toEqual([[6, 6]]);
+  });
+
+  test("`--- a/...` header resets currentFile (PR #922 R2#2)", () => {
+    // If a malformed/truncated diff has `--- a/X` followed by `@@` without
+    // an intervening `+++ b/...`, we must NOT accumulate added lines under
+    // a stale currentFile from the previous section.
+    const diff = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1,2 +1,3 @@
+ keep
++addedA
+ keep2
+diff --git a/b.ts b/b.ts
+--- a/b.ts
+@@ -1,1 +1,2 @@
+ keep
++orphaned
+`;
+    // The orphaned hunk has no +++ header. addedB must NOT be attributed
+    // to a.ts (the previous file).
+    const result = parseDiffAddedRanges(diff);
+    expect(result.get("a.ts")).toEqual([[2, 2]]);
+    // b.ts has no entry because its +++ header never appeared.
+    expect(result.has("b.ts")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -201,6 +282,41 @@ describe("parsePriorBodyFindings", () => {
   test("parses finding without line number", () => {
     const body = "[BLOCKING] src/foo.ts — broad concern";
     expect(parsePriorBodyFindings(body)).toEqual([{ file: "src/foo.ts", severity: "BLOCKING" }]);
+  });
+
+  test("parses extensionless and dotfile paths (PR #922 R1#4 / R2#1)", () => {
+    const body = [
+      "[BLOCKING] Dockerfile:12 — security issue",
+      "[NON-BLOCKING] Makefile:5 — minor target",
+      "[BLOCKING] .env:1 — leaked secret",
+      "[NON-BLOCKING] .eslintrc.json:3 — config drift",
+      "[BLOCKING] LICENSE — license incompatibility",
+    ].join("\n");
+    const findings = parsePriorBodyFindings(body);
+    expect(findings.map((f) => f.file)).toEqual([
+      "Dockerfile",
+      "Makefile",
+      ".env",
+      ".eslintrc.json",
+      "LICENSE",
+    ]);
+  });
+
+  test("rejects one-sided bold wrappers (PR #922 R1)", () => {
+    const body = "**[BLOCKING] src/foo.ts:42 — stray open\n[BLOCKING]** src/bar.ts:5 — stray close";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
+
+  test("parses range citations into line + lineEnd (PR #922 R1)", () => {
+    const body = "[BLOCKING] src/foo.ts:171-176 — range citation";
+    expect(parsePriorBodyFindings(body)).toEqual([
+      { file: "src/foo.ts", severity: "BLOCKING", line: 171, lineEnd: 176 },
+    ]);
+  });
+
+  test("does not match severity in prose without file path", () => {
+    const body = "Conclusion: [BLOCKING] above are the issues.";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
   });
 });
 
@@ -369,5 +485,55 @@ describe("applyMonotonicityRecovery", () => {
     const tc = [finding("BLOCKING", "src/foo.ts", 5)];
     const result = applyMonotonicityRecovery(tc, prior, "");
     expect(result.downgrades[0]?.matchingPriorSeverity).toBe("NON-BLOCKING");
+  });
+
+  test("never downgrades LEFT-side findings even with prior NON-BLOCKING (PR #922 R1#3)", () => {
+    // LEFT-side findings cite line numbers in the OLD/base file, not the
+    // new file. parseDiffAddedRanges only models new-file additions, so a
+    // LEFT-side finding's range can never overlap and would always downgrade
+    // — over-eagerly removing legitimate re-escalations on removed code.
+    // Conservative policy: never downgrade LEFT-side, regardless of priors.
+    const prior: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 50 }];
+    const tc: ReviewToolCall[] = [
+      {
+        name: "submit_finding",
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 50,
+          side: "LEFT",
+          summary: "deletion concern",
+          details: "removed code",
+        },
+      },
+    ];
+    const result = applyMonotonicityRecovery(tc, prior, "");
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+    expect(result.downgrades).toHaveLength(0);
+  });
+
+  test("RIGHT-side findings still downgrade per the standard rule (PR #922 R1#3)", () => {
+    // Sanity check: explicit RIGHT side does not affect downgrade semantics.
+    const prior: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 50 }];
+    const tc: ReviewToolCall[] = [
+      {
+        name: "submit_finding",
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 50,
+          side: "RIGHT",
+          summary: "right-side concern",
+          details: "added code",
+        },
+      },
+    ];
+    const result = applyMonotonicityRecovery(tc, prior, "");
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("NON-BLOCKING");
+    expect(result.downgrades).toHaveLength(1);
   });
 });

@@ -106,16 +106,39 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   if (!body.trim()) return [];
 
   const out: FlatPriorFinding[] = [];
+  // Regex matches:
+  //   - Severity: balanced bold OR fully bare; one-sided wrappers rejected
+  //     via negative lookbehind/lookahead on `*` (PR #922 R1 + parity with
+  //     mt#1486 production-side fix and mt#1465 harness fix).
+  //   - File path: any non-whitespace run that isn't `:` or em-dash. Accepts
+  //     extensionless filenames (Dockerfile, Makefile, LICENSE), dotfiles
+  //     (.env), multi-dot names (.eslintrc.json), scoped paths (src/@types/foo).
+  //     Pre-PR-#922-R1 the regex required a literal dot-extension and silently
+  //     dropped these on production review bodies, reducing recovery effectiveness.
+  //   - Path is anchored on EITHER `:digit` (line citation) OR `\s*—`
+  //     (em-dash boundary terminating the description-less form). Without
+  //     this anchor, prose like "Conclusion: [BLOCKING] above are issues"
+  //     would match `above` as a file.
+  //   - Line capture: explicit start + optional end so `:171-176` produces
+  //     {line: 171, lineEnd: 176} (pre-fix was lossy parseInt(`171-176`)→171).
   const findingRe =
-    /(?:\*\*)?\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:\*\*)?\s+([\w./_-]+\.\w+)(?::(\d+)(?:-(\d+))?)?/gi;
+    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+([^\s:—]+)(?:(?::(\d+)(?:-(\d+))?)?\s*—|:(\d+)(?:-(\d+))?)/gi;
 
   for (const match of body.matchAll(findingRe)) {
-    const rawSeverity = match[1];
-    const file = match[2];
+    // Capture groups (alternation produces parallel sets):
+    //   [1] severity from bold-wrapped branch
+    //   [2] severity from bare branch
+    //   [3] file (always set)
+    //   [4]/[5] lineStart/lineEnd from em-dash-terminated alternative
+    //   [6]/[7] lineStart/lineEnd from colon-then-required-line alternative
+    const rawSeverity = match[1] ?? match[2];
+    const file = match[3];
     if (!rawSeverity || !file) continue;
     const severity = rawSeverity.toUpperCase() as FlatPriorFinding["severity"];
-    const line = match[3] ? parseInt(match[3], 10) : undefined;
-    const lineEnd = match[4] ? parseInt(match[4], 10) : undefined;
+    const lineRaw = match[4] ?? match[6];
+    const lineEndRaw = match[5] ?? match[7];
+    const line = lineRaw ? parseInt(lineRaw, 10) : undefined;
+    const lineEnd = lineEndRaw ? parseInt(lineEndRaw, 10) : undefined;
     out.push({
       file,
       severity,
@@ -162,10 +185,37 @@ export function parseDiffAddedRanges(diff: string): Map<string, Array<[number, n
   const lines = diff.split("\n");
   let currentFile: string | null = null;
   let currentNewLine = 0;
+  // Track whether we're inside an active hunk. Set true on `@@` header, set
+  // false on every file-boundary marker (`diff --git`, `--- a/...`, `+++ ...`,
+  // and in/out-of-file metadata). PR #922 R1 catch: pre-fix, non-hunk lines
+  // between hunks (`diff --git`, `index`, `new file mode`, `\ No newline at
+  // end of file`, `rename from/to`) were treated as context lines and
+  // advanced `currentNewLine`, corrupting added-line ranges and producing
+  // false-positive overlap decisions in applyMonotonicityRecovery.
+  let inHunk = false;
 
   for (const line of lines) {
-    // File header — capture the new-file path. Format: "+++ b/path/to/file"
-    // or "+++ /dev/null" for deleted files.
+    // Per-file boundary markers: `diff --git a/x b/y` starts a new file
+    // section. Reset state — currentFile is set when the `+++ b/...` line
+    // arrives a few lines later.
+    if (line.startsWith("diff --git ")) {
+      currentFile = null;
+      inHunk = false;
+      continue;
+    }
+
+    // Old-file path header: `--- a/...` or `--- /dev/null`. Reset currentFile
+    // until the matching `+++ b/...` line arrives. PR #922 R2 catch: pre-fix,
+    // a malformed/truncated diff with `--- a/X` followed by `@@` (no `+++`
+    // header) would accumulate added lines under a stale currentFile from
+    // the previous file section.
+    if (line.startsWith("--- ")) {
+      currentFile = null;
+      inHunk = false;
+      continue;
+    }
+
+    // New-file path header: `+++ b/path/to/file` or `+++ /dev/null`.
     if (line.startsWith("+++ ")) {
       const path = line.slice(4);
       if (path === "/dev/null") {
@@ -177,30 +227,49 @@ export function parseDiffAddedRanges(diff: string): Map<string, Array<[number, n
         // Defensive: treat as no current file rather than mis-parse.
         currentFile = null;
       }
+      inHunk = false;
       continue;
     }
 
-    // Hunk header: @@ -oldStart,oldLen +newStart,newLen @@
-    // newLen is optional (defaults to 1).
+    // Hunk header: `@@ -oldStart,oldLen +newStart,newLen @@` (newLen optional).
     const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunkMatch) {
       const newStart = hunkMatch[1];
       currentNewLine = newStart ? parseInt(newStart, 10) : 0;
+      inHunk = true;
       continue;
     }
 
-    if (currentFile === null) continue;
-
-    if (line.startsWith("+++") || line.startsWith("---")) {
-      // File-header lines (not hunk content) — already handled above; skip.
+    // Skip known non-hunk metadata lines unconditionally. These appear
+    // between file sections / between hunks and must not advance the
+    // new-file line counter.
+    if (
+      line.startsWith("index ") ||
+      line.startsWith("new file mode") ||
+      line.startsWith("deleted file mode") ||
+      line.startsWith("old mode") ||
+      line.startsWith("new mode") ||
+      line.startsWith("rename from") ||
+      line.startsWith("rename to") ||
+      line.startsWith("copy from") ||
+      line.startsWith("copy to") ||
+      line.startsWith("similarity index") ||
+      line.startsWith("dissimilarity index") ||
+      line.startsWith("Binary files ") ||
+      line.startsWith("\\ No newline at end of file")
+    ) {
       continue;
     }
+
+    // From here on, only hunk content advances counters. If we're not in a
+    // hunk OR have no current file, skip the line entirely. Pre-PR-#922-R1
+    // the absence of an `inHunk` gate let stray text between hunks bleed
+    // into the new-line counter.
+    if (!inHunk || currentFile === null) continue;
 
     if (line.startsWith("+")) {
-      // Added line at currentNewLine. Coalesce with the previous range if
-      // contiguous; otherwise append a new range.
       const ranges = result.get(currentFile);
-      if (!ranges) continue; // shouldn't happen; defensive
+      if (!ranges) continue;
       const last = ranges[ranges.length - 1];
       if (last && last[1] === currentNewLine - 1) {
         last[1] = currentNewLine;
@@ -211,7 +280,7 @@ export function parseDiffAddedRanges(diff: string): Map<string, Array<[number, n
     } else if (line.startsWith("-")) {
       // Removed line — doesn't advance the new-file line counter.
     } else {
-      // Context line — advances both old and new file counters.
+      // Context line — advances new-file line counter.
       currentNewLine++;
     }
   }
@@ -292,6 +361,21 @@ export function applyMonotonicityRecovery(
       continue;
     }
 
+    // LEFT-side findings (anchored on the old/base file, e.g. deletions)
+    // cite line numbers in the OLD file. parseDiffAddedRanges only models
+    // NEW-file added lines, so a LEFT-side finding's range can never overlap
+    // — overlapsNewCode would always be false, and we'd over-eagerly downgrade
+    // legitimate re-escalations on removed code. PR #922 R1#3 catch.
+    //
+    // Conservative policy: NEVER downgrade LEFT-side findings. The recovery
+    // layer only operates on RIGHT-side (or unspecified, which defaults to
+    // RIGHT semantics in the diff/composer). If the model decides a deletion
+    // is BLOCKING, we trust that decision.
+    if (tc.args.side === "LEFT") {
+      corrected.push(tc);
+      continue;
+    }
+
     // File matches a prior sticky finding. Check whether the diff under
     // review introduces new lines on the finding's cited range.
     const addedRanges = addedRangesByFile.get(tc.args.file) ?? [];
@@ -320,7 +404,7 @@ export function applyMonotonicityRecovery(
       ...(tc.args.lineEnd !== undefined ? { lineEnd: tc.args.lineEnd } : {}),
       fromSeverity: "BLOCKING",
       toSeverity: "NON-BLOCKING",
-      reason: `mt#1465 monotonicity-recovery: file "${tc.args.file}" had a prior ${matchingPrior} finding and the diff under review does not introduce new lines on the cited range (${findingStart}${findingEnd !== findingStart ? `-${findingEnd}` : ""})`,
+      reason: `mt#1496 monotonicity-recovery: file "${tc.args.file}" had a prior ${matchingPrior} finding and the diff under review does not introduce new lines on the cited range (${findingStart}${findingEnd !== findingStart ? `-${findingEnd}` : ""})`,
       matchingPriorSeverity: matchingPrior,
     });
   }

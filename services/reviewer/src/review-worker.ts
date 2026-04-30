@@ -683,15 +683,28 @@ export async function runReview(
         );
       }
       if (recovery.downgrades.length > 0) {
+        // Both pre- and post-recovery BLOCKING counts are emitted so operators
+        // can correlate a downgrade with its effect on the final review event
+        // (REQUEST_CHANGES vs APPROVE/COMMENT). PR #922 R2 catch.
+        const originalBlockingCount = output.toolCalls.filter(
+          (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+        ).length;
+        const postRecoveryBlockingCount = toolCallsForComposition.filter(
+          (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+        ).length;
         console.log(
           JSON.stringify({
             event: "reviewer.severity_downgrade_summary",
             prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
             sha: pr.headSha,
             downgradeCount: recovery.downgrades.length,
-            originalBlockingCount: output.toolCalls.filter(
-              (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-            ).length,
+            originalBlockingCount,
+            postRecoveryBlockingCount,
+            // True when the recovery moved the count past zero, signaling the
+            // composed event will likely change from REQUEST_CHANGES to COMMENT/
+            // APPROVE downstream. Operators reading the audit log can filter on
+            // this to find the highest-impact downgrades.
+            crossedZero: originalBlockingCount > 0 && postRecoveryBlockingCount === 0,
           })
         );
       }
