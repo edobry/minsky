@@ -178,8 +178,22 @@ function serializeAttempt(payload: unknown): unknown {
       // stack omitted: security — can leak file paths, hostnames, and tokens
     };
   }
-  // For plain objects or primitives, return as-is (assumed JSON-safe).
-  return payload;
+  // Primitives: coerce to string so metadata is JSON-safe.
+  if (payload === null || typeof payload !== "object") {
+    return String(payload);
+  }
+  // Plain objects (non-Error throws): whitelist only `{name, code, message}`.
+  // Other fields may carry stack frames, request/response bodies, headers,
+  // tokens, file paths, or env details — we drop everything outside the
+  // whitelist to prevent leakage when metadata is persisted or routed externally.
+  const obj = payload as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  if (typeof obj.name === "string") safe.name = obj.name;
+  if (obj.code !== undefined && (typeof obj.code === "string" || typeof obj.code === "number")) {
+    safe.code = obj.code;
+  }
+  if (typeof obj.message === "string") safe.message = obj.message;
+  return safe;
 }
 
 /**
@@ -203,8 +217,10 @@ async function emitStuckUnblockAsk(params: {
       ? `minsky.mcp:task:${taskId}`
       : "minsky.mcp:unknown:unknown";
   // Serialize attempts before storing: Error instances serialize to {} by
-  // default (non-enumerable properties). serializeAttempt extracts name,
-  // code, message, and stack explicitly so metadata round-trips via JSON.
+  // default (non-enumerable properties). serializeAttempt extracts only
+  // {name, code, message} so metadata round-trips via JSON; stack is
+  // intentionally omitted for security (file paths, env, wrapped tokens),
+  // and non-Error payloads are whitelisted to the same fields.
   const serializedAttempts = attempts.map(serializeAttempt);
   await askRepository.create({
     kind: "stuck.unblock",
