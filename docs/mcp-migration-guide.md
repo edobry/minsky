@@ -14,19 +14,19 @@ This guide documents the migration of MCP modules from Task #322's MCP-specific 
 
 ### Parameter Schema Mapping
 
-| MCP Schema                     | Domain Schema             | Notes                                                                    |
-| ------------------------------ | ------------------------- | ------------------------------------------------------------------------ |
-| `SessionFileReadSchema`        | `FileReadSchema`          | Same structure: sessionName + path + line range + explanation            |
-| `SessionFileWriteSchema`       | `FileWriteSchema`         | Same structure: sessionName + path + content + createDirs                |
-| `SessionFileEditSchema`        | `FileEditSchema`          | Same structure: sessionName + path + instructions + content + createDirs |
-| `SessionFileOperationSchema`   | `BaseFileOperationSchema` | Same structure: sessionName + path                                       |
-| `SessionDirectoryListSchema`   | `DirectoryListSchema`     | Same structure: sessionName + path + showHidden                          |
-| `SessionFileExistsSchema`      | `FileExistsSchema`        | Same structure: sessionName + path                                       |
-| `SessionFileDeleteSchema`      | `FileDeleteSchema`        | Same structure: sessionName + path                                       |
-| `SessionDirectoryCreateSchema` | `DirectoryCreateSchema`   | Same structure: sessionName + path + recursive                           |
-| `SessionGrepSearchSchema`      | `GrepSearchSchema`        | Same structure: sessionName + query + options                            |
-| `SessionFileMoveSchema`        | `FileMoveSchema`          | Same structure: sessionName + sourcePath + targetPath + options          |
-| `SessionFileRenameSchema`      | `FileRenameSchema`        | Same structure: sessionName + path + newName + overwrite                 |
+| MCP Schema                     | Domain Schema             | Notes                                                                  |
+| ------------------------------ | ------------------------- | ---------------------------------------------------------------------- |
+| `SessionFileReadSchema`        | `FileReadSchema`          | Same structure: sessionId + path + line range + explanation            |
+| `SessionFileWriteSchema`       | `FileWriteSchema`         | Same structure: sessionId + path + content + createDirs                |
+| `SessionFileEditSchema`        | `FileEditSchema`          | Same structure: sessionId + path + instructions + content + createDirs |
+| `SessionFileOperationSchema`   | `BaseFileOperationSchema` | Same structure: sessionId + path                                       |
+| `SessionDirectoryListSchema`   | `DirectoryListSchema`     | Same structure: sessionId + path + showHidden                          |
+| `SessionFileExistsSchema`      | `FileExistsSchema`        | Same structure: sessionId + path                                       |
+| `SessionFileDeleteSchema`      | `FileDeleteSchema`        | Same structure: sessionId + path                                       |
+| `SessionDirectoryCreateSchema` | `DirectoryCreateSchema`   | Same structure: sessionId + path + recursive                           |
+| `SessionGrepSearchSchema`      | `GrepSearchSchema`        | Same structure: sessionId + query + options                            |
+| `SessionFileMoveSchema`        | `FileMoveSchema`          | Same structure: sessionId + sourcePath + targetPath + options          |
+| `SessionFileRenameSchema`      | `FileRenameSchema`        | Same structure: sessionId + path + newName + overwrite                 |
 
 ### Response Builder Mapping
 

@@ -29,11 +29,11 @@ export interface PrDependencies {
   ) => Promise<{ stdout: string; stderr: string }>;
   getSession: (
     name: string
-  ) => Promise<{ session: string; repoUrl: string; taskId?: string } | null>;
+  ) => Promise<{ sessionId: string; repoUrl: string; taskId?: string } | null>;
   getSessionWorkdir: (session: string) => string;
   getSessionByTaskId?: (
     taskId: string
-  ) => Promise<{ session: string; repoUrl: string; taskId?: string } | null>;
+  ) => Promise<{ sessionId: string; repoUrl: string; taskId?: string } | null>;
   ensureBaseDir: () => Promise<void>;
 }
 
@@ -95,7 +95,7 @@ async function determineWorkingDirectory(
     if (!sessionRecord) {
       throw new Error(`No session found for task ID "${options.taskId}"`);
     }
-    sessionId = sessionRecord.session;
+    sessionId = sessionRecord.sessionId;
     log.debug("Resolved session from task ID", {
       taskId: options.taskId,
       session: sessionId,

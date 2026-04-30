@@ -163,7 +163,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
 
       // Verify session was created with qualified task ID
       expect(session).toBeDefined();
-      expect(session.session).toBe("test-md999-integration");
+      expect(session.sessionId).toBe("test-md999-integration");
       expect(session.taskId).toBe("md#999");
       expect(addSessionSpy).toHaveBeenCalled();
 

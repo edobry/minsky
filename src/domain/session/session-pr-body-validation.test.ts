@@ -44,7 +44,7 @@ describe("Session PR Body Validation Bug Fix", () => {
     const mockSessionProvider = new FakeSessionProvider({
       initialSessions: [
         {
-          session: "test-session",
+          sessionId: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           taskId: "123",
@@ -54,7 +54,7 @@ describe("Session PR Body Validation Bug Fix", () => {
     });
     mockSessionProvider.getSession = () =>
       Promise.resolve({
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo.git",
         taskId: "123",
@@ -62,7 +62,7 @@ describe("Session PR Body Validation Bug Fix", () => {
       });
     mockSessionProvider.getSessionByTaskId = () =>
       Promise.resolve({
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo.git",
         taskId: "123",
@@ -77,7 +77,7 @@ describe("Session PR Body Validation Bug Fix", () => {
       // Act: Try to create PR without body (should fail validation)
       await sessionPrImpl(
         {
-          session: "test-session",
+          sessionId: "test-session",
           title: "Test PR",
           // No body or bodyPath provided - this should trigger ValidationError
           debug: false,

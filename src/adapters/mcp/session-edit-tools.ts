@@ -237,10 +237,10 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         let replacementCount: number;
 
         if (replaceAll) {
-          newContent = content.replaceAll(searchText, replaceText);
+          newContent = content.replaceAll(searchText, () => replaceText);
           replacementCount = occurrences;
         } else {
-          newContent = content.replace(searchText, replaceText);
+          newContent = content.replace(searchText, () => replaceText);
           replacementCount = 1;
         }
 

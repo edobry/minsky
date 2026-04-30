@@ -19,7 +19,7 @@ import { FakeGitService } from "../../git/fake-git-service";
 
 function makeGitHubSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
-    session: "test-session-id",
+    sessionId: "test-session-id",
     repoName: "minsky",
     repoUrl: "https://github.com/edobry/minsky.git",
     createdAt: new Date().toISOString(),
@@ -259,7 +259,7 @@ describe("repairBranchFormat — end-to-end prState key projection", () => {
   it("strips legacy prState keys and updates branchName", async () => {
     // Arrange: session with legacy commitHash + rogue foo key in prState
     const sessionRecord: SessionRecord = {
-      session: SESSION_ID,
+      sessionId: SESSION_ID,
       repoName: "minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2024-01-01T00:00:00.000Z",

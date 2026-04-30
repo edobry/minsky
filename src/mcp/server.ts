@@ -9,6 +9,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
   isInitializeRequest,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
@@ -86,6 +87,13 @@ export interface ToolDefinition {
   description: string;
   inputSchema?: object;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * When true, this tool performs external side effects (e.g. GitHub PR
+   * create/edit/merge, force-push, session-update). The server will refuse
+   * to execute it when drift is detected (loaded commit !== workspace HEAD).
+   * Read-only tools leave this unset or set it to false.
+   */
+  mutating?: boolean;
 }
 
 interface ResourceDefinition {
@@ -133,6 +141,15 @@ export class MinskyMCPServer {
     { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
   > = new Map();
 
+  // Maximum concurrent HTTP sessions. When set, new initialize requests are
+  // rejected with 503 Service Unavailable once the cap is reached. Configured
+  // via MINSKY_MCP_MAX_SESSIONS env var. Absent or non-positive → no cap.
+  private readonly MAX_HTTP_SESSIONS: number | null = null;
+
+  // Retry-After value (seconds) sent with 503 responses when the cap is reached.
+  // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
+  private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
+
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
@@ -177,6 +194,22 @@ export class MinskyMCPServer {
     // DI container for service access (e.g. sessionProvider for agentId writes)
     this.container = options.container;
 
+    // Parse session cap from env var. Non-positive or non-numeric values → no cap.
+    const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
+    if (maxSessionsRaw !== undefined && maxSessionsRaw !== "") {
+      const parsed = Number.parseInt(maxSessionsRaw, 10);
+      this.MAX_HTTP_SESSIONS = parsed > 0 ? parsed : null;
+    }
+
+    // Parse Retry-After override (seconds). Falls back to the field default (30).
+    const retryAfterRaw = process.env.MINSKY_MCP_RETRY_AFTER_SECS;
+    if (retryAfterRaw !== undefined && retryAfterRaw !== "") {
+      const parsed = Number.parseInt(retryAfterRaw, 10);
+      if (parsed > 0) {
+        this.SESSION_CAP_RETRY_AFTER_SECS = parsed;
+      }
+    }
+
     // Initialize staleness detector to warn when server code is outdated
     this.stalenessDetector = new StalenessDetector(
       this.projectContext.repositoryPath || process.cwd()
@@ -215,6 +248,32 @@ export class MinskyMCPServer {
 
     log.systemDebug(
       `[MCP] Server instance created with transport type: ${this.options.transportType}`
+    );
+  }
+
+  /**
+   * Refuse a mutating tool call when the server source is stale relative to the
+   * workspace. Read-only tools (mutating false or unset) pass through.
+   *
+   * Public so unit tests can exercise the real check without going through the
+   * full MCP transport. The dispatcher in createConfiguredServer's
+   * setRequestHandler(CallToolRequestSchema, ...) calls this before invoking
+   * the registered tool handler, so removing the call site there is the only
+   * way to break the gate at the dispatch layer (covered by a separate
+   * dispatcher-level test).
+   *
+   * @throws Error with the loaded vs workspace commits and reconnect guidance
+   */
+  public checkDriftGate(tool: { mutating?: boolean }): void {
+    if (!tool.mutating || !this.stalenessDetector.isCurrentlyStale()) return;
+    const staleMessage = this.stalenessDetector.getStaleWarning() ?? "";
+    const loadedMatch = /commit ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const headMatch = /now at ([0-9a-f]{7,8})/i.exec(staleMessage);
+    const loaded = loadedMatch ? loadedMatch[1] : "unknown";
+    const head = headMatch ? headMatch[1] : "unknown";
+    throw new Error(
+      `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
+        `Reconnect via /mcp before retrying mutating operations.`
     );
   }
 
@@ -345,6 +404,32 @@ export class MinskyMCPServer {
         return;
       }
 
+      // Admission control: reject new sessions when the concurrent-session cap
+      // is reached. The cap is configurable via MINSKY_MCP_MAX_SESSIONS; absent
+      // or non-positive values disable the cap entirely (no-op for backward
+      // compatibility). Rejected requests receive 503 + Retry-After so that
+      // well-behaved clients back off and retry rather than hammering the endpoint.
+      if (this.MAX_HTTP_SESSIONS !== null && this.httpSessions.size >= this.MAX_HTTP_SESSIONS) {
+        const currentCount = this.httpSessions.size;
+        log.warn("mcp_session_reject", {
+          reason: "cap_reached",
+          currentCount,
+          cap: this.MAX_HTTP_SESSIONS,
+        });
+        res
+          .status(503)
+          .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+          .json({
+            jsonrpc: "2.0",
+            error: {
+              code: -32603,
+              message: `Service unavailable: concurrent session cap (${this.MAX_HTTP_SESSIONS}) reached. Retry after ${this.SESSION_CAP_RETRY_AFTER_SECS}s.`,
+            },
+            id: null,
+          });
+        return;
+      }
+
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
@@ -410,7 +495,12 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
-          log.debug("Registered new HTTP session via onmessage", { sessionId: id });
+          const newCount = this.httpSessions.size;
+          log.debug("mcp_session_admit", {
+            sessionId: id,
+            currentCount: newCount,
+            cap: this.MAX_HTTP_SESSIONS ?? "unlimited",
+          });
         }
         prevOnmessage?.(message, extra);
       };
@@ -534,6 +624,10 @@ export class MinskyMCPServer {
         }
 
         try {
+          // Drift gate: refuse mutating tools when the server is stale.
+          // Read-only tools (mutating === false or unset) are allowed through.
+          this.checkDriftGate(tool);
+
           const result = await tool.handler(request.params.arguments || {});
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
@@ -586,6 +680,12 @@ export class MinskyMCPServer {
             this.triggerStaleSignal(server);
           }
 
+          // Preserve structured McpError instances (e.g. StructuredMcpError with
+          // machine-readable data payload) so the SDK propagates `code` and `data`
+          // to the caller intact. Plain Error objects are wrapped as before.
+          if (error instanceof McpError) {
+            throw error;
+          }
           throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
@@ -746,7 +846,7 @@ export class MinskyMCPServer {
       const storageTaskId = taskId.replace(/^mt#/i, "");
       const record = await sessionProvider.getSessionByTaskId(storageTaskId);
       if (record) {
-        await this.updateSessionAgentId(record.session, agentId);
+        await this.updateSessionAgentId(record.sessionId, agentId);
       }
     }
   }
@@ -952,6 +1052,21 @@ export class MinskyMCPServer {
    */
   getInFlightCount(): number {
     return this.inFlightRequests.size;
+  }
+
+  /**
+   * Return the number of currently active HTTP sessions.
+   * Returns 0 for stdio transport (no HTTP sessions).
+   */
+  getSessionCount(): number {
+    return this.httpSessions.size;
+  }
+
+  /**
+   * Return the configured maximum concurrent HTTP sessions, or null if no cap.
+   */
+  getMaxSessions(): number | null {
+    return this.MAX_HTTP_SESSIONS;
   }
 
   /**

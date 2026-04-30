@@ -5,11 +5,15 @@
  *   - `bell()` — writes the ASCII BEL character (\x07) to stdout, causing most
  *     terminals to emit an audible or visual alert.
  *   - `notify(title, body)` — on macOS (darwin) shells out to `osascript` to
- *     raise a native notification banner; on all other platforms falls back to a
- *     plain `console.log` so callers don't need to guard on platform.
+ *     raise a native notification banner; on all other platforms emits a warning
+ *     via the program/CLI logger (always routed to stderr), so stdout stays
+ *     clean for CLI/MCP protocol consumers in any log mode.
  *
  * The command executor is injected so unit tests can verify the `osascript`
  * invocation without spawning real processes. See `operator-notify.test.ts`.
+ *
+ * The logger import is lazy (required inside `notify()`) so this module can be
+ * imported in browser-like environments without pulling in the winston bundle.
  *
  * Zero dependency on the Ask entity — this is pure plumbing.
  */
@@ -36,7 +40,8 @@ export interface OperatorNotify {
 
   /**
    * Raise a native notification banner on the operator's desktop.
-   * On macOS calls `osascript`; on other platforms logs to console.
+   * On macOS calls `osascript`; on other platforms emits a warning via the
+   * program/CLI logger which always routes to stderr — stdout is never written.
    */
   notify(title: string, body: string): void;
 }
@@ -110,9 +115,12 @@ export class SystemOperatorNotify implements OperatorNotify {
         `display notification "${safeBody}" with title "${safeTitle}"`,
       ]);
     } else {
-      // Non-darwin: log only so callers get consistent behavior without
-      // any platform-specific machinery.
-      console.log(`[notify] ${title}: ${body}`);
+      // Non-darwin: route through the program/CLI logger (always stderr) so
+      // stdout stays clean in every log mode (HUMAN, STRUCTURED, agent).
+      // Lazy require keeps this module loadable in browser bundles (same
+      // pattern as the child_process require above).
+      const { log } = require("../../utils/logger") as typeof import("../../utils/logger");
+      log.cliWarn(`[notify] notification suppressed on non-darwin platform: ${title} — ${body}`);
     }
   }
 }

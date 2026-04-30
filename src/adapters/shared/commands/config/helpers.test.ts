@@ -158,3 +158,28 @@ describe("maskCredentialsInEffectiveValues — isSensitivePath (case-insensitive
     expect(result["proxy-authorization"]?.value).toMatch(/\*{20}/);
   });
 });
+
+// ─── mt#1262 wiring ──────────────────────────────────────────────────────────
+
+describe("config command registrations expose showSecrets (mt#1262 wiring)", () => {
+  // Structural test — guards against a regression where someone removes
+  // showSecrets from config.show or config.list and the masking silently
+  // becomes unconditional.
+
+  test("config.show and config.list both declare a showSecrets parameter", async () => {
+    const { configShowRegistration, configListRegistration } = await import("./list-show-commands");
+    expect(configShowRegistration.parameters).toHaveProperty("showSecrets");
+    expect(configListRegistration.parameters).toHaveProperty("showSecrets");
+  });
+
+  test("showSecrets defaults to false on both commands", async () => {
+    const { configShowRegistration, configListRegistration } = await import("./list-show-commands");
+    type ParamWithDefault = { defaultValue?: unknown };
+    const showParam = (configShowRegistration.parameters as Record<string, ParamWithDefault>)
+      .showSecrets;
+    const listParam = (configListRegistration.parameters as Record<string, ParamWithDefault>)
+      .showSecrets;
+    expect(showParam?.defaultValue).toBe(false);
+    expect(listParam?.defaultValue).toBe(false);
+  });
+});

@@ -43,6 +43,33 @@ Evaluate the returned status:
 - **IN-REVIEW** → PR already created. Remind user to use `/verify-task mt#X` for next steps.
 - **DONE** → task is complete. No action needed.
 
+### 0a. Late parallel-work spot-check
+
+The PLANNING → READY gate already ran the full parallel-work check (`/plan-task` gate
+criterion g). But READY → IN-PROGRESS may happen hours or days later, and new PRs may
+have landed in the gap. Re-run an abbreviated check before `session_start`.
+
+**Step ordering note:** §0a needs the spec's `## Scope` → `In scope` file list to know
+what to check against. If the spec has not yet been loaded into context, fetch it now via
+`mcp__minsky__tasks_spec_get` (the same call §2 makes) so §0a has the file list to work
+with. §2 will simply re-use the loaded spec when it runs.
+
+Then run both sweeps:
+
+1. **Open-PR sweep** — `mcp__github__list_pull_requests` with `state: "open"`. Scan titles
+   and branches for any PR whose scope plausibly overlaps the spec's `## Scope` → `In scope`
+   files. Spot-check suspicious matches with `mcp__github__pull_request_read` method `get_diff`.
+2. **Recently-merged sweep** — `mcp__minsky__git_log` for the last 24 hours; check for any
+   merge that touched files this task plans to modify. A fix that landed overnight is just
+   as bad as one in flight.
+
+If either sweep hits, **halt before `session_start`** and surface the finding to the user
+(task ID or PR number, file overlap, recommendation: wait / coordinate / reframe / proceed
+with explicit acknowledgment).
+
+This is the last-line enforcement of `feedback_check_parallel_work_before_decomposing`.
+The full gate ran at PLANNING; this is the spot-check before the session is created.
+
 ### 1. Retrieve relevant memory context
 
 Call `memory_search` with the task ID and domain area:
@@ -103,6 +130,32 @@ Before declaring complete:
 - **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
+
+#### Convergence checklist (mandatory before §8)
+
+Before invoking step §8 (Create PR), walk through this checklist; if any check fails, fix the gap before creating the PR.
+
+**Preventive phase (before first PR creation):**
+
+1. **Trust-boundary defensive coverage.** Every site where external input enters the system needs a runtime guard or wrapper. Grep for each category below and confirm each hit has a `try/catch` wrapper, a `safe*` helper, or a runtime type guard (Zod, manual `typeof`, etc.) on the result:
+
+   - File I/O: `fs.readFile`, `fs.readdir`, `fs.stat`, `fs.writeFile`, `glob`, `fs.mkdir`
+   - Network: `fetch`, HTTP calls, RPC clients, MCP calls
+   - Database: every query (connection loss, schema mismatch, constraint violation)
+   - Subprocess: `exec`, `spawn`, `child_process.*`
+   - Deserialization: `JSON.parse`, type casts (`as Foo`) on parsed data, parsing user input
+   - Configuration: `process.env.X`, config-file reads
+   - Request bodies, webhook payloads, anything from the network boundary
+
+2. **Portable defaults.** No defaults bind to a specific user, machine, or host. No `homedir()`-derived absolutes baked into defaults; no user-specific paths embedded as constants. Mental model: "would this work on a fresh machine for a new user?"
+
+**Reactive phase (when iterating on reviewer findings):**
+
+3. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+
+4. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+
+Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds). See `feedback_cascade_defense_in_implementer_prompt.md` for the pattern history.
 
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 

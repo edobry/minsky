@@ -49,7 +49,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
           // Try to find the session record by listing all sessions and matching by session ID
           // This handles the case where the session exists in DB but lookup failed
           const allSessions = await this.baseProvider.listSessions();
-          const matchedSession = allSessions.find((s) => s.session === session);
+          const matchedSession = allSessions.find((s) => s.sessionId === session);
           if (matchedSession?.taskId) {
             taskIdFromSessionId = matchedSession.taskId;
             log.debug("Found task ID from session listing", {
@@ -83,7 +83,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
           if (sessionRecord) {
             log.debug("Auto-repair successful for session lookup", {
               session,
-              repairedSession: sessionRecord.session,
+              repairedSession: sessionRecord.sessionId,
             });
           }
         }
@@ -106,7 +106,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
     log.debug("Base provider lookup result", {
       taskId,
       found: sessionRecord !== null,
-      sessionId: sessionRecord?.session,
+      sessionId: sessionRecord?.sessionId,
     });
 
     if (!sessionRecord && !this.autoRepairAttempted.has(`task:${taskId}`)) {
@@ -127,7 +127,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
         if (sessionRecord) {
           log.info("Auto-repair successful - session reconstructed from workspace", {
             taskId,
-            repairedSession: sessionRecord.session,
+            repairedSession: sessionRecord.sessionId,
           });
         } else {
           log.debug("Auto-repair failed - no session could be reconstructed", { taskId });

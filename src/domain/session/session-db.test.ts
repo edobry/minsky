@@ -25,7 +25,7 @@ describe("SessionDB Functional Implementation", () => {
     const state = initializeSessionDbState({ baseDir: "/test/base/dir" });
     const testSessions: SessionRecord[] = [
       {
-        session: "test-session-1",
+        sessionId: "test-session-1",
         repoName: "local/minsky",
         repoUrl: "local/minsky",
         createdAt: "2023-01-01T00:00:00.000Z",
@@ -33,7 +33,7 @@ describe("SessionDB Functional Implementation", () => {
         // branch removed from persistent schema
       },
       {
-        session: "test-session-2",
+        sessionId: "test-session-2",
         repoName: "github/user/repo",
         repoUrl: "https://github.com/user/repo",
         createdAt: "2023-01-02T00:00:00.000Z",
@@ -107,8 +107,8 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const sessions = listSessionsFn(state);
       expect(sessions).toHaveLength(2);
-      expect(first(sessions).session).toBe("test-session-1");
-      expect(elementAt(sessions, 1).session).toBe("test-session-2");
+      expect(first(sessions).sessionId).toBe("test-session-1");
+      expect(elementAt(sessions, 1).sessionId).toBe("test-session-2");
     });
   });
 
@@ -117,7 +117,7 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const session = getSessionFn(state, "test-session-1");
       expect(session).not.toBeNull();
-      expect(session?.session).toBe("test-session-1");
+      expect(session?.sessionId).toBe("test-session-1");
       expect(session?.taskId).toBe("101");
     });
 
@@ -133,14 +133,14 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const session = getSessionByTaskIdFn(state, "101");
       expect(session).not.toBeNull();
-      expect(session?.session).toBe("test-session-1");
+      expect(session?.sessionId).toBe("test-session-1");
     });
 
     it("should return the session when task ID includes #", () => {
       const state = createTestState();
       const session = getSessionByTaskIdFn(state, "#101");
       expect(session).not.toBeNull();
-      expect(session?.session).toBe("test-session-1");
+      expect(session?.sessionId).toBe("test-session-1");
     });
 
     it("should return null if no session exists for the task ID", () => {
@@ -154,7 +154,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should add a new session to the state", () => {
       const state = createTestState();
       const newSession: SessionRecord = {
-        session: "test-session-3",
+        sessionId: "test-session-3",
         repoName: "local/new-repo",
         repoUrl: "local/new-repo",
         createdAt: "2023-01-03T00:00:00.000Z",
@@ -165,7 +165,7 @@ describe("SessionDB Functional Implementation", () => {
       const newState = addSessionFn(state, newSession);
       expect(newState.sessions).toHaveLength(3);
       const thirdSession = elementAt(newState.sessions, 2);
-      expect(thirdSession.session).toBe("test-session-3");
+      expect(thirdSession.sessionId).toBe("test-session-3");
       expect(thirdSession.taskId).toBe("103");
     });
   });
@@ -197,7 +197,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should ignore session property in updates", () => {
       const state = createTestState();
       const updates = {
-        session: "attempted-rename",
+        sessionId: "attempted-rename",
         branch: "updated-branch",
       } as unknown as Partial<SessionRecord>;
 
@@ -214,7 +214,7 @@ describe("SessionDB Functional Implementation", () => {
       expect(newState.sessions).toHaveLength(1);
       expect(getSessionFn(newState, "test-session-1")).toBeNull();
       // Check that only test-session-2 remains
-      expect(first(newState.sessions).session).toBe("test-session-2");
+      expect(first(newState.sessions).sessionId).toBe("test-session-2");
     });
 
     it("should not modify state if session not found", () => {

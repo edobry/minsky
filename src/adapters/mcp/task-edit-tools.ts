@@ -273,8 +273,10 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
           );
         }
 
-        // Perform replacement
-        const newContent = content.replace(typedArgs.search, typedArgs.replace);
+        // Perform replacement using function-replacer overload to avoid special $-pattern
+        // substitutions (e.g. dollar-backtick, dollar-ampersand) in the replace string.
+        const replaceValue = typedArgs.replace;
+        const newContent = content.replace(typedArgs.search, () => replaceValue);
 
         // Apply the changes by updating the task
         await updateTaskFromParams(

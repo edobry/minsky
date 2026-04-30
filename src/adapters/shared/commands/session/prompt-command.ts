@@ -63,7 +63,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         throw new Error(`No session found for task '${task}'`);
       }
 
-      const sessionId = session.session;
+      const sessionId = session.sessionId;
       const sessionDir = await resolveSessionDirectory(sessionId, deps.sessionProvider);
 
       const scope =

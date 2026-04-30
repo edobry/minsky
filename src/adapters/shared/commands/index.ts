@@ -28,6 +28,8 @@ import { registerMemoryCommands } from "./memory";
 import { registerProvenanceCommands } from "./provenance";
 import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
+import { registerWorkspaceCommands } from "./workspace/info-command";
+import { registerTranscriptCommands } from "./transcripts";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -72,7 +74,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register tools commands
   registerToolsCommands(container);
 
-  // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
+  // Register asks commands (Ask subsystem — mt#1034 / ADR-008)
   registerAsksCommands(container);
 
   // Register pr-watch commands (PR-state watcher — mt#1295)
@@ -102,6 +104,12 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register compile commands
   registerCompileCommands(sharedCommandRegistry);
 
+  // Register workspace commands (workspace.info — always available, no setup required)
+  registerWorkspaceCommands();
+
+  // Register transcript commands (transcripts.ingest — mt#1351)
+  registerTranscriptCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -130,4 +138,6 @@ export {
   registerProvenanceCommands,
   registerAuthorshipCommands,
   registerCompileCommands,
+  registerWorkspaceCommands,
+  registerTranscriptCommands,
 };

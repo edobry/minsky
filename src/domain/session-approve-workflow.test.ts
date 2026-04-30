@@ -50,7 +50,7 @@ describe("Session Approve Workflow", () => {
     getSessionSpy = mock(() => {});
     getSessionSpy = mock((name) =>
       Promise.resolve({
-        session: name, // Fixed: use 'session' instead of '_session'
+        sessionId: name,
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
         backendType: "github",

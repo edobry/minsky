@@ -45,7 +45,8 @@ function pickSqliteOrderColumn(field: string) {
     case "createdAt":
       return sessionsTable.createdAt;
     case "session":
-      return sessionsTable.session;
+    case "sessionId":
+      return sessionsTable.sessionId;
     case "taskId":
       return sessionsTable.taskId;
     default:
@@ -242,7 +243,7 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
       const result = await this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id))
+        .where(eq(sessionsTable.sessionId, id))
         .limit(1);
 
       return (result[0] as DomainSessionRecord) || null;
@@ -328,7 +329,7 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
       return entity;
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
+      log.debug(`Failed to create session '${entity.sessionId}': ${errorMessage}`);
       throw error;
     }
   }
@@ -352,8 +353,8 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
       const mergedEntity = { ...existing, ...updates };
       const updateData = toSqliteInsert(mergedEntity);
 
-      // Remove the session field from updates (it's the primary key)
-      delete (updateData as Partial<typeof updateData>).session;
+      // Remove the sessionId field from updates (it's the primary key)
+      delete (updateData as Partial<typeof updateData>).sessionId;
 
       if (Object.keys(updateData).length === 0) {
         return existing; // No updates needed
@@ -362,7 +363,7 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
       await this.drizzleDb
         .update(sessionsTable)
         .set(updateData)
-        .where(eq(sessionsTable.session, id));
+        .where(eq(sessionsTable.sessionId, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -378,7 +379,7 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
     }
 
     try {
-      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
+      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.sessionId, id));
 
       // Since Drizzle doesn't return changes count, we'll check if the entity existed
       const entityExists = await this.entityExists(id);
@@ -396,9 +397,9 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
 
     try {
       const result = await this.drizzleDb
-        .select({ count: sessionsTable.session })
+        .select({ count: sessionsTable.sessionId })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id))
+        .where(eq(sessionsTable.sessionId, id))
         .limit(1);
 
       return result.length > 0;

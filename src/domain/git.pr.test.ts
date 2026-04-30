@@ -42,7 +42,7 @@ describe("GitService PR Functionality", () => {
         return { stdout: "", stderr: "" };
       }),
       getSession: mock(async () => ({
-        session: "test-session",
+        sessionId: "test-session",
         repoName: "test-repo",
         repoUrl: "https://github.com/user/repo.git",
       })),

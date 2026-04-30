@@ -49,7 +49,7 @@ export async function sessionPrList(
     let candidateSessions = sessions;
 
     if (params.session) {
-      candidateSessions = candidateSessions.filter((s) => s.session === params.session);
+      candidateSessions = candidateSessions.filter((s) => s.sessionId === params.session);
     }
 
     if (params.task) {
@@ -70,7 +70,7 @@ export async function sessionPrList(
 
           // Query the backend for PR details - this delegates to GitHub API for GitHub sessions
           const prDetails = await repositoryBackend.pr.get({
-            session: session.session,
+            session: session.sessionId,
           });
 
           // Backend found a PR - return the details with proper merged status
@@ -78,14 +78,14 @@ export async function sessionPrList(
           const status = prDetails.mergedAt ? "merged" : state;
 
           return {
-            sessionId: session.session,
+            sessionId: session.sessionId,
             taskId: session.taskId,
             prNumber: prDetails.number,
             status,
-            title: prDetails.title || `PR for ${session.session}`,
+            title: prDetails.title || `PR for ${session.sessionId}`,
             url: prDetails.url,
             updatedAt: prDetails.updatedAt,
-            branch: prDetails.headBranch || session.session,
+            branch: prDetails.headBranch || session.sessionId,
             backendType: session.backendType,
           };
         } catch (error) {

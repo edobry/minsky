@@ -78,7 +78,7 @@ export async function updateSessionTaskAssociation(
 
     log.debug("Found matching sessions", {
       count: matchingSessions.length,
-      sessions: matchingSessions.map((s) => s.session),
+      sessions: matchingSessions.map((s) => s.sessionId),
     });
 
     if (matchingSessions.length === 0) {
@@ -90,30 +90,30 @@ export async function updateSessionTaskAssociation(
     for (const session of matchingSessions) {
       try {
         log.debug("Updating session", {
-          sessionId: session.session,
+          sessionId: session.sessionId,
           oldTaskId: session.taskId,
           newTaskId: newLocalId,
           dryRun,
         });
 
         if (!dryRun) {
-          await sessionProvider.updateSession(session.session, {
+          await sessionProvider.updateSession(session.sessionId, {
             taskId: newLocalId,
           });
         }
 
         result.sessionsUpdated++;
-        result.updatedSessions.push(session.session);
+        result.updatedSessions.push(session.sessionId);
 
         log.debug("Session updated successfully", {
-          sessionId: session.session,
+          sessionId: session.sessionId,
           newTaskId: newLocalId,
         });
       } catch (error) {
-        const errorMessage = `Failed to update session ${session.session}: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMessage = `Failed to update session ${session.sessionId}: ${error instanceof Error ? error.message : String(error)}`;
         result.errors.push(errorMessage);
         log.error("Failed to update session", {
-          sessionId: session.session,
+          sessionId: session.sessionId,
           error: errorMessage,
         });
       }
@@ -158,7 +158,7 @@ export async function findSessionsByTaskId(
   const allSessions = await provider.listSessions();
   return allSessions
     .filter((session) => session.taskId === localId)
-    .map((session) => session.session);
+    .map((session) => session.sessionId);
 }
 
 /**

@@ -150,7 +150,7 @@ describe("Session Git Clone Bug Regression Test", () => {
       repoUrl: "https://github.com/edobry/minsky.git",
     });
     // Session ID is now a UUID
-    expect(result.session).toMatch(
+    expect(result.sessionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
 
@@ -169,7 +169,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     );
     // Verify the session ID in the record is a UUID
     const addedRecord = first(addSessionSpy.mock.calls as unknown[][])[0] as any;
-    expect(addedRecord.session).toMatch(
+    expect(addedRecord.sessionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
   });

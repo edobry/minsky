@@ -119,7 +119,7 @@ export async function identifyCleanupCandidates(
     }
 
     // Orphaned check: no local dir AND status indicates it's not actively tracked
-    if (effectiveOrphaned && !sessionDirExists(session.session)) {
+    if (effectiveOrphaned && !sessionDirExists(session.sessionId)) {
       candidates.push({ session, reason: "orphaned", liveness });
       continue;
     }

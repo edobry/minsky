@@ -11,7 +11,7 @@ import type { SessionRecord } from "./types";
 
 /** Minimal in-memory session provider sufficient for deleteSessionImpl. */
 function makeSessionDB(sessions: SessionRecord[]) {
-  const store = new Map(sessions.map((s) => [s.session, s]));
+  const store = new Map(sessions.map((s) => [s.sessionId, s]));
   return {
     getSession: mock(async (id: string) => store.get(id) ?? null),
     getSessionByTaskId: mock(async () => null),
@@ -35,7 +35,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
 
   beforeEach(() => {
     sessionRecord = {
-      session: SESSION_ID,
+      sessionId: SESSION_ID,
       repoUrl: "https://github.com/edobry/minsky.git",
       repoName: "minsky",
       taskId: "mt#789",
@@ -66,7 +66,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
     // DB record should still exist
     const record = await sessionDB.getSession(SESSION_ID);
     expect(record).not.toBeNull();
-    expect(record?.session).toBe(SESSION_ID);
+    expect(record?.sessionId).toBe(SESSION_ID);
 
     // deleteSession should NOT have been called
     expect(sessionDB.deleteSession).not.toHaveBeenCalled();

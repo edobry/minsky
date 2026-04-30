@@ -4,12 +4,59 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { DIFF_TEST_CONTENT, UI_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
+// mt#1361 regression tests need the real session.search_replace handler to run
+// against a real temp file to prove the dollar-pattern fix actually applies in
+// production. Refactoring registerSessionEditTools to accept fs deps is out of
+// scope for this fix; the eslint-disables below are limited to this file.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { mkdtemp, writeFile as fsWriteFile, readFile as fsReadFile, rm } from "fs/promises";
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { tmpdir } from "os";
+import { join } from "path";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Import after setup
 import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
+
+// Build a mock container exposing a sessionProvider that points at a real
+// temp directory as the session workspace. SessionPathResolver consumes this
+// provider to resolve user-supplied paths into the workspace, so the real
+// session.search_replace handler can run end-to-end without a real session DB.
+function buildSessionContainer(workspaceDir: string) {
+  const sessionRecord = {
+    session: "test-session",
+    repoName: "test-repo",
+    repoUrl: "file:///test",
+    backendType: "github" as const,
+    createdAt: new Date().toISOString(),
+  };
+  const mockSessionProvider = {
+    getSession: async () => sessionRecord,
+    getRepoPath: async () => workspaceDir,
+  } as unknown as import("../../../src/domain/session").SessionProviderInterface;
+  return {
+    has: (key: string) => key === "sessionProvider",
+    get: (key: string) => {
+      if (key === "sessionProvider") return mockSessionProvider;
+      throw new Error(`Unknown service: ${key}`);
+    },
+  } as unknown as import("../../../src/composition/types").AppContainerInterface;
+}
+
+// Register tools against a fresh container; returns the captured tools map.
+function registerToolsWithContainer(
+  container: ReturnType<typeof buildSessionContainer>
+): Record<string, { handler: (args: any) => Promise<any> }> {
+  const tools: Record<string, any> = {};
+  const cm = {
+    addCommand: (cmd: { name: string; handler: any }) => {
+      tools[cmd.name] = cmd;
+    },
+  };
+  registerSessionEditTools(cm as any, container);
+  return tools;
+}
 
 describe("Session Edit Tools", () => {
   let commandMapper: any;
@@ -386,9 +433,16 @@ describe("Session Edit Tools", () => {
     });
 
     test("should replace all occurrences when replace_all is true", async () => {
+      // Verify the replace_all branch calls replaceAll and returns the correct count.
+      // Uses a mock handler that simulates the real behavior without filesystem I/O.
       const mockSearchReplaceAll = mock(async (args: any) => {
         const content = "foo bar foo baz foo";
-        const occurrences = (content.match(new RegExp(args.search, "g")) || []).length;
+        let replacementCount = 0;
+        // Simulate the function-replacer overload (the actual fix for mt#1361)
+        const newContent = content.replaceAll(args.search, () => {
+          replacementCount++;
+          return args.replace;
+        });
         if (args.replace_all) {
           return {
             success: true,
@@ -396,12 +450,11 @@ describe("Session Edit Tools", () => {
             session: args.sessionId,
             edited: true,
             replaced: true,
-            replacementCount: occurrences,
-            searchText: args.search,
-            replaceText: args.replace,
+            replacementCount,
+            newContent,
           };
         }
-        throw new Error(`Search text found ${occurrences} times`);
+        throw new Error(`Search text found ${replacementCount} times`);
       });
 
       const result = await mockSearchReplaceAll({
@@ -415,6 +468,7 @@ describe("Session Edit Tools", () => {
       expect(result.success).toBe(true);
       expect(result.replacementCount).toBe(3);
       expect(result.replaced).toBe(true);
+      expect(result.newContent).toBe("qux bar qux baz qux");
     });
 
     test("should include replacementCount in response for single replacement", async () => {
@@ -537,6 +591,94 @@ describe("Session Edit Tools", () => {
           replace: "new text",
         })
       ).rejects.toThrow('Missing required parameter "search" (or alias "old_string")');
+    });
+
+    test("regression: dollar-backtick in replace string does not duplicate content (real handler)", async () => {
+      // mt#1361: replace text containing dollar-backtick was interpreted as the
+      // JS replacement-pattern prefix-before-match substitution, causing each
+      // replacement to contain the preceding file content.
+      // This test exercises the REAL session.search_replace handler end-to-end.
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt1361-real-"));
+      const tools = registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const searchText = "SEARCH_TOKEN";
+      // Build replace text containing the bug-triggering byte sequence
+      // (backtick, dollar, backtick, [-_]key, backtick) at runtime, avoiding
+      // a literal occurrence in the source so writing this very test doesn't
+      // re-trigger the bug we are fixing.
+      const replaceText = `see ${String.fromCharCode(0x60, 0x24, 0x60)}[-_]key${String.fromCharCode(
+        0x60
+      )} for details`;
+      const originalContent = `line before\n${searchText}\nmiddle line\n${searchText}\nline after`;
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search: searchText,
+          replace: replaceText,
+          replace_all: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.replacementCount).toBe(2);
+
+        const actualContent = await fsReadFile(filePath, "utf8");
+        const expected = originalContent.split(searchText).join(replaceText);
+        expect(actualContent).toBe(expected);
+        expect(actualContent.length).toBe(
+          originalContent.length + 2 * (replaceText.length - searchText.length)
+        );
+        // Bug signature would splice prefix content into the replacement
+        expect(actualContent).not.toContain(`see ${String.fromCharCode(0x60)}line before`);
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
+    test("regression: dollar-ampersand in replace string does not expand the match (real handler)", async () => {
+      // mt#1361: dollar-ampersand normally expands to the matched substring.
+      // Real-handler test that the function-replacer fix prevents this.
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt1361-real-"));
+      const tools = registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const searchText = "TARGET";
+      // Build "dollar-ampersand-literal" at runtime to avoid putting the bug
+      // trigger in source.
+      const replaceText = `${String.fromCharCode(0x24, 0x26)}-literal`;
+      const originalContent = `before ${searchText} after`;
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search: searchText,
+          replace: replaceText,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.replacementCount).toBe(1);
+
+        const actualContent = await fsReadFile(filePath, "utf8");
+        const expected = `before ${replaceText} after`;
+        expect(actualContent).toBe(expected);
+        // Bug signature would expand to "before TARGET-literal after"
+        expect(actualContent).not.toBe("before TARGET-literal after");
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
     });
   });
 });

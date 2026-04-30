@@ -272,7 +272,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Forward to the version that takes a session parameter
-      const workdir = this.getSessionWorkdir(repoSession.session);
+      const workdir = this.getSessionWorkdir(repoSession.sessionId);
 
       // Use GitService to get repository status
       const gitStatus = await this.gitService.getStatus(workdir);
@@ -377,7 +377,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
-        return this.getSessionWorkdir(repoSession.session);
+        return this.getSessionWorkdir(repoSession.sessionId);
       }
     } catch (error) {
       // If we can't find a session, just return the base directory
@@ -468,7 +468,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionId = repoSession.session;
+      const sessionId = repoSession.sessionId;
       const workdir = this.getSessionWorkdir(sessionId);
 
       // Use GitService for pushing changes
@@ -484,10 +484,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
           : "No changes to push or push failed",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      // Prefer the original `stderr` field when present (preserved by mt#1356's
+      // propagate-raw policy in pushImpl); fall back to `message`. This keeps
+      // the user-facing message free of the exec wrapper prefix
+      // ("Command failed: git -C ...") that surrounds raw exec errors.
+      const errObj = error as { stderr?: unknown; message?: unknown };
+      const stderr = typeof errObj.stderr === "string" ? errObj.stderr.trim() : "";
+      const message = stderr || (error instanceof Error ? error.message : String(error));
       return {
         success: false,
-        message: `Failed to push to repository: ${normalizedError.message}`,
+        message: `Failed to push to repository: ${message}`,
       };
     }
   }
@@ -510,7 +516,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionId = repoSession.session;
+      const sessionId = repoSession.sessionId;
       const workdir = this.getSessionWorkdir(sessionId);
 
       // Use GitService for pulling changes
@@ -546,7 +552,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         throw new Error("No session found for this repository");
       }
 
-      const sessionId = repoSession.session;
+      const sessionId = repoSession.sessionId;
       const workdir = this.getSessionWorkdir(sessionId);
 
       await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
