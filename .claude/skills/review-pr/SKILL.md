@@ -161,9 +161,12 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 
 **Anchor validation before submitting:** GitHub rejects the **entire review** (422) if any comment targets a line not present in the PR diff. Before building a `comments[]` entry:
 
-1. Find the matching `DiffFile` in `parsedDiff` where `file.path === path` (skip `warning`-flagged files).
+1. Find the matching `DiffFile` in `parsedDiff` (skip `warning`-flagged files). Lookup depends on side:
+   - **RIGHT-side anchor:** match `file.path === path` (the current filename).
+   - **LEFT-side anchor:** match `file.path === path` OR `file.oldPath === path`. For renamed files (`DiffFile.oldPath !== DiffFile.path`), LEFT anchors use `oldPath` per the reviewer agent's Renamed files rule.
 2. Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target line number (`newLine` for RIGHT, `oldLine` for LEFT).
-3. If no match is found, move the finding to the body under an "Unanchored findings" section.
+3. **For multi-line ranges** (`startLine` is set): also confirm `startLine` exists on the same side AND both endpoints fall within the same `DiffHunk`; verify `startSide === side`.
+4. If any check fails, move the finding to the body under an "Unanchored findings" section.
 
 **Side-mapping rule:**
 

@@ -2,9 +2,11 @@
 name: reviewer
 description: >-
   Code review agent for independent Chinese-wall reviews and large-PR diff
-  sectioning. Fetches PR context via MCP, verifies each change against actual
-  source, and posts findings directly via mcp__minsky__session_pr_review_submit.
-  Cannot modify code — posting a GitHub review is an allowed write.
+  sectioning. In Mode 2 (whole-PR), fetches context via MCP, validates anchors,
+  and posts findings directly via mcp__minsky__session_pr_review_submit. In
+  Mode 1 (sectioning), returns raw observations to the parent aggregator and
+  MUST NOT call submit — the parent validates anchors and posts the final review.
+  Cannot modify code — posting a GitHub review is an allowed write (Mode 2 only).
 tools: >-
   Read, Glob, Grep, Bash, mcp__minsky__session_pr_review_context,
   mcp__minsky__session_pr_review_submit, mcp__minsky__tasks_spec_get
@@ -50,6 +52,8 @@ The parent agent gives you:
    - If the concern is disproven by reading source, drop it (false positive)
 4. **Report findings** in the structured format below as raw observations. Mode 1 subagents do NOT commit anchored `comments[]` — section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity, writes the body, selects the event, and posts via `session_pr_review_submit`. See mt#1485 for the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
 
+**Mode 1 hard guard: never call `mcp__minsky__session_pr_review_submit` yourself.** Even if a task ID is also in your context, sectioning means the parent posts the consolidated review across all slices. A Mode 1 subagent posting directly bypasses anchor validation, dedup, and severity calibration — and produces N partial reviews on the PR instead of one. If you find yourself reaching for the submit tool in Mode 1, stop and return observations only.
+
 # Mode 2 Input (Chinese-wall whole-PR review)
 
 The parent agent gives you:
@@ -65,9 +69,13 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
 4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
-   - Find the `DiffFile` in `parsedDiff` where `file.path === path` (skip warning-flagged files — `file.warning` set).
-   - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists with the target `line` number (`newLine` for RIGHT, `oldLine` for LEFT).
-   - If no matching line exists, record the finding in the review body instead of `comments[]`.
+   - Find the `DiffFile` in `parsedDiff`. The lookup depends on side:
+     - **RIGHT-side anchor:** `file.path === path` (current filename).
+     - **LEFT-side anchor:** `file.path === path` OR `file.oldPath === path`. For renamed files (`DiffFile.oldPath !== DiffFile.path`), LEFT anchors must use `oldPath` per the Renamed files rule below — so the lookup must consider both fields.
+   - Skip warning-flagged files (`file.warning` set).
+   - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
+   - **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
+   - If any of those checks fail, record the finding in the review body instead of `comments[]`.
 5. **Verify against task spec** — check each success criterion against the actual code.
 6. **Post the review directly** — call `mcp__minsky__session_pr_review_submit` with task, body, event, and `comments[]`. Do not return findings to the parent for posting; post them yourself.
 
