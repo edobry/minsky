@@ -28,9 +28,14 @@ import {
   type RoutedAsk,
   type PolicyFirstRouteOptions,
 } from "../../../domain/ask/router";
+import {
+  dispatchToElicitation,
+  type ElicitationClosedAsk,
+} from "../../../domain/ask/transports/elicitation";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 
 // ---------------------------------------------------------------------------
@@ -235,26 +240,82 @@ export interface CreateAskParams {
 }
 
 /**
- * Create an Ask via the repository and route it via mt#1069's policy-first
- * router. Returns the `RoutedAsk` (state="routed" or "closed").
+ * Walk a persisted Ask forward to `"suspended"` from any pre-suspended state.
  *
- * Persistence semantics: this function writes the initial Ask row in
- * "detected" state via `repo.create`. The router's state-transition output
- * (state="routed" for kind-based fallback, state="closed" for policy
- * coverage) is reflected in the returned `RoutedAsk` object but is **not**
- * persisted to the database in v1 — the row remains in "detected" until a
- * downstream transport adapter (mt#1070 subagent, mt#1457 elicitation,
- * mt#454 inbox, etc.) walks the state machine. This matches Tree A's
- * shipped semantics in mt#1069 / mt#1070 / `policy-resolver.ts`.
+ * Used by the strand-recovery path in `createAsk` when the router decided
+ * elicitation but no active MCP server is reachable. Mirrors the helper in
+ * the elicitation transport but lives here to avoid an import cycle (the
+ * transport imports from `router.ts`, which is upstream of this file).
  *
- * Exposed (rather than inlined into the command's `execute` closure) so
- * tests can exercise the producer end-to-end with a `FakeAskRepository`.
+ * Throws on terminal/post-suspended states — re-suspending a closed Ask is
+ * a programming error.
+ */
+async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): Promise<void> {
+  const persisted = await repo.getById(askId);
+  if (!persisted) {
+    throw new Error(`asks.create: Ask not found: ${askId}`);
+  }
+  switch (persisted.state) {
+    case "detected":
+      await repo.transition(askId, "classified");
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "classified":
+      await repo.transition(askId, "routed");
+      await repo.transition(askId, "suspended");
+      return;
+    case "routed":
+      await repo.transition(askId, "suspended");
+      return;
+    case "suspended":
+      return;
+    case "responded":
+    case "closed":
+    case "cancelled":
+    case "expired":
+      throw new Error(
+        `asks.create: cannot strand-suspend Ask in terminal state "${persisted.state}"`
+      );
+    default:
+      throw new Error(`asks.create: unhandled Ask state "${persisted.state}"`);
+  }
+}
+
+/**
+ * Create an Ask, route it via mt#1069's policy-first router, and — for the
+ * elicitation transport — dispatch synchronously through the active MCP
+ * server.
+ *
+ * This is the canonical Ask producer surface. Direct callers (tests,
+ * future programmatic Ask emission sites like the 2-strikes detector
+ * mt#1241) get the same result shape as the `asks.create` MCP tool: a
+ * single coherent producer path regardless of entrypoint (PR #919 R3).
+ *
+ * Return shape (`RoutedAsk | ElicitationClosedAsk`):
+ *   - Policy coverage  → `state: "closed"` (RoutedAsk shape, transport=policy)
+ *   - Async transport  → `state: "routed"` (RoutedAsk shape, transport=inbox/mesh/subagent/retriever)
+ *   - Elicitation accept → `state: "closed"` (ElicitationClosedAsk, response populated)
+ *   - Elicitation decline/cancel → `state: "cancelled"` (ElicitationClosedAsk, no response)
+ *   - Elicitation dispatch error → `state: "suspended"` (ElicitationClosedAsk, no response)
+ *   - Elicitation routed but no active server → `state: "suspended"` (ElicitationClosedAsk, no response)
+ *
+ * Persistence semantics:
+ *   - Creates the Ask row in "detected" state.
+ *   - For async transports: row stays at "detected"; downstream transport
+ *     adapter (mt#1070 subagent, mt#454 inbox, etc.) walks the state
+ *     machine. This matches Tree A's existing semantics in mt#1069/mt#1070.
+ *   - For elicitation: walks the state machine end-to-end. The repo state
+ *     after this call always matches the returned object's state.
+ *   - Per `Ask.response`'s contract in `types.ts`, `response` is only
+ *     populated for `"responded"` / `"closed"` states. The cancelled/
+ *     suspended return values intentionally omit it (PR #919 R3 BLOCKING).
  */
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
-): Promise<RoutedAsk> {
+): Promise<RoutedAsk | ElicitationClosedAsk> {
   const input: CreateAskInput = {
     kind: params.kind,
     classifierVersion: params.classifierVersion ?? "v1.0.0",
@@ -270,7 +331,43 @@ export async function createAsk(
   };
 
   const ask = await repo.create(input);
-  return policyFirstRoute(ask, routerOptions);
+  const routed = await policyFirstRoute(ask, routerOptions);
+
+  // Non-elicitation paths: return the routed Ask as-is. Async transports
+  // (subagent, inbox, mesh, retriever) are dispatched elsewhere; policy
+  // coverage already produced state="closed" via closeWithPolicy.
+  if (routed.transport.kind !== "elicitation") {
+    return routed;
+  }
+
+  // Elicitation path: dispatch synchronously when an active server is
+  // available. The capabilityRegistry came from routerOptions (the same
+  // path the router used to choose elicitation); reading it again here
+  // keeps the dispatch decision colocated with the rest of the elicitation
+  // logic.
+  const registry = routerOptions.capabilityRegistry;
+  const server = registry?.activeElicitationServer();
+  if (server) {
+    return await dispatchToElicitation(routed, { server, repo });
+  }
+
+  // Defensive: capability registry said hasElicitation() but no server is
+  // currently active (race between hasElicitation() returning true and
+  // activeElicitationServer() lookup — disconnect mid-call, etc.). Walk
+  // the Ask to "suspended" so the operator CLI (mt#1458) can recover.
+  log.warn(
+    "createAsk: elicitation routed but no active server — walking to suspended for recovery",
+    {
+      askId: routed.id,
+    }
+  );
+  await advanceRoutedAskToSuspended(repo, routed.id);
+  const suspended: ElicitationClosedAsk = {
+    ...routed,
+    state: "suspended",
+    routingTarget: "operator",
+  };
+  return suspended;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +470,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       description: "Create an Ask and route it via the policy-first router (ADR-008)",
       requiresSetup: true,
       parameters: asksCreateParams,
-      execute: async (params): Promise<RoutedAsk> => {
+      execute: async (params): Promise<RoutedAsk | ElicitationClosedAsk> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
@@ -381,19 +478,39 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        return createAsk(repo, {
-          kind: params.kind as AskKind,
-          title: params.title as string,
-          question: params.question as string,
-          options: params.options as AskOption[] | undefined,
-          contextRefs: params.contextRefs as ContextRef[] | undefined,
-          parentTaskId: params.parentTaskId as string | undefined,
-          parentSessionId: params.parentSessionId as string | undefined,
-          deadline: params.deadline as string | undefined,
-          metadata: params.metadata as Record<string, unknown> | undefined,
-          classifierVersion: params.classifierVersion as string | undefined,
-          requestor: params.requestor as string | undefined,
-        });
+        // mt#1457: pull the capability registry from the container so the
+        // router consults it and the elicitation transport can dispatch
+        // through the active MCP Server. CLI execution gets the no-op fake
+        // (registered in cli.ts); MCP execution gets MCPClientCapabilityRegistry
+        // (overridden in start-command.ts).
+        const capabilityRegistry =
+          container?.has("clientCapabilityRegistry") &&
+          (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
+
+        const routerOptions: PolicyFirstRouteOptions = capabilityRegistry
+          ? { capabilityRegistry }
+          : {};
+
+        // PR #919 R3: createAsk is the single producer surface — dispatch
+        // for the elicitation transport happens inside it. The MCP command
+        // is a thin parameter-shaping wrapper.
+        return await createAsk(
+          repo,
+          {
+            kind: params.kind as AskKind,
+            title: params.title as string,
+            question: params.question as string,
+            options: params.options as AskOption[] | undefined,
+            contextRefs: params.contextRefs as ContextRef[] | undefined,
+            parentTaskId: params.parentTaskId as string | undefined,
+            parentSessionId: params.parentSessionId as string | undefined,
+            deadline: params.deadline as string | undefined,
+            metadata: params.metadata as Record<string, unknown> | undefined,
+            classifierVersion: params.classifierVersion as string | undefined,
+            requestor: params.requestor as string | undefined,
+          },
+          routerOptions
+        );
       },
     })
   );

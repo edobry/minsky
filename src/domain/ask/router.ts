@@ -21,6 +21,7 @@ import { assertNever } from "./types";
 import { loadAllPolicySources, isCovered } from "./policy";
 import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
+import type { ClientCapabilityRegistry } from "../../mcp/client-capabilities";
 
 // ---------------------------------------------------------------------------
 // Transport binding
@@ -97,25 +98,78 @@ export interface AskRouter {
 // ---------------------------------------------------------------------------
 
 /**
+ * Returns true for ask kinds whose UX benefits from a synchronous-dialog
+ * transport (elicitation) when the active MCP client supports it.
+ *
+ * Lifted from the sync/async axis documented in `src/domain/ask/types.ts`
+ * AskKind table. v1 wires only `direction.decide` — operator-driven
+ * preference-bound choices are the canonical synchronous-dialog case.
+ *
+ * Future extensions (mt#1457 spec §Notes): `authorization.approve` is a
+ * candidate (sync seconds–hours) when policy doesn't pre-cover; same for
+ * `information.retrieve` if no retriever is wired. v1 leaves both async
+ * to avoid premature surface area; the static binding matrix below still
+ * routes them appropriately.
+ *
+ * The exhaustive switch + `assertNever` enforces that adding a new
+ * `AskKind` requires this function be updated — drift is a compile error,
+ * not a silent miss.
+ */
+function isSyncKind(kind: AskKind): boolean {
+  switch (kind) {
+    case "direction.decide":
+      return true;
+    case "capability.escalate":
+    case "information.retrieve":
+    case "authorization.approve":
+    case "coordination.notify":
+    case "quality.review":
+    case "stuck.unblock":
+      return false;
+    default:
+      return assertNever(kind);
+  }
+}
+
+/**
  * Pick the primary transport for an uncovered Ask by kind.
  *
- * This encodes the v1 defaults from the ADR-008 transport-binding matrix.
- * Callers that need to override the transport can set `ask.routingTarget`
- * before calling the router (future extension).
+ * Two-stage decision:
+ *   1. **Capability-aware preference (mt#1457):** for sync ask kinds (per
+ *      `isSyncKind`), if the active MCP client advertises elicitation, route
+ *      to the elicitation transport. This is what makes Shape B distinct
+ *      from a kind-only router — the existence of an elicitation-capable
+ *      host shapes routing.
+ *   2. **Static kind→transport binding (ADR-008 matrix):** the v1 defaults
+ *      from the ADR-008 transport-binding matrix. This is the fallback
+ *      when no elicitation-capable host is connected, and the only path
+ *      for async kinds.
  *
- * Kinds and their v1 defaults:
+ * Kinds and their v1 static defaults:
  *   capability.escalate  → subagent
  *   information.retrieve → retriever (v1: no operator fallback inline)
  *   authorization.approve → inbox (async default; AG-UI is secondary)
- *   direction.decide     → inbox
+ *   direction.decide     → inbox  (or elicitation when capable — see stage 1)
  *   coordination.notify  → mesh
  *   quality.review       → inbox
  *   stuck.unblock        → subagent
  */
-function pickTransport(kind: AskKind): {
+function pickTransport(
+  kind: AskKind,
+  capabilityRegistry?: ClientCapabilityRegistry
+): {
   routingTarget: AgentId | "operator" | "policy";
   transport: TransportBinding;
 } {
+  // Stage 1: capability-aware preference.
+  if (isSyncKind(kind) && capabilityRegistry?.hasElicitation()) {
+    return {
+      routingTarget: "operator",
+      transport: { kind: "elicitation" },
+    };
+  }
+
+  // Stage 2: static kind→transport binding (ADR-008 matrix).
   switch (kind) {
     case "capability.escalate":
       return {
@@ -207,6 +261,17 @@ export interface PolicyFirstRouteOptions {
    * Pass `null` to skip task-spec consultation.
    */
   specContent?: string | null;
+
+  /**
+   * MCP client capability registry. When provided and `hasElicitation()`
+   * returns true, sync ask kinds route to the `elicitation` transport in
+   * Phase 2 instead of the static kind→transport binding. Absent or no-op
+   * registry → Phase 2 falls back to the static binding (mt#1069 behavior).
+   *
+   * Wired in mt#1457; consumed by sibling tasks like the `asks.create` MCP
+   * tool wrapper to thread the active connection's capabilities into routing.
+   */
+  capabilityRegistry?: ClientCapabilityRegistry;
 }
 
 /**
@@ -255,10 +320,10 @@ export async function policyFirstRoute(
   }
 
   // -----------------------------------------------------------------------
-  // Phase 2: route by kind
+  // Phase 2: route by kind (capability-aware via mt#1457)
   // -----------------------------------------------------------------------
 
-  const { routingTarget, transport } = pickTransport(ask.kind);
+  const { routingTarget, transport } = pickTransport(ask.kind, options.capabilityRegistry);
   const packagedPayload = packagePayload(ask);
 
   const now = new Date().toISOString();
