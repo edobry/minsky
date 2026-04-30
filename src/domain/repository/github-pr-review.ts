@@ -9,8 +9,11 @@
  * (TokenProvider-aware).
  */
 
+import { Octokit } from "@octokit/rest";
 import { MinskyError } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { parseUnifiedDiff } from "../../utils/parse-diff";
+import { validateDiffAnchors } from "./diff-anchor-validator";
 import { handleOctokitError } from "./github-error-handler";
 import {
   type GitHubContext,
@@ -19,6 +22,8 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 import type { ReviewListEntry } from "./index";
+
+export { DiffAnchorError, type DiffAnchorFailure } from "./diff-anchor-validator";
 
 export interface ReviewComment {
   /** Relative path of the file to comment on */
@@ -143,6 +148,33 @@ export async function submitReview(
       for (const comment of options.comments) {
         validateReviewComment(comment);
       }
+    }
+
+    // Pre-flight diff anchor validation.
+    // Fetch the PR diff and validate that each comment's (path, line, side)
+    // lies within the diff before forwarding to GitHub. This converts opaque
+    // 422 responses from GitHub into typed DiffAnchorErrors with nearest-valid-
+    // anchor hints. Design: fetch inline here so callers need no API change.
+    if (options.comments && options.comments.length > 0) {
+      const diffOctokit = new Octokit({
+        auth: token,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+        request: {
+          headers: { accept: "application/vnd.github.v3.diff" },
+        },
+      });
+      const diffResponse = await diffOctokit.request(
+        "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+        {
+          owner: gh.owner,
+          repo: gh.repo,
+          pull_number: prNumber,
+          headers: { accept: "application/vnd.github.v3.diff" },
+        }
+      );
+      const diffText = String((diffResponse as { data?: unknown }).data ?? "");
+      const parsedDiff = parseUnifiedDiff(diffText);
+      validateDiffAnchors(parsedDiff, options.comments);
     }
 
     // Map our ReviewComment[] to the shape expected by the Octokit REST API.
