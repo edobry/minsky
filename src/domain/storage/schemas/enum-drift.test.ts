@@ -24,7 +24,7 @@ import { join } from "path";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { memoryTypeEnum } from "./memory-embeddings";
 import { RELATIONSHIP_TYPE_VALUES } from "../../tasks/task-graph-service";
-import { taskRelationshipsTable } from "./task-relationships";
+import { taskRelationshipsTable, PARENT_RELATIONSHIP_TYPE } from "./task-relationships";
 
 // ---------------------------------------------------------------------------
 // Migration-parsing helper
@@ -37,6 +37,12 @@ import { taskRelationshipsTable } from "./task-relationships";
  *
  * The regex MUST have exactly one capture group that matches the inner list
  * of quoted SQL identifiers (e.g., `'value1', 'value2'`).
+ *
+ * Scope note: regex-based parsing is deliberately chosen here over live-DB
+ * introspection or code-gen. The goal is to catch the specific drift class
+ * "migration SQL diverges from TS const" without requiring a live database.
+ * More robust alternatives (pgdump comparison, code-gen round-trip) are
+ * deferred to a follow-up if the regex approach proves insufficient.
  */
 function parseSqlValueList(sqlFilePath: string, regex: RegExp): string[] {
   const sqlRaw = readFileSync(sqlFilePath);
@@ -119,8 +125,8 @@ describe("Enum drift-check — task_relationships.type", () => {
     expect(expectedSql).toBe("type IN ('depends', 'parent')");
   });
 
-  test("task_relationships table has a type column that defaults to 'depends'", () => {
-    // Structural check: the type column exists and has the right default.
+  test("task_relationships type column exists with snake_case name", () => {
+    // Structural check: the type column exists with the correct snake_case DB name.
     // This confirms the schema file loaded correctly with the updated CHECK constraint.
     const typeCol = taskRelationshipsTable.type;
     expect(typeCol).toBeDefined();
@@ -146,5 +152,14 @@ describe("Enum drift-check — task_relationships.type", () => {
       /CHECK\s*\(\s*type\s+IN\s*\(([^)]+)\)\s*\)/i
     );
     expect(sqlValues).toEqual([...RELATIONSHIP_TYPE_VALUES].sort());
+  });
+
+  test("PARENT_RELATIONSHIP_TYPE used in unique-index WHERE clause is a member of RELATIONSHIP_TYPE_VALUES", () => {
+    // Guards against WHERE-clause drift: if "parent" is renamed or removed from
+    // RELATIONSHIP_TYPE_VALUES, the satisfies assertion in task-relationships.ts
+    // catches it at compile time. This runtime test makes the same invariant
+    // explicit and testable without a live DB.
+    const values: readonly string[] = RELATIONSHIP_TYPE_VALUES;
+    expect(values).toContain(PARENT_RELATIONSHIP_TYPE);
   });
 });

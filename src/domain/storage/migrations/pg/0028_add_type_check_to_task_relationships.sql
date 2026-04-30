@@ -1,5 +1,5 @@
 -- Add CHECK constraint on task_relationships.type to enforce valid values.
--- Valid values: 'depends' | 'parent' (matching RELATIONSHIP_TYPE_VALUES in task-graph-service.ts)
+-- Valid values: 'depends' | 'parent' (matching RELATIONSHIP_TYPE_VALUES in src/domain/storage/schemas/task-relationships.ts)
 -- Does NOT alter or drop the column — only adds the constraint.
 --
 -- Pre-condition: all existing rows must satisfy the constraint.
