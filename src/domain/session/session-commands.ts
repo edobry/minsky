@@ -6,6 +6,7 @@
 
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
+import type { AskRepository } from "../ask/repository";
 
 /**
  * Session PR creation parameters
@@ -100,7 +101,8 @@ export async function sessionCommit(
     amend?: boolean;
     noStage?: boolean;
   },
-  sessionProvider: import("./types").SessionProviderInterface
+  sessionProvider: import("./types").SessionProviderInterface,
+  askRepository?: AskRepository
 ): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
@@ -132,6 +134,31 @@ export async function sessionCommit(
   const sessionRecordForFreeze = await sessionProvider.getSession(params.session);
   if (sessionRecordForFreeze) {
     assertSessionMutable(sessionRecordForFreeze, "commit changes");
+  }
+
+  // Emit authorization.approve Ask (best-effort — never blocks the commit)
+  if (askRepository) {
+    try {
+      const requestor = sessionRecordForFreeze?.agentId ?? `minsky.session:task:${params.session}`;
+      await askRepository.create({
+        kind: "authorization.approve",
+        classifierVersion: "v1",
+        requestor,
+        parentTaskId: sessionRecordForFreeze?.taskId,
+        parentSessionId: sessionRecordForFreeze?.sessionId,
+        title: `Commit authorization: ${params.message.slice(0, 80)}`,
+        question: `Authorize commit in session ${params.session}: "${params.message}"`,
+        metadata: {
+          commitMessage: params.message,
+          stagedFiles: params.all ? "all" : "manual-staged",
+        },
+      });
+    } catch (askErr: unknown) {
+      log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
+        session: params.session,
+        error: askErr instanceof Error ? askErr.message : String(askErr),
+      });
+    }
   }
 
   const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
