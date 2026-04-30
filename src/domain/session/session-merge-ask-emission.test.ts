@@ -22,6 +22,7 @@ const SESSION_IDS = {
   APPROVED_NON_GITHUB: "approved-session",
   APPROVED_GITHUB: "approved-github-session",
   UNAPPROVED: "unapproved-session",
+  UNAPPROVED_GITHUB: "unapproved-github-session",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,33 @@ const approvedGitHubSession: SessionRecord = {
       id: 42,
       nodeId: "PR_node_42",
       htmlUrl: "https://github.com/test/repo/pull/42",
+      author: "test-bot",
+    },
+  },
+};
+
+const unapprovedGitHubSession: SessionRecord = {
+  sessionId: SESSION_IDS.UNAPPROVED_GITHUB,
+  repoName: "test/repo",
+  createdAt: new Date().toISOString(),
+  name: SESSION_IDS.UNAPPROVED_GITHUB,
+  taskId: "mt#996",
+  repoUrl: "https://github.com/test/repo.git",
+  backendType: "github",
+  prBranch: "task/mt-996",
+  prApproved: false,
+  pullRequest: {
+    number: 43,
+    url: "https://github.com/test/repo/pull/43",
+    state: "open",
+    createdAt: new Date().toISOString(),
+    headBranch: "task/mt-996",
+    baseBranch: "main",
+    lastSynced: new Date().toISOString(),
+    github: {
+      id: 43,
+      nodeId: "PR_node_43",
+      htmlUrl: "https://github.com/test/repo/pull/43",
       author: "test-bot",
     },
   },
@@ -206,10 +234,10 @@ describe("mergeSessionPr — quality.review Ask emission (mt#1467)", () => {
     expect(ask.parentTaskId).toBe("mt#997");
     expect(ask.parentSessionId).toBe(SESSION_IDS.APPROVED_GITHUB);
 
-    // GitHub PR number should appear in contextRefs
+    // GitHub PR URL should appear in contextRefs as the canonical URL
     const prRef = ask.contextRefs?.find((r) => r.kind === "github-pr");
     if (!prRef) throw new Error("Expected github-pr contextRef to be defined");
-    expect(prRef.ref).toContain("42");
+    expect(prRef.ref).toBe("https://github.com/test/repo/pull/42");
   });
 
   // ── Positive path: Ask metadata includes expected fields ─────────────────
@@ -256,6 +284,31 @@ describe("mergeSessionPr — quality.review Ask emission (mt#1467)", () => {
     ).rejects.toThrow(/PR must be approved/);
 
     // Gate fires before Ask emission — no Ask should be emitted
+    expect(fakeAskRepo.all).toHaveLength(0);
+  });
+
+  // ── Approval gate: unapproved GitHub PR — rejected before Ask emission ────
+
+  it("rejects unapproved GitHub PR and does NOT emit an Ask", async () => {
+    const deps = buildDeps(unapprovedGitHubSession, {
+      askRepository: fakeAskRepo,
+      getApprovalStatusImpl: () =>
+        Promise.resolve({
+          isApproved: false,
+          canMerge: false,
+          hasNonApprovalMergeBlockers: false,
+          approvals: [],
+          requiredApprovals: 1,
+          prState: "open" as const,
+          rawReviews: [],
+        }),
+    });
+
+    await expect(
+      mergeSessionPr({ session: SESSION_IDS.UNAPPROVED_GITHUB, json: true }, deps)
+    ).rejects.toThrow(ValidationError);
+
+    // Approval check fires BEFORE Ask emission — no Ask should be emitted
     expect(fakeAskRepo.all).toHaveLength(0);
   });
 

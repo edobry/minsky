@@ -209,39 +209,25 @@ export async function mergeSessionPr(
   // This ensures consistent security enforcement across all merge operations
   validateSessionApprovedForMerge(sessionRecord, sessionIdToUse);
 
-  // ── quality.review Ask emission (best-effort) ─────────────────────────────
-  // Persist a quality.review Ask before each merge attempt so the attention-allocation
-  // subsystem (mt#1034) can track review requests. This is best-effort: failures are
-  // logged but MUST NOT block the merge. The existing approval gate above remains
-  // authoritative — this emission is observational only.
-  if (deps.askRepository) {
+  // ── quality.review Ask emission for non-GitHub sessions (best-effort) ───────
+  // For non-GitHub sessions, the approval gate above (validateSessionApprovedForMerge)
+  // is authoritative, so we emit the Ask immediately after it passes.
+  // For GitHub sessions, emission is deferred until after getApprovalStatus() confirms
+  // approval — see the emission block inside the GitHub PR check below.
+  if (deps.askRepository && sessionRecord.backendType !== "github") {
     try {
-      const prNumber =
-        sessionRecord.backendType === "github" && sessionRecord.pullRequest
-          ? sessionRecord.pullRequest.number
-          : undefined;
-
       const askInput: CreateAskInput = {
         kind: "quality.review",
         classifierVersion: "v1",
-        // requestor is the calling agent; use a stable process-level identity
-        requestor: `minsky.session-merge:proc:${sessionIdToUse}`,
+        // requestor is the calling agent; sessionId is the scope identifier
+        requestor: `minsky.session-merge:session:${sessionIdToUse}`,
         parentTaskId: sessionRecord.taskId,
         parentSessionId: sessionIdToUse,
         title: `quality.review for session ${sessionIdToUse}`,
         question: `Session ${sessionIdToUse} is about to be merged. Review the PR for quality and correctness.`,
-        contextRefs:
-          prNumber !== undefined
-            ? [
-                {
-                  kind: "github-pr",
-                  ref: `github-pr:${sessionRecord.repoName ?? "unknown"}/${String(prNumber)}`,
-                  description: `GitHub PR #${prNumber}`,
-                },
-              ]
-            : undefined,
+        contextRefs: undefined,
         metadata: {
-          prNumber,
+          prNumber: undefined,
           targetBranch: sessionRecord.prBranch,
           approvalState:
             sessionRecord.prApproved === true
@@ -256,7 +242,6 @@ export async function mergeSessionPr(
       log.debug("quality.review Ask emitted for merge", {
         sessionId: sessionIdToUse,
         taskId: sessionRecord.taskId,
-        prNumber,
       });
     } catch (askErr: unknown) {
       const errMsg = askErr instanceof Error ? askErr.message : String(askErr);
@@ -487,6 +472,58 @@ export async function mergeSessionPr(
           );
         } else {
           log.cli(`✅ PR is approved and mergeable`);
+        }
+      }
+
+      // ── quality.review Ask emission for GitHub sessions (best-effort) ────────
+      // Emitted only after getApprovalStatus() confirms approval (or waiver applies).
+      // This defers emission past the real approval gate for GitHub sessions,
+      // preventing Asks from being emitted for PRs that are subsequently rejected.
+      if (deps.askRepository) {
+        try {
+          const prNumber = sessionRecord.pullRequest.number;
+          const prUrl = sessionRecord.pullRequest.url;
+
+          const githubAskInput: CreateAskInput = {
+            kind: "quality.review",
+            classifierVersion: "v1",
+            // requestor is the calling agent; sessionId is the scope identifier
+            requestor: `minsky.session-merge:session:${sessionIdToUse}`,
+            parentTaskId: sessionRecord.taskId,
+            parentSessionId: sessionIdToUse,
+            title: `quality.review for session ${sessionIdToUse}`,
+            question: `Session ${sessionIdToUse} is about to be merged. Review the PR for quality and correctness.`,
+            contextRefs: [
+              {
+                kind: "github-pr",
+                ref: prUrl,
+                description: `GitHub PR #${prNumber}`,
+              },
+            ],
+            metadata: {
+              prNumber,
+              targetBranch: sessionRecord.prBranch,
+              approvalState:
+                sessionRecord.prApproved === true
+                  ? "approved"
+                  : sessionRecord.prApproved === false
+                    ? "rejected"
+                    : "unknown",
+            },
+          };
+
+          await deps.askRepository.create(githubAskInput);
+          log.debug("quality.review Ask emitted for GitHub merge", {
+            sessionId: sessionIdToUse,
+            taskId: sessionRecord.taskId,
+            prNumber,
+          });
+        } catch (askErr: unknown) {
+          const errMsg = askErr instanceof Error ? askErr.message : String(askErr);
+          log.warn("Failed to emit quality.review Ask before GitHub merge (non-blocking)", {
+            sessionId: sessionIdToUse,
+            error: errMsg,
+          });
         }
       }
     } catch (error) {
