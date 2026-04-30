@@ -13,7 +13,7 @@
 
 import { promises as fs, type Dirent } from "fs";
 import { homedir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 
 import { glob } from "glob";
 
@@ -188,15 +188,39 @@ async function readFirstTurnCwd(jsonlPath: string): Promise<string | undefined> 
 /**
  * Reverse the Claude Code project-dir naming convention. Only invoked as a
  * fallback when the JSONL has no parseable cwd; the result is best-effort.
+ *
+ * Subagent transcripts live two levels deep — `<projectDir>/<sessionId>/subagents/`
+ * — so when the immediate parent's basename is the literal `subagents` or
+ * the parent appears to be a session UUID rather than a project dir, walk up
+ * to find the actual project dir before applying the convention reverse
+ * (mt#1445 R1 BLOCKING).
  */
 function deriveCwdFromProjectDir(parentDir: string): string | undefined {
-  const projectName = basename(parentDir);
-  // The project-dir name shape is `-<path-with-slashes-replaced-by-dashes>`.
-  // Skip names that don't look like that pattern (e.g. the `subagents/`
-  // intermediate directory, or anything else that clearly isn't a project).
-  if (!projectName.startsWith("-")) return undefined;
-  if (projectName === SUBAGENTS_DIR) return undefined;
+  const projectName = findProjectDirName(parentDir);
+  if (projectName === undefined) return undefined;
   return projectName.replace(/-/g, "/");
+}
+
+/**
+ * Walk up from `parentDir` until we find a directory whose basename starts
+ * with `-` (the Claude Code project-dir convention). Returns the basename or
+ * undefined if none found within a small number of hops.
+ *
+ * This handles both top-level session files (parent is the project dir) and
+ * subagent files (parent is `<projectDir>/<sessionId>/subagents`).
+ */
+function findProjectDirName(parentDir: string): string | undefined {
+  let current = parentDir;
+  // Cap at 3 hops to avoid walking the whole filesystem on misconfigured input:
+  // the deepest legitimate case is subagents/ → sessionId/ → projectDir/ (2 hops).
+  for (let i = 0; i < 3; i++) {
+    const name = basename(current);
+    if (name.startsWith("-") && name !== SUBAGENTS_DIR) return name;
+    const next = dirname(current);
+    if (next === current) return undefined; // reached filesystem root
+    current = next;
+  }
+  return undefined;
 }
 
 function parseJsonlLine(line: string): JsonlLine | null {

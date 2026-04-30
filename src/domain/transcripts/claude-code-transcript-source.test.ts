@@ -104,6 +104,17 @@ describe("ClaudeCodeTranscriptSource.discoverSessions", () => {
     expect(top?.cwd).toBe("/Users/edobry/Projects/minsky");
   });
 
+  test("subagent sessions also get the project-dir cwd fallback when JSONL has no cwd (mt#1445 R1 BLOCKING)", async () => {
+    // Subagent transcripts live at <projectDir>/<sessionId>/subagents/<file>.jsonl,
+    // so scanDir passes the `subagents/` directory to recoverCwd. The fallback
+    // must walk up two levels to find the project dir whose basename starts
+    // with `-`. R1 caught that the original implementation only checked the
+    // immediate parent — subagents would silently get cwd=undefined.
+    const sessions = await collect(makeSource().discoverSessions());
+    const sub = sessions.find((s) => s.agentSessionId === SUB_SESSION_ID);
+    expect(sub?.cwd).toBe("/Users/edobry/Projects/minsky");
+  });
+
   test("populates cwd from JSONL turn when present, preferring it over the project-dir fallback (mt#1445)", async () => {
     // Stand up a fresh fixture in a separate temp root so we can write a
     // user line that includes the explicit cwd field.
