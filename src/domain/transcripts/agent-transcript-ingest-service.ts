@@ -125,7 +125,11 @@ export class AgentTranscriptIngestService {
           transcript: newLines,
           startedAt: startedAt ?? undefined,
           endedAt: endedAt ?? undefined,
-          cwd: jsonlPath, // best-effort: jsonlPath encodes the project dir
+          // mt#1445: use the session's recovered working directory if the
+          // source could provide one; otherwise leave the column NULL rather
+          // than substituting the JSONL path. Downstream consumers querying
+          // `cwd` expect a working directory, not a transcript path.
+          cwd: session.cwd ?? undefined,
           projectDir: deriveProjectDir(jsonlPath),
           lastIngestedJsonlTimestamp: latestTs ?? undefined,
           ingestedAt: new Date(),
