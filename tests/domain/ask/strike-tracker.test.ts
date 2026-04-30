@@ -7,6 +7,7 @@
  *   - Two errors with different signatures on same (taskId, toolName) → no Ask
  *   - LRU eviction: insert 257 distinct keys, oldest is evicted
  *   - normalizeErrorSignature: code field, message field, string fallback
+ *   - Cross-session bleed: two sessions without args.task should NOT share strike counters
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
@@ -185,16 +186,30 @@ describe("2-strikes Ask emission integration", () => {
   /**
    * Simulate what the MCP error path does: call recordError and, on strike-2,
    * create a stuck.unblock Ask.
+   *
+   * sessionId mimics the production code path: when args.task is absent, the
+   * tracker key is built from sessionId (not the deprecated "_global" fallback).
    */
-  async function simulateMcpError(taskId: string, toolName: string, error: unknown): Promise<void> {
+  async function simulateMcpError(
+    taskId: string | undefined,
+    toolName: string,
+    error: unknown,
+    sessionId?: string
+  ): Promise<void> {
+    // Mirror the production keying logic from shared-command-integration.ts:
+    // use args.task when present, otherwise fall back to sessionId ?? "unknown".
+    const effectiveTaskId = taskId ?? sessionId ?? "unknown";
     const sig = normalizeErrorSignature(error);
-    const result = tracker.recordError({ taskId, toolName, errorSignature: sig }, error);
+    const result = tracker.recordError(
+      { taskId: effectiveTaskId, toolName, errorSignature: sig },
+      error
+    );
 
     if (result.count === 2) {
       await repo.create({
         kind: "stuck.unblock",
         classifierVersion: "v1.0.0",
-        requestor: taskId,
+        requestor: effectiveTaskId,
         parentTaskId: taskId,
         title: `MCP tool ${toolName} failed twice with same error`,
         question: `Tool "${toolName}" produced the same error twice.`,
@@ -262,6 +277,30 @@ describe("2-strikes Ask emission integration", () => {
 
     expect(repo.all[0]?.classifierVersion).toBe("v1.0.0");
   });
+
+  // ---------------------------------------------------------------------------
+  // Cross-session bleed test (mt#1464 R2 fix)
+  // ---------------------------------------------------------------------------
+  // Reproduces the production bug: when args.task is absent, both error paths
+  // previously fell back to "_global", collapsing all task-less commands into
+  // one shared bucket. Two unrelated sessions hitting the same MCP error would
+  // thus produce a false 2-strike and emit a spurious stuck.unblock Ask.
+  //
+  // After the fix, the tracker key uses sessionId when args.task is absent,
+  // so each session has its own independent strike counter.
+  test("two sessions without args.task do NOT share strike counters", async () => {
+    const err = new Error("connection timeout");
+    const toolName = "session_exec";
+
+    // Session A: first error (no task arg — uses sessionId as key)
+    await simulateMcpError(undefined, toolName, err, "session-aaa-111");
+    // Session B: first error with same tool + signature but DIFFERENT sessionId
+    await simulateMcpError(undefined, toolName, err, "session-bbb-222");
+
+    // Each session should have count=1 independently — no Ask emitted for either.
+    // Before the fix, both would key by "_global" and the 2nd call would be count=2.
+    expect(repo.all).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -274,6 +313,8 @@ describe("priorAttempts JSON-serializability", () => {
    * that mirrors what serializeAttempt does.
    *
    * We test the contract without importing the unexported helper directly.
+   * `stack` is intentionally absent: it can leak file paths, internal
+   * hostnames, and tokens — a security risk for Ask metadata (mt#1464 R2 fix).
    */
   function serializeAttempt(payload: unknown): unknown {
     if (payload instanceof Error) {
@@ -282,20 +323,22 @@ describe("priorAttempts JSON-serializability", () => {
         name: err.name,
         code: err.code !== undefined ? err.code : undefined,
         message: err.message,
-        stack: err.stack,
+        // stack omitted: security — can leak file paths, hostnames, and tokens
       };
     }
     return payload;
   }
 
-  test("Error instance serializes to JSON-safe object with name/message/stack", () => {
+  test("Error instance serializes to JSON-safe object with name/message (no stack)", () => {
     const err = new Error("serialization test error");
     const serialized = serializeAttempt(err);
     // Must round-trip cleanly.
     const roundTripped = JSON.parse(JSON.stringify(serialized)) as Record<string, unknown>;
     expect(roundTripped["name"]).toBe("Error");
     expect(roundTripped["message"]).toBe("serialization test error");
-    expect(typeof roundTripped["stack"]).toBe("string");
+    // stack MUST NOT be present — security fix: stack traces can leak file paths,
+    // hostnames, and tokens (mt#1464 R2 fix).
+    expect("stack" in roundTripped).toBe(false);
   });
 
   test("Error with numeric code includes code in serialized output", () => {

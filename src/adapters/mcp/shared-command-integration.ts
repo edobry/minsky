@@ -159,9 +159,14 @@ const STRIKES_CLASSIFIER_VERSION = "v1.0.0";
  * Serialize one attempt payload into a JSON-safe object.
  *
  * Error instances serialize to `{}` by default because their properties
- * are non-enumerable. This helper extracts `name`, `code`, `message`,
- * and `stack` explicitly so the Ask metadata round-trips cleanly via
+ * are non-enumerable. This helper extracts `name`, `code`, and `message`
+ * explicitly so the Ask metadata round-trips cleanly via
  * JSON.parse(JSON.stringify(...)) and does not leak raw Error objects.
+ *
+ * `stack` is intentionally omitted: stack traces can expose file paths,
+ * internal hostnames, env details, and (in some Error subclasses) wrapped
+ * tokens — a security risk for Ask metadata that may be persisted or
+ * transmitted externally.
  */
 function serializeAttempt(payload: unknown): unknown {
   if (payload instanceof Error) {
@@ -170,7 +175,7 @@ function serializeAttempt(payload: unknown): unknown {
       name: err.name,
       code: err.code !== undefined ? err.code : undefined,
       message: err.message,
-      stack: err.stack,
+      // stack omitted: security — can leak file paths, hostnames, and tokens
     };
   }
   // For plain objects or primitives, return as-is (assumed JSON-safe).
@@ -328,7 +333,12 @@ export function registerSharedCommandsWithMcp(
             // MCP commands signal errors exclusively by throwing — there is no { ok: false }
             // non-throw contract here, so a non-throwing return always means success.
             if (config.strikeTracker) {
-              const taskId = typeof args?.task === "string" ? args.task : "_global";
+              // When args.task is absent, key by sessionId so unrelated sessions
+              // hitting the same tool don't share a strike counter. Falling back
+              // to "_global" would collapse all task-less commands into one bucket,
+              // causing false 2-strikes across sessions. (mt#1464 R2 fix)
+              const sessionId = typeof args?.session === "string" ? args.session : undefined;
+              const taskId = typeof args?.task === "string" ? args.task : (sessionId ?? "unknown");
               config.strikeTracker.recordSuccess(taskId, command.id);
             }
 
@@ -360,7 +370,12 @@ export function registerSharedCommandsWithMcp(
             // 2-strikes error path (mt#1464): record the strike.
             // On strike-2, emit a stuck.unblock Ask — best-effort, never blocks the throw.
             if (config.strikeTracker) {
-              const taskId = typeof args?.task === "string" ? args.task : "_global";
+              // When args.task is absent, key by sessionId so unrelated sessions
+              // hitting the same tool don't share a strike counter. Falling back
+              // to "_global" would collapse all task-less commands into one bucket,
+              // causing false 2-strikes across sessions. (mt#1464 R2 fix)
+              const sessionId = typeof args?.session === "string" ? args.session : undefined;
+              const taskId = typeof args?.task === "string" ? args.task : (sessionId ?? "unknown");
               const errorSig = normalizeErrorSignature(error);
               const strikeResult = config.strikeTracker.recordError(
                 { taskId, toolName: command.id, errorSignature: errorSig },
@@ -368,10 +383,9 @@ export function registerSharedCommandsWithMcp(
               );
 
               if (strikeResult.count === 2 && config.askRepository) {
-                const sessionId = typeof args?.session === "string" ? args.session : undefined;
                 emitStuckUnblockAsk({
                   askRepository: config.askRepository,
-                  taskId: taskId !== "_global" ? taskId : undefined,
+                  taskId: typeof args?.task === "string" ? args.task : undefined,
                   sessionId,
                   toolName: command.id,
                   attempts: strikeResult.attempts,
