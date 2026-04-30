@@ -23,6 +23,7 @@ import type { AppContainerInterface } from "../../../composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
 import { registerTranscriptSearchCommand } from "./transcripts/search-command";
 import { registerTranscriptSimilarCommand } from "./transcripts/similar-command";
+import { registerTranscriptSpawnsExtractCommand } from "./transcripts/spawns-extract-command";
 
 /**
  * Result returned by `transcripts.ingest`.
@@ -191,4 +192,7 @@ export function registerTranscriptCommands(
 
   // ── transcripts.similar ──────────────────────────────────────────────────
   registerTranscriptSimilarCommand(_container, targetRegistry);
+
+  // ── transcripts.spawns-extract ───────────────────────────────────────────
+  registerTranscriptSpawnsExtractCommand(_container, targetRegistry);
 }
