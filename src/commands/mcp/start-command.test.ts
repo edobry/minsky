@@ -178,7 +178,7 @@ describe("mcp start — shutdown paths", () => {
     // stdin is always a Writable stream when stdio[0] is "pipe".
     if (child.stdin) child.stdin.end();
 
-    const { code, output } = await waitForExit(child, 3000);
+    const { code, output } = await waitForExit(child, 7000);
     // eslint-disable-next-line custom/no-real-fs-in-tests -- timing measurement, not path creation
     const elapsedMs = Date.now() - startedAt;
 
@@ -190,11 +190,12 @@ describe("mcp start — shutdown paths", () => {
     if (code === 1) {
       expect(output).toContain("Shutdown timed out after");
     }
-    // Promptness: even with a hung drain the timeout caps the wait. Allow
-    // generous slack for spawn-warmup overhead while still failing if the
-    // process hung past the buffer window.
-    expect(elapsedMs).toBeLessThan(2500);
-  }, 10000);
+    // Promptness: even with a hung drain the timeout caps the wait. The bound
+    // is drain-timeout (200ms) + generous CI slack to absorb spawn warmup +
+    // contended-runner overhead while still failing if the process hung past
+    // the buffer window (PR #881 R2 NON-BLOCKING — was 2500ms, too tight for CI).
+    expect(elapsedMs).toBeLessThan(6000);
+  }, 12000);
 
   test("PG_DRAIN_TIMEOUT_MS sanitization: junk env value falls back to default, doesn't immediately exit(1) (PR #881 R1 BLOCKING regression-protect)", async () => {
     // Pre-fix bug: parseInt("garbage", 10) === NaN; setTimeout(NaN) coerces

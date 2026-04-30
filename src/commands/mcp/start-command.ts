@@ -401,8 +401,6 @@ export function createStartCommand(
         // path — never from `minsky --help` or any CLI-only code path.
         const scheduler = await buildAndStartScheduler(container);
 
-        log.cli("Press Ctrl+C to stop");
-
         // Hard timeout for drain+close path (mt#1417).
         // Configurable via PG_DRAIN_TIMEOUT_MS; defaults to 5000ms.
         // Sanitize: parseInt produces NaN for non-numeric values, which setTimeout
@@ -505,6 +503,12 @@ export function createStartCommand(
         if (!options.http) {
           process.stdin.on("close", cleanup);
         }
+
+        // Print readiness AFTER all shutdown handlers are attached (PR #881 R2 BLOCKING):
+        // tests + parent processes use this line as the deterministic ready signal,
+        // so emitting it before handlers register opens a race window where an
+        // immediate shutdown event hits the kernel default action and bypasses cleanup.
+        log.cli("Press Ctrl+C to stop");
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {});
