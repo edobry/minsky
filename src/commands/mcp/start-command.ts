@@ -410,12 +410,18 @@ export function createStartCommand(
         const PG_DRAIN_TIMEOUT_DEFAULT_MS = 5000;
         const PG_DRAIN_TIMEOUT_MIN_MS = 100;
         const PG_DRAIN_TIMEOUT_MAX_MS = 60_000;
-        const parsedDrainTimeout = parseInt(
-          process.env.PG_DRAIN_TIMEOUT_MS ?? String(PG_DRAIN_TIMEOUT_DEFAULT_MS),
-          10
-        );
-        const PG_DRAIN_TIMEOUT_MS = Number.isFinite(parsedDrainTimeout)
-          ? Math.min(Math.max(parsedDrainTimeout, PG_DRAIN_TIMEOUT_MIN_MS), PG_DRAIN_TIMEOUT_MAX_MS)
+        // Strict validation: only accept a canonical decimal integer string.
+        // parseInt would happily accept "200ms" (200), "0x10" (0), "1e3" (1) —
+        // partial/exotic forms that should fall back to the default rather than
+        // be silently coerced (PR #881 R3 BLOCKING).
+        const rawDrainTimeout = process.env.PG_DRAIN_TIMEOUT_MS;
+        const isCanonicalIntegerString = (s: string | undefined): s is string =>
+          typeof s === "string" && /^\s*\d+\s*$/.test(s);
+        const PG_DRAIN_TIMEOUT_MS = isCanonicalIntegerString(rawDrainTimeout)
+          ? Math.min(
+              Math.max(parseInt(rawDrainTimeout, 10), PG_DRAIN_TIMEOUT_MIN_MS),
+              PG_DRAIN_TIMEOUT_MAX_MS
+            )
           : PG_DRAIN_TIMEOUT_DEFAULT_MS;
 
         // Idempotency flag: once a shutdown race is in flight, skip re-entry.

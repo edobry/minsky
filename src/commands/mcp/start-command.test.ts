@@ -73,10 +73,11 @@ function waitForExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promis
 
 /**
  * Wait until the child has logged "Press Ctrl+C to stop" — the server prints
- * this immediately before registering its signal handlers (mt#1417), so it's
- * the deterministic readiness signal. Sending SIGTERM/SIGHUP before this line
- * appears would hit the default signal handler and exit with code=null,
- * masking real handler regressions.
+ * this AFTER registering its SIGTERM/SIGINT/SIGHUP and stdin "close" shutdown
+ * handlers (mt#1417, PR #881 R2 ordering fix), so it's the deterministic
+ * readiness signal: by the time this line appears, all handlers are already
+ * attached. Sending shutdown events before this line would hit the kernel
+ * default action and exit with code=null, masking real handler regressions.
  *
  * Rejects after `timeoutMs` if the readiness line is never seen.
  */
