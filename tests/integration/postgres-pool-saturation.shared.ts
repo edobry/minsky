@@ -383,7 +383,7 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
 
         if (!vectorAvailable) {
           process.stdout.write(
-            `[saturation/${label}] AT-4: skipped — pgvector extension not available on this branch\n`
+            `[saturation/${label}] AT-4: skipped — pgvector extension not available on this server\n`
           );
           return;
         }
@@ -448,8 +448,13 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
           await releaseOnce();
-          // Drop the test table so long-lived branches don't accumulate test tables.
+          // Drop the test table AND the extension so long-lived branches
+          // don't accumulate test artifacts. DROP EXTENSION is best-effort:
+          // if another consumer is using vector on the same database, the
+          // drop will fail and we silently ignore (the next run will see
+          // the extension already loaded, which is also fine).
           await sqlClient.unsafe(`DROP TABLE IF EXISTS ${VECTOR_TABLE}`).catch(() => {});
+          await sqlClient.unsafe(`DROP EXTENSION IF EXISTS vector`).catch(() => {});
           await sqlClient.end().catch(() => {});
         }
       },
