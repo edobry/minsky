@@ -16,10 +16,15 @@ import {
 import { sessionCommitCommandParams } from "../session-parameters";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "../../../../domain/persistence/types";
 import { McpErrorCode } from "../../../../errors/mcp-error-codes";
 import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
 import { SessionConflictError } from "../../../../errors/index";
+import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask/repository";
+import { log } from "../../../../utils/logger";
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -411,10 +416,15 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
  * Build the SessionMergeDependencies shape from the adapter's DI deps and
  * command execution container. Exported for unit-testing the DI wiring —
  * see workflow-commands-merge-deps.test.ts (mt#1025).
+ *
+ * `askRepository` is optional — callers that need Ask emission (e.g., the
+ * session.pr.merge execute path) should build it asynchronously and pass it
+ * explicitly. Tests can pass a FakeAskRepository stub.
  */
 export function buildSessionMergeDeps(
   deps: Awaited<ReturnType<LazySessionDeps>>,
-  container: MergeDepContainer | undefined
+  container: MergeDepContainer | undefined,
+  askRepository?: AskRepository
 ): SessionMergeDependencies {
   return {
     sessionDB: deps.sessionProvider,
@@ -423,6 +433,7 @@ export function buildSessionMergeDeps(
     persistenceProvider: container?.has("persistence")
       ? (container.get("persistence") as PersistenceProvider)
       : undefined,
+    askRepository,
   };
 }
 
@@ -460,6 +471,26 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
         const shouldCleanup = params.skipCleanup !== true;
 
+        // Build AskRepository best-effort (same pattern as pr-create-command.ts).
+        // When unavailable, merge proceeds without Ask emission.
+        let askRepository: DrizzleAskRepository | undefined;
+        const persistenceForAsk = context.container?.has("persistence")
+          ? context.container.get("persistence")
+          : undefined;
+        if (persistenceForAsk) {
+          try {
+            const sqlProvider = persistenceForAsk as SqlCapablePersistenceProvider;
+            if (sqlProvider.getDatabaseConnection) {
+              const db = await sqlProvider.getDatabaseConnection();
+              if (db) {
+                askRepository = new DrizzleAskRepository(db);
+              }
+            }
+          } catch (askRepoError) {
+            log.debug(`Could not initialize AskRepository for PR merge: ${askRepoError}`);
+          }
+        }
+
         try {
           const result = await mergeSessionPr(
             {
@@ -470,7 +501,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
               cleanupSession: shouldCleanup,
               acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
             },
-            buildSessionMergeDeps(deps, context.container)
+            buildSessionMergeDeps(deps, context.container, askRepository)
           );
 
           return { success: true, result, printed: true };
