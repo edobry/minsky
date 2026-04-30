@@ -52,8 +52,30 @@
  */
 
 import { afterAll, describe } from "bun:test";
-import { GenericContainer, Wait } from "testcontainers";
+import { GenericContainer, type WaitStrategy } from "testcontainers";
+import postgres from "postgres";
 import { runSaturationSuite } from "./postgres-pool-saturation.shared";
+
+// No-op wait strategy: resolves immediately when testcontainers reports the
+// container as started. We bypass all testcontainers readiness machinery and
+// do our own SQL-level probe after start() returns. This is necessary because
+// every built-in wait strategy (forListeningPorts, the default log-based
+// strategy, etc.) hangs indefinitely under Bun due to Bun-specific
+// incompatibilities in testcontainers' docker socket / child_process polling.
+const noOpWaitStrategy: WaitStrategy = {
+  async waitUntilReady() {
+    // Intentionally empty — readiness is determined by the SQL probe below.
+  },
+  withStartupTimeout() {
+    return this;
+  },
+  isStartupTimeoutSet() {
+    return false;
+  },
+  getStartupTimeout() {
+    return 120_000;
+  },
+};
 
 // Server-side max_connections. We bump above the strict minimum so that
 // Postgres background workers (autovacuum) and superuser_reserved_connections
@@ -95,17 +117,13 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       // -c max_connections=N caps the server-side connection ceiling.
       .withCommand(["postgres", "-c", `max_connections=${MAX_CONNECTIONS}`])
       .withExposedPorts(5432)
-      // Port-listening is the primary readiness signal — TCP-level proof
-      // that the Postgres daemon accepts connections. The shared helper's
-      // own beforeAll then issues a SELECT 1 health probe before any test
-      // runs, which is the SQL-level readiness check. We deliberately do
-      // NOT use Wait.forLogMessage here: regex-based log waits drift
-      // across image variants and locales (an earlier iteration tried
-      // requiring the "ready" log line twice and was flagged as brittle
-      // because some image variants emit it only once).
-      .withWaitStrategy(Wait.forListeningPorts())
-      // 120s startup window absorbs slow first-pull on cold CI runners
-      // (image is ~150 MB; uncached pull on slow networks can take >30s).
+      // noOpWaitStrategy replaces the default Wait.forListeningPorts() which
+      // hangs indefinitely under Bun. Every built-in testcontainers wait
+      // strategy (port-listen, log-scan) uses docker socket polling that has
+      // a Bun-specific incompatibility. The no-op resolves immediately so
+      // start() returns as soon as the container process is up; our SQL probe
+      // loop below then takes over as the actual readiness gate.
+      .withWaitStrategy(noOpWaitStrategy)
       .withStartupTimeout(120_000)
       .start();
   } catch (err) {
@@ -117,7 +135,42 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
 
   const host = container.getHost();
   const port = container.getMappedPort(5432);
-  const connectionString = `postgresql://postgres:postgres@${host}:${port}/postgres`;
+  const probeUrl = `postgresql://postgres:postgres@${host}:${port}/postgres`;
+
+  // Manual SQL-level readiness probe: poll until Postgres accepts a SELECT 1
+  // or the 60s deadline expires. This replaces Wait.forListeningPorts() which
+  // hangs under Bun. The probe is the canonical postgres readiness check and
+  // gives us the same guarantee (SQL-level proof that the server is accepting
+  // connections), not just a TCP-level listen check.
+  process.stdout.write(
+    `[saturation/testcontainer] container started, probing SQL readiness at ${host}:${port}\n`
+  );
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() is used for a timing deadline, not path creation; the rule's BinaryExpression check produces a false positive here
+  const probeDeadline = Date.now() + 60_000;
+  let probeReady = false;
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- same false positive: Date.now() compared against a deadline variable, not used in path construction
+  while (Date.now() < probeDeadline) {
+    try {
+      const probe = postgres(probeUrl, { max: 1, prepare: false, connect_timeout: 2 });
+      try {
+        await probe`SELECT 1`;
+        probeReady = true;
+        break;
+      } finally {
+        await probe.end().catch(() => {});
+      }
+    } catch {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  if (!probeReady) {
+    await container.stop().catch(() => {});
+    throw new Error(
+      `[saturation/testcontainer] postgres readiness probe timed out after 60s at ${host}:${port}`
+    );
+  }
+
+  const connectionString = probeUrl;
 
   process.stdout.write(`[saturation/testcontainer] container ready at ${host}:${port}\n`);
 
