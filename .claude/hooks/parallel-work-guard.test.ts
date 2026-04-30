@@ -138,6 +138,23 @@ This section has no bold In scope header.
       expect(files.some((f) => f.includes("src/domain/ask"))).toBe(true);
     }
   });
+
+  // Round-10 NON-BLOCKING: bare-path regex accepts leading @ for scoped paths
+  it("extracts bare @-scoped paths (e.g. @types/foo/index.d.ts)", () => {
+    const spec = `
+## Scope
+
+**In scope:**
+- @types/foo/index.d.ts (type definitions)
+- @scope/pkg/src/util.ts
+
+**Out of scope:**
+- nothing
+`;
+    const { files } = extractInScopeFiles(spec);
+    expect(files).toContain("@types/foo/index.d.ts");
+    expect(files).toContain("@scope/pkg/src/util.ts");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -565,6 +582,28 @@ describe("parseGitHubRemoteUrl", () => {
     expect(parseGitHubRemoteUrl("")).toBeNull();
     expect(parseGitHubRemoteUrl("not a url")).toBeNull();
   });
+
+  // Round-10 NON-BLOCKING: additional URL forms
+  it("parses ssh:// with port qualifier (ssh://git@github.com:22/owner/repo)", () => {
+    expect(parseGitHubRemoteUrl("ssh://git@github.com:22/edobry/minsky.git")).toBe("edobry/minsky");
+    expect(parseGitHubRemoteUrl("ssh://git@github.com:22/edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses git+ssh:// prefix form", () => {
+    expect(parseGitHubRemoteUrl("git+ssh://git@github.com/edobry/minsky.git")).toBe(
+      "edobry/minsky"
+    );
+    expect(parseGitHubRemoteUrl("git+ssh://git@github.com/edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS with embedded credentials (token@github.com)", () => {
+    expect(parseGitHubRemoteUrl("https://mytoken@github.com/edobry/minsky.git")).toBe(
+      "edobry/minsky"
+    );
+    expect(parseGitHubRemoteUrl("https://user:pass@github.com/edobry/minsky")).toBe(
+      "edobry/minsky"
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -636,38 +675,48 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isOwnBranch — round-5 BLOCKING fix: robust own-branch detection
+// isOwnBranch — round-10 BLOCKING fix: exact-branch-match only
 // ---------------------------------------------------------------------------
 
 describe("isOwnBranch", () => {
-  it("matches via exact currentBranch when provided", () => {
+  it("matches via exact currentBranch equality", () => {
     expect(isOwnBranch("feature/anything", "mt#1362", "feature/anything")).toBe(true);
   });
 
-  it("does not require currentBranch when token matches", () => {
-    expect(isOwnBranch("task/mt-1362", "mt#1362")).toBe(true);
-    expect(isOwnBranch("feature/mt-1362", "mt#1362")).toBe(true);
-    expect(isOwnBranch("bugfix/mt-1362", "mt#1362")).toBe(true);
+  it("matches task/mt-N branch exactly when currentBranch is provided", () => {
+    expect(isOwnBranch("task/mt-1362", "mt#1362", "task/mt-1362")).toBe(true);
   });
 
-  it("matches case-insensitively", () => {
-    expect(isOwnBranch("task/MT-1362", "mt#1362")).toBe(true);
-    expect(isOwnBranch("Task/Mt-1362-extra", "mt#1362")).toBe(true);
+  it("does NOT match when currentBranch differs from branchName", () => {
+    // A teammate opened a PR using the same task ID from a different branch
+    expect(isOwnBranch("feature/mt-1362", "mt#1362", "task/mt-1362")).toBe(false);
+    expect(isOwnBranch("task/mt-1362", "mt#1362", "feature/mt-1362")).toBe(false);
   });
 
-  it("matches with hyphen suffix (legit own-branch shape)", () => {
-    expect(isOwnBranch("task/mt-1362-extra", "mt#1362")).toBe(true);
+  it("does NOT match when currentBranch is absent (null)", () => {
+    // If we cannot determine currentBranch, treat all branches as peers
+    expect(isOwnBranch("task/mt-1362", "mt#1362", null)).toBe(false);
+    expect(isOwnBranch("feature/mt-1362", "mt#1362", null)).toBe(false);
+    expect(isOwnBranch("bugfix/mt-1362", "mt#1362", null)).toBe(false);
   });
 
-  it("does NOT false-match adjacent task IDs", () => {
-    expect(isOwnBranch("task/mt-13620", "mt#1362")).toBe(false);
-    expect(isOwnBranch("task/mt-1362a", "mt#1362")).toBe(false);
+  it("does NOT match when currentBranch is absent (undefined)", () => {
+    expect(isOwnBranch("task/mt-1362", "mt#1362")).toBe(false);
   });
 
-  it("does NOT match unrelated branches", () => {
-    expect(isOwnBranch("main", "mt#1362")).toBe(false);
-    expect(isOwnBranch("task/mt-1305", "mt#1362")).toBe(false);
-    expect(isOwnBranch("feature/something-else", "mt#1362")).toBe(false);
+  it("does NOT match unrelated branches regardless of currentBranch", () => {
+    expect(isOwnBranch("main", "mt#1362", "task/mt-1362")).toBe(false);
+    expect(isOwnBranch("task/mt-1305", "mt#1362", "task/mt-1362")).toBe(false);
+    expect(isOwnBranch("feature/something-else", "mt#1362", "task/mt-1362")).toBe(false);
+  });
+
+  it("does NOT use token-based heuristic (round-10 BLOCKING fix)", () => {
+    // These all contain the task token as a delimited segment but are NOT the
+    // current branch — they must be treated as peers, not own-branch skips.
+    expect(isOwnBranch("task/mt-1362", "mt#1362")).toBe(false);
+    expect(isOwnBranch("feature/mt-1362", "mt#1362")).toBe(false);
+    expect(isOwnBranch("task/MT-1362", "mt#1362")).toBe(false);
+    expect(isOwnBranch("task/mt-1362-extra", "mt#1362")).toBe(false);
   });
 });
 

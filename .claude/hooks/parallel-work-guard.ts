@@ -160,8 +160,10 @@ export function extractInScopeFiles(specContent: string): {
       }
       continue;
     }
-    // Fallback: bare path token (must contain /)
-    const bareMatch = trimmed.match(/^[-*]\s+([\w.][^\s(,]+\/[^\s(,]*)/);
+    // Fallback: bare path token (must contain /). Lead character class accepts
+    // letters, digits, underscore, dot, and @ so that scoped-package paths
+    // like @types/foo/index.d.ts are matched in addition to ordinary paths.
+    const bareMatch = trimmed.match(/^[-*]\s+([@\w.][^\s(,]+\/[^\s(,]*)/);
     if (bareMatch) {
       const rawPath = bareMatch[1].replace(/\/$/, "").trim();
       if (rawPath.length > 0) {
@@ -342,37 +344,32 @@ export function findOverlappingFiles(inScopeFiles: string[], prFiles: string[]):
  * Decide whether a PR's branch should be treated as the task's own branch
  * (and therefore skipped to avoid self-collision).
  *
- * Three modes, in order of preference:
- *   1. If `currentBranch` is provided (the actual `HEAD` of the session repo),
- *      exact match wins — the most reliable signal.
- *   2. Token-based match: the normalized task token (`mt-1362` for `mt#1362`)
- *      appears as a delimited segment in the branch name. Case-insensitive.
- *      Matches `task/mt-1362`, `feature/mt-1362`, `bugfix/MT-1362`, etc.
- *   3. Otherwise, no match — branch is treated as a peer.
+ * Only one mode: exact equality with `currentBranch` (the actual HEAD of the
+ * session repo). If `currentBranch` is null or undefined, no skip occurs —
+ * the branch is treated as a peer. This prevents a teammate's PR using the
+ * same task ID (different author, different scope variant) from being silently
+ * skipped by a token-based heuristic, which was the root failure mode this
+ * guard exists to catch.
  *
- * This addresses the round-5 BLOCKING finding that the prior exact `task/<id>`
- * convention false-blocked authors using non-standard branch naming.
+ * Round-10 BLOCKING fix: prior token-based heuristic was removed because it
+ * matched any branch whose name contained the task token as a delimited
+ * segment (e.g. "feature/mt-1362"), hiding legitimate peer PRs that share
+ * the same task ID.
  */
 export function isOwnBranch(
   branchName: string,
-  taskId: string,
+  _taskId: string,
   currentBranch?: string | null
 ): boolean {
   if (currentBranch && branchName === currentBranch) {
     return true;
   }
-  const normalizedToken = taskId.replace("#", "-").toLowerCase();
-  // Token must appear bounded by non-alphanumeric chars (or string boundaries)
-  // so `mt-1362` doesn't false-match inside `mt-13620` or `mt-1362-extra`.
-  // (The latter IS a legit own-branch shape, so we DO match it via the trailing `-`.)
-  const escaped = normalizedToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const tokenRegex = new RegExp(`(^|[/_-])${escaped}($|[/_-])`, "i");
-  return tokenRegex.test(branchName);
+  return false;
 }
 
 /**
- * Run the open-PR sweep. Skips PRs whose branch matches the task's own branch
- * (per `isOwnBranch` heuristic) to avoid false self-collision.
+ * Run the open-PR sweep. Skips PRs whose branch exactly matches the session's
+ * current branch (per `isOwnBranch`) to avoid false self-collision.
  *
  * `fetchPrs` and `fetchFiles` are injectable so tests can exercise the
  * collision/no-collision paths without live `gh` calls.
@@ -387,6 +384,11 @@ export function checkOpenPrs(
   fetchFiles: (repo: string, prNumber: number, warnings: string[]) => string[] = fetchPrFiles,
   warnings: string[] = []
 ): ParallelWorkCollision[] {
+  // Start the sweep budget timer BEFORE the fetchOpenPrs call so that the
+  // time spent fetching the PR list counts against the 25s budget. Without
+  // this, a slow fetchOpenPrs (up to GH_GIT_TIMEOUT_MS=5s) plus N×5s per-PR
+  // lookups could exceed the 30s PreToolUse cap.
+  const sweepStart = Date.now();
   const prs = fetchPrs(input.repo);
   const collisions: ParallelWorkCollision[] = [];
 
@@ -415,7 +417,6 @@ export function checkOpenPrs(
     );
   }
 
-  const sweepStart = Date.now();
   let scannedCount = 0;
   let abortedForBudget = false;
 
@@ -427,7 +428,7 @@ export function checkOpenPrs(
       break;
     }
 
-    // Skip the task's own branch via robust detection (handles non-standard naming)
+    // Skip the task's own PR branch (exact currentBranch match only)
     if (isOwnBranch(pr.headRefName, input.taskId, currentBranch)) {
       continue;
     }
@@ -772,10 +773,13 @@ export function fetchTaskSpec(taskId: string): string | null {
  * Parse an `owner/repo` slug out of a GitHub remote URL. Returns null if the
  * URL doesn't look like a GitHub remote.
  *
- * Supports four forms:
- *   - SCP-style SSH:    `git@github.com:owner/repo[.git]`
- *   - URL-style SSH:    `ssh://git@github.com/owner/repo[.git]` or `ssh://github.com/owner/repo[.git]`
- *   - HTTPS:            `https://github.com/owner/repo[.git][/]`
+ * Supports these forms:
+ *   - SCP-style SSH:         `git@github.com:owner/repo[.git]`
+ *   - URL-style SSH:         `ssh://[git@]github.com/owner/repo[.git]`
+ *   - SSH with port:         `ssh://git@github.com:22/owner/repo[.git]`
+ *   - git+ssh prefix:        `git+ssh://git@github.com/owner/repo.git`
+ *   - HTTPS plain:           `https://github.com/owner/repo[.git][/]`
+ *   - HTTPS with creds:      `https://token@github.com/owner/repo[.git]`
  *
  * Pure function — no I/O.
  */
@@ -788,14 +792,19 @@ export function parseGitHubRemoteUrl(url: string): string | null {
     return sshMatch[1];
   }
 
-  // URL-style SSH: ssh://[git@]github.com/owner/repo[.git][/]
-  const sshUrlMatch = trimmed.match(/^ssh:\/\/(?:git@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  // URL-style SSH (with optional port): ssh://[git@]github.com[:port]/owner/repo[.git][/]
+  // Also handles git+ssh:// prefix
+  const sshUrlMatch = trimmed.match(
+    /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
+  );
   if (sshUrlMatch) {
     return sshUrlMatch[1];
   }
 
-  // HTTPS form: https://github.com/owner/repo[.git][/]
-  const httpsMatch = trimmed.match(/^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  // HTTPS form (with optional embedded credentials): https://[token@]github.com/owner/repo[.git][/]
+  const httpsMatch = trimmed.match(
+    /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
+  );
   if (httpsMatch) {
     return httpsMatch[1];
   }
@@ -891,9 +900,9 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Detect the actual current branch (most reliable own-branch signal). If
-  // the call fails, isOwnBranch falls back to a token-based regex on the
-  // normalized task ID.
+  // Detect the actual current branch — the only own-branch signal used by
+  // isOwnBranch (exact equality). If the probe fails, currentBranch is null
+  // and all open PRs will be treated as peers (no skipping).
   const branchProbe = execWithPath(["git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"], {
     timeout: GH_GIT_TIMEOUT_MS,
   });
@@ -922,6 +931,19 @@ if (import.meta.main) {
       },
     });
     process.exit(0);
+  }
+
+  // When permitting (not blocking), include any aggregated warnings in
+  // hookSpecificOutput.additionalContext so host UIs that only surface
+  // hookSpecificOutput content (not stdout) still see them. stdout is kept
+  // for log-grep compatibility.
+  if (result.warnings.length > 0) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: result.warnings.map((w) => `[parallel-work-guard] ${w}`).join("\n"),
+      },
+    });
   }
 
   process.exit(0);
