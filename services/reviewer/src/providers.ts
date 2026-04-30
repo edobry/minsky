@@ -281,30 +281,34 @@ async function forceConcludeReview(
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
   // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
-  // side recovery (mt#1413) handle the missing-conclude_review case.
+  // side recovery (mt#1413) handle the missing-conclude_review case. Logged at
+  // error level so dashboards/alerts can surface this configuration drift even
+  // though the service itself stays up.
   if (!CONCLUDE_REVIEW_TOOL_DEF) {
-    console.log(
+    console.error(
       JSON.stringify({
         event: "reviewer.conclude_review_tool_def_missing",
         provider: "openai",
+        severity: "error",
       })
     );
     return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
   }
 
-  // Append the exiting assistant turn (so the model sees its own prior response)
-  // and a user reminder directing it to emit conclude_review.
-  if (exitMessage) {
-    messages.push(exitMessage);
-  }
-  messages.push({
-    role: "user",
-    content: CONCLUDE_REVIEW_REMINDER_USER_MSG,
-  });
+  // Build a shallow-copied messages array for the forced call so the parent
+  // `messages` array (shared with the main loop) isn't mutated by appending
+  // the exit turn or the user reminder. Avoids implicit coupling and removes
+  // the risk of the exit turn being double-pushed if a future caller already
+  // appended it.
+  const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...messages,
+    ...(exitMessage ? [exitMessage] : []),
+    { role: "user", content: CONCLUDE_REVIEW_REMINDER_USER_MSG },
+  ];
 
   const response = await client.chat.completions.create({
     ...baseParams,
-    messages,
+    messages: forcedMessages,
     tools: [CONCLUDE_REVIEW_TOOL_DEF],
     tool_choice: { type: "function", function: { name: "conclude_review" } },
   });
@@ -459,6 +463,15 @@ export async function callOpenAIWithClient(
    */
   let exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null = null;
 
+  /**
+   * The most recent non-empty assistant text observed across any round. Used
+   * as a fallback for `text` when the exit turn has empty content but a
+   * prior round produced narrative text. Avoids surfacing the misleading
+   * [TOOL CAP REACHED] sentinel for non-last-round early exits with empty
+   * content (mt#1471 PR #915 round-2 finding).
+   */
+  let lastNonEmptyAssistantText: string | null = null;
+
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
 
@@ -484,6 +497,13 @@ export async function callOpenAIWithClient(
     const message = response.choices[0]?.message;
     if (!message) break;
 
+    // Track the most recent non-empty assistant text across the entire loop
+    // (including tool-call rounds). Used as fallback for `result.text` if
+    // the exit turn happens to have empty content.
+    if (typeof message.content === "string" && message.content.length > 0) {
+      lastNonEmptyAssistantText = message.content;
+    }
+
     const rawToolCalls = message.tool_calls;
 
     // No tool calls: model wants to exit the loop.
@@ -497,18 +517,26 @@ export async function callOpenAIWithClient(
     // the model emits conclude_review.
     if (!rawToolCalls || rawToolCalls.length === 0) {
       exitMessage = message;
-      // Treat empty content the same as missing content: a model that exits
-      // with `content: ""` after a tool-call-heavy turn would otherwise
-      // overwrite earlier narrative or the [TOOL CAP REACHED] sentinel with
-      // an empty string. Coerce empty → null so the final-return fallback
-      // (`exitText ?? sentinel`) takes over for non-last rounds.
+      // Resolve `text` field with the following priority:
+      //   1. This turn's non-empty content (current model output).
+      //   2. Any earlier round's non-empty assistant content.
+      //   3. [TOOL CAP REACHED] sentinel — only on the last round, when the
+      //      round budget genuinely was exhausted.
+      //   4. Neutral "no final summary provided" notice for early empty
+      //      exits — avoids the UX lie of saying "tool cap reached" when
+      //      the cap wasn't actually hit (mt#1471 PR #915 round-2 finding).
       const exitContent =
         typeof message.content === "string" && message.content.length > 0 ? message.content : null;
-      exitText =
-        exitContent ??
-        (isLastRound
-          ? "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit. The review above may be incomplete. Manual review is recommended."
-          : null);
+      if (exitContent !== null) {
+        exitText = exitContent;
+      } else if (lastNonEmptyAssistantText !== null) {
+        exitText = lastNonEmptyAssistantText;
+      } else if (isLastRound) {
+        exitText =
+          "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit. The review above may be incomplete. Manual review is recommended.";
+      } else {
+        exitText = "[REVIEWER NOTE] No final summary provided.";
+      }
       break;
     }
 
@@ -611,6 +639,7 @@ export async function callOpenAIWithClient(
         JSON.stringify({
           event: "reviewer.conclude_review_reminder",
           provider: "openai",
+          mode: "post_loop_forced",
           fired_at_turn: totalRoundsUsed,
           reminder_count: 1,
           finally_emitted: forced.emitted,
@@ -623,6 +652,7 @@ export async function callOpenAIWithClient(
         JSON.stringify({
           event: "reviewer.conclude_review_reminder",
           provider: "openai",
+          mode: "post_loop_forced",
           fired_at_turn: totalRoundsUsed,
           reminder_count: 1,
           finally_emitted: false,

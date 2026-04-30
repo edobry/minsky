@@ -1443,25 +1443,25 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(concludeLog["provider"]).toBe("openai");
   });
 
-  test("empty exit content from a non-last round falls back to TOOL CAP REACHED sentinel, not empty string", async () => {
-    // Regression guard for the PR #915 round-1 blocking finding: a model that
-    // exits with `content: ""` after a tool-call-heavy turn must not have its
-    // empty content surface in `result.text`. Coerce empty → null so the
-    // final-return fallback (`exitText ?? sentinel`) takes over.
+  test("empty exit content from a non-last round prefers earlier non-empty assistant text (PR #915 R2)", async () => {
+    // Regression guard for the PR #915 round-2 blocking finding: when the exit
+    // turn has empty content but an earlier round produced narrative text,
+    // surface that earlier text instead of the [TOOL CAP REACHED] sentinel
+    // (which falsely implies budget exhaustion that didn't happen).
     const { client } = makeFakeClient([
+      // Round 0: model emits narrative text alongside tool calls
       {
         choices: [
           {
             message: {
-              content: null,
+              content: "Reviewing the diff for null-safety issues.",
               tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
             },
           },
         ],
         usage: makeUsage(),
       },
-      // Round 1: explicitly empty content on exit. Old behavior: result.text
-      // would be "". New behavior: result.text falls back to the sentinel.
+      // Round 1: empty exit content; not the last round
       {
         choices: [{ message: { content: "", tool_calls: undefined } }],
         usage: makeUsage(),
@@ -1484,7 +1484,166 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    expect(result.text).not.toBe("");
-    expect(result.text).toContain("[TOOL CAP REACHED]");
+    // Should surface the earlier round's narrative text — not empty, not
+    // [TOOL CAP REACHED] (the cap wasn't actually hit).
+    expect(result.text).toBe("Reviewing the diff for null-safety issues.");
+    expect(result.text).not.toContain("[TOOL CAP REACHED]");
+  });
+
+  test("empty exit on non-last round with no prior assistant text falls back to neutral notice, not TOOL CAP REACHED", async () => {
+    // When NO earlier round had non-empty content either, a non-last-round
+    // empty exit must use the neutral "[REVIEWER NOTE] No final summary
+    // provided." message rather than the [TOOL CAP REACHED] sentinel —
+    // saying "tool cap reached" when the cap wasn't hit is a UX lie.
+    const { client } = makeFakeClient([
+      // Round 0: tool call only, no narrative text
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty content, not last round
+      {
+        choices: [{ message: { content: "", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: emits conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(result.text).toBe("[REVIEWER NOTE] No final summary provided.");
+    expect(result.text).not.toContain("[TOOL CAP REACHED]");
+  });
+
+  test("post-loop forced pass uses shallow-copied messages, does not mutate the caller's array", async () => {
+    // Regression guard for the PR #915 round-2 NB: forceConcludeReview should
+    // not append the exit turn or the user reminder onto the parent `messages`
+    // array, since that's shared with the main loop. We assert by counting
+    // messages on the captured forced-call params vs the messages still in
+    // the main loop's array (the main loop doesn't reuse `messages` after
+    // the forced pass, but the no-mutation invariant prevents future bugs).
+    const { client, capturedParams } = makeFakeClient([
+      // Round 0: 1 finding
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: returns conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(capturedParams).toHaveLength(3);
+
+    const round1Messages = capturedParams[1]?.messages as unknown[];
+    const forcedMessages = capturedParams[2]?.messages as unknown[];
+
+    // The forced call's messages array must be longer than the prior round's
+    // (it has the exit turn + the reminder appended), AND the prior round's
+    // captured messages must not retroactively include those — the messages
+    // were snapshotted (the fake client did `[...params.messages]` at the
+    // time of each call) so mutation would only show up if both arrays were
+    // the same reference. The forced call appends 2 entries (exitMessage +
+    // user reminder).
+    expect(forcedMessages.length).toBeGreaterThan(round1Messages.length);
+    const lastForcedMessage = forcedMessages[forcedMessages.length - 1] as {
+      role: string;
+      content: string;
+    };
+    expect(lastForcedMessage.role).toBe("user");
+    expect(lastForcedMessage.content).toContain("conclude_review");
+  });
+
+  test("post-loop forced reminder log includes mode:'post_loop_forced' for downstream segmentation", async () => {
+    // Regression guard for the PR #915 round-2 NB: include a `mode` field on
+    // the reminder log so consumers can distinguish the forced-pass path from
+    // any future reminder modes without losing parity with prior multi-
+    // reminder tracking.
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    expect((reminderLogs[0] as Record<string, unknown>)["mode"]).toBe("post_loop_forced");
   });
 });
