@@ -138,24 +138,28 @@ function applyJsonPatch(patchObj: object): void {
 
   if (proc.exitCode !== 0) {
     const stderrText = proc.stderr ? new TextDecoder().decode(proc.stderr).trim() : "(no stderr)";
-    const stdoutText = proc.stdout ? new TextDecoder().decode(proc.stdout).trim() : "";
-    const stdoutClause = stdoutText ? `, stdout: ${stdoutText}` : "";
-    throw new Error(
-      `${APPLY_COMMAND} failed (exit ${proc.exitCode}): ${stderrText}${stdoutClause}`
-    );
+    // stdout is intentionally excluded: it echoes the JSON patch input which may contain secret values.
+    throw new Error(`${APPLY_COMMAND} failed (exit ${proc.exitCode}): ${stderrText}`);
   }
 }
 
-function loadConfig(serviceDir: string): RailwayConfig {
+async function loadConfig(serviceDir: string): Promise<RailwayConfig> {
   const configPath = resolve(serviceDir, "railway.config.ts");
   if (!existsSync(configPath)) {
     throw new Error(`No railway.config.ts found at: ${configPath}`);
   }
-  const mod = require(configPath) as { default?: RailwayConfig };
-  if (!mod.default) {
-    throw new Error(`railway.config.ts at ${configPath} must export a default RailwayConfig`);
+  const mod = (await import(configPath)) as { default?: RailwayConfig } | RailwayConfig;
+  // Handle ESM default export (mod.default) and CJS-shaped exports (mod itself).
+  const config =
+    mod && typeof mod === "object" && "default" in mod && mod.default != null
+      ? mod.default
+      : (mod as RailwayConfig);
+  if (!config || typeof config !== "object" || !("serviceId" in config)) {
+    throw new Error(
+      `railway.config.ts at ${configPath} must export a valid RailwayConfig as the default export`
+    );
   }
-  return mod.default;
+  return config;
 }
 
 async function run(): Promise<void> {
@@ -192,7 +196,7 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
-  const config = loadConfig(serviceDir);
+  const config = await loadConfig(serviceDir);
 
   const modeLabel = execute ? (prune ? "APPLY+PRUNE" : "APPLY") : "DRY-RUN";
   console.log(`Service:     ${config.serviceId}`);
