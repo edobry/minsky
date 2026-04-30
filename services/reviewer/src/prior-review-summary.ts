@@ -167,13 +167,20 @@ export function extractFindings(body: string): string {
   let inFinding = false;
 
   for (const line of lines) {
-    // Match both bare `[BLOCKING]` (production reviewer-bot format observed
-    // 2026-04-30 on PR #732 review #4165932343 and corpus-wide) and
-    // `**[BLOCKING]**` (composer/operator-wrapped form). Pre-mt#1486 this
-    // regex required the bold wrappers, which silently mismatched every
-    // production review body and forced extractFindings into the
-    // truncated-fallback branch. mt#1465's replay harness exposed the gap.
-    if (/(?:\*\*)?\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:\*\*)?/i.test(line)) {
+    // Match either fully balanced bold `**[BLOCKING]**` (composer/operator
+    // format) OR fully bare `[BLOCKING]` (production reviewer-bot format
+    // observed 2026-04-30 on PR #732 review #4165932343). One-sided forms
+    // like `**[BLOCKING]` (no closing) or `[BLOCKING]**` (no opening) are
+    // stray formatting / truncated text and must NOT trigger inFinding
+    // (which would over-capture the body to EOF). The bare branch uses
+    // negative lookbehind/lookahead on `*` so the embedded `[BLOCKING]`
+    // substring inside a one-sided `**[BLOCKING]` doesn't accidentally
+    // match the bare alternative. PR #921 R1 catch.
+    if (
+      /(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))/i.test(
+        line
+      )
+    ) {
       inFinding = true;
     }
     if (inFinding) {
@@ -199,12 +206,12 @@ export function extractFindings(body: string): string {
  * Extraction failure returns 0, matching the non-fatal stance in review-worker.
  */
 export function countBlockingFindings(body: string): number {
-  // Match both bare `[BLOCKING]` (production reviewer-bot format) and
-  // `**[BLOCKING]**` (composer/operator-wrapped form). Pre-mt#1486 the
-  // regex required bold wrappers, which silently returned 0 for every
-  // production review body and broke the SC-3 convergence_metric log's
-  // priorBlockerCount field. Same fix shape as extractFindings strategy 2.
-  const matches = body.match(/(?:\*\*)?\[BLOCKING\](?:\*\*)?/gi);
+  // Match either fully balanced `**[BLOCKING]**` or fully bare `[BLOCKING]`
+  // — never one-sided. The bare branch uses negative lookbehind/lookahead on
+  // `*` so the `[BLOCKING]` substring inside a one-sided `**[BLOCKING]`
+  // doesn't double-match (once via the balanced alternative — which fails —
+  // and once via the bare alternative). PR #921 R1 catch.
+  const matches = body.match(/(?:\*\*\[BLOCKING\]\*\*|(?<!\*)\[BLOCKING\](?!\*))/gi);
   return matches?.length ?? 0;
 }
 

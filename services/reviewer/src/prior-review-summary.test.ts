@@ -239,6 +239,25 @@ Event: REQUEST_CHANGES`;
     const result = extractFindings(body);
     expect(result).toContain("[BLOCKING] src/foo.ts:171-176");
   });
+
+  test("strategy 2 does NOT trigger on one-sided bold wrappers (PR #921 R1)", () => {
+    // Stray formatting like `**[BLOCKING]` (no closing) or `[BLOCKING]**`
+    // (no opening) is not a valid finding marker. If extractFindings triggered
+    // on these, it would over-capture the body to EOF. The fix uses an
+    // alternation that requires balanced bold OR fully bare.
+    //
+    // Body intentionally has no other valid markers — strategies 1 and 2
+    // should both miss, and the fallback should fire.
+    const oneSidedOpen = "Findings\n\n**[BLOCKING] src/foo.ts:42 — stray open\n";
+    const oneSidedClose = "Findings\n\n[BLOCKING]** src/foo.ts:42 — stray close\n";
+    // With both strategies failing, extractFindings falls through to whole-body
+    // fallback (truncated to 1000 chars). The result is the body verbatim
+    // (or truncated), NOT a structured findings extraction. We assert via the
+    // returned length matching the fallback shape (~= input length, no
+    // line-by-line filtering).
+    expect(extractFindings(oneSidedOpen)).toBe(oneSidedOpen);
+    expect(extractFindings(oneSidedClose)).toBe(oneSidedClose);
+  });
 });
 
 // ─── isBotReviewerEntry filter predicate (mt#1189) ───────────────────────────
@@ -419,6 +438,22 @@ describe("countBlockingFindings", () => {
   test("counts bare [BLOCKING] with line-range citations (mt#1486)", () => {
     const body = "[BLOCKING] src/foo.ts:171-176 — over-broad guard";
     expect(countBlockingFindings(body)).toBe(1);
+  });
+
+  test("does NOT count one-sided bold wrappers as BLOCKING (PR #921 R1)", () => {
+    // **[BLOCKING] (no close) and [BLOCKING]** (no open) are stray formatting
+    // and must not count at all. The negative lookbehind/lookahead on the
+    // bare branch prevents the embedded `[BLOCKING]` substring from matching
+    // when adjacent to `*`. Result: 0 valid markers in either form.
+    expect(countBlockingFindings("**[BLOCKING] missing close")).toBe(0);
+    expect(countBlockingFindings("[BLOCKING]** missing open")).toBe(0);
+  });
+
+  test("counts only fully balanced wrappers, not partial overlaps (PR #921 R1)", () => {
+    expect(countBlockingFindings("**[BLOCKING]**")).toBe(1);
+    // Pathological case: two markers, one balanced, one bare, separated by
+    // text. Both should count.
+    expect(countBlockingFindings("**[BLOCKING]** and [BLOCKING] separate")).toBe(2);
   });
 
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
