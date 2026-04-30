@@ -16,6 +16,7 @@
 import type { Ask } from "../types";
 import type { PolicyCitation } from "../policy";
 import type { RoutedAsk, AskPayload, TransportBinding } from "../router";
+import { buildAttentionCost } from "../accounting/index";
 
 // ---------------------------------------------------------------------------
 // ClosedAsk
@@ -47,10 +48,13 @@ export type ClosedAsk = RoutedAsk & {
  *   - `packagedPayload`: citation included
  *   - `response.responder`: "policy"
  *   - `response.payload`: `{ citation }`
+ *   - `response.attentionCost`: computed via buildAttentionCost (tokenCost=0, transport="policy")
  *   - `closedAt`: now (ISO-8601)
  *   - `routedAt`: now (ISO-8601)
  *
  * All other Ask fields are forwarded unchanged.
+ *
+ * Throws if buildAttentionCost throws — policy resolves do not swallow errors.
  */
 export function closeWithPolicy(ask: Ask, citation: PolicyCitation): ClosedAsk {
   const now = new Date().toISOString();
@@ -64,6 +68,10 @@ export function closeWithPolicy(ask: Ask, citation: PolicyCitation): ClosedAsk {
     citation,
   };
 
+  // Policy close has no LLM token cost (policy lookup is deterministic).
+  // buildAttentionCost returns { tokenCost: 0, transport: "policy", resolvedIn: "policy" }.
+  const attentionCost = buildAttentionCost({ responder: "policy" });
+
   return {
     ...ask,
     state: "closed",
@@ -75,6 +83,7 @@ export function closeWithPolicy(ask: Ask, citation: PolicyCitation): ClosedAsk {
     response: {
       responder: "policy",
       payload: { citation },
+      attentionCost,
     },
   };
 }

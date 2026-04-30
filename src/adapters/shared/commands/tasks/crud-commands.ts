@@ -45,6 +45,7 @@ interface TasksListParams extends BaseTaskParams {
   until?: string;
   hierarchical?: boolean;
   showDeps?: boolean;
+  showAttention?: boolean;
 }
 
 /**
@@ -274,15 +275,51 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       }
     }
 
+    // Enrich with attention rollup if --show-attention is set (opt-in)
+    const attentionRollupMap: Map<
+      string,
+      import("../../../../domain/ask/accounting/index").TaskRollup
+    > = new Map();
+    if (params.showAttention && this.getAskRepository) {
+      try {
+        const askRepo = await this.getAskRepository();
+        if (askRepo) {
+          const { getRollupForTask } = await import("../../../../domain/ask/accounting/index");
+          await Promise.all(
+            tasks.map(async (t) => {
+              try {
+                const rollup = await getRollupForTask(askRepo, t.id);
+                attentionRollupMap.set(t.id, rollup);
+              } catch (rollupErr) {
+                log.debug("[tasks.list] attention rollup skipped for task", {
+                  taskId: t.id,
+                  error: rollupErr instanceof Error ? rollupErr.message : String(rollupErr),
+                });
+              }
+            })
+          );
+        }
+      } catch (err) {
+        log.debug("[tasks.list] attention rollup enrichment skipped", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const wantJson = params.json || ctx.format === "json";
     if (wantJson) {
-      // For JSON output, enrich BLOCKED tasks with blockingAsk field
+      // For JSON output, enrich BLOCKED tasks with blockingAsk field and optionally attention rollup
       const enrichedTasks = tasks.map((t) => {
+        let enriched: Record<string, unknown> = { ...t };
         if (t.status === "BLOCKED") {
           const blockingAsk = blockingAskMap.get(t.id);
-          return blockingAsk ? { ...t, blockingAsk } : t;
+          if (blockingAsk) enriched = { ...enriched, blockingAsk };
         }
-        return t;
+        if (params.showAttention) {
+          const rollup = attentionRollupMap.get(t.id);
+          if (rollup) enriched = { ...enriched, attentionCost: rollup };
+        }
+        return enriched;
       });
       return enrichedTasks;
     }
@@ -303,7 +340,16 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         // Use enriched BLOCKED subtype status when available
         const displayStatus =
           task.status === "BLOCKED" ? (blockedSubtypeMap.get(task.id) ?? task.status) : task.status;
-        lines.push(`${indent}${task.id}: ${task.title} [${displayStatus}]${depSuffix}`);
+        let attentionSuffix = "";
+        if (params.showAttention) {
+          const rollup = attentionRollupMap.get(task.id);
+          if (rollup && rollup.total > 0) {
+            attentionSuffix = ` [asks:${rollup.total}]`;
+          }
+        }
+        lines.push(
+          `${indent}${task.id}: ${task.title} [${displayStatus}]${depSuffix}${attentionSuffix}`
+        );
       }
       return {
         success: true,
@@ -314,11 +360,16 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 
     // For normal text rendering, build enriched display tasks using subtype status
     const displayTasks = tasks.map((t) => {
+      let display: Record<string, unknown> = { ...t };
       if (t.status === "BLOCKED") {
         const displayStatus = blockedSubtypeMap.get(t.id) ?? t.status;
-        return { ...t, status: displayStatus };
+        display = { ...display, status: displayStatus };
       }
-      return t;
+      if (params.showAttention) {
+        const rollup = attentionRollupMap.get(t.id);
+        if (rollup) display = { ...display, attentionCost: rollup };
+      }
+      return display;
     });
 
     return this.formatResult(
