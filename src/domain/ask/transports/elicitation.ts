@@ -21,6 +21,7 @@
  * Reference: docs/architecture/adr-008-attention-allocation-subsystem.md
  */
 
+import { log } from "../../../utils/logger";
 import type { AttentionCost, AskKind, AgentId } from "../types";
 import { assertNever } from "../types";
 import type { AskRepository } from "../repository";
@@ -167,6 +168,12 @@ export async function dispatchToElicitation(
     // mt#1457 spec: "leave the Ask in suspended state with
     // transport.kind: 'elicitation' recorded." The repo already shows
     // state=suspended from the walk above; we just shape the return.
+    // Log the error so it isn't silently lost (PR #919 R3 — the suspended
+    // return object intentionally has no `response` field).
+    log.warn("elicitation transport: dispatch failed; leaving Ask suspended", {
+      askId: routedAsk.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return buildSuspendedClose(routedAsk, err);
   }
 
@@ -175,8 +182,14 @@ export async function dispatchToElicitation(
   // -----------------------------------------------------------------------
   if (result.action !== "accept") {
     // User declined or cancelled — transition to "cancelled" terminal state.
+    // Log the action since the cancelled return object has no `response`
+    // field (PR #919 R3 — invariant: response only on responded/closed).
+    log.debug("elicitation transport: operator declined/cancelled", {
+      askId: routedAsk.id,
+      action: result.action,
+    });
     await repo.transition(routedAsk.id, "cancelled");
-    return buildCancelledClose(routedAsk, result.action);
+    return buildCancelledClose(routedAsk);
   }
 
   // Accept — write response, transition to "responded", then "closed".
@@ -396,10 +409,22 @@ function buildAcceptedClose(
   return result;
 }
 
-function buildCancelledClose(
-  routedAsk: RoutedAsk,
-  action: "decline" | "cancel"
-): ElicitationClosedAsk {
+/**
+ * Build the cancelled-state return object.
+ *
+ * Per `Ask.response`'s contract in `types.ts`, `response` is only present
+ * when `state` is `"responded"` or `"closed"`. Cancelled is a terminal
+ * state with NO response — the operator opted out before resolving the
+ * Ask. Omitting `response` here matches what the repository persists
+ * after `repo.transition(id, "cancelled")` and avoids the in-memory /
+ * persisted divergence the reviewer flagged on PR #919 R3.
+ *
+ * Callers can still distinguish decline-vs-cancel by inspecting the
+ * `state` field (always "cancelled" here) — the granularity is logged
+ * in `dispatchToElicitation` but not returned in-band, since "the user
+ * opted out" is the load-bearing signal for downstream consumers.
+ */
+function buildCancelledClose(routedAsk: RoutedAsk): ElicitationClosedAsk {
   const now = new Date().toISOString();
   const transport: TransportBinding = { kind: "elicitation" };
   const packagedPayload: AskPayload = {
@@ -417,23 +442,25 @@ function buildCancelledClose(
     routedAt: routedAsk.routedAt ?? now,
     suspendedAt: routedAsk.suspendedAt ?? now,
     closedAt: now,
-    response: {
-      responder: "operator",
-      payload: { action },
-      attentionCost: {
-        // The dialog reached the operator and they decided to decline/cancel
-        // — the elicitation transport handled this end-to-end. resolvedIn
-        // is "elicitation", not "timeout" (PR #919 R2 BLOCKING).
-        transport: "elicitation",
-        resolvedIn: "elicitation",
-      },
-    },
+    // Intentionally no `response` — see function docstring.
   };
   return result;
 }
 
-function buildSuspendedClose(routedAsk: RoutedAsk, err: unknown): ElicitationClosedAsk {
-  const errorMessage = err instanceof Error ? err.message : String(err);
+/**
+ * Build the suspended-state return object (dispatch error / disconnect).
+ *
+ * Per `Ask.response`'s contract in `types.ts`, `response` is only present
+ * for `"responded"` / `"closed"`. Suspended is the waiting-for-resolution
+ * state — no response yet. Omitting `response` here matches the
+ * repository's persistence after `repo.transition(id, "suspended")`.
+ *
+ * The dispatch error message is intentionally not returned in-band; if
+ * future operator UX needs to surface "what failed" to the recovery
+ * flow (mt#1458), the right path is logging or an extension to
+ * `Ask.metadata`, not a phantom `response` field. PR #919 R3 BLOCKING.
+ */
+function buildSuspendedClose(routedAsk: RoutedAsk, _err: unknown): ElicitationClosedAsk {
   const now = new Date().toISOString();
   const transport: TransportBinding = { kind: "elicitation" };
   const packagedPayload: AskPayload = {
@@ -450,14 +477,7 @@ function buildSuspendedClose(routedAsk: RoutedAsk, err: unknown): ElicitationClo
     packagedPayload,
     routedAt: routedAsk.routedAt ?? now,
     suspendedAt: routedAsk.suspendedAt ?? now,
-    response: {
-      responder: "timeout",
-      payload: { error: errorMessage },
-      attentionCost: {
-        transport: "elicitation",
-        resolvedIn: "timeout",
-      },
-    },
+    // Intentionally no `response` — see function docstring.
   };
   return result;
 }

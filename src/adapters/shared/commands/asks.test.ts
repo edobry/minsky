@@ -292,4 +292,106 @@ describe("createAsk", () => {
 
     expect(result.transport.kind).toBe("inbox");
   });
+
+  // -------------------------------------------------------------------------
+  // PR #919 R3 — single producer surface, end-to-end dispatch
+  // -------------------------------------------------------------------------
+
+  test("dispatches end-to-end through elicitation when an active server is present", async () => {
+    const repo = new FakeAskRepository();
+
+    // Fake server that accepts the elicitation with a chosen value.
+    const fakeServer = {
+      elicitInput: async (_params: unknown, _options?: unknown) => ({
+        action: "accept" as const,
+        content: { chosen: "x" },
+      }),
+    };
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Pick X",
+        question: "Pick X or Y",
+        options: [
+          { label: "X", value: "x" },
+          { label: "Y", value: "y" },
+        ],
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => true,
+          activeElicitationServer: () => fakeServer,
+        },
+      }
+    );
+
+    expect(result.state).toBe("closed");
+    expect(result.transport.kind).toBe("elicitation");
+    expect(result.response?.payload).toEqual({ chosen: "x" });
+
+    // The repo state matches the return — single coherent producer path.
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("closed");
+  });
+
+  test("walks Ask to suspended when registry reports elicitation but no active server (strand recovery)", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => true,
+          // Disconnect mid-call: capability said yes, but no server now.
+          activeElicitationServer: () => null,
+        },
+      }
+    );
+
+    expect(result.state).toBe("suspended");
+    expect(result.transport.kind).toBe("elicitation");
+    expect(result.routingTarget).toBe("operator");
+    // PR #919 R3 BLOCKING: cancelled/suspended objects do not include a
+    // `response` field — that field is for responded/closed only.
+    expect(result.response).toBeUndefined();
+
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("suspended");
+    expect(persisted?.response).toBeUndefined();
+  });
+
+  test("returns routed Ask unchanged for non-elicitation transports (subagent)", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_CAPABILITY_ESCALATE,
+        title: "Need bigger model",
+        question: "Q",
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => true, // Even when capable, async kinds bypass elicitation.
+          activeElicitationServer: () => ({
+            elicitInput: async () => ({ action: "accept" as const }),
+          }),
+        },
+      }
+    );
+
+    // Subagent transport — never touches elicitation regardless of registry state.
+    expect(result.transport.kind).toBe("subagent");
+    expect(result.state).toBe("routed");
+  });
 });

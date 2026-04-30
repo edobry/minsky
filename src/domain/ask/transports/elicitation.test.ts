@@ -282,7 +282,7 @@ describe("dispatchToElicitation — accept path", () => {
 // ---------------------------------------------------------------------------
 
 describe("dispatchToElicitation — decline / cancel", () => {
-  test("decline action transitions Ask to cancelled", async () => {
+  test("decline action transitions Ask to cancelled with no response field", async () => {
     const repo = new FakeAskRepository();
     const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
     const server = new FakeElicitationServer();
@@ -292,16 +292,17 @@ describe("dispatchToElicitation — decline / cancel", () => {
 
     expect(result.state).toBe("cancelled");
     expect(result.transport.kind).toBe("elicitation");
-    // PR #919 R2 BLOCKING: decline/cancel went through the elicitation
-    // dialog — resolvedIn must reflect that, not "timeout".
-    expect(result.response?.attentionCost?.resolvedIn).toBe("elicitation");
-    expect(result.response?.attentionCost?.transport).toBe("elicitation");
+    // PR #919 R3 BLOCKING: response is only present for "responded"/"closed".
+    // Cancelled is terminal-without-response. The persisted row has
+    // response=null; the return object must match.
+    expect(result.response).toBeUndefined();
 
     const persisted = await repo.getById(routed.id);
     expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
   });
 
-  test("cancel action transitions Ask to cancelled", async () => {
+  test("cancel action transitions Ask to cancelled with no response field", async () => {
     const repo = new FakeAskRepository();
     const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
     const server = new FakeElicitationServer();
@@ -310,10 +311,11 @@ describe("dispatchToElicitation — decline / cancel", () => {
     const result = await dispatchToElicitation(routed, { server, repo });
 
     expect(result.state).toBe("cancelled");
-    expect(result.response?.attentionCost?.resolvedIn).toBe("elicitation");
+    expect(result.response).toBeUndefined();
 
     const persisted = await repo.getById(routed.id);
     expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
   });
 });
 
@@ -322,7 +324,7 @@ describe("dispatchToElicitation — decline / cancel", () => {
 // ---------------------------------------------------------------------------
 
 describe("dispatchToElicitation — error path", () => {
-  test("dispatch error leaves Ask in suspended state with transport=elicitation", async () => {
+  test("dispatch error leaves Ask in suspended state with transport=elicitation and no response", async () => {
     const repo = new FakeAskRepository();
     const routed = await buildRoutedAsk(repo, { kind: KIND_DIRECTION_DECIDE });
     const server = new FakeElicitationServer();
@@ -333,12 +335,15 @@ describe("dispatchToElicitation — error path", () => {
     expect(result.state).toBe("suspended");
     expect(result.routingTarget).toBe("operator");
     expect(result.transport.kind).toBe("elicitation");
-    const errorPayload = result.response?.payload as { error?: string };
-    expect(errorPayload.error).toContain("host disconnected");
+    // PR #919 R3 BLOCKING: response is only present for responded/closed.
+    // Suspended is the dispatch-failed state — no response yet. The error
+    // is logged at warn level, not surfaced via the return shape.
+    expect(result.response).toBeUndefined();
 
     // Repo state matches: walked to suspended, never advanced past it.
     const persisted = await repo.getById(routed.id);
     expect(persisted?.state).toBe("suspended");
+    expect(persisted?.response).toBeUndefined();
   });
 });
 
