@@ -6,9 +6,11 @@ import {
   resolveSecret,
   computeDiff,
   buildVariablePatches,
+  buildAllSecretPatches,
   buildJsonPatch,
   formatDiffOutput,
   summarizeDiff,
+  assertHttpOk,
   type SecretsFileReader,
   type CurrentVar,
   type VariableValue,
@@ -21,6 +23,9 @@ const SECRETS_FILE_ENV_VAR = "MINSKY_RAILWAY_SECRETS_FILE";
 const KIND_CHANGE_SEALED_FLAG = "CHANGE-SEALED-FLAG";
 const KIND_CHANGE_VALUE = "CHANGE-VALUE";
 const ENV_KEY_REDACTION = "REDACTION_TEST_SECRET";
+const ENV_KEY_RESEAL_A = "RE_SEAL_SECRET_A";
+const ENV_KEY_RESEAL_B = "RE_SEAL_SECRET_B";
+const ENV_KEY_RESEAL_C = "RE_SEAL_SECRET_C";
 
 /** In-memory secrets file reader — avoids real fs in tests. */
 function makeFileReader(files: Record<string, string>): SecretsFileReader {
@@ -212,6 +217,140 @@ describe("buildJsonPatch()", () => {
         },
       },
     });
+  });
+});
+
+describe("assertHttpOk()", () => {
+  test("does not throw for 2xx status codes", () => {
+    expect(() => assertHttpOk(200, "OK", "")).not.toThrow();
+    expect(() => assertHttpOk(201, "Created", "")).not.toThrow();
+    expect(() => assertHttpOk(204, "No Content", "")).not.toThrow();
+    expect(() => assertHttpOk(299, "Whatever", "")).not.toThrow();
+  });
+
+  test("throws for 4xx status with status and body in message", () => {
+    expect(() => assertHttpOk(401, "Unauthorized", "invalid token")).toThrow(
+      "HTTP 401 Unauthorized"
+    );
+    expect(() => assertHttpOk(401, "Unauthorized", "invalid token")).toThrow("invalid token");
+  });
+
+  test("throws for 5xx status with actionable message", () => {
+    expect(() => assertHttpOk(500, "Internal Server Error", "server down")).toThrow(
+      "HTTP 500 Internal Server Error"
+    );
+    expect(() => assertHttpOk(500, "Internal Server Error", "server down")).toThrow(
+      "Check your Railway token"
+    );
+  });
+
+  test("truncates long body text to 500 chars", () => {
+    const longBody = "x".repeat(600);
+    let caught: Error | undefined;
+    try {
+      assertHttpOk(503, "Service Unavailable", longBody);
+    } catch (err) {
+      caught = err instanceof Error ? err : new Error(String(err));
+    }
+    expect(caught).toBeDefined();
+    const bodySlice = "x".repeat(500);
+    expect(caught?.message).toContain(bodySlice);
+    expect(caught?.message).not.toContain("x".repeat(501));
+  });
+
+  test("throws for 1xx and 3xx (non-2xx) status codes", () => {
+    expect(() => assertHttpOk(301, "Moved Permanently", "redirect")).toThrow("HTTP 301");
+    expect(() => assertHttpOk(100, "Continue", "")).toThrow("HTTP 100");
+  });
+});
+
+describe("buildAllSecretPatches()", () => {
+  test("returns patches only for NO-CHANGE SecretRef variables", () => {
+    process.env[ENV_KEY_RESEAL_A] = "val-a";
+    process.env[ENV_KEY_RESEAL_B] = "val-b";
+
+    const config = {
+      variables: {
+        SECRET_A: secret(ENV_KEY_RESEAL_A),
+        SECRET_B: secret(ENV_KEY_RESEAL_B),
+        PLAIN: "plain-value",
+      },
+    };
+    const diff: DiffEntry[] = [
+      { kind: "NO-CHANGE", key: "SECRET_A" },
+      { kind: "NO-CHANGE", key: "SECRET_B" },
+      { kind: "NO-CHANGE", key: "PLAIN" },
+    ];
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+    const patches = buildAllSecretPatches(config, diff, emptyReader);
+
+    expect(Object.keys(patches)).toEqual(["SECRET_A", "SECRET_B"]);
+    expect(patches["SECRET_A"]).toEqual({ value: "val-a", isSealed: true });
+    expect(patches["SECRET_B"]).toEqual({ value: "val-b", isSealed: true });
+    expect(patches["PLAIN"]).toBeUndefined();
+
+    delete process.env[ENV_KEY_RESEAL_A];
+    delete process.env[ENV_KEY_RESEAL_B];
+  });
+
+  test("returns empty object when no NO-CHANGE entries exist", () => {
+    const config = { variables: { SECRET: secret("SOME_ENV") } };
+    const diff: DiffEntry[] = [
+      { kind: "ADD", key: "SECRET", patch: { value: "v", isSealed: true } },
+    ];
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+    const patches = buildAllSecretPatches(config, diff, emptyReader);
+    expect(Object.keys(patches)).toHaveLength(0);
+  });
+
+  test("skips NO-CHANGE entries that are plain strings (not SecretRef)", () => {
+    const config = { variables: { PLAIN: "plain-val" } };
+    const diff: DiffEntry[] = [{ kind: "NO-CHANGE", key: "PLAIN" }];
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+    const patches = buildAllSecretPatches(config, diff, emptyReader);
+    expect(Object.keys(patches)).toHaveLength(0);
+  });
+
+  test("skips REMOVE and ADD entries, only processes NO-CHANGE", () => {
+    process.env[ENV_KEY_RESEAL_C] = "val-c";
+    const config = {
+      variables: {
+        SECRET_C: secret(ENV_KEY_RESEAL_C),
+        ADDED: secret("SOME_ADD_ENV"),
+      },
+    };
+    process.env["SOME_ADD_ENV"] = "add-val";
+    const diff: DiffEntry[] = [
+      { kind: "NO-CHANGE", key: "SECRET_C" },
+      { kind: "ADD", key: "ADDED", patch: { value: "add-val", isSealed: true } },
+      { kind: "REMOVE", key: "OLD_KEY" },
+    ];
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+    const patches = buildAllSecretPatches(config, diff, emptyReader);
+    expect(Object.keys(patches)).toEqual(["SECRET_C"]);
+
+    delete process.env[ENV_KEY_RESEAL_C];
+    delete process.env["SOME_ADD_ENV"];
+  });
+});
+
+describe("computeDiff() — REMOVE classification", () => {
+  const makeCurrentVar = (value: string, isSealed?: boolean): CurrentVar => ({ value, isSealed });
+  const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+
+  test("classifies vars present in current but absent in desired as REMOVE", () => {
+    const desired: Record<string, VariableValue> = { KEEP: "keep-val" };
+    const current: Record<string, CurrentVar> = {
+      KEEP: makeCurrentVar("keep-val"),
+      EXTRA: makeCurrentVar("extra-val"),
+      TEST_VAR: makeCurrentVar("x"),
+    };
+    const diff = computeDiff(desired, current, emptyReader);
+    const summary = summarizeDiff(diff);
+    expect(summary.toRemove).toHaveLength(2);
+    const removedKeys = summary.toRemove.map((e) => e.key).sort();
+    expect(removedKeys).toEqual(["EXTRA", "TEST_VAR"]);
+    expect(summary.noChange).toHaveLength(1);
   });
 });
 

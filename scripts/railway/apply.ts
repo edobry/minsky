@@ -5,18 +5,18 @@ import { join, resolve } from "node:path";
 import {
   type RailwayConfig,
   type CurrentVar,
-  type DiffEntry,
-  type VariablePatch,
   isSecretRef,
-  resolveVariableValue,
+  assertHttpOk,
   computeDiff,
   buildVariablePatches,
+  buildAllSecretPatches,
   buildJsonPatch,
   formatDiffOutput,
   summarizeDiff,
 } from "./lib";
 
 const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
+const GRAPHQL_TIMEOUT_MS = 30_000;
 
 const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_"];
 
@@ -45,18 +45,45 @@ function readRailwayToken(): string {
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const token = readRailwayToken();
-  const res = await fetch(RAILWAY_GRAPHQL_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = (await res.json()) as {
-    data?: T;
-    errors?: { message?: string; path?: (string | number)[] }[];
-  };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(RAILWAY_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    let bodyText = "(could not read response body)";
+    try {
+      bodyText = await res.text();
+    } catch {
+      // ignore secondary error
+    }
+    assertHttpOk(res.status, res.statusText, bodyText);
+  }
+
+  let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
+  try {
+    body = (await res.json()) as typeof body;
+  } catch (err) {
+    const rawText = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Railway API returned non-JSON response (HTTP ${res.status}): ${rawText}. ` +
+        `Check that the Railway API endpoint is reachable.`
+    );
+  }
+
   if (body.errors) {
     const summary = body.errors
       .map((e) => {
@@ -130,33 +157,27 @@ function loadConfig(serviceDir: string): RailwayConfig {
   return mod.default;
 }
 
-function buildAllSecretPatches(
-  config: RailwayConfig,
-  diff: DiffEntry[]
-): Record<string, VariablePatch> {
-  const patches: Record<string, VariablePatch> = {};
-  for (const entry of diff) {
-    if (entry.kind === "NO-CHANGE") {
-      const val = config.variables[entry.key];
-      if (val !== undefined && isSecretRef(val)) {
-        const { resolvedValue } = resolveVariableValue(val);
-        patches[entry.key] = { value: resolvedValue, isSealed: true };
-      }
-    }
-  }
-  return patches;
-}
-
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const execute = args.includes("--execute");
+  const resealSecrets = args.includes("--reseal-secrets");
   const serviceDir = args.find((a) => !a.startsWith("--"));
 
   if (!serviceDir) {
-    console.error("Usage: bun scripts/railway/apply.ts <service-dir> [--execute]");
+    console.error(
+      "Usage: bun scripts/railway/apply.ts <service-dir> [--execute] [--reseal-secrets]"
+    );
     console.error("");
-    console.error("  <service-dir>   Path to a directory containing railway.config.ts");
-    console.error("  --execute       Apply changes (default: dry-run only)");
+    console.error("  <service-dir>      Path to a directory containing railway.config.ts");
+    console.error("  --execute          Apply changes (default: dry-run only)");
+    console.error(
+      "  --reseal-secrets   Re-push sealed secret values for NO-CHANGE SecretRef vars."
+    );
+    console.error("                     Without this flag, sealed secrets that are NO-CHANGE are");
+    console.error(
+      "                     never touched, even with --execute. Use only when you need"
+    );
+    console.error("                     to explicitly re-seal secrets with your local values.");
     process.exit(1);
   }
 
@@ -193,7 +214,7 @@ async function run(): Promise<void> {
 
   if (changes.length === 0) {
     console.log("");
-    if (execute) {
+    if (execute && resealSecrets) {
       const secretKeys = Object.keys(config.variables).filter((k) => {
         const v = config.variables[k];
         return v !== undefined && isSecretRef(v);
@@ -224,7 +245,7 @@ async function run(): Promise<void> {
   console.log("Applying changes...");
 
   const nonSecretPatches = buildVariablePatches(diff);
-  const secretReseals = buildAllSecretPatches(config, diff);
+  const secretReseals = resealSecrets ? buildAllSecretPatches(config, diff) : {};
   const allPatches = { ...nonSecretPatches, ...secretReseals };
   const removals = summary.toRemove.map((e) => e.key);
 
@@ -237,13 +258,19 @@ async function run(): Promise<void> {
   }
 
   if (removals.length > 0) {
-    console.log(
-      `  WARNING: ${removals.length} variable(s) exist on Railway but not in the config file:`
-    );
+    const nullPatches: Record<string, null> = {};
     for (const key of removals) {
-      console.log(`    - ${key}`);
+      nullPatches[key] = null;
     }
-    console.log("  Removals are not applied automatically. Remove them manually if intended.");
+    const removalPatch = {
+      services: {
+        [config.serviceId]: {
+          variables: nullPatches,
+        },
+      },
+    };
+    applyJsonPatch(removalPatch);
+    console.log(`  Removed: ${removals.length} variable(s): ${removals.join(", ")}`);
   }
 
   console.log("");

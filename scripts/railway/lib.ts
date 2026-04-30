@@ -199,6 +199,42 @@ export function summarizeDiff(diff: DiffEntry[]): DiffSummary {
   };
 }
 
+/**
+ * Validates an HTTP response and throws an informative error for non-2xx responses.
+ * Exported for unit testing; consumed by graphql() in apply.ts.
+ */
+export function assertHttpOk(status: number, statusText: string, bodyText: string): void {
+  if (status >= 200 && status < 300) return;
+  throw new Error(
+    `Railway API request failed: HTTP ${status} ${statusText}. ` +
+      `Body: ${bodyText.slice(0, 500)}. ` +
+      `Check your Railway token and network connectivity.`
+  );
+}
+
+/**
+ * Collects re-seal patches for all NO-CHANGE SecretRef variables.
+ * Only call this when the --reseal-secrets flag is set; never by default,
+ * to avoid silently overwriting prod secrets with local values.
+ */
+export function buildAllSecretPatches(
+  config: { variables: Record<string, VariableValue> },
+  diff: DiffEntry[],
+  reader: SecretsFileReader = defaultSecretsFileReader
+): Record<string, VariablePatch> {
+  const patches: Record<string, VariablePatch> = {};
+  for (const entry of diff) {
+    if (entry.kind === "NO-CHANGE") {
+      const val = config.variables[entry.key];
+      if (val !== undefined && isSecretRef(val)) {
+        const { resolvedValue } = resolveVariableValue(val, reader);
+        patches[entry.key] = { value: resolvedValue, isSealed: true };
+      }
+    }
+  }
+  return patches;
+}
+
 export function formatDiffOutput(
   diff: DiffEntry[],
   desired: Record<string, VariableValue>

@@ -17,6 +17,5 @@ export default defineRailwayConfig({
     MINSKY_SESSIONDB_POSTGRES_URL: secret("MINSKY_SESSIONDB_POSTGRES_URL"),
     NODE_ENV: "production",
     OPENAI_API_KEY: secret("OPENAI_API_KEY"),
-    TEST_VAR: "x",
   },
 });
