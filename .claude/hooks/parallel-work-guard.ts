@@ -19,39 +19,12 @@
 // @see mt#1305 — Tier-2 skill-step enforcement (floor)
 // @see feedback_check_parallel_work_before_decomposing — four-incident history
 
-import { readInput, writeOutput } from "./types";
+import { readInput, writeOutput, execWithPath } from "./types";
 import type { ToolHookInput } from "./types";
 
-// ---------------------------------------------------------------------------
-// PATH-augmented subprocess helper
-// ---------------------------------------------------------------------------
-
-/**
- * Wrapper around Bun.spawnSync that prepends common homebrew/system binary
- * directories to PATH so that `gh` and `git` resolve correctly regardless of
- * the shell PATH that launched Claude Code. Used for all gh/git calls in this
- * hook (fetchOpenPrs, fetchRecentMerges, detectDefaultBranch, deriveRepoFromGit).
- */
-function execWithPath(
-  cmd: string[],
-  options?: { cwd?: string; timeout?: number }
-): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
-  const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-  const result = Bun.spawnSync(cmd, {
-    cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: options?.timeout,
-    env: { ...process.env, PATH: pathPrefix },
-  });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-    timedOut,
-  };
-}
+// NOTE: execWithPath is centralized in types.ts and imported above.
+// This avoids duplicating the PATH-augmentation logic across hooks.
+// See NON-BLOCKING #5 from PR #909 round 1 review.
 
 // ---------------------------------------------------------------------------
 // Types
