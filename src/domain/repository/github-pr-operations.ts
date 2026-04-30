@@ -2,7 +2,7 @@
  * GitHub PR lifecycle operations extracted from GitHubBackend.
  *
  * Contains: createPullRequest, updatePullRequest, mergePullRequest,
- * getPullRequestDetails, getPullRequestDiff.
+ * getPullRequestDetails, getPullRequestDiff, getPRReviewThreads.
  *
  * Each function receives its dependencies explicitly (Octokit, owner/repo,
  * session helpers) so the main class stays a thin delegation layer.
@@ -645,4 +645,216 @@ export async function getPullRequestDiff(
   );
 
   return { diff, stats };
+}
+
+// ── PR review threads ───────────────────────────────────────────────────────
+
+/**
+ * A single comment within a review thread.
+ */
+export interface ReviewThreadComment {
+  /** GitHub login of the comment author */
+  author: string | null;
+  /** Comment body text */
+  body: string;
+  /** ISO-8601 timestamp of comment creation */
+  createdAt: string;
+}
+
+/**
+ * A review thread (an inline diff discussion) on a pull request.
+ *
+ * `isOutdated` is true when the thread was anchored to a line that no longer
+ * exists at the HEAD of the PR branch (e.g., due to a force-push or rebase).
+ * In that case GitHub reports `line: null`.
+ */
+export interface ReviewThread {
+  /** GitHub node ID of the thread */
+  id: string;
+  /** File path the thread is anchored to */
+  path: string;
+  /**
+   * Line number the thread ends on (1-based). Null when the thread is
+   * outdated (the anchored line was removed from the diff).
+   */
+  line: number | null;
+  /**
+   * First line of a multi-line thread range (1-based). Undefined for
+   * single-line threads.
+   */
+  startLine?: number;
+  /** Whether the thread has been marked resolved by a reviewer */
+  isResolved: boolean;
+  /** Whether the thread is outdated (anchored line no longer in the diff) */
+  isOutdated: boolean;
+  /** Whether the thread is collapsed in the GitHub UI */
+  isCollapsed: boolean;
+  /** Ordered list of comments in the thread (oldest first) */
+  comments: ReviewThreadComment[];
+}
+
+/**
+ * Result of fetching PR review threads, including pagination metadata.
+ */
+export interface ReviewThreadsResult {
+  /** The fetched threads (up to 200; see `truncated`) */
+  threads: ReviewThread[];
+  /**
+   * True when the PR has more than 200 threads — the list is capped at 200
+   * and the caller should display a "too many threads" notice.
+   */
+  truncated: boolean;
+}
+
+// ── GraphQL types for pullRequest.reviewThreads ──────────────────────────────
+
+interface GraphQLReviewThreadComment {
+  author: { login: string } | null;
+  body: string;
+  createdAt: string;
+}
+
+interface GraphQLReviewThread {
+  id: string;
+  path: string;
+  line: number | null;
+  startLine: number | null;
+  isResolved: boolean;
+  isOutdated: boolean;
+  isCollapsed: boolean;
+  comments: {
+    nodes: GraphQLReviewThreadComment[];
+  };
+}
+
+interface GraphQLPageInfo {
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+interface GraphQLReviewThreadsResponse {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: GraphQLReviewThread[];
+        pageInfo: GraphQLPageInfo;
+      };
+    };
+  };
+}
+
+const REVIEW_THREADS_QUERY = `
+  query GetPRReviewThreads($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $prNumber) {
+        reviewThreads(first: 50, after: $after) {
+          nodes {
+            id
+            path
+            line
+            startLine
+            isResolved
+            isOutdated
+            isCollapsed
+            comments(first: 10) {
+              nodes {
+                author { login }
+                body
+                createdAt
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
+const MAX_REVIEW_THREADS = 200;
+
+/**
+ * Fetch all review threads for a pull request using the GitHub GraphQL API.
+ *
+ * Paginates through `pullRequest.reviewThreads` (50 per page) and caps at
+ * 200 threads total, setting `truncated: true` if more exist.
+ *
+ * Auth is routed through `gh.getToken()` — the same TokenProvider path used
+ * by all other PR operations.
+ *
+ * @param gh GitHub context (owner, repo, token provider)
+ * @param prNumber The pull request number
+ * @param octokitOverride Optional Octokit instance (for testing / DI)
+ */
+export async function getPRReviewThreads(
+  gh: GitHubContext,
+  prNumber: number,
+  octokitOverride?: Octokit
+): Promise<ReviewThreadsResult> {
+  try {
+    const token = await gh.getToken();
+    const octokit = octokitOverride ?? createOctokit(token);
+
+    const allThreads: ReviewThread[] = [];
+    let hasNextPage = true;
+    let cursor: string | null = null;
+    let truncated = false;
+
+    while (hasNextPage) {
+      const response = await octokit.graphql<GraphQLReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
+        owner: gh.owner,
+        repo: gh.repo,
+        prNumber,
+        after: cursor,
+      });
+
+      const page = response.repository.pullRequest.reviewThreads;
+
+      for (const node of page.nodes) {
+        if (allThreads.length >= MAX_REVIEW_THREADS) {
+          truncated = true;
+          hasNextPage = false;
+          break;
+        }
+
+        allThreads.push({
+          id: node.id,
+          path: node.path,
+          line: node.line,
+          ...(node.startLine !== null ? { startLine: node.startLine } : {}),
+          isResolved: node.isResolved,
+          isOutdated: node.isOutdated,
+          isCollapsed: node.isCollapsed,
+          comments: node.comments.nodes.map((c) => ({
+            author: c.author?.login ?? null,
+            body: c.body,
+            createdAt: c.createdAt,
+          })),
+        });
+      }
+
+      if (!truncated) {
+        hasNextPage = page.pageInfo.hasNextPage;
+        cursor = page.pageInfo.endCursor;
+      }
+    }
+
+    log.debug("Fetched PR review threads", {
+      prNumber,
+      threadCount: allThreads.length,
+      truncated,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+
+    return { threads: allThreads, truncated };
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    throw new MinskyError(
+      `Failed to fetch review threads for PR #${prNumber}: ${getErrorMessage(error)}`
+    );
+  }
 }

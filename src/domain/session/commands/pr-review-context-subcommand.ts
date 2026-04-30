@@ -16,6 +16,8 @@ import {
 import { log } from "../../../utils/logger";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { parseUnifiedDiff, type DiffFile } from "../../../utils/parse-diff";
+import { getPRReviewThreads, type ReviewThread } from "../../repository/github-pr-operations";
+import { extractGitHubInfoFromUrl } from "../repository-backend-detection";
 
 export interface SessionPrReviewContextDependencies {
   sessionDB: SessionProviderInterface;
@@ -66,6 +68,13 @@ export interface SessionPrReviewContextResult {
   parsedDiff: DiffFile[];
   taskSpec: string | null;
   taskId: string | null;
+  /** Inline review threads on this PR (resolved, unresolved, and outdated). */
+  reviewThreads: ReviewThread[];
+  /**
+   * True when the PR has more than 200 threads. The list is capped at 200
+   * in that case.
+   */
+  reviewThreadsTruncated: boolean;
 }
 
 /**
@@ -109,13 +118,15 @@ export async function sessionPrReviewContext(
 
     log.debug(`Fetching PR review context for PR #${prNumber}`);
 
-    // Fetch PR metadata, checks, and diff in parallel; task spec is independent
-    const [prData, checksResult, diffResult, taskSpecContent] = await Promise.all([
-      backend.pr.get({ prIdentifier: prNumber }),
-      backend.ci.getChecksForPR(prNumber),
-      backend.pr.getDiff({ prIdentifier: prNumber }),
-      fetchTaskSpec(taskId, taskService),
-    ]);
+    // Fetch PR metadata, checks, diff, task spec, and review threads in parallel
+    const [prData, checksResult, diffResult, taskSpecContent, reviewThreadsResult] =
+      await Promise.all([
+        backend.pr.get({ prIdentifier: prNumber }),
+        backend.ci.getChecksForPR(prNumber),
+        backend.pr.getDiff({ prIdentifier: prNumber }),
+        fetchTaskSpec(taskId, taskService),
+        fetchReviewThreads(sessionRecord.repoUrl, prNumber),
+      ]);
 
     // Normalise PR metadata into the flat return shape
     const pr: PrSummary = {
@@ -152,6 +163,8 @@ export async function sessionPrReviewContext(
       parsedDiff: parseUnifiedDiff(diffResult.diff),
       taskSpec: taskSpecContent,
       taskId,
+      reviewThreads: reviewThreadsResult.threads,
+      reviewThreadsTruncated: reviewThreadsResult.truncated,
     };
   } catch (error) {
     if (
@@ -181,5 +194,42 @@ async function fetchTaskSpec(
   } catch (error) {
     log.debug(`Could not fetch task spec for ${taskId}: ${getErrorMessage(error)}`);
     return null;
+  }
+}
+
+/**
+ * Fetch PR review threads, returning empty result if GitHub info is unavailable
+ * or the GraphQL call fails.
+ *
+ * Failure is non-fatal: a broken review-threads fetch should not block the
+ * reviewer from seeing the diff and checks.
+ */
+async function fetchReviewThreads(
+  repoUrl: string,
+  prNumber: number
+): Promise<{ threads: ReviewThread[]; truncated: boolean }> {
+  const githubInfo = extractGitHubInfoFromUrl(repoUrl);
+  if (!githubInfo) {
+    log.debug("Could not extract GitHub info from repo URL; skipping review threads", { repoUrl });
+    return { threads: [], truncated: false };
+  }
+
+  try {
+    const { createTokenProvider } = await import("../../auth");
+    const { getConfiguration } = await import("../../configuration/index");
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+
+    const gh = {
+      owner: githubInfo.owner,
+      repo: githubInfo.repo,
+      getToken: () => tokenProvider.getServiceToken(),
+    };
+
+    return await getPRReviewThreads(gh, prNumber);
+  } catch (error) {
+    log.debug(`Could not fetch review threads for PR #${prNumber}: ${getErrorMessage(error)}`);
+    return { threads: [], truncated: false };
   }
 }
