@@ -141,6 +141,15 @@ export class MinskyMCPServer {
     { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
   > = new Map();
 
+  // Maximum concurrent HTTP sessions. When set, new initialize requests are
+  // rejected with 503 Service Unavailable once the cap is reached. Configured
+  // via MINSKY_MCP_MAX_SESSIONS env var. Absent or non-positive → no cap.
+  private readonly MAX_HTTP_SESSIONS: number | null = null;
+
+  // Retry-After value (seconds) sent with 503 responses when the cap is reached.
+  // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
+  private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
+
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
@@ -184,6 +193,22 @@ export class MinskyMCPServer {
 
     // DI container for service access (e.g. sessionProvider for agentId writes)
     this.container = options.container;
+
+    // Parse session cap from env var. Non-positive or non-numeric values → no cap.
+    const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
+    if (maxSessionsRaw !== undefined && maxSessionsRaw !== "") {
+      const parsed = Number.parseInt(maxSessionsRaw, 10);
+      this.MAX_HTTP_SESSIONS = parsed > 0 ? parsed : null;
+    }
+
+    // Parse Retry-After override (seconds). Falls back to the field default (30).
+    const retryAfterRaw = process.env.MINSKY_MCP_RETRY_AFTER_SECS;
+    if (retryAfterRaw !== undefined && retryAfterRaw !== "") {
+      const parsed = Number.parseInt(retryAfterRaw, 10);
+      if (parsed > 0) {
+        this.SESSION_CAP_RETRY_AFTER_SECS = parsed;
+      }
+    }
 
     // Initialize staleness detector to warn when server code is outdated
     this.stalenessDetector = new StalenessDetector(
@@ -379,6 +404,32 @@ export class MinskyMCPServer {
         return;
       }
 
+      // Admission control: reject new sessions when the concurrent-session cap
+      // is reached. The cap is configurable via MINSKY_MCP_MAX_SESSIONS; absent
+      // or non-positive values disable the cap entirely (no-op for backward
+      // compatibility). Rejected requests receive 503 + Retry-After so that
+      // well-behaved clients back off and retry rather than hammering the endpoint.
+      if (this.MAX_HTTP_SESSIONS !== null && this.httpSessions.size >= this.MAX_HTTP_SESSIONS) {
+        const currentCount = this.httpSessions.size;
+        log.warn("mcp_session_reject", {
+          reason: "cap_reached",
+          currentCount,
+          cap: this.MAX_HTTP_SESSIONS,
+        });
+        res
+          .status(503)
+          .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+          .json({
+            jsonrpc: "2.0",
+            error: {
+              code: -32603,
+              message: `Service unavailable: concurrent session cap (${this.MAX_HTTP_SESSIONS}) reached. Retry after ${this.SESSION_CAP_RETRY_AFTER_SECS}s.`,
+            },
+            id: null,
+          });
+        return;
+      }
+
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
@@ -444,7 +495,12 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
-          log.debug("Registered new HTTP session via onmessage", { sessionId: id });
+          const newCount = this.httpSessions.size;
+          log.debug("mcp_session_admit", {
+            sessionId: id,
+            currentCount: newCount,
+            cap: this.MAX_HTTP_SESSIONS ?? "unlimited",
+          });
         }
         prevOnmessage?.(message, extra);
       };
@@ -996,6 +1052,21 @@ export class MinskyMCPServer {
    */
   getInFlightCount(): number {
     return this.inFlightRequests.size;
+  }
+
+  /**
+   * Return the number of currently active HTTP sessions.
+   * Returns 0 for stdio transport (no HTTP sessions).
+   */
+  getSessionCount(): number {
+    return this.httpSessions.size;
+  }
+
+  /**
+   * Return the configured maximum concurrent HTTP sessions, or null if no cap.
+   */
+  getMaxSessions(): number | null {
+    return this.MAX_HTTP_SESSIONS;
   }
 
   /**

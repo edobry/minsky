@@ -21,6 +21,11 @@
  * and test-only PRs. For `"normal"` (the default) behavior is byte-identical
  * to the pre-mt#1188 prompt (no extra section appended).
  *
+ * The optional `outputToolsActive` param (mt#1401) switches the output format
+ * section from prose instructions to tool-emission directives. Only effective
+ * when `toolsAvailable` is also true — if tools aren't wired, free-text prose
+ * is the only output channel. Defaults to `false` for backward compatibility.
+ *
  * The legacy `CRITIC_CONSTITUTION` export below is kept for backwards
  * compatibility with existing callers; it assumes tools are available and
  * normal scope.
@@ -28,7 +33,8 @@
  */
 export function buildCriticConstitution(
   toolsAvailable: boolean,
-  scope: "trivial-or-docs" | "test-only" | "normal" = "normal"
+  scope: "trivial-or-docs" | "test-only" | "normal" = "normal",
+  outputToolsActive: boolean = false
 ): string {
   const toolAccessSection = toolsAvailable ? TOOL_ACCESS_SECTION : NO_TOOLS_SECTION;
   const failureModes = buildCriticConstitutionFailureModes(toolsAvailable);
@@ -36,6 +42,11 @@ export function buildCriticConstitution(
   const principlesBlock = scopeSection
     ? `${CRITIC_CONSTITUTION_PRINCIPLES}\n\n${scopeSection}`
     : CRITIC_CONSTITUTION_PRINCIPLES;
+  // Output tools mode is only effective when tools are also wired up.
+  const outputFormat =
+    toolsAvailable && outputToolsActive
+      ? CRITIC_CONSTITUTION_OUTPUT_FORMAT_TOOLS
+      : CRITIC_CONSTITUTION_OUTPUT_FORMAT;
   return `${CRITIC_CONSTITUTION_PREAMBLE}
 
 ${principlesBlock}
@@ -44,7 +55,7 @@ ${failureModes}
 
 ${toolAccessSection}
 
-${CRITIC_CONSTITUTION_OUTPUT_FORMAT}`;
+${outputFormat}`;
 }
 
 /**
@@ -208,6 +219,36 @@ Post your review as a structured comment with:
 - Documentation impact section: whether the PR requires updates to docs/ or architecture notes
 
 Conclude with an event: APPROVE, REQUEST_CHANGES, or COMMENT. If you are the same App identity as the PR author, use COMMENT only (GitHub blocks self-approval). Otherwise, use APPROVE only if you have no blocking findings and no non-trivial concerns; use REQUEST_CHANGES if any finding is blocking or if spec criteria are unmet; use COMMENT for borderline cases where you want to note concerns without blocking.
+
+Your goal is high-signal review, not high approval rate. A reviewer that approves 100% of PRs is a rubber stamp with extra steps.`;
+
+/**
+ * Tool-emission variant of the output format section (mt#1401).
+ *
+ * Replaces the prose instructions with structured tool-call directives.
+ * Only used when both `toolsAvailable` and `outputToolsActive` are true in
+ * `buildCriticConstitution`. Free-text output is explicitly marked as scratch
+ * (not posted to the PR) so the model can use it freely for thinking.
+ */
+const CRITIC_CONSTITUTION_OUTPUT_FORMAT_TOOLS = `## Output format
+
+Emit your review via structured tool calls only. The review the user sees is composed from your tool calls — free-text output you produce is internal scratch and is NOT posted to the PR. Use free-text freely for thinking, planning, or working through the diff; structure goes through the tools.
+
+For each issue you find, call submit_finding(severity, file, line, lineEnd?, side?, summary, details).
+- severity: BLOCKING for issues that must be fixed before merge; NON-BLOCKING for nits or observations; PRE-EXISTING for issues you find that aren't introduced by this PR.
+- file/line (and optional lineEnd, side): the anchor for the finding.
+- summary: a one-sentence headline.
+- details: the full evidence and reasoning.
+
+For non-severity inline annotations, call submit_inline_comment(file, line, body).
+
+If a task spec is provided, call submit_spec_verification(criterion, status, evidence) for each success criterion in the spec.
+- status: "Met", "Not Met", or "N/A".
+- evidence: the file:line or diff reference that supports the verdict.
+
+Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
+- event: APPROVE if you have no blocking findings and no non-trivial concerns; REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; COMMENT otherwise (or if you are the same App identity as the PR author — GitHub blocks self-approval).
+- summary: 2-5 sentence executive summary describing overall quality, key findings, and verdict.
 
 Your goal is high-signal review, not high approval rate. A reviewer that approves 100% of PRs is a rubber stamp with extra steps.`;
 

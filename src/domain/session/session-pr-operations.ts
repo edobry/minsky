@@ -33,6 +33,114 @@ export interface SessionPrDependencies {
 }
 
 /**
+ * Verifiable receipt for the IN-PROGRESS → IN-REVIEW transition that
+ * `session_pr_create` attempts after PR creation.
+ *
+ * Returned on every PR-create call so the caller can disambiguate four cases
+ * that previously all collapsed into `{success: true}` with the status write
+ * silently logged-as-warn (mt#1378):
+ *
+ * - `succeeded=true`                       — the transition ran and stuck.
+ * - `succeeded=false, reason="skipped: noStatusUpdate"`
+ *                                          — caller opted out via param.
+ * - `succeeded=false, reason="skipped: no taskId on session"`
+ *                                          — session is not task-bound.
+ * - `succeeded=false, reason="skipped: no taskService in deps"`
+ *                                          — DI bundle is missing the dep.
+ * - `succeeded=false, reason="setTaskStatus threw: <msg>"`
+ *                                          — write was attempted and failed;
+ *                                            the PR was still created.
+ *
+ * `from`/`to` are populated only when a transition was actually attempted
+ * (so the caller can tell "tried and failed" from "skipped"). Reading
+ * `from` uses `taskService.getTaskStatus` BEFORE the write so the receipt
+ * reflects the pre-transition state, not the post-transition state.
+ */
+export interface StatusTransitionReceipt {
+  from: string | null;
+  to: string | null;
+  succeeded: boolean;
+  reason?: string;
+}
+
+/**
+ * Compute and apply the post-PR-create IN-REVIEW status transition. Returns
+ * a verifiable receipt describing exactly what happened — distinguishing
+ * skip cases (caller opt-out, no taskId, no taskService) from attempted
+ * transitions (success or write failure).
+ *
+ * Extracted from `sessionPrImpl` for direct unit testing (mt#1378). The
+ * pre-mt#1378 implementation collapsed all skip/failure paths into a
+ * single `log.warn` and a misleading `log.cli("Updated task ...")` that
+ * fired even when no update happened.
+ *
+ * Exported for tests.
+ */
+export async function applyInReviewTransition(
+  noStatusUpdate: boolean | undefined,
+  taskId: string | undefined | null,
+  taskService: TaskServiceInterface | undefined
+): Promise<StatusTransitionReceipt> {
+  if (noStatusUpdate) {
+    return {
+      from: null,
+      to: null,
+      succeeded: false,
+      reason: "skipped: noStatusUpdate",
+    };
+  }
+  if (!taskId) {
+    return {
+      from: null,
+      to: null,
+      succeeded: false,
+      reason: "skipped: no taskId on session",
+    };
+  }
+  if (!taskService) {
+    log.warn("No taskService in deps — skipping status update to IN-REVIEW");
+    return {
+      from: null,
+      to: null,
+      succeeded: false,
+      reason: "skipped: no taskService in deps",
+    };
+  }
+
+  // Read pre-transition status so the receipt reflects the from-state
+  // accurately even if the write succeeds and changes it. Failing to
+  // read is non-fatal — we still attempt the write.
+  let fromStatus: string | null = null;
+  try {
+    const current = await taskService.getTaskStatus(taskId);
+    fromStatus = current ?? null;
+  } catch (readError) {
+    log.warn(`Failed to read prior task status for ${taskId}: ${getErrorMessage(readError)}`);
+  }
+
+  try {
+    await taskService.setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
+    // Only log success on the success path. Pre-mt#1378 this fired
+    // unconditionally and lied when the write was skipped or failed.
+    log.cli(`Updated task ${taskId} status to IN-REVIEW`);
+    return {
+      from: fromStatus,
+      to: TASK_STATUS.IN_REVIEW,
+      succeeded: true,
+    };
+  } catch (writeError) {
+    const reason = `setTaskStatus threw: ${getErrorMessage(writeError)}`;
+    log.warn(`Failed to update task status: ${getErrorMessage(writeError)}`);
+    return {
+      from: fromStatus,
+      to: TASK_STATUS.IN_REVIEW,
+      succeeded: false,
+      reason,
+    };
+  }
+}
+
+/**
  * Create repository backend from session record's stored configuration.
  * Only GitHub is supported; all sessions use the GitHub backend.
  */
@@ -74,6 +182,7 @@ export async function sessionPrImpl(
   title?: string;
   body?: string;
   url?: string;
+  statusTransition: StatusTransitionReceipt;
 }> {
   // STEP 0: Validate parameters using schema
   try {
@@ -381,21 +490,14 @@ Please provide a title for your pull request:
       }
     }
 
-    // Update task status to IN-REVIEW if associated with a task
-    if (!params.noStatusUpdate) {
-      if (sessionRecord?.taskId) {
-        try {
-          if (deps.taskService) {
-            await deps.taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          } else {
-            log.warn("No taskService in deps — skipping status update to IN-REVIEW");
-          }
-          log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);
-        } catch (error) {
-          log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
-        }
-      }
-    }
+    // Apply the IN-REVIEW transition and capture a verifiable receipt for
+    // every code path so callers can detect skipped or failed transitions
+    // instead of inferring success from a silent log.warn (mt#1378).
+    const statusTransition = await applyInReviewTransition(
+      params.noStatusUpdate,
+      sessionRecord?.taskId,
+      deps.taskService
+    );
 
     // GitHub backend uses the actual git branch (task/mt-NNN), not the session UUID
     const prBranchName = currentBranch;
@@ -406,6 +508,7 @@ Please provide a title for your pull request:
       title: titleToUse,
       body: bodyToUse,
       url: prInfo.url, // Include PR URL from repository backend
+      statusTransition,
     };
   } catch (error) {
     throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error)}`);

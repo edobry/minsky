@@ -1,11 +1,11 @@
 /**
- * Ask entity TypeScript types — ADR-006 §The Ask entity.
+ * Ask entity TypeScript types — ADR-008 §The Ask entity.
  *
  * The Ask subsystem provides a unified domain type for all human-in-the-loop
  * mechanisms in Minsky: inbox rows, AG-UI interrupts, PR approvals, mesh
  * notifications, and 2-strikes escalations are all instances of Ask.
  *
- * Reference: docs/architecture/adr-006-attention-allocation-subsystem.md
+ * Reference: docs/architecture/adr-008-attention-allocation-subsystem.md
  */
 
 /**
@@ -143,7 +143,7 @@ export interface AttentionCost {
 /**
  * Transport kinds that can carry an Ask to its resolver.
  *
- * Derived from the transport-binding matrix in ADR-006.
+ * Derived from the transport-binding matrix in ADR-008.
  */
 export type TransportKind = "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
 

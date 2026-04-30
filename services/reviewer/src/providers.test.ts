@@ -7,6 +7,7 @@ import {
 } from "./providers";
 import type OpenAI from "openai";
 import type { ReviewerToolContext } from "./tools";
+import type { ReviewToolCall } from "./output-tools";
 
 describe("isReasoningModel", () => {
   describe("o-series reasoning models", () => {
@@ -618,5 +619,225 @@ describe("callOpenAIWithClient token budget and reasoning_effort (mt#1232)", () 
       reasoningEffort: "low",
     });
     expect(capturedParams().reasoning_effort).toBe("low");
+  });
+});
+
+// ----- Output tool accumulation (mt#1399) -----
+//
+// Verifies that output tool calls (submit_finding, conclude_review, etc.) are
+// parsed, accumulated, and returned in output.toolCalls — separately from the
+// read-only tools (read_file, list_directory) which are executed and NOT added
+// to toolCalls.
+
+describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
+  const MODEL = "gpt-4o";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  const VALID_FINDING_ARGS = JSON.stringify({
+    severity: "BLOCKING",
+    file: "src/foo.ts",
+    line: 42,
+    summary: "Missing null check",
+    details: "The variable may be null here.",
+  });
+
+  const VALID_CONCLUDE_ARGS = JSON.stringify({
+    event: "REQUEST_CHANGES",
+    summary: "Found blocking issues.",
+  });
+
+  function makeOutputToolCall(id: string, name: string, argsJson: string) {
+    return {
+      id,
+      type: "function",
+      function: { name, arguments: argsJson },
+    };
+  }
+
+  function makeFakeClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI } {
+    let callCount = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (_params: { messages: unknown[] }) => {
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  test("submit_finding x3 + conclude_review x1 → toolCalls has 4 entries in order", async () => {
+    const { client } = makeFakeClient([
+      // Round 1: three submit_finding calls
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 2: conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 3: final text response
+      {
+        choices: [{ message: { content: "review summary" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    expect(result.toolCalls).toHaveLength(4);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[1]?.name).toBe("submit_finding");
+    expect(result.toolCalls[2]?.name).toBe("submit_finding");
+    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+  });
+
+  test("no output tools emitted → toolCalls is empty array (never undefined)", async () => {
+    const { client } = makeFakeClient([
+      {
+        choices: [{ message: { content: "plain text review" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    expect(result.toolCalls).toBeDefined();
+    expect(Array.isArray(result.toolCalls)).toBe(true);
+    expect(result.toolCalls).toHaveLength(0);
+  });
+
+  test("read_file interleaved with submit_finding → toolCalls contains only submit_finding entries", async () => {
+    const { client } = makeFakeClient([
+      // Round 1: read_file + submit_finding interleaved
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "rf1",
+                  type: "function",
+                  function: { name: "read_file", arguments: JSON.stringify({ path: "src/a.ts" }) },
+                },
+                makeOutputToolCall("sf1", "submit_finding", VALID_FINDING_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 2: final text
+      {
+        choices: [{ message: { content: "done" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const toolsWithReadFile: ReviewerToolContext = {
+      readFile: mock(async () => ({
+        kind: "text" as const,
+        content: "contents",
+        truncated: false,
+      })),
+      listDirectory: mock(async () => null),
+    };
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", toolsWithReadFile);
+
+    // Only the submit_finding call should be in toolCalls — not the read_file.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+  });
+
+  test("malformed output tool args → parse error logged, call not added, subsequent valid calls recorded", async () => {
+    const MALFORMED_ARGS = JSON.stringify({ severity: "URGENT", file: "src/b.ts", line: 1 });
+
+    const { client } = makeFakeClient([
+      // Round 1: malformed submit_finding then a valid one
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("bad1", "submit_finding", MALFORMED_ARGS),
+                makeOutputToolCall("good1", "submit_finding", VALID_FINDING_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 2: final text
+      {
+        choices: [{ message: { content: "recovered" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    // Malformed call is NOT in toolCalls; only the valid one is.
+    expect(result.toolCalls).toHaveLength(1);
+    expect((result.toolCalls[0] as ReviewToolCall).name).toBe("submit_finding");
+
+    // Loop continues; final text is returned.
+    expect(result.text).toBe("recovered");
+  });
+
+  test("no-tools path: toolCalls is empty array (never undefined)", async () => {
+    const { client } = makeFakeClient([
+      {
+        choices: [{ message: { content: "no tools" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    // Call without tools context — no tool use loop at all.
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user");
+
+    expect(result.toolCalls).toBeDefined();
+    expect(Array.isArray(result.toolCalls)).toBe(true);
+    expect(result.toolCalls).toHaveLength(0);
   });
 });

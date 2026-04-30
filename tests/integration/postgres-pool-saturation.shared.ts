@@ -2,10 +2,11 @@
  * Shared Postgres Pool Saturation Test Suite
  *
  * Implements the four acceptance tests from mt#1205 in a parameterized form so
- * child A (Supabase preview branch) and child C (local Supavisor docker) can
- * both exercise the same retry logic against different connection targets.
+ * child A (Supabase preview branch — Supavisor XX000 shape) and child C (raw
+ * Postgres via Testcontainers — SQLSTATE 53300 shape) can both exercise the
+ * same retry logic against different connection targets.
  *
- * Tasks: mt#1205 (umbrella), mt#1364 (child A – Supabase), mt#1365 (child C – docker)
+ * Tasks: mt#1205 (umbrella), mt#1364 (child A — Supabase), mt#1365 (child C — Testcontainers raw PG)
  *
  * Usage:
  *   import { runSaturationSuite } from "./postgres-pool-saturation.shared";

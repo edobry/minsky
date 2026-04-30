@@ -108,6 +108,32 @@ presence of a `review` object to determine whether a successful review
 was recorded. This matches the empty-output error path and keeps both
 reliability guards structurally consistent.
 
+**Secondary-failure observability (mt#1370).** The defensive `try/catch` blocks
+around `submitReview` (one in the empty-output path, one in the CoT-error
+path) log a structured `console.log` event when `submitReview` throws,
+rather than silently swallowing the secondary failure. Without this, a
+primary CoT leak followed by a posting failure would leave zero trace on
+GitHub and only the primary `outcome.reason` in Railway logs — operators
+could not distinguish "bot tried and failed" from "bot never tried at
+all." Symptom case: PR #830 on 2026-04-27, second commit `7e7be76a9`
+silent on GitHub for 11+ minutes after a re-trigger push. Event names:
+`reviewer.submit_skip_notice_failed` (empty-output path) and
+`reviewer.submit_error_notice_failed` (CoT-error path). Both go to
+**stdout** (matching the convention of `reviewer.cot_leak_detected` and
+`reviewer.convergence_metric` in the same file) and include `prUrl`,
+`sha`, `commitSha` (deprecated alias), `primaryReason`, `submitError`
+(serialized via `serializeSubmitError` to capture `name`, `status`,
+`code`, `message`, plus a truncated `stack` field bounded at 1024 chars
+with a `...[truncated]` marker), `provider`, and `model`. The CoT-error
+event additionally includes `sanitizeReason` (the joined signal list
+from the sanitizer, e.g. `cot-leak:long-narrative-prefix`) so operators
+can correlate the secondary failure with the specific CoT trigger that
+fired the error path. The events are correlatable with the primary
+`reviewer.cot_leak_detected` event (same `prUrl` + `sha`). The payload
+itself is constructed by `buildSubmitFailureLog` (exported from
+`review-worker.ts`) so the field shape is unit-testable independent of
+the catch blocks themselves.
+
 **Observability.** When the guard fires, `review-worker.ts` logs a
 structured event `reviewer.cot_leak_detected` with:
 
@@ -131,3 +157,50 @@ appears.
 - Tool-call scaffolding that correlates with the tool-loop-fallback
   sub-pattern → mt#1126 (tool wiring) and mt#1189 (cross-model
   convergence) are the relevant tickets.
+
+## NARRATIVE_TOLERANCE_CHARS calibration (mt#1264)
+
+The `NARRATIVE_TOLERANCE_CHARS = 300` threshold in `services/reviewer/src/sanitize.ts`
+controls when a narrative-scratch phrase (`I will` / `I'll` / `I am going to`)
+in the prefix-before-first-structural-heading fires the `long-narrative-prefix`
+CoT signal. Below the threshold, the phrase is assumed to be legitimate intro
+prose; above, it's treated as scratch leakage.
+
+**Calibration methodology (2026-04-26):**
+
+`services/reviewer/scripts/calibrate-tolerance.ts` replays every
+`minsky-reviewer[bot]` PR review body in the `edobry/minsky` repo through
+`sanitizeReviewBody` and buckets results by prefix length × narrative-phrase
+presence. The "at-risk zone" is defined as: prefix ≥ 300 chars + narrative
+phrase + action=passthrough (narrowly avoided strip) OR action=stripped with
+ONLY the `long-narrative-prefix` signal (stripped solely by narrative length).
+
+**Run command:**
+
+```bash
+GITHUB_TOKEN=<pat> bun run services/reviewer/scripts/calibrate-tolerance.ts
+```
+
+**Results (run 2026-04-26):**
+
+- Total bot reviews: 171 across 26 PR pages
+- At-risk zone count: **0 samples**
+- All `narrative-yes` reviews with prefix ≥ 300 chars were caught by a stronger
+  signal (e.g., `blank-line-run`, `scratch:tool-call-narration`) — not by the
+  `long-narrative-prefix` signal alone
+
+**Decision: keep 300.**
+
+Rationale: zero false-positive risk in the current corpus. Lowering would
+risk stripping legitimate intros; raising would create a gap with no upside.
+Should the at-risk count grow on a future run, revisit with a data-justified
+threshold change OR move to config-tunable.
+
+**Event enrichment:**
+
+The `reviewer.cot_leak_detected` log payload now includes `prefixSnippet`
+(first ~200 chars of the raw model output, with URLs and email addresses
+redacted via `redactForLog`). This closes the previous gap where calibration
+required only event metadata + had to refetch full bodies from GitHub. Going
+forward, future tuning can use the redacted snippet directly from the event
+stream without a corpus replay.
