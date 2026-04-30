@@ -10,6 +10,7 @@
  */
 
 import { MinskyError } from "../../errors/index";
+import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { handleOctokitError } from "./github-error-handler";
 import {
@@ -19,6 +20,7 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 import type { ReviewListEntry } from "./index";
+import { applyReviewStateLabel } from "./review-state-labels";
 
 export interface ReviewComment {
   /** Relative path of the file to comment on */
@@ -192,6 +194,17 @@ export async function submitReview(
       owner: gh.owner,
       repo: gh.repo,
     });
+
+    // Apply review-state label based on the review event.
+    // Failure is non-fatal: log and continue so the review result is still returned.
+    try {
+      await applyReviewStateLabel(octokit, gh.owner, gh.repo, prNumber, options.event);
+    } catch (labelError) {
+      log.warn(
+        `Failed to apply review-state label for PR #${prNumber} ` +
+          `(event=${options.event}): ${getErrorMessage(labelError)}`
+      );
+    }
 
     return {
       reviewId: review.id,
