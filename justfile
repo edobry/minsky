@@ -40,29 +40,30 @@ test-binary: build
 # ---------------------------------------------------------------------------
 # Supabase operations
 # ---------------------------------------------------------------------------
-# All recipes need SUPABASE_ACCESS_TOKEN in env. The Supabase CLI stores its
-# access token at ~/Library/Application Support/supabase/access-token (macOS).
-# Source it once per shell:
-#   export SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"
-# Or generate a scoped PAT at https://supabase.com/dashboard/account/tokens.
+# `supabase-usage` needs SUPABASE_ACCESS_TOKEN in env (Management API call).
+# `supabase-health` only needs the local Supabase CLI to be linked — no PAT.
+#
+# Sourcing the token (when needed):
+#   - macOS: SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"
+#   - Linux: SUPABASE_ACCESS_TOKEN="$(cat "$HOME/.config/supabase/access-token")"
+#   - Windows: see Supabase CLI docs (path varies)
+#   - Or generate a scoped PAT at https://supabase.com/dashboard/account/tokens
+#
+# `:= "..."` is just's string-literal syntax; the value substituted via
+# {{PROJECT_REF}} is the unquoted string `yvkkrpyjhoiilmizlnac`.
 # See docs/supabase-alerts.md for the full alert-rule runbook.
 
 PROJECT_REF := "yvkkrpyjhoiilmizlnac"  # minsky (dev 2)
 
-# List notification rules currently configured on the project
-supabase-alerts-list:
-    @[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "SUPABASE_ACCESS_TOKEN not set; see justfile header"; exit 1; }
-    curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/notifications" | jq
-
 # List the project's daily/usage stats — useful for setting threshold values
 supabase-usage:
     @[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "SUPABASE_ACCESS_TOKEN not set; see justfile header"; exit 1; }
-    curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+    curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
         "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage" | jq
 
 # Probe DB health via the local supabase CLI's auth (no PAT required if linked)
 supabase-health:
+    @command -v supabase >/dev/null || { echo "supabase CLI not installed; install from https://supabase.com/docs/guides/cli"; exit 1; }
     supabase projects list
     @echo "---"
     @echo "DB ping via execute_sql is in the Minsky MCP supabase tool; no CLI equivalent."

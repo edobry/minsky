@@ -22,7 +22,7 @@ Compute upgrade is NOT required; Micro is sufficient.
 
 ## CRITICAL: IPv4 reachability gap (verified 2026-04-28, switch ABORTED)
 
-The dedicated PgBouncer endpoint `db.{ref}.supabase.co` resolves only to an **IPv6 address**. Empirical verification 2026-04-28 — both attempted switches FAILED:
+Verification was time-bound (2026-04-28) and region-specific (this project is in `us-west-2`; Railway service runs in the linked region per its Railway config). Re-evaluate before purchasing the IPv4 add-on if either the Supabase project region or the Railway service region change. The dedicated PgBouncer endpoint `db.{ref}.supabase.co` resolves only to an **IPv6 address**. Empirical verification 2026-04-28 — both attempted switches FAILED:
 
 - **Local laptop**: `getaddrinfo` returns NOTFOUND despite `dig AAAA` returning the address. Investigation showed VPN tunnel interfaces (`utun0/1/2`) hijack the IPv6 default route without actually carrying IPv6 traffic; `psql` and Node's `dns.lookup` silently fail.
 - **Railway production minsky-mcp container**: setting `MINSKY_SESSIONDB_POSTGRES_URL` to the dedicated-pooler hostname caused service to hang on DB ping. Health endpoint returned headers but never completed body. Service degraded ~3 minutes until rollback. Suggests Railway egress in the linked region also lacks reliable IPv6 to Supabase's dedicated-pooler endpoints, or a DNS-resolution gap inside the container's network.
@@ -57,11 +57,17 @@ Two changes: username `postgres.yvkkrpyjhoiilmizlnac` → `postgres`, host `aws-
 
 Service ID: `a7c5195f-55de-472a-87e4-34e921a15171` (per `project_minsky_mcp_deployment.md`).
 
-Update env vars (whichever are set; check both):
+The current persistence contract (post-mt#1271, per `docs/deploy-minsky-railway.md`) requires both an explicit backend selector AND the connection string. The legacy single-var shortcut (`MINSKY_SESSIONDB_POSTGRES_URL` alone) does NOT flip the backend and silently falls back to SQLite — the canonical paired form below avoids that:
 
 ```bash
-railway variables --set MINSKY_SESSIONDB_POSTGRES_URL='postgresql://postgres:<password>@db.yvkkrpyjhoiilmizlnac.supabase.co:6543/postgres'
-railway variables --set MINSKY_POSTGRES_URL='postgresql://postgres:<password>@db.yvkkrpyjhoiilmizlnac.supabase.co:6543/postgres'
+# Canonical: backend selector + connection string
+railway variables --set MINSKY_PERSISTENCE_BACKEND=postgres
+railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL='postgresql://postgres:<password>@db.yvkkrpyjhoiilmizlnac.supabase.co:6543/postgres'
+
+# Legacy (still accepted post-mt#1271 but only when paired with the SESSIONDB selector):
+#   MINSKY_SESSIONDB_BACKEND=postgres + MINSKY_SESSIONDB_POSTGRES_URL=...
+# The single-var MINSKY_POSTGRES_URL fallback alone is NOT sufficient — it skips
+# the backend selector and lands on SQLite. See feedback_railway_config memory.
 ```
 
 Trigger redeploy; verify health endpoint:

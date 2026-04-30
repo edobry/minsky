@@ -13,13 +13,13 @@ The 2026-04-28 disk-I/O exhaustion incident — three concurrent `transcripts in
 
 ## Standard rule set
 
-| #   | Metric                  | Threshold                                   | Severity | Notes                                |
-| --- | ----------------------- | ------------------------------------------- | -------- | ------------------------------------ |
-| 1   | Disk IO budget consumed | 70%                                         | warning  | First chance to act before throttle  |
-| 2   | Disk IO budget consumed | 90%                                         | critical | Cliff-imminent — page-class signal   |
-| 3   | Database connections    | ~80 (≈80% of `max_connections=60` post-Pro) | warning  | Catch zombie-connection accumulation |
-| 4   | Disk space used         | 80%                                         | warning  | Slow-burn, separate from IO          |
-| 5   | Egress bandwidth        | tier-dependent                              | warning  | Set to 70% of monthly tier quota     |
+| #   | Metric                  | Threshold                                     | Severity | Notes                                                                             |
+| --- | ----------------------- | --------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
+| 1   | Disk IO budget consumed | 70%                                           | warning  | First chance to act before throttle                                               |
+| 2   | Disk IO budget consumed | 90%                                           | critical | Cliff-imminent — page-class signal                                                |
+| 3   | Database connections    | **48** (80% of `max_connections=60` on Micro) | warning  | Catch zombie-connection accumulation; raise proportionally if compute is upgraded |
+| 4   | Disk space used         | 80%                                           | warning  | Slow-burn, separate from IO                                                       |
+| 5   | Egress bandwidth        | tier-dependent                                | warning  | Set to 70% of monthly tier quota                                                  |
 
 > Rules 4 and 5 are extensions of the original two-rule set. Add as project grows.
 
@@ -53,8 +53,9 @@ The 2026-04-28 incident bounced the instance via Pro upgrade + compute restart. 
 # 1. Confirm DB accepts connections
 just supabase-health
 
-# 2. Confirm rules survived
-just supabase-alerts-list
+# 2. Confirm rules survived (dashboard check — no public API for this)
+#    Open https://supabase.com/dashboard/project/yvkkrpyjhoiilmizlnac/settings/integrations
+#    and verify the standard rule set above is present and active.
 
 # 3. Confirm the role-level safety nets are still in place (statement_timeout, idle_in_transaction)
 # Run this through the Minsky MCP supabase tool, not via CLI:
