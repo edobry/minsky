@@ -31,6 +31,11 @@ import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing"
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
 import { composeReviewBody } from "./compose-review";
+import {
+  applyMonotonicityRecovery,
+  parsePriorReviewFindings,
+  type FlatPriorFinding,
+} from "./severity-recovery";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -479,6 +484,12 @@ export async function runReview(
   const priorReviewFetcherFn = deps.priorReviewFetcher ?? fetchPriorReviews;
   let priorReviewIngestion: PriorReviewIngestionResult;
   let priorReviewsMarkdown = "";
+  // Flat list of prior findings (file + severity + line range) used by the
+  // mt#1496 monotonicity-recovery layer when REVIEWER_MONOTONICITY_RECOVERY_ENABLED
+  // is set. Empty when the feature flag is off OR when no prior reviews were
+  // fetched. Computed alongside priorReviewsMarkdown so we don't pay the parse
+  // cost twice.
+  let priorFlatFindings: FlatPriorFinding[] = [];
   try {
     const rawPriorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
     // SC-2 (mt#1189): sanitize each prior review body before ingestion so that
@@ -495,6 +506,10 @@ export async function runReview(
       priorBlockingCounts: priorReviews.map((r) => countBlockingFindings(r.body)),
     };
     priorReviewsMarkdown = summary.markdown;
+    // mt#1496: extract flat findings from prior bodies for the monotonicity-
+    // recovery layer. Always computed (cheap) regardless of the feature flag,
+    // so the wiring is symmetric across flag states.
+    priorFlatFindings = parsePriorReviewFindings(priorReviews.map((r) => r.body));
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.warn(
@@ -506,6 +521,7 @@ export async function runReview(
       priorBlockingCounts: [],
       error: errorMessage,
     };
+    priorFlatFindings = [];
   }
 
   const userPrompt = buildReviewPrompt({
@@ -630,12 +646,64 @@ export async function runReview(
   // -------------------------------------------------------------------------
 
   if (outputToolsActive) {
-    // Compose the structured review body from tool calls.
-    const composed = composeReviewBody(output.toolCalls);
+    // mt#1496 severity-monotonicity recovery: when enabled, downgrade BLOCKING
+    // findings whose file matches a prior NON-BLOCKING / PRE-EXISTING finding
+    // AND whose cited line range is not touched by new lines in the diff under
+    // review. Pure-functional pass over the tool-call list. Gated on env var
+    // for staged rollout — when disabled, toolCalls pass through unchanged.
+    //
+    // The flag is read per-invocation rather than at boot so operators can
+    // toggle without redeploy. Default-off keeps deployed behavior unchanged
+    // until a deliberate enablement.
+    const monotonicityRecoveryEnabled =
+      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED === "true";
 
-    // Structural blockingCount: count submit_finding calls with severity=BLOCKING.
-    // No regex needed — the data is already parsed and typed.
-    const blockingCount = output.toolCalls.filter(
+    let toolCallsForComposition = output.toolCalls;
+    if (monotonicityRecoveryEnabled && priorFlatFindings.length > 0) {
+      const recovery = applyMonotonicityRecovery(output.toolCalls, priorFlatFindings, pr.diff);
+      toolCallsForComposition = recovery.toolCalls;
+      // Emit one log event per downgrade so operators can audit the recovery
+      // layer's decisions and identify false positives (legitimate BLOCKING
+      // findings that were over-eagerly downgraded). Aggregated count is also
+      // useful for dashboards.
+      for (const d of recovery.downgrades) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.severity_downgrade",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            file: d.file,
+            line: d.line,
+            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+            fromSeverity: d.fromSeverity,
+            toSeverity: d.toSeverity,
+            matchingPriorSeverity: d.matchingPriorSeverity,
+            reason: d.reason,
+          })
+        );
+      }
+      if (recovery.downgrades.length > 0) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.severity_downgrade_summary",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            downgradeCount: recovery.downgrades.length,
+            originalBlockingCount: output.toolCalls.filter(
+              (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+            ).length,
+          })
+        );
+      }
+    }
+
+    // Compose the structured review body from (possibly recovered) tool calls.
+    const composed = composeReviewBody(toolCallsForComposition);
+
+    // Structural blockingCount: count submit_finding calls with severity=BLOCKING
+    // AFTER monotonicity recovery, so the downstream convergence-metric and
+    // event-derivation see the corrected values.
+    const blockingCount = toolCallsForComposition.filter(
       (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
     ).length;
 
