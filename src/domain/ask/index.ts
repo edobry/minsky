@@ -38,3 +38,10 @@ export type {
   AskReconcileOutcome,
 } from "./reconciler";
 export { reconcile, parsePrRef, findPrRef } from "./reconciler";
+
+// Query helpers (render-time enrichment)
+export { getOpenAskForTask, getOpenAsksByTaskIds } from "./queries";
+
+// BLOCKED subtype derivation
+export type { BlockedSubtype } from "./blocked-subtype";
+export { deriveBlockedSubtype, formatBlockedStatus } from "./blocked-subtype";

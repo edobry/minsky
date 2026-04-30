@@ -20,6 +20,7 @@ import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import type { AppContainerInterface } from "../../../composition/types";
+import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
 
 /**
  * Result returned by `transcripts.ingest`.
@@ -175,4 +176,7 @@ export function registerTranscriptCommands(
   });
 
   log.debug("Transcript commands registered");
+
+  // ── transcripts.index-embeddings ─────────────────────────────────────────
+  registerTranscriptIndexEmbeddingsCommand(_container, targetRegistry);
 }
