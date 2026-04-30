@@ -48,21 +48,26 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
   const e = err as Record<string, unknown>;
   // postgres-js attaches `query` as an own-property to ALL `PostgresError`
   // instances. For pre-send errors (connection acquisition failures,
-  // including pool saturation), `query` is `undefined`; for post-send
-  // errors, it holds the SQL string that reached the server. We must
-  // distinguish these — only post-send errors are unsafe to retry,
-  // because retrying a mutation whose query already executed would
-  // double-apply.
+  // including pool saturation), `query` is exactly `undefined`; for
+  // post-send errors, it holds the SQL string that reached the server.
+  // We must distinguish these — only post-send errors are unsafe to
+  // retry, because retrying a mutation whose query already executed
+  // would double-apply.
   //
   // mt#1193 originally used `"query" in e` (presence check), which
   // returns `true` even when `e.query === undefined`. That made
   // `isPgPoolExhaustionError` reject every real `PostgresError`, and
   // `withPgPoolRetry` was a silent no-op for the entire production
-  // path from 2026-04-25 to 2026-04-28. mt#1461 corrects to a truthy
-  // check (`!= null`): pre-send errors (`undefined`) pass through;
-  // post-send errors (any string, including any sanitized marker a
-  // wrapper might inject) get rejected.
-  if (e.query != null) return false;
+  // path from 2026-04-25 to 2026-04-28.
+  //
+  // mt#1461 corrects this with a CONSERVATIVE check that ONLY accepts
+  // the concrete postgres-js pre-send shape (`query === undefined`).
+  // Any other value of `query` — including `null`, `""`, or a SQL
+  // string — is treated as ambiguous and rejected. A wrapper that
+  // redacts the SQL of a post-send error to `null` would otherwise
+  // create a double-apply hazard for mutating callers; rejecting it
+  // is the safe default. (Reviewer-bot raised this on PR #893.)
+  if ("query" in e && e.query !== undefined) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (

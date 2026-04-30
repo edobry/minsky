@@ -54,8 +54,8 @@ describe("isPgPoolExhaustionError", () => {
 
   test("rejects errors with empty-string `query` field (defense against ambiguous wrapper output)", () => {
     // A wrapper that sets `query: ""` (e.g. sanitization) is ambiguous about
-    // whether the query reached the server. We err on the safe side and reject;
-    // empty string is truthy enough to fail the `!= null` check.
+    // whether the query reached the server. The conservative guard rejects
+    // anything other than `undefined`, so empty string falls through to false.
     expect(
       isPgPoolExhaustionError({
         code: "53300",
@@ -81,16 +81,19 @@ describe("isPgPoolExhaustionError", () => {
     ).toBe(true);
   });
 
-  test("matches errors with `query: null` (defensive: null also indicates pre-send)", () => {
-    // Some wrappers may set `query: null` instead of `undefined`. Both should
-    // pass the guard since neither indicates a transmitted query.
+  test("rejects errors with `query: null` (ambiguous; could be wrapper-redacted post-send)", () => {
+    // PR #893 reviewer raised this: a wrapper could redact the SQL of a
+    // post-send error to `null`, and treating `null` as pre-send would
+    // create a double-apply hazard for mutating callers. The conservative
+    // guard only accepts the concrete postgres-js pre-send shape
+    // (`query === undefined`); anything else, including `null`, is rejected.
     expect(
       isPgPoolExhaustionError({
         code: "XX000",
         message: SUPAVISOR_SATURATION_MESSAGE,
         query: null,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
