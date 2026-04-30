@@ -62,20 +62,30 @@ import { runSaturationSuite } from "./postgres-pool-saturation.shared";
 // every built-in wait strategy (forListeningPorts, the default log-based
 // strategy, etc.) hangs indefinitely under Bun due to Bun-specific
 // incompatibilities in testcontainers' docker socket / child_process polling.
-const noOpWaitStrategy: WaitStrategy = {
-  async waitUntilReady() {
-    // Intentionally empty — readiness is determined by the SQL probe below.
-  },
-  withStartupTimeout() {
-    return this;
-  },
-  isStartupTimeoutSet() {
-    return false;
-  },
-  getStartupTimeout() {
-    return 120_000;
-  },
-};
+//
+// The strategy still implements the full WaitStrategy contract (storing the
+// timeout passed to withStartupTimeout, reflecting it via isStartupTimeoutSet
+// and getStartupTimeout) so testcontainers' internal diagnostics see a
+// consistent state — even though waitUntilReady itself is a no-op.
+function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
+  let storedTimeoutMs: number | undefined;
+  const strategy: WaitStrategy = {
+    async waitUntilReady() {
+      // Intentionally empty — readiness is determined by the SQL probe below.
+    },
+    withStartupTimeout(timeoutMs: number) {
+      storedTimeoutMs = timeoutMs;
+      return strategy;
+    },
+    isStartupTimeoutSet() {
+      return storedTimeoutMs !== undefined;
+    },
+    getStartupTimeout() {
+      return storedTimeoutMs ?? defaultTimeoutMs;
+    },
+  };
+  return strategy;
+}
 
 // Server-side max_connections. We bump above the strict minimum so that
 // Postgres background workers (autovacuum) and superuser_reserved_connections
@@ -98,10 +108,13 @@ const POSTGRES_IMAGE = "pgvector/pgvector:pg16";
 if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
   // Top-level await: start the container BEFORE registering tests so the
   // connection string is real by the time runSaturationSuite destructures
-  // it. Container startup happens outside Bun's per-test timeout — the
-  // Testcontainers `withStartupTimeout(120_000)` is the only protection
-  // here. The `test:integration:docker` script uses --timeout=180000 to
-  // give bun:test enough headroom for the test bodies after startup.
+  // it. Container startup happens outside Bun's per-test timeout. With the
+  // no-op wait strategy, testcontainers' withStartupTimeout effectively
+  // bounds only the docker exec/socket calls (the wait strategy itself
+  // returns immediately) — the real readiness deadline is the 60s SQL
+  // probe loop below. The `test:integration:docker` script uses
+  // --timeout=180000 to give bun:test enough headroom after startup for
+  // the test bodies themselves to run.
   process.stdout.write(
     `[saturation/testcontainer] starting ${POSTGRES_IMAGE} with max_connections=${MAX_CONNECTIONS}\n`
   );
@@ -123,7 +136,7 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       // a Bun-specific incompatibility. The no-op resolves immediately so
       // start() returns as soon as the container process is up; our SQL probe
       // loop below then takes over as the actual readiness gate.
-      .withWaitStrategy(noOpWaitStrategy)
+      .withWaitStrategy(makeNoOpWaitStrategy(120_000))
       .withStartupTimeout(120_000)
       .start();
   } catch (err) {
@@ -142,6 +155,11 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
   // hangs under Bun. The probe is the canonical postgres readiness check and
   // gives us the same guarantee (SQL-level proof that the server is accepting
   // connections), not just a TCP-level listen check.
+  //
+  // Effective per-attempt cadence: the inner connect can block for up to
+  // connect_timeout=2s before the catch+sleep(500ms) fires, so a failing
+  // attempt takes up to ~2.5s. With a 60s deadline we get ~24 attempts
+  // worst-case, which is plenty for cold-start.
   process.stdout.write(
     `[saturation/testcontainer] container started, probing SQL readiness at ${host}:${port}\n`
   );
