@@ -58,6 +58,17 @@
             "statusMessage": "Checking main-workspace edit guard..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__session_start",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/parallel-work-guard.ts",
+            "timeout": 30,
+            "statusMessage": "Checking for parallel work..."
+          }
+        ]
       }
     ],
     "SessionStart": [
