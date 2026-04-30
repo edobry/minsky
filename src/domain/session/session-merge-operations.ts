@@ -31,6 +31,8 @@ import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
 import { resolveRepository } from "../repository";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
+import type { AskRepository } from "../ask/repository";
+import type { CreateAskInput } from "../ask/repository";
 import { ProvenanceService } from "../provenance/provenance-service";
 import { AuthorshipTier } from "../provenance/types";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
@@ -147,6 +149,12 @@ export interface SessionMergeDependencies {
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   persistenceProvider?: PersistenceProvider;
+  /**
+   * Optional Ask repository for emitting quality.review Asks before each merge attempt.
+   * When provided, a quality.review Ask is persisted before the merge (best-effort: failures
+   * are logged but do NOT block the merge). When absent, Ask emission is skipped silently.
+   */
+  askRepository?: AskRepository;
 }
 
 /**
@@ -200,6 +208,64 @@ export async function mergeSessionPr(
   // CRITICAL SECURITY VALIDATION: Use centralized approval validation
   // This ensures consistent security enforcement across all merge operations
   validateSessionApprovedForMerge(sessionRecord, sessionIdToUse);
+
+  // ── quality.review Ask emission (best-effort) ─────────────────────────────
+  // Persist a quality.review Ask before each merge attempt so the attention-allocation
+  // subsystem (mt#1034) can track review requests. This is best-effort: failures are
+  // logged but MUST NOT block the merge. The existing approval gate above remains
+  // authoritative — this emission is observational only.
+  if (deps.askRepository) {
+    try {
+      const prNumber =
+        sessionRecord.backendType === "github" && sessionRecord.pullRequest
+          ? sessionRecord.pullRequest.number
+          : undefined;
+
+      const askInput: CreateAskInput = {
+        kind: "quality.review",
+        classifierVersion: "v1",
+        // requestor is the calling agent; use a stable process-level identity
+        requestor: `minsky.session-merge:proc:${sessionIdToUse}`,
+        parentTaskId: sessionRecord.taskId,
+        parentSessionId: sessionIdToUse,
+        title: `quality.review for session ${sessionIdToUse}`,
+        question: `Session ${sessionIdToUse} is about to be merged. Review the PR for quality and correctness.`,
+        contextRefs:
+          prNumber !== undefined
+            ? [
+                {
+                  kind: "github-pr",
+                  ref: `github-pr:${sessionRecord.repoName ?? "unknown"}/${String(prNumber)}`,
+                  description: `GitHub PR #${prNumber}`,
+                },
+              ]
+            : undefined,
+        metadata: {
+          prNumber,
+          targetBranch: sessionRecord.prBranch,
+          approvalState:
+            sessionRecord.prApproved === true
+              ? "approved"
+              : sessionRecord.prApproved === false
+                ? "rejected"
+                : "unknown",
+        },
+      };
+
+      await deps.askRepository.create(askInput);
+      log.debug("quality.review Ask emitted for merge", {
+        sessionId: sessionIdToUse,
+        taskId: sessionRecord.taskId,
+        prNumber,
+      });
+    } catch (askErr: unknown) {
+      const errMsg = askErr instanceof Error ? askErr.message : String(askErr);
+      log.warn("Failed to emit quality.review Ask before merge (non-blocking)", {
+        sessionId: sessionIdToUse,
+        error: errMsg,
+      });
+    }
+  }
 
   // Get the main repository path for task updates (not session workspace)
   // Resolve to a local filesystem path to avoid using remote URLs as workdirs
