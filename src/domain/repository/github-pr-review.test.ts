@@ -128,6 +128,14 @@ describe("validateReviewComment", () => {
     ).not.toThrow();
   });
 
+  test("passes for suggestion with multiple trailing newlines (all stripped before counting)", () => {
+    // Single-line range, suggestion ends with "\n\n\n" — all trailing newlines stripped,
+    // so the count is still 1 and validation passes.
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "const x = 1;\n\n\n" }))
+    ).not.toThrow();
+  });
+
   test("rejects single-line comment with multi-line suggestion", () => {
     expect(() =>
       validateReviewComment(mkComment({ line: 10, suggestion: "line 1\nline 2" }))
@@ -173,8 +181,12 @@ describe("validateReviewComment", () => {
  */
 function buildApiComment(c: ReviewComment): Record<string, unknown> {
   const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+  const normalizedSuggestion =
+    c.suggestion !== undefined ? c.suggestion.replace(/\n+$/, "") : undefined;
   const resolvedBody =
-    c.suggestion !== undefined ? `${c.body}\n\n\`\`\`suggestion\n${c.suggestion}\n\`\`\`` : c.body;
+    normalizedSuggestion !== undefined
+      ? `${c.body}\n\n\`\`\`suggestion\n${normalizedSuggestion}\n\`\`\``
+      : c.body;
   return {
     path: c.path,
     line: c.line,
@@ -320,5 +332,22 @@ describe("Octokit payload mapping", () => {
     });
 
     expect(payload.body).toBe(`simplify\n\n\`\`\`suggestion\n${suggestion}\n\`\`\``);
+  });
+
+  test("suggestion with multiple trailing newlines produces exactly one trailing newline inside fence", () => {
+    // suggestion ends with "\n\n\n" — normalization must strip all trailing newlines
+    // so the fence body is "const x = 1;\n" not "const x = 1;\n\n\n\n"
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "use a const",
+      suggestion: "const x = 1;\n\n\n",
+    });
+
+    const body = payload.body as string;
+    // The fenced block must contain exactly one newline before the closing fence.
+    expect(body).toBe("use a const\n\n```suggestion\nconst x = 1;\n```");
+    // Specifically, no double-blank-line inside the fence.
+    expect(body).not.toContain("const x = 1;\n\n");
   });
 });

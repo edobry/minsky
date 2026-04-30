@@ -102,10 +102,9 @@ export function validateReviewComment(comment: ReviewComment): void {
   }
 
   if (comment.suggestion !== undefined) {
-    // Count lines in suggestion (split on newline; trailing newline does not add an extra line)
-    const suggestionText = comment.suggestion.endsWith("\n")
-      ? comment.suggestion.slice(0, -1)
-      : comment.suggestion;
+    // Count lines in suggestion after stripping ALL trailing newlines so that
+    // suggestions ending with "\n", "\n\n", etc. are counted the same way.
+    const suggestionText = comment.suggestion.replace(/\n+$/, "");
     const suggestionLineCount = suggestionText.split("\n").length;
 
     // Determine the anchored line range
@@ -203,9 +202,14 @@ export async function submitReview(
       // When a suggestion is provided, append a fenced suggestion block to the body.
       // GitHub renders this as an "Apply suggestion" button when the suggestion line
       // count matches the anchored range (validated above in validateReviewComment).
+      // Normalize trailing newlines from suggestion before placing it in the fence,
+      // so that suggestions ending with "\n\n" etc. don't produce double-blank-lines
+      // inside the fenced block.
+      const normalizedSuggestion =
+        c.suggestion !== undefined ? c.suggestion.replace(/\n+$/, "") : undefined;
       const resolvedBody =
-        c.suggestion !== undefined
-          ? `${c.body}\n\n\`\`\`suggestion\n${c.suggestion}\n\`\`\``
+        normalizedSuggestion !== undefined
+          ? `${c.body}\n\n\`\`\`suggestion\n${normalizedSuggestion}\n\`\`\``
           : c.body;
 
       return {
