@@ -1004,7 +1004,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(log["provider"]).toBe("openai");
     expect(log["reminder_count"]).toBe(1);
     expect(log["finally_emitted"]).toBe(true);
-    expect(log["fired_at_turn"]).toBe(2); // 2 main-loop rounds before post-loop pass
+    expect(log["fired_at_turn"]).toBe(2); // fired after 2 main-loop rounds (the forced pass itself is the 3rd API call)
   });
 
   test("post-loop forced pass uses tool_choice constrained to conclude_review", async () => {
@@ -1384,5 +1384,107 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     const round9Params = capturedParams[9];
     expect(round9Params?.tools).toBeUndefined();
     expect(round9Params?.tool_choice).toBeUndefined();
+  });
+
+  test("forced-pass conclude_review emits reviewer.output_tool_call log for observability parity", async () => {
+    // Regression guard for the PR #915 round-1 blocking finding: the forced
+    // path must emit the same `reviewer.output_tool_call` log shape as the
+    // main loop so downstream metrics see the conclude_review emission.
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    const outputToolCallLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === "reviewer.output_tool_call"
+    );
+    // Two output tool calls were accepted: submit_finding (main loop, count=1)
+    // and conclude_review (forced post-loop pass, count=2).
+    expect(outputToolCallLogs).toHaveLength(2);
+
+    const findingLog = outputToolCallLogs[0] as Record<string, unknown>;
+    expect(findingLog["tool"]).toBe("submit_finding");
+    expect(findingLog["count"]).toBe(1);
+
+    const concludeLog = outputToolCallLogs[1] as Record<string, unknown>;
+    expect(concludeLog["tool"]).toBe("conclude_review");
+    expect(concludeLog["count"]).toBe(2);
+    expect(concludeLog["provider"]).toBe("openai");
+  });
+
+  test("empty exit content from a non-last round falls back to TOOL CAP REACHED sentinel, not empty string", async () => {
+    // Regression guard for the PR #915 round-1 blocking finding: a model that
+    // exits with `content: ""` after a tool-call-heavy turn must not have its
+    // empty content surface in `result.text`. Coerce empty → null so the
+    // final-return fallback (`exitText ?? sentinel`) takes over.
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: explicitly empty content on exit. Old behavior: result.text
+      // would be "". New behavior: result.text falls back to the sentinel.
+      {
+        choices: [{ message: { content: "", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: emits conclude_review.
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(result.text).not.toBe("");
+    expect(result.text).toContain("[TOOL CAP REACHED]");
   });
 });

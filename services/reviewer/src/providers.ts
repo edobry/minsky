@@ -220,20 +220,21 @@ const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 const CONCLUDE_REVIEW_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
   (t) => t.function.name === "conclude_review"
 );
-if (!CONCLUDE_REVIEW_RAW_DEF) {
-  // Module-load-time invariant: OUTPUT_TOOL_DEFINITIONS is built locally and
-  // is expected to contain conclude_review. If this ever fails, it's a refactor
-  // bug, not runtime data — surface it loudly.
-  throw new Error("internal invariant: conclude_review missing from OUTPUT_TOOL_DEFINITIONS");
-}
-const CONCLUDE_REVIEW_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool = {
-  type: "function" as const,
-  function: {
-    name: CONCLUDE_REVIEW_RAW_DEF.function.name,
-    description: CONCLUDE_REVIEW_RAW_DEF.function.description,
-    parameters: CONCLUDE_REVIEW_RAW_DEF.function.parameters as Record<string, unknown>,
-  },
-};
+// Runtime guard rather than a module-load throw: if conclude_review is somehow
+// absent from OUTPUT_TOOL_DEFINITIONS (refactor slip), the rest of the reviewer
+// service still starts; only the post-loop forced pass is disabled, and
+// composition-side severity-derived event recovery (mt#1413) takes over.
+const CONCLUDE_REVIEW_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
+  CONCLUDE_REVIEW_RAW_DEF
+    ? {
+        type: "function" as const,
+        function: {
+          name: CONCLUDE_REVIEW_RAW_DEF.function.name,
+          description: CONCLUDE_REVIEW_RAW_DEF.function.description,
+          parameters: CONCLUDE_REVIEW_RAW_DEF.function.parameters as Record<string, unknown>,
+        },
+      }
+    : null;
 
 /** User message injected before the post-loop forced conclude_review pass. */
 const CONCLUDE_REVIEW_REMINDER_USER_MSG =
@@ -254,9 +255,21 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
  * @returns Token usage from the call plus whether a parseable conclude_review
  *          was actually appended to accumulatedToolCalls.
  */
+/**
+ * Subset of the model invocation parameters preserved across the main loop and
+ * the post-loop forced pass. Typed explicitly so `client.chat.completions.create`
+ * sees `model` as a required field — `Record<string, unknown>` widens it away
+ * and trips the SDK's overload resolution under `tsc --noEmit`.
+ */
+interface ChatCreateBaseParams {
+  model: string;
+  max_completion_tokens: number;
+  reasoning_effort?: "low" | "medium" | "high";
+}
+
 async function forceConcludeReview(
   client: OpenAI,
-  baseParams: Record<string, unknown>,
+  baseParams: ChatCreateBaseParams,
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
   accumulatedToolCalls: ReviewToolCall[]
@@ -266,6 +279,19 @@ async function forceConcludeReview(
   reasoningTokens: number;
   emitted: boolean;
 }> {
+  // Runtime guard: if the conclude_review tool definition is missing (refactor
+  // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
+  // side recovery (mt#1413) handle the missing-conclude_review case.
+  if (!CONCLUDE_REVIEW_TOOL_DEF) {
+    console.log(
+      JSON.stringify({
+        event: "reviewer.conclude_review_tool_def_missing",
+        provider: "openai",
+      })
+    );
+    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+  }
+
   // Append the exiting assistant turn (so the model sees its own prior response)
   // and a user reminder directing it to emit conclude_review.
   if (exitMessage) {
@@ -302,6 +328,17 @@ async function forceConcludeReview(
     try {
       const parsed = parseToolCall("conclude_review", toolCall.function.arguments);
       accumulatedToolCalls.push(parsed);
+      // Observability parity with main-loop output tool calls: emit the same
+      // shape so downstream metrics tracking `reviewer.output_tool_call`
+      // counts include the forced-path conclude_review emission.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.output_tool_call",
+          provider: "openai",
+          tool: "conclude_review",
+          count: accumulatedToolCalls.length,
+        })
+      );
       return { ...tokenUsage, emitted: true };
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -460,11 +497,18 @@ export async function callOpenAIWithClient(
     // the model emits conclude_review.
     if (!rawToolCalls || rawToolCalls.length === 0) {
       exitMessage = message;
+      // Treat empty content the same as missing content: a model that exits
+      // with `content: ""` after a tool-call-heavy turn would otherwise
+      // overwrite earlier narrative or the [TOOL CAP REACHED] sentinel with
+      // an empty string. Coerce empty → null so the final-return fallback
+      // (`exitText ?? sentinel`) takes over for non-last rounds.
+      const exitContent =
+        typeof message.content === "string" && message.content.length > 0 ? message.content : null;
       exitText =
-        message.content ??
+        exitContent ??
         (isLastRound
           ? "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit. The review above may be incomplete. Manual review is recommended."
-          : "");
+          : null);
       break;
     }
 
