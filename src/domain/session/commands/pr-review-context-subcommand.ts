@@ -15,6 +15,7 @@ import {
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
+import { parseUnifiedDiff, type DiffFile } from "../../../utils/parse-diff";
 
 export interface SessionPrReviewContextDependencies {
   sessionDB: SessionProviderInterface;
@@ -62,6 +63,7 @@ export interface SessionPrReviewContextResult {
   pr: PrSummary;
   checks: ChecksSummary;
   diff: string;
+  parsedDiff: DiffFile[];
   taskSpec: string | null;
   taskId: string | null;
 }
@@ -147,6 +149,7 @@ export async function sessionPrReviewContext(
       pr,
       checks,
       diff: diffResult.diff,
+      parsedDiff: parseUnifiedDiff(diffResult.diff),
       taskSpec: taskSpecContent,
       taskId,
     };
