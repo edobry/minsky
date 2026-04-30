@@ -17,6 +17,7 @@ import type { AskRepository } from "./repository";
 import type { Ask, AskState } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
 import { buildAttentionCost } from "./accounting/index";
+import { LoggingWakeSignalSink, dispatchWake, type WakeSignalSink } from "./wake-on-respond";
 
 // ---------------------------------------------------------------------------
 // GitHub client interface — narrow projection used by the reconciler.
@@ -182,7 +183,8 @@ function truncate(str: string, max: number): string {
 export async function reconcile(
   askRepository: AskRepository,
   githubClient: GithubReviewClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink: WakeSignalSink = new LoggingWakeSignalSink()
 ): Promise<ReconcileResult> {
   // Gather all open quality.review Asks across non-terminal pre-responded states.
   // v1 short-circuit: mt#1069 (router) does not yet exist, so detected/classified
@@ -205,7 +207,13 @@ export async function reconcile(
 
   for (const ask of candidates) {
     try {
-      const outcome = await reconcileAsk(ask, askRepository, githubClient, operatorNotify);
+      const outcome = await reconcileAsk(
+        ask,
+        askRepository,
+        githubClient,
+        operatorNotify,
+        wakeSink
+      );
       outcomes.push(outcome);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -258,7 +266,8 @@ async function reconcileAsk(
   ask: Ask,
   askRepository: AskRepository,
   githubClient: GithubReviewClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink: WakeSignalSink
 ): Promise<AskReconcileOutcome> {
   // Find the github-pr contextRef.
   const prRef = findPrRef(ask);
@@ -344,6 +353,27 @@ async function reconcileAsk(
   //
   // For the idempotence guarantee: the state transition itself is the guard.
   // An Ask in `responded` is terminal relative to this reconciler's filter.
+
+  // Wake the originating agent (mt#1481). Parallel path to operator-notify —
+  // wake failure does NOT roll back the respond() and does NOT short-circuit
+  // the notify path below. Skips cleanly when parentSessionId is missing.
+  try {
+    await dispatchWake(wakeSink, {
+      askId: ask.id,
+      parentSessionId: ask.parentSessionId,
+      parentTaskId: ask.parentTaskId,
+      reviewBody: latestReview.body,
+      reviewState: latestReview.state,
+      reviewAuthor: latestReview.reviewerLogin,
+      prNumber,
+    });
+  } catch (wakeErr: unknown) {
+    const errMsg = wakeErr instanceof Error ? wakeErr.message : String(wakeErr);
+    log.warn("reconcile: wake-signal dispatch failed (ask already responded)", {
+      askId: ask.id,
+      error: errMsg,
+    });
+  }
 
   // Fire notification. Failure here must NOT roll back the respond().
   let notified = false;
