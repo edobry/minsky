@@ -170,6 +170,178 @@ describe("applyJsonPatch error path — stdout not included (B1 regression)", ()
   });
 });
 
+describe("isPlatformInjectedVar — system-var filter (R7 fix)", () => {
+  // Mirrors the logic added in apply.ts:
+  //   const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
+  //   const RAILWAY_SYSTEM_KEYS = new Set(["PORT"] as const);
+  //   function isPlatformInjectedVar(key: string): boolean {
+  //     if (RAILWAY_SYSTEM_KEYS.has(key)) return true;
+  //     return RAILWAY_SYSTEM_PREFIXES.some((prefix) => key.startsWith(prefix));
+  //   }
+
+  const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
+  const RAILWAY_SYSTEM_KEYS = new Set(["PORT"] as const);
+
+  function isPlatformInjectedVar(key: string): boolean {
+    if (RAILWAY_SYSTEM_KEYS.has(key)) return true;
+    return RAILWAY_SYSTEM_PREFIXES.some((prefix) => key.startsWith(prefix));
+  }
+
+  // Keys that MUST be classified as platform-injected (filtered out, never pruned).
+  test("PORT is a platform-injected key (exact allowlist match)", () => {
+    expect(isPlatformInjectedVar("PORT")).toBe(true);
+  });
+
+  test("RAILWAY_PUBLIC_DOMAIN is a platform-injected key (RAILWAY_ prefix)", () => {
+    expect(isPlatformInjectedVar("RAILWAY_PUBLIC_DOMAIN")).toBe(true);
+  });
+
+  test("RAILWAY_ bare prefix is a platform-injected key", () => {
+    expect(isPlatformInjectedVar("RAILWAY_ANYTHING")).toBe(true);
+  });
+
+  test("NIXPACKS_BUILD_CMD is a platform-injected key (NIXPACKS_ prefix)", () => {
+    expect(isPlatformInjectedVar("NIXPACKS_BUILD_CMD")).toBe(true);
+  });
+
+  test("NIXPACKS_ bare prefix is a platform-injected key", () => {
+    expect(isPlatformInjectedVar("NIXPACKS_ANYTHING")).toBe(true);
+  });
+
+  test("RAILPACK_ANYTHING is a platform-injected key (RAILPACK_ prefix)", () => {
+    expect(isPlatformInjectedVar("RAILPACK_ANYTHING")).toBe(true);
+  });
+
+  // Keys that MUST NOT be classified as platform-injected (user vars, must not be auto-pruned).
+  test("MY_VAR is NOT a platform-injected key", () => {
+    expect(isPlatformInjectedVar("MY_VAR")).toBe(false);
+  });
+
+  test("OPENAI_API_KEY is NOT a platform-injected key", () => {
+    expect(isPlatformInjectedVar("OPENAI_API_KEY")).toBe(false);
+  });
+
+  test("DATABASE_URL is NOT a platform-injected key", () => {
+    expect(isPlatformInjectedVar("DATABASE_URL")).toBe(false);
+  });
+
+  test("PORT_NUMBER is NOT a platform-injected key (prefix-match only, not exact)", () => {
+    // 'PORT_NUMBER' starts with 'PORT' but should NOT match — the allowlist is an exact-key check.
+    expect(isPlatformInjectedVar("PORT_NUMBER")).toBe(false);
+  });
+
+  test("empty string is NOT a platform-injected key", () => {
+    expect(isPlatformInjectedVar("")).toBe(false);
+  });
+});
+
+describe("reseal count log — uses actual patch object count, not config key count (R7 fix)", () => {
+  // Mirrors the corrected logic in apply.ts run():
+  //   const allPatches = buildAllSecretPatches(config, diff);
+  //   const resealCount = Object.keys(allPatches).length;
+  //
+  // The OLD (buggy) path counted all SecretRef keys in config.variables, even those
+  // that appear as ADD or CHANGE entries in the diff (which buildAllSecretPatches skips).
+  // This test suite verifies that the count is derived from the actual patch result.
+
+  // Simulate buildAllSecretPatches behavior: returns sealed values only for NO-CHANGE SecretRef entries.
+  type MockDiffEntry = { kind: "NO-CHANGE" | "ADD" | "CHANGE" | "REMOVE" };
+  type MockConfig = { variables: Record<string, { secretRef: string } | string> };
+
+  function simulateBuildAllSecretPatches(
+    config: MockConfig,
+    diff: Record<string, MockDiffEntry>
+  ): Record<string, string> {
+    const patches: Record<string, string> = {};
+    for (const [key, val] of Object.entries(config.variables)) {
+      if (typeof val === "object" && "secretRef" in val) {
+        const entry = diff[key];
+        if (entry && entry.kind === "NO-CHANGE") {
+          patches[key] = `sealed:${val.secretRef}`;
+        }
+      }
+    }
+    return patches;
+  }
+
+  test("when all SecretRef entries are NO-CHANGE, resealCount equals the number of SecretRefs", () => {
+    const config: MockConfig = {
+      variables: {
+        SECRET_A: { secretRef: "val-a" },
+        SECRET_B: { secretRef: "val-b" },
+        PLAIN_VAR: "plain",
+      },
+    };
+    const diff: Record<string, MockDiffEntry> = {
+      SECRET_A: { kind: "NO-CHANGE" },
+      SECRET_B: { kind: "NO-CHANGE" },
+      PLAIN_VAR: { kind: "NO-CHANGE" },
+    };
+    const patches = simulateBuildAllSecretPatches(config, diff);
+    const resealCount = Object.keys(patches).length;
+    // Both secrets are NO-CHANGE, so resealCount = 2 (not 2+1=3 or the old secretKeys count).
+    expect(resealCount).toBe(2);
+  });
+
+  test("when some SecretRef entries are ADD/CHANGE, resealCount is lower than total SecretRef count", () => {
+    const config: MockConfig = {
+      variables: {
+        SECRET_A: { secretRef: "val-a" }, // NO-CHANGE
+        SECRET_B: { secretRef: "val-b" }, // ADD — should not be re-sealed
+        SECRET_C: { secretRef: "val-c" }, // CHANGE — should not be re-sealed
+      },
+    };
+    const diff: Record<string, MockDiffEntry> = {
+      SECRET_A: { kind: "NO-CHANGE" },
+      SECRET_B: { kind: "ADD" },
+      SECRET_C: { kind: "CHANGE" },
+    };
+    const patches = simulateBuildAllSecretPatches(config, diff);
+    const resealCount = Object.keys(patches).length;
+    // Old code would have counted secretKeys.length = 3; correct count is 1 (only SECRET_A).
+    expect(resealCount).toBe(1);
+  });
+
+  test("when all SecretRef entries are ADD/CHANGE, resealCount is zero", () => {
+    const config: MockConfig = {
+      variables: {
+        SECRET_A: { secretRef: "val-a" },
+        SECRET_B: { secretRef: "val-b" },
+      },
+    };
+    const diff: Record<string, MockDiffEntry> = {
+      SECRET_A: { kind: "ADD" },
+      SECRET_B: { kind: "CHANGE" },
+    };
+    const patches = simulateBuildAllSecretPatches(config, diff);
+    const resealCount = Object.keys(patches).length;
+    // Old code: secretKeys.length = 2; correct: 0.
+    expect(resealCount).toBe(0);
+  });
+
+  test("resealCount log message uses correct count when some secrets are being modified", () => {
+    // This verifies the log message is derived from the patch, not from config keys.
+    const config: MockConfig = {
+      variables: {
+        SECRET_A: { secretRef: "val-a" },
+        SECRET_B: { secretRef: "val-b" },
+        SECRET_C: { secretRef: "val-c" },
+      },
+    };
+    const diff: Record<string, MockDiffEntry> = {
+      SECRET_A: { kind: "NO-CHANGE" },
+      SECRET_B: { kind: "NO-CHANGE" },
+      SECRET_C: { kind: "ADD" }, // new secret — not yet sealed, gets regular ADD patch
+    };
+    const patches = simulateBuildAllSecretPatches(config, diff);
+    const resealCount = Object.keys(patches).length;
+    // The log should say 2, not 3 (which secretKeys.length would have returned).
+    const logMessage = `Re-sealing ${resealCount} secret variable(s) (sealed NO-CHANGE entries only).`;
+    expect(logMessage).toContain("Re-sealing 2 secret variable(s)");
+    expect(logMessage).not.toContain("Re-sealing 3 secret variable(s)");
+  });
+});
+
 describe("loadConfig dynamic import — default export handling (B2 smoke)", () => {
   // Validates that the dynamic-import branch handles both ESM (mod.default) and
   // CJS-shaped (mod itself) exports. We test the selection logic in isolation

@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url";
 import {
   type RailwayConfig,
   type CurrentVar,
-  isSecretRef,
   assertHttpOk,
   computeDiff,
   buildVariablePatches,
@@ -19,9 +18,12 @@ import {
 const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
 const GRAPHQL_TIMEOUT_MS = 30_000;
 
-const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_"];
+const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
+// Exact keys auto-injected by Railway that do not carry a recognizable prefix.
+const RAILWAY_SYSTEM_KEYS = new Set(["PORT"] as const);
 
-function isSystemVar(key: string): boolean {
+function isPlatformInjectedVar(key: string): boolean {
+  if (RAILWAY_SYSTEM_KEYS.has(key)) return true;
   return RAILWAY_SYSTEM_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
@@ -124,7 +126,7 @@ async function fetchCurrentVariables(
   const result: Record<string, CurrentVar> = {};
 
   for (const [key, value] of Object.entries(rawVars)) {
-    if (isSystemVar(key)) continue;
+    if (isPlatformInjectedVar(key)) continue;
     if (value === null) {
       result[key] = { value: "", isSealed: true };
     } else {
@@ -243,20 +245,15 @@ async function run(): Promise<void> {
   if (changes.length === 0) {
     console.log("");
     if (execute && resealSecrets) {
-      const secretKeys = Object.keys(config.variables).filter((k) => {
-        const v = config.variables[k];
-        return v !== undefined && isSecretRef(v);
-      });
-      if (secretKeys.length > 0) {
+      const allPatches = buildAllSecretPatches(config, diff);
+      const resealCount = Object.keys(allPatches).length;
+      if (resealCount > 0) {
         console.log(
-          `Re-sealing ${secretKeys.length} secret variable(s) with isSealed=true (values unchanged).`
+          `Re-sealing ${resealCount} secret variable(s) (sealed NO-CHANGE entries only).`
         );
-        const allPatches = buildAllSecretPatches(config, diff);
-        if (Object.keys(allPatches).length > 0) {
-          const patch = buildJsonPatch(config.serviceId, allPatches);
-          applyJsonPatch(patch);
-          console.log(`Applied ${Object.keys(allPatches).length} secret re-seal(s).`);
-        }
+        const patch = buildJsonPatch(config.serviceId, allPatches);
+        applyJsonPatch(patch);
+        console.log(`Applied ${resealCount} secret re-seal(s).`);
       }
     }
     if (!prune && summary.toRemove.length > 0) {
