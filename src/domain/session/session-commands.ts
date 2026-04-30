@@ -163,9 +163,17 @@ export async function sessionCommit(
     const gitService = createGitService();
     const hasChanges = await gitService.hasUncommittedChanges(workdir);
     isCleanTree = !hasChanges;
-  } catch {
+  } catch (probeErr) {
     // If we cannot determine tree state (e.g. not a git repo yet), let the
     // downstream commit attempt proceed and handle NothingToCommitError there.
+    // Surface the probe failure (don't silently swallow): if the tree turns out
+    // to actually be clean, the Ask emitted below is a benign false positive
+    // for that rare path, but operators need visibility into why detection failed.
+    log.warn(
+      `[session.commit] hasUncommittedChanges probe failed; proceeding with commit attempt: ${
+        probeErr instanceof Error ? probeErr.message : String(probeErr)
+      }`
+    );
   }
 
   if (!params.amend && isCleanTree) {

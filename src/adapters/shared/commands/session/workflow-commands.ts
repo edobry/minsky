@@ -84,14 +84,25 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
       "session.commit",
       async (params: Record<string, unknown>, context) => {
         const { sessionCommit } = await import("../../../../domain/session/session-commands");
+        const { log } = await import("../../../../utils/logger");
         const deps = await getDeps();
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
         // unconditionally still triggers an async DB-init path and log.warn noise
         // whenever persistence is not configured (e.g. CLI-only contexts).
-        const askRepository = context.container?.has("persistence")
-          ? await buildAskRepository(context.container)
-          : undefined;
+        let askRepository: Awaited<ReturnType<typeof buildAskRepository>> = null;
+        if (context.container?.has("persistence")) {
+          askRepository = await buildAskRepository(context.container);
+          if (askRepository === null) {
+            // Persistence is registered but buildAskRepository returned null
+            // (e.g. DB connection unavailable or non-SQL backend). Surface this
+            // at the adapter layer so operators know Ask emission is silently
+            // disabled for this command run — don't just coerce null → undefined.
+            log.warn(
+              "[session.commit] persistence is registered but buildAskRepository returned null; authorization.approve Ask emission disabled for this invocation"
+            );
+          }
+        }
 
         try {
           const result = await sessionCommit(
