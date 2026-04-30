@@ -747,7 +747,9 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
 
   test("read_file interleaved with submit_finding → toolCalls contains only submit_finding entries", async () => {
     const { client } = makeFakeClient([
-      // Round 1: read_file + submit_finding interleaved
+      // Round 1: read_file + submit_finding + conclude_review interleaved.
+      // conclude_review is included so the reminder mechanism does not fire
+      // (a well-behaved model emits conclude_review as its terminator).
       {
         choices: [
           {
@@ -760,6 +762,7 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
                   function: { name: "read_file", arguments: JSON.stringify({ path: "src/a.ts" }) },
                 },
                 makeOutputToolCall("sf1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("cr1", "conclude_review", VALID_CONCLUDE_ARGS),
               ],
             },
           },
@@ -784,16 +787,19 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
 
     const result = await callOpenAIWithClient(client, MODEL, "system", "user", toolsWithReadFile);
 
-    // Only the submit_finding call should be in toolCalls — not the read_file.
-    expect(result.toolCalls).toHaveLength(1);
+    // Only submit_finding and conclude_review should be in toolCalls — not read_file.
+    expect(result.toolCalls).toHaveLength(2);
     expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[1]?.name).toBe("conclude_review");
   });
 
   test("malformed output tool args → parse error logged, call not added, subsequent valid calls recorded", async () => {
     const MALFORMED_ARGS = JSON.stringify({ severity: "URGENT", file: "src/b.ts", line: 1 });
 
     const { client } = makeFakeClient([
-      // Round 1: malformed submit_finding then a valid one
+      // Round 1: malformed submit_finding, then a valid one, then conclude_review.
+      // conclude_review is included so the reminder mechanism does not fire
+      // (a well-behaved model emits conclude_review as its terminator).
       {
         choices: [
           {
@@ -802,6 +808,7 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
               tool_calls: [
                 makeOutputToolCall("bad1", "submit_finding", MALFORMED_ARGS),
                 makeOutputToolCall("good1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("cr1", "conclude_review", VALID_CONCLUDE_ARGS),
               ],
             },
           },
@@ -817,9 +824,10 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
 
     const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
 
-    // Malformed call is NOT in toolCalls; only the valid one is.
-    expect(result.toolCalls).toHaveLength(1);
+    // Malformed call is NOT in toolCalls; the valid finding and conclude_review are.
+    expect(result.toolCalls).toHaveLength(2);
     expect((result.toolCalls[0] as ReviewToolCall).name).toBe("submit_finding");
+    expect((result.toolCalls[1] as ReviewToolCall).name).toBe("conclude_review");
 
     // Loop continues; final text is returned.
     expect(result.text).toBe("recovered");
@@ -839,5 +847,276 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
     expect(result.toolCalls).toBeDefined();
     expect(Array.isArray(result.toolCalls)).toBe(true);
     expect(result.toolCalls).toHaveLength(0);
+  });
+});
+
+// ----- conclude_review reminder mechanism (mt#1450) -----
+//
+// Verifies that the loop-side reminder fires when the model exits without
+// emitting conclude_review, and that structured log entries are emitted with
+// the correct finally_emitted value.
+
+describe("callOpenAIWithClient conclude_review reminder (mt#1450)", () => {
+  const MODEL = "gpt-5";
+  const CONCLUDE_REVIEW_REMINDER_EVENT = "reviewer.conclude_review_reminder";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  const VALID_FINDING_ARGS = JSON.stringify({
+    severity: "BLOCKING",
+    file: "src/foo.ts",
+    line: 10,
+    summary: "Null deref",
+    details: "May crash at runtime.",
+  });
+
+  const VALID_CONCLUDE_ARGS = JSON.stringify({
+    event: "REQUEST_CHANGES",
+    summary: "Found blocking issues.",
+  });
+
+  function makeOutputToolCall(id: string, name: string, argsJson: string) {
+    return {
+      id,
+      type: "function",
+      function: { name, arguments: argsJson },
+    };
+  }
+
+  function makeFakeClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI } {
+    let callCount = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (_params: { messages: unknown[] }) => {
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  test("reminder fires once with finally_emitted:true when model emits conclude_review after reminder", async () => {
+    // Capture console.log calls to verify structured log output.
+    const loggedEvents: unknown[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => {
+      try {
+        loggedEvents.push(JSON.parse(msg));
+      } catch {
+        originalLog(msg);
+      }
+    };
+
+    try {
+      const { client } = makeFakeClient([
+        // Round 0: 3 submit_finding calls
+        {
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+                ],
+              },
+            },
+          ],
+          usage: makeUsage(),
+        },
+        // Round 1: no tool calls — would normally terminate, triggers reminder
+        {
+          choices: [{ message: { content: "Done reviewing.", tool_calls: undefined } }],
+          usage: makeUsage(),
+        },
+        // Round 2: model responds to reminder with conclude_review
+        {
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS)],
+              },
+            },
+          ],
+          usage: makeUsage(),
+        },
+        // Round 3: final text response after conclude_review
+        {
+          choices: [{ message: { content: "Review complete." } }],
+          usage: makeUsage(),
+        },
+      ]);
+
+      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+      // All 4 tool calls (3 findings + 1 conclude_review) must be in output.
+      expect(result.toolCalls).toHaveLength(4);
+      expect(result.toolCalls[0]?.name).toBe("submit_finding");
+      expect(result.toolCalls[1]?.name).toBe("submit_finding");
+      expect(result.toolCalls[2]?.name).toBe("submit_finding");
+      expect(result.toolCalls[3]?.name).toBe("conclude_review");
+
+      // Exactly one reminder log, with finally_emitted: true.
+      const reminderLogs = loggedEvents.filter(
+        (e) =>
+          typeof e === "object" &&
+          e !== null &&
+          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+      );
+      expect(reminderLogs).toHaveLength(1);
+      const reminderLog = reminderLogs[0] as Record<string, unknown>;
+      expect(reminderLog["provider"]).toBe("openai");
+      expect(reminderLog["reminder_count"]).toBe(1);
+      expect(reminderLog["finally_emitted"]).toBe(true);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
+  test("reminder fires twice with finally_emitted:false when model refuses conclude_review both times", async () => {
+    const loggedEvents: unknown[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => {
+      try {
+        loggedEvents.push(JSON.parse(msg));
+      } catch {
+        originalLog(msg);
+      }
+    };
+
+    try {
+      const { client } = makeFakeClient([
+        // Round 0: 3 submit_finding calls
+        {
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+                ],
+              },
+            },
+          ],
+          usage: makeUsage(),
+        },
+        // Round 1: no tool calls — first exit attempt, triggers reminder #1
+        {
+          choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+          usage: makeUsage(),
+        },
+        // Round 2: no tool calls again — refuses reminder #1, triggers reminder #2
+        {
+          choices: [{ message: { content: "Still done.", tool_calls: undefined } }],
+          usage: makeUsage(),
+        },
+        // Round 3: no tool calls again — refuses reminder #2, loop terminates
+        {
+          choices: [{ message: { content: "Final text." } }],
+          usage: makeUsage(),
+        },
+      ]);
+
+      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+      // Only 3 findings in toolCalls — conclude_review was never emitted.
+      expect(result.toolCalls).toHaveLength(3);
+      expect(result.toolCalls.every((tc) => tc.name === "submit_finding")).toBe(true);
+
+      // Exactly 2 reminder logs, both with finally_emitted: false.
+      const reminderLogs = loggedEvents.filter(
+        (e) =>
+          typeof e === "object" &&
+          e !== null &&
+          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+      );
+      expect(reminderLogs).toHaveLength(2);
+
+      const first = reminderLogs[0] as Record<string, unknown>;
+      expect(first["reminder_count"]).toBe(1);
+      expect(first["finally_emitted"]).toBe(false);
+
+      const second = reminderLogs[1] as Record<string, unknown>;
+      expect(second["reminder_count"]).toBe(2);
+      expect(second["finally_emitted"]).toBe(false);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
+  test("no reminder fires when model emits conclude_review proactively", async () => {
+    const loggedEvents: unknown[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => {
+      try {
+        loggedEvents.push(JSON.parse(msg));
+      } catch {
+        originalLog(msg);
+      }
+    };
+
+    try {
+      const { client } = makeFakeClient([
+        // Round 0: 3 findings + conclude_review all in one turn
+        {
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+                  makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS),
+                ],
+              },
+            },
+          ],
+          usage: makeUsage(),
+        },
+        // Round 1: final text after conclude_review
+        {
+          choices: [{ message: { content: "Review done." } }],
+          usage: makeUsage(),
+        },
+      ]);
+
+      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+      expect(result.toolCalls).toHaveLength(4);
+      expect(result.toolCalls[3]?.name).toBe("conclude_review");
+
+      // No reminder logs at all.
+      const reminderLogs = loggedEvents.filter(
+        (e) =>
+          typeof e === "object" &&
+          e !== null &&
+          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+      );
+      expect(reminderLogs).toHaveLength(0);
+    } finally {
+      console.log = originalLog;
+    }
   });
 });
