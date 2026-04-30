@@ -218,4 +218,45 @@ describe("sessionCommit Ask emission", () => {
     // No Ask should have been emitted for a clean-tree attempt.
     expect(askRepo.all).toHaveLength(0);
   });
+
+  test("amend=true on a clean tree bypasses the nothing-to-commit short-circuit", async () => {
+    // An amend commit may legitimately update only the commit message without new
+    // file changes. The clean-tree short-circuit must NOT fire in this case.
+    // Use a real clean git repo to ensure hasUncommittedChanges returns false.
+    const cleanRepoDir = await makeTmpCleanGitRepo();
+    tmpDirs.push(cleanRepoDir);
+
+    const record = makeSessionRecord({ sessionId: "amend-session" });
+    const sessionProvider = makeSessionProvider(record, cleanRepoDir);
+    const askRepo = new FakeAskRepository();
+
+    // sessionCommit with amend=true should NOT return nothingToCommit even though
+    // the tree is clean. It proceeds past the short-circuit, reaches the git amend
+    // call (which fails in this test environment because it tries to push),
+    // and emits the Ask before the git call.
+    type CommitResult = Awaited<ReturnType<typeof sessionCommit>>;
+    let commitResult: CommitResult | undefined;
+    let commitError: Error | undefined;
+    try {
+      commitResult = await sessionCommit(
+        { session: "amend-session", message: "fix: amended message", amend: true },
+        sessionProvider,
+        askRepo
+      );
+    } catch (e: unknown) {
+      commitError = e instanceof Error ? e : new Error(String(e));
+    }
+
+    // If it threw (git/push fails in test env), the short-circuit was skipped.
+    // If it returned a result, nothingToCommit must be absent/false.
+    if (commitError !== undefined) {
+      // Reached the git/push step — short-circuit was definitely skipped.
+      // The Ask should have been emitted before the failure.
+      expect(askRepo.all).toHaveLength(1);
+      expect(askRepo.all[0]?.kind).toBe("authorization.approve");
+    } else {
+      // Should not have hit nothingToCommit path.
+      expect(commitResult?.nothingToCommit).toBeFalsy();
+    }
+  });
 });

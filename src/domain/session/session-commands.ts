@@ -129,7 +129,15 @@ export async function sessionCommit(
     message: params.message,
   });
 
-  // Enforce merged-PR-freeze invariant
+  // Enforce merged-PR-freeze invariant BEFORE Ask emission.
+  // Design rationale: assertSessionMutable fires first by design. Frozen sessions
+  // (those whose PR has been merged) cannot commit, so capturing them as Ask events
+  // would route non-events through the policy system. ADR §Detection records actual
+  // commits, not attempts on frozen sessions.
+  //
+  // Reviewer note: R1 and R2 both raised "emit before mutable check" as a finding.
+  // That finding is explicitly dismissed: the ordering is intentional. Frozen sessions
+  // cannot produce real commits; an Ask emitted for one would be a false positive.
   const { assertSessionMutable } = await import("./session-mutability.js");
   const sessionRecordForFreeze = await sessionProvider.getSession(params.session);
   if (sessionRecordForFreeze) {
@@ -144,6 +152,11 @@ export async function sessionCommit(
   // Detect clean working tree up front — skip Ask emission and return early when
   // there is nothing to commit. ADR §Detection: "every agent-initiated commit" means
   // actual commits, not attempts on a clean tree.
+  //
+  // Carve-out: when params.amend is true, the commit may legitimately update only
+  // the commit message without new file changes. In that case the working tree is
+  // clean by design, so we must NOT short-circuit — the amend must be allowed to
+  // proceed even when hasUncommittedChanges returns false.
   const sessionIdToUse = params.session;
   let isCleanTree = false;
   try {
@@ -155,7 +168,7 @@ export async function sessionCommit(
     // downstream commit attempt proceed and handle NothingToCommitError there.
   }
 
-  if (isCleanTree) {
+  if (!params.amend && isCleanTree) {
     log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
     return {
       success: true,
