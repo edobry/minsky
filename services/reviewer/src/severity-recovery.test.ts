@@ -673,6 +673,32 @@ describe("applyMonotonicityRecovery", () => {
     expect(result.downgrades).toHaveLength(0);
   });
 
+  test("preserves BLOCKING on rename pairs when finding cites NEW path with prior on OLD path (PR #922 R4#1)", () => {
+    // Inverse direction of R2#2: prior finding was on the old path, current
+    // finding cites the new path. Pre-PR-#922-R4 the stickyByFile lookup
+    // was strictly by current path and missed this case.
+    const prior: FlatPriorFinding[] = [
+      { file: "src/old-name.ts", severity: "NON-BLOCKING", line: 5 },
+    ];
+    const tc = [finding("BLOCKING", "src/new-name.ts", 5)];
+    const renameDiff = `diff --git a/src/old-name.ts b/src/new-name.ts
+similarity index 80%
+rename from src/old-name.ts
+rename to src/new-name.ts
+--- a/src/old-name.ts
++++ b/src/new-name.ts
+@@ -1,3 +1,3 @@
+ keep1
+ keep2
+ keep3
+`;
+    const result = applyMonotonicityRecovery(tc, prior, renameDiff);
+    // Rename + no overlapping additions = preserve (rename always conservative).
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+  });
+
   test("preserves BLOCKING on rename pairs when finding cites old path (PR #922 R2#2)", () => {
     // Renames attribute additions to the new path. A finding citing the
     // OLD path would see no added-range overlap and be downgraded — the

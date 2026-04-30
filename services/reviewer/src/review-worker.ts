@@ -706,6 +706,9 @@ export async function runReview(
         const postRecoveryNonBlockingCount = postRecoveryFindings.filter(
           (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
         ).length;
+        const postRecoveryPreExistingCount = postRecoveryFindings.filter(
+          (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
+        ).length;
         console.log(
           JSON.stringify({
             event: "reviewer.severity_downgrade_summary",
@@ -716,6 +719,9 @@ export async function runReview(
             originalBlockingCount,
             postRecoveryBlockingCount,
             postRecoveryNonBlockingCount,
+            // PR #922 R4 NON-BLOCKING addition: complete the severity
+            // breakdown for dashboard consumers.
+            postRecoveryPreExistingCount,
             // True when the recovery moved the count past zero, signaling the
             // composed event will likely change from REQUEST_CHANGES to COMMENT/
             // APPROVE downstream. Operators reading the audit log can filter on

@@ -375,10 +375,14 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
       pushRange(added, currentFile, currentNewLine);
       currentNewLine++;
     } else if (line.startsWith("-")) {
-      // Record on the removed map. Use currentFile as the key — for a rename,
-      // currentFile is the new path; the rename mapping handles the
-      // old-path lookup. PR #922 R2#1 addition.
-      pushRange(removed, currentFile, currentOldLine);
+      // Record removed lines under the OLD path when available, so LEFT-side
+      // and unspecified-side overlap checks against old-path findings work
+      // correctly on renames. Pre-PR-#922-R4 this used currentFile (the new
+      // path on renames), which broke deletion-preservation for findings
+      // that cited the old path. Falls back to currentFile when no old-path
+      // header was seen (defensive).
+      const removedKey = oldFilePath ?? currentFile;
+      pushRange(removed, removedKey, currentOldLine);
       currentOldLine++;
     } else {
       // Context line — advances both old and new file counters.
@@ -431,21 +435,40 @@ export function applyMonotonicityRecovery(
   priorFindings: ReadonlyArray<FlatPriorFinding>,
   diffText: string
 ): MonotonicityRecoveryResult {
+  const parsedDiff = parseUnifiedDiff(diffText);
+
   // Build a map: file -> highest sticky severity seen in priors. We only
   // care whether the file had a NON-BLOCKING or PRE-EXISTING finding; the
   // map records WHICH for telemetry purposes.
+  //
+  // PR #922 R4#1 catch: alias entries via the rename map so a prior finding
+  // on the OLD path also gates a current finding on the NEW path (and
+  // vice versa via the inverse). Pre-fix the lookup was strictly by
+  // tc.args.file; renames silently bypassed monotonicity gating.
   const stickyByFile = new Map<string, "NON-BLOCKING" | "PRE-EXISTING">();
+  // Build inverse rename map (new → old) once for cross-direction aliasing.
+  const inverseRenames = new Map<string, string>();
+  for (const [oldPath, newPath] of parsedDiff.renames.entries()) {
+    inverseRenames.set(newPath, oldPath);
+  }
+  function setSticky(file: string, severity: "NON-BLOCKING" | "PRE-EXISTING"): void {
+    const existing = stickyByFile.get(file);
+    if (existing === "NON-BLOCKING") return; // NON-BLOCKING wins (see comment below)
+    stickyByFile.set(file, severity);
+  }
   for (const f of priorFindings) {
     if (f.severity === "BLOCKING") continue;
-    // PRE-EXISTING and NON-BLOCKING both gate; if both appear, prefer
-    // NON-BLOCKING (the more common case; PRE-EXISTING signals "not this
-    // PR's fault" which is a stronger don't-escalate signal but rarer).
-    const existing = stickyByFile.get(f.file);
-    if (existing === "NON-BLOCKING") continue;
-    stickyByFile.set(f.file, f.severity);
+    // PRE-EXISTING and NON-BLOCKING both gate; if both appear on the same
+    // file, prefer NON-BLOCKING (the more common case; PRE-EXISTING signals
+    // "not this PR's fault" which is a stronger don't-escalate signal but
+    // rarer in calibration data).
+    setSticky(f.file, f.severity);
+    // Alias under the rename counterpart so old↔new lookups both succeed.
+    const renamedTo = parsedDiff.renames.get(f.file);
+    if (renamedTo) setSticky(renamedTo, f.severity);
+    const renamedFrom = inverseRenames.get(f.file);
+    if (renamedFrom) setSticky(renamedFrom, f.severity);
   }
-
-  const parsedDiff = parseUnifiedDiff(diffText);
 
   const corrected: ReviewToolCall[] = [];
   const downgrades: DowngradeAuditEntry[] = [];
@@ -473,12 +496,14 @@ export function applyMonotonicityRecovery(
 
     // Resolve added-range lookups via the rename map: if the finding cites
     // an OLD path that was renamed to a new path, query the new path's
-    // added ranges. PR #922 R2#2 catch — pre-fix renames silently produced
-    // false-positive downgrades because additions were attributed only to
-    // the new path.
+    // added ranges. PR #922 R2#2 catch + R4#1 inverse-direction handling:
+    // also detect when the finding cites the NEW path of a rename (via
+    // inverseRenames built above) and treat that case as conservative-
+    // preserve too.
     const renamedTo = parsedDiff.renames.get(tc.args.file);
+    const renamedFromCheck = inverseRenames.get(tc.args.file);
     const lookupFile = renamedTo ?? tc.args.file;
-    const fileWasRenamed = renamedTo !== undefined;
+    const fileWasRenamed = renamedTo !== undefined || renamedFromCheck !== undefined;
 
     const addedRanges = parsedDiff.added.get(lookupFile) ?? [];
     const removedRanges = parsedDiff.removed.get(lookupFile) ?? [];
