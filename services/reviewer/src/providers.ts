@@ -241,21 +241,6 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
   "Your review is incomplete. Emit conclude_review(event, summary) now as your final tool call.";
 
 /**
- * Run a single forced conclude_review API call and, if it returns a parseable
- * conclude_review tool call, append it to `accumulatedToolCalls`.
- *
- * Uses `tool_choice: { type: "function", function: { name: "conclude_review" } }`
- * to force the model to emit conclude_review (no other tools accepted). This
- * eliminates the in-loop reminder's reliance on the model voluntarily complying.
- *
- * The conversation history (`messages`) is mutated: the assistant's exit turn
- * (passed in as `exitMessage` if available) plus the user reminder are appended
- * before the API call.
- *
- * @returns Token usage from the call plus whether a parseable conclude_review
- *          was actually appended to accumulatedToolCalls.
- */
-/**
  * Subset of the model invocation parameters preserved across the main loop and
  * the post-loop forced pass. Typed explicitly so `client.chat.completions.create`
  * sees `model` as a required field — `Record<string, unknown>` widens it away
@@ -267,6 +252,23 @@ interface ChatCreateBaseParams {
   reasoning_effort?: "low" | "medium" | "high";
 }
 
+/**
+ * Run a single forced conclude_review API call and, if it returns a parseable
+ * conclude_review tool call, append it to `accumulatedToolCalls`.
+ *
+ * Uses `tool_choice: { type: "function", function: { name: "conclude_review" } }`
+ * with only the conclude_review tool registered to force the model to emit
+ * exactly one conclude_review call. This eliminates the in-loop reminder's
+ * reliance on the model voluntarily complying.
+ *
+ * Conversation history is NOT mutated: a shallow-copied `forcedMessages` array
+ * (parent `messages` + optional exit turn + user reminder) is constructed and
+ * passed to the API. The caller's `messages` array is unaffected, which is
+ * verified by a dedicated regression test.
+ *
+ * @returns Token usage from the call plus whether a parseable conclude_review
+ *          was actually appended to accumulatedToolCalls.
+ */
 async function forceConcludeReview(
   client: OpenAI,
   baseParams: ChatCreateBaseParams,
@@ -281,11 +283,12 @@ async function forceConcludeReview(
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
   // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
-  // side recovery (mt#1413) handle the missing-conclude_review case. Logged at
-  // error level so dashboards/alerts can surface this configuration drift even
-  // though the service itself stays up.
+  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted on
+  // stdout (via console.log) for parity with all other reviewer.* JSON events
+  // so log-pipeline ingestion picks it up; the `severity: "error"` field is
+  // available for dashboards/alerts that want to escalate it.
   if (!CONCLUDE_REVIEW_TOOL_DEF) {
-    console.error(
+    console.log(
       JSON.stringify({
         event: "reviewer.conclude_review_tool_def_missing",
         provider: "openai",
@@ -310,7 +313,13 @@ async function forceConcludeReview(
     ...baseParams,
     messages: forcedMessages,
     tools: [CONCLUDE_REVIEW_TOOL_DEF],
-    tool_choice: { type: "function", function: { name: "conclude_review" } },
+    // Reference the extracted tool def's name so the constraint stays in
+    // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
+    // renamed there, this call updates automatically.
+    tool_choice: {
+      type: "function",
+      function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
+    },
   });
 
   const usage = response.usage;
@@ -506,15 +515,9 @@ export async function callOpenAIWithClient(
 
     const rawToolCalls = message.tool_calls;
 
-    // No tool calls: model wants to exit the loop.
-    //
-    // mt#1471: previously this branch tried an in-loop reminder gated on
-    // `!isLastRound`, which never fired in the dominant production failure
-    // mode (model exhausts the round budget on read_file calls and exits via
-    // round 9's forced text-only response). We now break out unconditionally
-    // and run a single forced conclude_review pass after the loop, which is
-    // independent of round-budget pressure and uses tool_choice to guarantee
-    // the model emits conclude_review.
+    // No tool calls: the model is done emitting tool calls — capture exit
+    // state and break. Any missing conclude_review is handled after the loop
+    // by `forceConcludeReview` (see mt#1471).
     if (!rawToolCalls || rawToolCalls.length === 0) {
       exitMessage = message;
       // Resolve `text` field with the following priority:

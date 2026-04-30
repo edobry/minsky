@@ -1646,4 +1646,65 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(reminderLogs).toHaveLength(1);
     expect((reminderLogs[0] as Record<string, unknown>)["mode"]).toBe("post_loop_forced");
   });
+
+  test("post-loop forced pass: API-error path logs reminder with finally_emitted:false and error message (PR #915 R3)", async () => {
+    // Regression guard for the PR #915 round-3 NB-3: the forced post-loop
+    // call wraps `client.chat.completions.create` in a try/catch and logs
+    // a reminder event with `finally_emitted: false` plus the error message
+    // when the API throws. This test simulates a transport-level error on
+    // the third (forced) call and verifies the catch branch's logging.
+    let callCount = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (_params: { messages: unknown[] }) => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                choices: [
+                  {
+                    message: {
+                      content: null,
+                      tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+                    },
+                  },
+                ],
+                usage: makeUsage(),
+              };
+            }
+            if (callCount === 2) {
+              return {
+                choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+                usage: makeUsage(),
+              };
+            }
+            // Third call (forced post-loop pass): throw a transport error
+            throw new Error("simulated network error on forced call");
+          },
+        },
+      },
+    } as unknown as OpenAI;
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // No conclude_review was appended because the forced call threw.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["finally_emitted"]).toBe(false);
+    expect(log["mode"]).toBe("post_loop_forced");
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["fired_at_turn"]).toBe(2);
+    expect(log["error"]).toBe("simulated network error on forced call");
+  });
 });
