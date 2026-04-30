@@ -361,13 +361,17 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-4: PostgresVectorStorage.search returns results after backoff under saturation",
       async () => {
-        // Check pgvector availability before running the vector test
+        // Check pgvector availability before running the vector test.
+        // pg_available_extensions lists extensions installed on the server
+        // (regardless of whether CREATE EXTENSION has been run), which is
+        // the correct availability check — pg_extension only lists already-loaded
+        // extensions and would always return false before CREATE EXTENSION runs.
         const probe = makeSingleClient(connectionString);
         let vectorAvailable = false;
         try {
           const ext = await probe`
             SELECT EXISTS (
-              SELECT 1 FROM pg_extension WHERE extname = 'vector'
+              SELECT 1 FROM pg_available_extensions WHERE name = 'vector'
             ) AS exists
           `;
           vectorAvailable = Boolean((ext[0] as Record<string, unknown>)?.exists);
