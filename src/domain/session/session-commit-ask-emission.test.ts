@@ -4,14 +4,27 @@
  * Acceptance tests from mt#1466:
  *   1. sessionCommit emits exactly one Ask before the commit attempt, with correct fields.
  *   2. When AskRepository.create() throws, sessionCommit still proceeds (best-effort emission).
+ *   3. A clean working tree (NothingToCommitError case) results in zero Asks emitted.
  *
  * Strategy: Because sessionCommit uses dynamic imports for git operations that
  * require a real repository, we drive the function up to the git call and let
  * it fail there. The Ask emission happens BEFORE the git call, so we can assert
  * on FakeAskRepository state even when the overall promise rejects.
+ *
+ * For the nothing-to-commit test, we use a real temp git repo (initialized with
+ * an empty commit so it is in clean state) as the session workdir.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
+// Real FS imports below are required by the nothing-to-commit test, which needs a genuine git
+// repository so that hasUncommittedChanges (shelling out to git) can return false. There is no
+// in-memory substitute; DI injection would defeat testing the actual detection path end-to-end.
+/* eslint-disable custom/no-real-fs-in-tests */
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { join } from "path";
+import { execSync } from "child_process";
 import { sessionCommit } from "./session-commands";
 import { FakeAskRepository } from "../ask/repository";
 import { FakeSessionProvider } from "./fake-session-provider";
@@ -37,17 +50,40 @@ function makeSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRecor
  * FakeSessionProvider override that does NOT have a merged PR
  * (so assertSessionMutable does not block the Ask emission).
  */
-function makeSessionProvider(record: SessionRecord): FakeSessionProvider {
+function makeSessionProvider(record: SessionRecord, workdir?: string): FakeSessionProvider {
   const provider = new FakeSessionProvider({
     initialSessions: [record],
-    sessionWorkdir: "/nonexistent/workdir",
+    sessionWorkdir: workdir ?? "/nonexistent/workdir",
   });
   return provider;
 }
 
+/**
+ * Create a temporary git repository with one initial commit so the
+ * working tree is in a clean state. Returns the path to the repo.
+ */
+async function makeTmpCleanGitRepo(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "minsky-ask-test-"));
+  // Init, configure, and make an empty initial commit so HEAD is valid.
+  execSync("git init", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.email test@example.com", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
+  execSync("git commit --allow-empty -m init", { cwd: dir, stdio: "ignore" });
+  return dir;
+}
+
+// Track temp dirs created during the suite so we can clean up.
+const tmpDirs: string[] = [];
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+afterAll(async () => {
+  for (const dir of tmpDirs) {
+    await rm(dir, { recursive: true, force: true }).catch(() => {}); // eslint-disable-line custom/no-real-fs-in-tests -- cleanup for real tmp git repos created above
+  }
+});
 
 describe("sessionCommit Ask emission", () => {
   test("emits exactly one authorization.approve Ask before commit attempt", async () => {
@@ -158,5 +194,28 @@ describe("sessionCommit Ask emission", () => {
     expect(err).toBeInstanceOf(Error);
     // The error should NOT mention "DB unavailable" — that was swallowed by the best-effort catch
     expect((err as Error).message).not.toContain("DB unavailable");
+  });
+
+  test("emits zero Asks when working tree is clean (nothing-to-commit path)", async () => {
+    // Use a real git repo in clean state so hasUncommittedChanges returns false.
+    const cleanRepoDir = await makeTmpCleanGitRepo();
+    tmpDirs.push(cleanRepoDir);
+
+    const record = makeSessionRecord({ sessionId: "clean-tree-session" });
+    const sessionProvider = makeSessionProvider(record, cleanRepoDir);
+    const askRepo = new FakeAskRepository();
+
+    // sessionCommit should detect the clean tree upfront and return nothingToCommit
+    // without ever emitting an Ask.
+    const result = await sessionCommit(
+      { session: "clean-tree-session", message: "chore: nothing to commit" },
+      sessionProvider,
+      askRepo
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.nothingToCommit).toBe(true);
+    // No Ask should have been emitted for a clean-tree attempt.
+    expect(askRepo.all).toHaveLength(0);
   });
 });

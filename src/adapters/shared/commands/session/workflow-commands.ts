@@ -85,7 +85,13 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
       async (params: Record<string, unknown>, context) => {
         const { sessionCommit } = await import("../../../../domain/session/session-commands");
         const deps = await getDeps();
-        const askRepository = await buildAskRepository(context.container);
+        // Guard: skip DB touch when persistence is not registered in the container.
+        // buildAskRepository is a no-op when container is absent, but calling it
+        // unconditionally still triggers an async DB-init path and log.warn noise
+        // whenever persistence is not configured (e.g. CLI-only contexts).
+        const askRepository = context.container?.has("persistence")
+          ? await buildAskRepository(context.container)
+          : undefined;
 
         try {
           const result = await sessionCommit(

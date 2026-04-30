@@ -136,10 +136,42 @@ export async function sessionCommit(
     assertSessionMutable(sessionRecordForFreeze, "commit changes");
   }
 
+  const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
+
+  // Resolve session to repo path at this boundary (needed for clean-tree check below)
+  const workdir = await sessionProvider.getSessionWorkdir(params.session);
+
+  // Detect clean working tree up front — skip Ask emission and return early when
+  // there is nothing to commit. ADR §Detection: "every agent-initiated commit" means
+  // actual commits, not attempts on a clean tree.
+  const sessionIdToUse = params.session;
+  let isCleanTree = false;
+  try {
+    const gitService = createGitService();
+    const hasChanges = await gitService.hasUncommittedChanges(workdir);
+    isCleanTree = !hasChanges;
+  } catch {
+    // If we cannot determine tree state (e.g. not a git repo yet), let the
+    // downstream commit attempt proceed and handle NothingToCommitError there.
+  }
+
+  if (isCleanTree) {
+    log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
+    return {
+      success: true,
+      nothingToCommit: true,
+      commitHash: null,
+      message: "Nothing to commit, working tree clean",
+      pushed: false,
+    };
+  }
+
   // Emit authorization.approve Ask (best-effort — never blocks the commit)
+  // Only reaches here when there are actual changes to commit.
   if (askRepository) {
     try {
-      const requestor = sessionRecordForFreeze?.agentId ?? `minsky.session:task:${params.session}`;
+      const requestor =
+        sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
       await askRepository.create({
         kind: "authorization.approve",
         classifierVersion: "v1",
@@ -160,11 +192,6 @@ export async function sessionCommit(
       });
     }
   }
-
-  const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
-
-  // Resolve session to repo path at this boundary
-  const workdir = await sessionProvider.getSessionWorkdir(params.session);
 
   try {
     // Commit changes using session-scoped git command
