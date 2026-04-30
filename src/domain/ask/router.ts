@@ -124,11 +124,11 @@ function pickTransport(kind: AskKind): {
       };
 
     case "information.retrieve":
-      // v1: route to retriever transport. Operator escalation if uncaptured
+      // Route to retriever transport. Operator escalation if uncaptured
       // is a future extension (no inbox fallback inline at v1).
       return {
         routingTarget: "retriever",
-        transport: { kind: "subagent" }, // retriever treated as subagent at v1
+        transport: { kind: "retriever" },
       };
 
     case "authorization.approve":
