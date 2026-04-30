@@ -167,17 +167,26 @@ export function extractFindings(body: string): string {
   let inFinding = false;
 
   for (const line of lines) {
-    // Match either fully balanced bold `**[BLOCKING]**` (composer/operator
-    // format) OR fully bare `[BLOCKING]` (production reviewer-bot format
-    // observed 2026-04-30 on PR #732 review #4165932343). One-sided forms
-    // like `**[BLOCKING]` (no closing) or `[BLOCKING]**` (no opening) are
-    // stray formatting / truncated text and must NOT trigger inFinding
-    // (which would over-capture the body to EOF). The bare branch uses
-    // negative lookbehind/lookahead on `*` so the embedded `[BLOCKING]`
-    // substring inside a one-sided `**[BLOCKING]` doesn't accidentally
-    // match the bare alternative. PR #921 R1 catch.
+    // Anchor severity markers to the start of the line (with optional
+    // whitespace and bullet/list prefix). Real production review bodies
+    // place findings at the start of a list item; mid-line mentions in
+    // narrative prose ("the string [BLOCKING] appears in docs") must NOT
+    // trigger inFinding (which would over-capture the body to EOF).
+    //
+    // PR #921 R2 catch: pre-fix used negative lookbehind/lookahead on `*`
+    // to reject one-sided wrappers, which:
+    //   (a) had compatibility risk in some JavaScriptCore/Bun versions
+    //       (lookbehind is ES2018; load-time SyntaxError if unsupported);
+    //   (b) was over-permissive — it accepted `[BLOCKING]` anywhere on
+    //       the line, including incidental prose mentions.
+    // The new pattern is start-of-line anchored, accepts an optional
+    // bullet (`-`, `*`, `•`) and whitespace prefix, then either balanced
+    // `**[SEV]**` or bare `[SEV]` followed by a non-`*` char (lookahead-
+    // free balance check via a positive next-char class). The trailing
+    // `(?:[^*]|$)` requires a non-`*` boundary, equivalent to `(?!\*)`
+    // without using lookahead.
     if (
-      /(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))/i.test(
+      /^\s*(?:[-*•]\s+)?(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:[^*]|$))/i.test(
         line
       )
     ) {
@@ -206,12 +215,18 @@ export function extractFindings(body: string): string {
  * Extraction failure returns 0, matching the non-fatal stance in review-worker.
  */
 export function countBlockingFindings(body: string): number {
-  // Match either fully balanced `**[BLOCKING]**` or fully bare `[BLOCKING]`
-  // — never one-sided. The bare branch uses negative lookbehind/lookahead on
-  // `*` so the `[BLOCKING]` substring inside a one-sided `**[BLOCKING]`
-  // doesn't double-match (once via the balanced alternative — which fails —
-  // and once via the bare alternative). PR #921 R1 catch.
-  const matches = body.match(/(?:\*\*\[BLOCKING\]\*\*|(?<!\*)\[BLOCKING\](?!\*))/gi);
+  // Anchor each match to the start of a line (multiline flag), accept
+  // optional bullet/list prefix, then either balanced `**[BLOCKING]**` OR
+  // bare `[BLOCKING]` followed by a non-`*` boundary. PR #921 R2 catch:
+  // pre-fix used negative lookbehind/lookahead which had compatibility
+  // risk in some JavaScriptCore/Bun versions AND was over-permissive
+  // (counted incidental prose mentions of [BLOCKING] mid-line).
+  //
+  // The bare branch uses `(?:[^*]|$)` instead of `(?!\*)` lookahead — same
+  // semantics (next char must not be `*`) without lookahead. The trailing
+  // boundary IS consumed, but for counting that's harmless: each bare
+  // marker still produces exactly one match.
+  const matches = body.match(/^\s*(?:[-*•]\s+)?(?:\*\*\[BLOCKING\]\*\*|\[BLOCKING\](?:[^*]|$))/gim);
   return matches?.length ?? 0;
 }
 

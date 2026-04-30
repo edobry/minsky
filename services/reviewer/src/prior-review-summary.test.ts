@@ -449,11 +449,29 @@ describe("countBlockingFindings", () => {
     expect(countBlockingFindings("[BLOCKING]** missing open")).toBe(0);
   });
 
-  test("counts only fully balanced wrappers, not partial overlaps (PR #921 R1)", () => {
+  test("counts balanced wrapper at line start (PR #921 R2)", () => {
     expect(countBlockingFindings("**[BLOCKING]**")).toBe(1);
-    // Pathological case: two markers, one balanced, one bare, separated by
-    // text. Both should count.
-    expect(countBlockingFindings("**[BLOCKING]** and [BLOCKING] separate")).toBe(2);
+  });
+
+  test("counts markers at line start across multiple lines (PR #921 R2)", () => {
+    // Multiline body with two findings on separate lines, one balanced one
+    // bare, both at line start. Both must count.
+    const body = "**[BLOCKING]** src/foo.ts:1 — bold\n[BLOCKING] src/bar.ts:5 — bare";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("counts markers with optional bullet prefix (PR #921 R2)", () => {
+    const body =
+      "- [BLOCKING] src/foo.ts:1 — bullet-prefixed\n* **[BLOCKING]** src/bar.ts:5 — asterisk bullet";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("does NOT count mid-line incidental [BLOCKING] mentions (PR #921 R2)", () => {
+    // Pre-PR-#921-R2 the regex matched [BLOCKING] anywhere on the line,
+    // including narrative prose mentions. New start-of-line anchor rejects
+    // these.
+    expect(countBlockingFindings("the string [BLOCKING] appears in the docs")).toBe(0);
+    expect(countBlockingFindings("Conclusion: **[BLOCKING]** above are the issues.")).toBe(0);
   });
 
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
