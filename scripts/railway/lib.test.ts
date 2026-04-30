@@ -4,6 +4,7 @@ import {
   isSecretRef,
   defineRailwayConfig,
   resolveSecret,
+  defaultSecretsFilePath,
   computeDiff,
   buildVariablePatches,
   buildAllSecretPatches,
@@ -433,5 +434,100 @@ describe("formatDiffOutput() — secret redaction", () => {
     const diff: DiffEntry[] = [{ kind: "NO-CHANGE", key: "X" }];
     const output = formatDiffOutput(diff, desired);
     expect(output).toBe("No changes.");
+  });
+});
+
+describe("formatDiffOutput() — --prune flag behavior", () => {
+  const makeRemoveDiff = (key: string): DiffEntry => ({ kind: "REMOVE", key });
+
+  test("without prune: REMOVE entries shown as WOULD-PRUNE (skipped)", () => {
+    const desired: Record<string, VariableValue> = {};
+    const diff: DiffEntry[] = [makeRemoveDiff("STALE_VAR")];
+    const output = formatDiffOutput(diff, desired, false);
+    expect(output).toContain("WOULD-PRUNE");
+    expect(output).toContain("STALE_VAR");
+    expect(output).toContain("--prune");
+    expect(output).not.toContain("- REMOVE");
+  });
+
+  test("with prune: REMOVE entries shown as REMOVE", () => {
+    const desired: Record<string, VariableValue> = {};
+    const diff: DiffEntry[] = [makeRemoveDiff("STALE_VAR")];
+    const output = formatDiffOutput(diff, desired, true);
+    expect(output).toContain("- REMOVE");
+    expect(output).toContain("STALE_VAR");
+    expect(output).not.toContain("WOULD-PRUNE");
+  });
+
+  test("without prune: only REMOVE entries → does not return No changes.", () => {
+    const desired: Record<string, VariableValue> = {};
+    const diff: DiffEntry[] = [makeRemoveDiff("OUT_OF_BAND_VAR")];
+    const output = formatDiffOutput(diff, desired, false);
+    expect(output).not.toBe("No changes.");
+    expect(output).toContain("WOULD-PRUNE");
+  });
+
+  test("without prune: mix of ADD and REMOVE → shows ADD and WOULD-PRUNE", () => {
+    const desired: Record<string, VariableValue> = { NEW_VAR: "val" };
+    const diff: DiffEntry[] = [
+      { kind: "ADD", key: "NEW_VAR", patch: { value: "val", isSealed: false } },
+      makeRemoveDiff("OLD_VAR"),
+    ];
+    const output = formatDiffOutput(diff, desired, false);
+    expect(output).toContain("+ ADD    NEW_VAR");
+    expect(output).toContain("WOULD-PRUNE");
+    expect(output).toContain("OLD_VAR");
+    expect(output).not.toContain("- REMOVE");
+  });
+
+  test("prune=false is the default (no third argument)", () => {
+    const desired: Record<string, VariableValue> = {};
+    const diff: DiffEntry[] = [makeRemoveDiff("DEFAULT_TEST_VAR")];
+    const output = formatDiffOutput(diff, desired);
+    expect(output).toContain("WOULD-PRUNE");
+    expect(output).not.toContain("- REMOVE");
+  });
+});
+
+describe("resolveSecret() — error message includes actual secretsFilePath", () => {
+  test("error message contains default secrets file path when no env override", () => {
+    const savedOverride = process.env[SECRETS_FILE_ENV_VAR];
+    delete process.env[SECRETS_FILE_ENV_VAR];
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+
+    let caught: Error | undefined;
+    try {
+      resolveSecret("NONEXISTENT_VAR_FOR_PATH_TEST", emptyReader);
+    } catch (err) {
+      caught = err instanceof Error ? err : new Error(String(err));
+    }
+    expect(caught).toBeDefined();
+    const expectedPath = defaultSecretsFilePath();
+    expect(caught?.message).toContain(expectedPath);
+    // Must NOT contain the old hardcoded path if env var is set to something different
+    expect(caught?.message).not.toContain("~/.config/minsky/railway-secrets.json");
+
+    if (savedOverride !== undefined) {
+      process.env[SECRETS_FILE_ENV_VAR] = savedOverride;
+    }
+  });
+
+  test("error message contains MINSKY_RAILWAY_SECRETS_FILE override path when set", () => {
+    const customPath = "/custom/path/my-secrets.json";
+    process.env[SECRETS_FILE_ENV_VAR] = customPath;
+    const emptyReader: SecretsFileReader = { exists: () => false, read: () => "" };
+
+    let caught: Error | undefined;
+    try {
+      resolveSecret("NONEXISTENT_VAR_FOR_OVERRIDE_TEST", emptyReader);
+    } catch (err) {
+      caught = err instanceof Error ? err : new Error(String(err));
+    }
+    expect(caught).toBeDefined();
+    expect(caught?.message).toContain(customPath);
+    // Must not contain any other hardcoded path
+    expect(caught?.message).not.toContain("~/.config/minsky");
+
+    delete process.env[SECRETS_FILE_ENV_VAR];
   });
 });

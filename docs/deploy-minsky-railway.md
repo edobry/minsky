@@ -39,8 +39,11 @@ All production env-var state for `minsky-mcp` is captured in `services/minsky-mc
 # Preview changes (dry-run — default)
 bun scripts/railway/apply.ts services/minsky-mcp
 
-# Apply changes
+# Apply changes (adds/updates only — deletions shown as WOULD-PRUNE, not applied)
 bun scripts/railway/apply.ts services/minsky-mcp --execute
+
+# Apply changes AND delete variables not in config (destructive — see --prune below)
+bun scripts/railway/apply.ts services/minsky-mcp --execute --prune
 ```
 
 The synthesizer:
@@ -48,7 +51,30 @@ The synthesizer:
 1. Reads `services/minsky-mcp/railway.config.ts` (desired state)
 2. Fetches current Railway variables via GraphQL (actual state)
 3. Computes a typed diff and prints it
-4. On `--execute`: applies the diff via `railway environment edit --json` and reads back to confirm
+4. On `--execute`: applies ADD/CHANGE-VALUE/CHANGE-SEALED-FLAG entries via `railway environment edit --json` and reads back to confirm
+5. On `--execute --prune`: also deletes REMOVE entries (variables present in Railway but absent from config)
+
+### Deletion policy (--prune)
+
+By default, `--execute` only applies ADD/CHANGE-VALUE/CHANGE-SEALED-FLAG entries. Variables present in Railway but absent from `railway.config.ts` are shown in dry-run output as `WOULD-PRUNE` but are **not deleted**. This protects Railway-injected variables (`RAILWAY_*` auto-vars) and any operator-set out-of-band variables from silent deletion.
+
+To delete variables not declared in config, pass `--prune` explicitly:
+
+```bash
+# Dry-run: see what would be deleted (WOULD-PRUNE lines)
+bun scripts/railway/apply.ts services/minsky-mcp
+
+# Apply deletions too
+bun scripts/railway/apply.ts services/minsky-mcp --execute --prune
+```
+
+When to use `--prune`:
+
+- Removing a variable that was previously in config and you want it gone from Railway
+- Cleaning up test variables applied manually during debugging
+- First verified that every WOULD-PRUNE entry is intentionally out-of-spec
+
+Do NOT use `--prune` if WOULD-PRUNE shows `RAILWAY_*` auto-injected variables — those are managed by Railway and will reappear after the next deploy.
 
 ### Secret handling
 

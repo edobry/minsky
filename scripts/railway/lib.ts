@@ -82,7 +82,7 @@ export function resolveSecret(
   }
 
   throw new Error(
-    `Secret resolution failed: '${envVarName}' is not set in process.env and not found in ~/.config/minsky/railway-secrets.json`
+    `Secret resolution failed: '${envVarName}' is not set in process.env and not found in ${secretsFilePath}`
   );
 }
 
@@ -248,19 +248,22 @@ export function buildAllSecretPatches(
 
 export function formatDiffOutput(
   diff: DiffEntry[],
-  desired: Record<string, VariableValue>
+  desired: Record<string, VariableValue>,
+  prune = false
 ): string {
   const lines: string[] = [];
   const summary = summarizeDiff(diff);
 
-  const changes = [
-    ...summary.toAdd,
-    ...summary.toRemove,
-    ...summary.toChangeValue,
-    ...summary.toChangeSealedFlag,
-  ];
+  const actionableChanges = prune
+    ? [
+        ...summary.toAdd,
+        ...summary.toRemove,
+        ...summary.toChangeValue,
+        ...summary.toChangeSealedFlag,
+      ]
+    : [...summary.toAdd, ...summary.toChangeValue, ...summary.toChangeSealedFlag];
 
-  if (changes.length === 0) {
+  if (actionableChanges.length === 0 && summary.toRemove.length === 0) {
     lines.push("No changes.");
     return lines.join("\n");
   }
@@ -273,7 +276,11 @@ export function formatDiffOutput(
   }
 
   for (const entry of summary.toRemove) {
-    lines.push(`- REMOVE ${entry.key}`);
+    if (prune) {
+      lines.push(`- REMOVE ${entry.key}`);
+    } else {
+      lines.push(`? WOULD-PRUNE ${entry.key} (skipped, use --prune to delete)`);
+    }
   }
 
   for (const entry of summary.toChangeValue) {

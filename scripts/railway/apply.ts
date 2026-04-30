@@ -63,25 +63,20 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
     clearTimeout(timeoutId);
   }
 
+  const bodyText = await res.text();
+
   if (!res.ok) {
-    let bodyText = "(could not read response body)";
-    try {
-      bodyText = await res.text();
-    } catch {
-      // ignore secondary error
-    }
     assertHttpOk(res.status, res.statusText, bodyText);
   }
 
   let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
   try {
-    body = (await res.json()) as typeof body;
-  } catch (err) {
-    const rawText = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Railway API returned non-JSON response (HTTP ${res.status}): ${rawText}. ` +
-        `Check that the Railway API endpoint is reachable.`
-    );
+    body = JSON.parse(bodyText) as typeof body;
+  } catch (parseErr) {
+    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
+    throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, {
+      cause: parseErr,
+    });
   }
 
   if (body.errors) {
@@ -131,6 +126,8 @@ async function fetchCurrentVariables(
   return result;
 }
 
+const APPLY_COMMAND = "railway environment edit --json";
+
 function applyJsonPatch(patchObj: object): void {
   const patchJson = JSON.stringify(patchObj);
   const proc = Bun.spawnSync(["railway", "environment", "edit", "--json"], {
@@ -141,7 +138,11 @@ function applyJsonPatch(patchObj: object): void {
 
   if (proc.exitCode !== 0) {
     const stderrText = proc.stderr ? new TextDecoder().decode(proc.stderr).trim() : "(no stderr)";
-    throw new Error(`railway environment edit failed (exit ${proc.exitCode}): ${stderrText}`);
+    const stdoutText = proc.stdout ? new TextDecoder().decode(proc.stdout).trim() : "";
+    const stdoutClause = stdoutText ? `, stdout: ${stdoutText}` : "";
+    throw new Error(
+      `${APPLY_COMMAND} failed (exit ${proc.exitCode}): ${stderrText}${stdoutClause}`
+    );
   }
 }
 
@@ -160,16 +161,26 @@ function loadConfig(serviceDir: string): RailwayConfig {
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const execute = args.includes("--execute");
+  const prune = args.includes("--prune");
   const resealSecrets = args.includes("--reseal-secrets");
   const serviceDir = args.find((a) => !a.startsWith("--"));
 
   if (!serviceDir) {
     console.error(
-      "Usage: bun scripts/railway/apply.ts <service-dir> [--execute] [--reseal-secrets]"
+      "Usage: bun scripts/railway/apply.ts <service-dir> [--execute] [--prune] [--reseal-secrets]"
     );
     console.error("");
     console.error("  <service-dir>      Path to a directory containing railway.config.ts");
     console.error("  --execute          Apply changes (default: dry-run only)");
+    console.error(
+      "  --prune            Also delete variables present in Railway but absent from config."
+    );
+    console.error("                     Without this flag, REMOVE entries are skipped even with");
+    console.error("                     --execute, and shown as WOULD-PRUNE in dry-run output.");
+    console.error(
+      "                     Use with caution: deletes any out-of-band or auto-injected"
+    );
+    console.error("                     variables not declared in railway.config.ts.");
     console.error(
       "  --reseal-secrets   Re-push sealed secret values for NO-CHANGE SecretRef vars."
     );
@@ -183,10 +194,11 @@ async function run(): Promise<void> {
 
   const config = loadConfig(serviceDir);
 
+  const modeLabel = execute ? (prune ? "APPLY+PRUNE" : "APPLY") : "DRY-RUN";
   console.log(`Service:     ${config.serviceId}`);
   console.log(`Environment: ${config.environmentId}`);
   console.log(`Project:     ${config.projectId}`);
-  console.log(`Mode:        ${execute ? "APPLY" : "DRY-RUN"}`);
+  console.log(`Mode:        ${modeLabel}`);
   console.log("");
 
   console.log("Fetching current Railway variables...");
@@ -199,15 +211,16 @@ async function run(): Promise<void> {
   const diff = computeDiff(config.variables, current);
   const summary = summarizeDiff(diff);
 
-  const changes = [
+  // Non-removal changes always counted; removals only count when --prune is active.
+  const nonRemovalChanges = [
     ...summary.toAdd,
-    ...summary.toRemove,
     ...summary.toChangeValue,
     ...summary.toChangeSealedFlag,
   ];
+  const changes = prune ? [...nonRemovalChanges, ...summary.toRemove] : nonRemovalChanges;
 
   console.log("Diff:");
-  const output = formatDiffOutput(diff, config.variables);
+  const output = formatDiffOutput(diff, config.variables, prune);
   for (const line of output.split("\n")) {
     console.log(`  ${line}`);
   }
@@ -231,7 +244,14 @@ async function run(): Promise<void> {
         }
       }
     }
-    console.log("No changes.");
+    if (!prune && summary.toRemove.length > 0) {
+      // WOULD-PRUNE entries exist but deletions are not enabled.
+      console.log(
+        `No actionable changes (${summary.toRemove.length} WOULD-PRUNE entry/entries skipped). Pass --prune to delete.`
+      );
+    } else {
+      console.log("No changes.");
+    }
     return;
   }
 
@@ -247,7 +267,6 @@ async function run(): Promise<void> {
   const nonSecretPatches = buildVariablePatches(diff);
   const secretReseals = resealSecrets ? buildAllSecretPatches(config, diff) : {};
   const allPatches = { ...nonSecretPatches, ...secretReseals };
-  const removals = summary.toRemove.map((e) => e.key);
 
   if (Object.keys(allPatches).length > 0) {
     const patch = buildJsonPatch(config.serviceId, allPatches);
@@ -257,7 +276,8 @@ async function run(): Promise<void> {
     console.log(`  Applied: ${nonSecretCount} variable change(s), ${sealCount} secret re-seal(s).`);
   }
 
-  if (removals.length > 0) {
+  if (prune && summary.toRemove.length > 0) {
+    const removals = summary.toRemove.map((e) => e.key);
     const nullPatches: Record<string, null> = {};
     for (const key of removals) {
       nullPatches[key] = null;
@@ -283,18 +303,20 @@ async function run(): Promise<void> {
 
   const diffAfter = computeDiff(config.variables, afterApply);
   const summaryAfter = summarizeDiff(diffAfter);
-  const changesAfter = [
-    ...summaryAfter.toAdd,
-    ...summaryAfter.toRemove,
-    ...summaryAfter.toChangeValue,
-    ...summaryAfter.toChangeSealedFlag,
-  ];
+  const changesAfter = prune
+    ? [
+        ...summaryAfter.toAdd,
+        ...summaryAfter.toRemove,
+        ...summaryAfter.toChangeValue,
+        ...summaryAfter.toChangeSealedFlag,
+      ]
+    : [...summaryAfter.toAdd, ...summaryAfter.toChangeValue, ...summaryAfter.toChangeSealedFlag];
 
   if (changesAfter.length === 0) {
     console.log("Read-back confirmed: no remaining changes.");
   } else {
     console.log("WARNING: read-back shows remaining differences:");
-    const afterOutput = formatDiffOutput(diffAfter, config.variables);
+    const afterOutput = formatDiffOutput(diffAfter, config.variables, prune);
     for (const line of afterOutput.split("\n")) {
       console.log(`  ${line}`);
     }
