@@ -46,14 +46,23 @@ const JITTER_FLOOR = 0.8;
 export function isPgPoolExhaustionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
-  // postgres-js sets `query` on errors that came back from the server after
-  // the query was transmitted. Pool saturation manifests during connection
-  // acquisition (before any query reaches the server) and must have no
-  // `query` field. Skipping errors where `query` is present guarantees
-  // retries are safe on mutating callers (no at-least-once effects).
-  // Use presence check (`in`) rather than truthiness so an empty-string
-  // marker from a wrapper doesn't slip through.
-  if ("query" in e) return false;
+  // postgres-js attaches `query` as an own-property to ALL `PostgresError`
+  // instances. For pre-send errors (connection acquisition failures,
+  // including pool saturation), `query` is `undefined`; for post-send
+  // errors, it holds the SQL string that reached the server. We must
+  // distinguish these — only post-send errors are unsafe to retry,
+  // because retrying a mutation whose query already executed would
+  // double-apply.
+  //
+  // mt#1193 originally used `"query" in e` (presence check), which
+  // returns `true` even when `e.query === undefined`. That made
+  // `isPgPoolExhaustionError` reject every real `PostgresError`, and
+  // `withPgPoolRetry` was a silent no-op for the entire production
+  // path from 2026-04-25 to 2026-04-28. mt#1461 corrects to a truthy
+  // check (`!= null`): pre-send errors (`undefined`) pass through;
+  // post-send errors (any string, including any sanitized marker a
+  // wrapper might inject) get rejected.
+  if (e.query != null) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (

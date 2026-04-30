@@ -35,9 +35,10 @@ describe("isPgPoolExhaustionError", () => {
     expect(isPgPoolExhaustionError("string error")).toBe(false);
   });
 
-  test("rejects errors with a `query` field (query already reached server)", () => {
-    // Even if the message matches, presence of `query` means the query was
-    // transmitted — retrying could double-apply mutations. Must be rejected.
+  test("rejects errors with a non-null `query` value (query already reached server)", () => {
+    // postgres-js attaches `query` as a defined string when the query was
+    // transmitted to the server — retrying could double-apply mutations.
+    // Must be rejected even if the message matches.
     expect(
       isPgPoolExhaustionError({
         code: "XX000",
@@ -51,9 +52,10 @@ describe("isPgPoolExhaustionError", () => {
     expect(isPgPoolExhaustionError(new Error("FATAL: sorry, too many clients already"))).toBe(true);
   });
 
-  test("rejects errors with empty-string `query` field (presence check, not truthiness)", () => {
-    // A wrapper that zeros out query would pass a truthiness check but we
-    // still don't know the query didn't reach the server — reject to stay safe.
+  test("rejects errors with empty-string `query` field (defense against ambiguous wrapper output)", () => {
+    // A wrapper that sets `query: ""` (e.g. sanitization) is ambiguous about
+    // whether the query reached the server. We err on the safe side and reject;
+    // empty string is truthy enough to fail the `!= null` check.
     expect(
       isPgPoolExhaustionError({
         code: "53300",
@@ -61,6 +63,34 @@ describe("isPgPoolExhaustionError", () => {
         query: "",
       })
     ).toBe(false);
+  });
+
+  test("matches errors with `query: undefined` (postgres-js connection-acquisition shape, mt#1461 regression test)", () => {
+    // postgres-js attaches `query` as an own-property to ALL `PostgresError`
+    // instances, with value `undefined` for pre-send errors (connection
+    // acquisition failures, including pool saturation). The original mt#1193
+    // logic used `"query" in e` (presence check), which returned true here
+    // and silently rejected every real PostgresError. mt#1461 corrects to
+    // `e.query != null` so undefined passes through to the code/message check.
+    expect(
+      isPgPoolExhaustionError({
+        code: "53300",
+        message: "sorry, too many clients already",
+        query: undefined,
+      })
+    ).toBe(true);
+  });
+
+  test("matches errors with `query: null` (defensive: null also indicates pre-send)", () => {
+    // Some wrappers may set `query: null` instead of `undefined`. Both should
+    // pass the guard since neither indicates a transmitted query.
+    expect(
+      isPgPoolExhaustionError({
+        code: "XX000",
+        message: SUPAVISOR_SATURATION_MESSAGE,
+        query: null,
+      })
+    ).toBe(true);
   });
 });
 
@@ -122,6 +152,31 @@ describe("withPgPoolRetry", () => {
       )
     ).rejects.toThrow(SUPAVISOR_SATURATION_MESSAGE);
     expect(calls).toBe(2);
+  });
+
+  test("retries postgres-js-shaped errors with `query: undefined` (mt#1461 regression)", async () => {
+    // End-to-end check that the guard fix flows into the retry loop:
+    // a synthetic postgres-js-shaped error (with `query: undefined` as an
+    // own-property, matching the real shape captured during the mt#1461
+    // incident) must trigger retries, not the silent no-op of the prior bug.
+    let calls = 0;
+    const result = await withPgPoolRetry(
+      async () => {
+        calls += 1;
+        if (calls < 3) {
+          const err = Object.assign(new Error("sorry, too many clients already"), {
+            code: "53300",
+            query: undefined,
+          });
+          throw err;
+        }
+        return "ok";
+      },
+      "test.mt1461-regression",
+      { initialDelayMs: 1, maxDelayMs: 4 }
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(3);
   });
 });
 
