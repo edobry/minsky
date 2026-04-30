@@ -209,12 +209,21 @@ export async function mergeSessionPr(
   // This ensures consistent security enforcement across all merge operations
   validateSessionApprovedForMerge(sessionRecord, sessionIdToUse);
 
+  // Resolve backendType once using the same fallback as the merge code below.
+  // This prevents a split-brain where the non-GitHub emission gate uses the raw
+  // sessionRecord.backendType (which may be undefined) while the actual merge
+  // resolves it via detectRepositoryBackendTypeFromUrl. An undefined backendType
+  // with a GitHub repoUrl would previously emit as non-GitHub then merge as GitHub.
+  const repoUrlForDetection = params.repo || sessionRecord.repoUrl || process.cwd();
+  const resolvedBackendType =
+    sessionRecord.backendType || detectRepositoryBackendTypeFromUrl(repoUrlForDetection);
+
   // ── quality.review Ask emission for non-GitHub sessions (best-effort) ───────
   // For non-GitHub sessions, the approval gate above (validateSessionApprovedForMerge)
   // is authoritative, so we emit the Ask immediately after it passes.
   // For GitHub sessions, emission is deferred until after getApprovalStatus() confirms
   // approval — see the emission block inside the GitHub PR check below.
-  if (deps.askRepository && sessionRecord.backendType !== "github") {
+  if (deps.askRepository && resolvedBackendType !== "github") {
     try {
       const askInput: CreateAskInput = {
         kind: "quality.review",
@@ -269,9 +278,11 @@ export async function mergeSessionPr(
   const gitService = deps.gitService || createGitService();
 
   // Create repository backend for this session
-  // Use stored repoUrl for backend detection to avoid redundant git commands
-  const repoUrl = params.repo || sessionRecord.repoUrl || process.cwd();
-  const backendType = sessionRecord.backendType || detectRepositoryBackendTypeFromUrl(repoUrl);
+  // Use stored repoUrl for backend detection to avoid redundant git commands.
+  // repoUrlForDetection and resolvedBackendType were computed once above for the
+  // non-GitHub emission gate; reuse them here for the backend config.
+  const repoUrl = repoUrlForDetection;
+  const backendType = resolvedBackendType;
 
   // For merge operations, we still need a working directory (session workspace)
   const _workingDirectory = await sessionDB.getSessionWorkdir(sessionIdToUse);
@@ -299,9 +310,11 @@ export async function mergeSessionPr(
 
   // Removed implementation detail - backend type is apparent from context
 
-  // Re-check PR existence for merge operation
+  // Re-check PR existence for merge operation.
+  // Use resolvedBackendType (not raw sessionRecord.backendType) so sessions with
+  // undefined backendType but a GitHub repoUrl are correctly routed to the GitHub path.
   const _hasLocalPr = sessionRecord.prBranch;
-  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+  const hasGitHubPr = sessionRecord.pullRequest && resolvedBackendType === "github";
 
   // For GitHub backend, check approval status via API before proceeding
   if (hasGitHubPr && sessionRecord.pullRequest) {
@@ -503,12 +516,10 @@ export async function mergeSessionPr(
             metadata: {
               prNumber,
               targetBranch: sessionRecord.prBranch,
-              approvalState:
-                sessionRecord.prApproved === true
-                  ? "approved"
-                  : sessionRecord.prApproved === false
-                    ? "rejected"
-                    : "unknown",
+              // Derive approvalState from the freshly-fetched approvalStatus, not the
+              // potentially stale sessionRecord.prApproved. waiverApplied is also treated
+              // as approved because the operator waiver has explicitly accepted the merge.
+              approvalState: approvalStatus.isApproved || waiverApplied ? "approved" : "rejected",
             },
           };
 
@@ -534,6 +545,56 @@ export async function mergeSessionPr(
       log.debug(
         `Skipping pre-merge approval check due to API error. Proceeding with merge attempt.`
       );
+
+      // Best-effort Ask emission in the error path: the PR's own contract requires
+      // an Ask before each merge attempt, even when the approval check fails.
+      // approvalCheckFailed: true signals to downstream consumers that the state
+      // is unknown because the API call failed, not because the PR is actually rejected.
+      if (deps.askRepository && sessionRecord.pullRequest) {
+        try {
+          const prNumber = sessionRecord.pullRequest.number;
+          const prUrl = sessionRecord.pullRequest.url;
+
+          const errorPathAskInput: CreateAskInput = {
+            kind: "quality.review",
+            classifierVersion: "v1",
+            requestor: `minsky.session-merge:session:${sessionIdToUse}`,
+            parentTaskId: sessionRecord.taskId,
+            parentSessionId: sessionIdToUse,
+            title: `quality.review for session ${sessionIdToUse}`,
+            question: `Session ${sessionIdToUse} is about to be merged. Review the PR for quality and correctness.`,
+            contextRefs: [
+              {
+                kind: "github-pr",
+                ref: prUrl,
+                description: `GitHub PR #${prNumber}`,
+              },
+            ],
+            metadata: {
+              prNumber,
+              targetBranch: sessionRecord.prBranch,
+              approvalState: "unknown",
+              approvalCheckFailed: true,
+            },
+          };
+
+          await deps.askRepository.create(errorPathAskInput);
+          log.debug("quality.review Ask emitted for GitHub merge (approval check failed)", {
+            sessionId: sessionIdToUse,
+            taskId: sessionRecord.taskId,
+            prNumber,
+          });
+        } catch (askErr: unknown) {
+          const errMsg = askErr instanceof Error ? askErr.message : String(askErr);
+          log.warn(
+            "Failed to emit quality.review Ask in error path before GitHub merge (non-blocking)",
+            {
+              sessionId: sessionIdToUse,
+              error: errMsg,
+            }
+          );
+        }
+      }
     }
   }
 
