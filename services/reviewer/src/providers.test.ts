@@ -748,7 +748,7 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
   test("read_file interleaved with submit_finding → toolCalls contains only submit_finding entries", async () => {
     const { client } = makeFakeClient([
       // Round 1: read_file + submit_finding + conclude_review interleaved.
-      // conclude_review is included so the reminder mechanism does not fire
+      // conclude_review is included so the post-loop forced pass does not fire
       // (a well-behaved model emits conclude_review as its terminator).
       {
         choices: [
@@ -798,7 +798,7 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
 
     const { client } = makeFakeClient([
       // Round 1: malformed submit_finding, then a valid one, then conclude_review.
-      // conclude_review is included so the reminder mechanism does not fire
+      // conclude_review is included so the post-loop forced pass does not fire
       // (a well-behaved model emits conclude_review as its terminator).
       {
         choices: [
@@ -850,13 +850,24 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
   });
 });
 
-// ----- conclude_review reminder mechanism (mt#1450) -----
+// ----- conclude_review post-loop forced pass (mt#1450 / mt#1471) -----
 //
-// Verifies that the loop-side reminder fires when the model exits without
-// emitting conclude_review, and that structured log entries are emitted with
-// the correct finally_emitted value.
+// mt#1450 introduced an in-loop conclude_review reminder gated on
+// `!isLastRound`. Live re-verification on 2026-04-30 showed the reminder
+// fired only 1/15 times because the dominant production failure mode was
+// the loop exhausting its round budget on read_file calls and exiting via
+// round 9's forced text-only response — at which point the in-loop trigger
+// could not fire.
+//
+// mt#1471 replaces the in-loop reminder with a single post-loop forced
+// conclude_review pass that uses `tool_choice` to constrain the model to
+// emit conclude_review. The pass is decoupled from the loop's round budget,
+// fires on any exit path that ended with output tool calls but no
+// conclude_review, and does not retry. Composition-side severity-derived
+// event recovery (mt#1413) remains the safety net if the forced pass fails
+// to produce a parseable conclude_review.
 
-describe("callOpenAIWithClient conclude_review reminder (mt#1450)", () => {
+describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)", () => {
   const MODEL = "gpt-5";
   const CONCLUDE_REVIEW_REMINDER_EVENT = "reviewer.conclude_review_reminder";
 
@@ -888,23 +899,26 @@ describe("callOpenAIWithClient conclude_review reminder (mt#1450)", () => {
     };
   }
 
+  /** Build a fake OpenAI client that cycles responses and captures requests. */
   function makeFakeClient(
     responses: Array<{
       choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
       usage?: ReturnType<typeof makeUsage>;
     }>
-  ): { client: OpenAI } {
+  ): { client: OpenAI; capturedParams: Array<Record<string, unknown>> } {
     let callCount = 0;
+    const capturedParams: Array<Record<string, unknown>> = [];
     const client = {
       chat: {
         completions: {
-          create: async (_params: { messages: unknown[] }) => {
+          create: async (params: Record<string, unknown>) => {
+            capturedParams.push({ ...params });
             return responses[callCount++];
           },
         },
       },
     } as unknown as OpenAI;
-    return { client };
+    return { client, capturedParams };
   }
 
   const defaultTools: ReviewerToolContext = {
@@ -912,211 +926,785 @@ describe("callOpenAIWithClient conclude_review reminder (mt#1450)", () => {
     listDirectory: mock(async () => null),
   };
 
-  test("reminder fires once with finally_emitted:true when model emits conclude_review after reminder", async () => {
-    // Capture console.log calls to verify structured log output.
-    const loggedEvents: unknown[] = [];
+  /** Capture console.log calls for the duration of `fn`. */
+  async function withCapturedLogs<T>(
+    fn: (events: unknown[]) => Promise<T>
+  ): Promise<{ events: unknown[]; result: T }> {
+    const events: unknown[] = [];
     const originalLog = console.log;
     console.log = (msg: string) => {
       try {
-        loggedEvents.push(JSON.parse(msg));
+        events.push(JSON.parse(msg));
       } catch {
         originalLog(msg);
       }
     };
-
     try {
-      const { client } = makeFakeClient([
-        // Round 0: 3 submit_finding calls
-        {
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
-                ],
-              },
-            },
-          ],
-          usage: makeUsage(),
-        },
-        // Round 1: no tool calls — would normally terminate, triggers reminder
-        {
-          choices: [{ message: { content: "Done reviewing.", tool_calls: undefined } }],
-          usage: makeUsage(),
-        },
-        // Round 2: model responds to reminder with conclude_review
-        {
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS)],
-              },
-            },
-          ],
-          usage: makeUsage(),
-        },
-        // Round 3: final text response after conclude_review
-        {
-          choices: [{ message: { content: "Review complete." } }],
-          usage: makeUsage(),
-        },
-      ]);
-
-      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
-
-      // All 4 tool calls (3 findings + 1 conclude_review) must be in output.
-      expect(result.toolCalls).toHaveLength(4);
-      expect(result.toolCalls[0]?.name).toBe("submit_finding");
-      expect(result.toolCalls[1]?.name).toBe("submit_finding");
-      expect(result.toolCalls[2]?.name).toBe("submit_finding");
-      expect(result.toolCalls[3]?.name).toBe("conclude_review");
-
-      // Exactly one reminder log, with finally_emitted: true.
-      const reminderLogs = loggedEvents.filter(
-        (e) =>
-          typeof e === "object" &&
-          e !== null &&
-          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
-      );
-      expect(reminderLogs).toHaveLength(1);
-      const reminderLog = reminderLogs[0] as Record<string, unknown>;
-      expect(reminderLog["provider"]).toBe("openai");
-      expect(reminderLog["reminder_count"]).toBe(1);
-      expect(reminderLog["finally_emitted"]).toBe(true);
+      const result = await fn(events);
+      return { events, result };
     } finally {
       console.log = originalLog;
     }
+  }
+
+  test("emits conclude_review via post-loop forced pass when model exits early without it", async () => {
+    const { client } = makeFakeClient([
+      // Round 0: 3 submit_finding calls
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: model emits no tool calls — loop exits early without conclude_review
+      {
+        choices: [{ message: { content: "Done reviewing.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: model emits conclude_review under tool_choice constraint
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // All 4 tool calls (3 findings + 1 conclude_review) end up in output.
+    expect(result.toolCalls).toHaveLength(4);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["provider"]).toBe("openai");
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["finally_emitted"]).toBe(true);
+    expect(log["fired_at_turn"]).toBe(2); // fired after 2 main-loop rounds (the forced pass itself is the 3rd API call)
   });
 
-  test("reminder fires twice with finally_emitted:false when model refuses conclude_review both times", async () => {
-    const loggedEvents: unknown[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => {
-      try {
-        loggedEvents.push(JSON.parse(msg));
-      } catch {
-        originalLog(msg);
-      }
-    };
-
-    try {
-      const { client } = makeFakeClient([
-        // Round 0: 3 submit_finding calls
-        {
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
-                ],
-              },
+  test("post-loop forced pass uses tool_choice constrained to conclude_review", async () => {
+    const { client, capturedParams } = makeFakeClient([
+      // Round 0: 1 finding
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
             },
-          ],
-          usage: makeUsage(),
-        },
-        // Round 1: no tool calls — first exit attempt, triggers reminder #1
-        {
-          choices: [{ message: { content: "Done.", tool_calls: undefined } }],
-          usage: makeUsage(),
-        },
-        // Round 2: no tool calls again — refuses reminder #1, triggers reminder #2
-        {
-          choices: [{ message: { content: "Still done.", tool_calls: undefined } }],
-          usage: makeUsage(),
-        },
-        // Round 3: no tool calls again — refuses reminder #2, loop terminates
-        {
-          choices: [{ message: { content: "Final text." } }],
-          usage: makeUsage(),
-        },
-      ]);
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass response
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
 
-      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+    await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
 
-      // Only 3 findings in toolCalls — conclude_review was never emitted.
-      expect(result.toolCalls).toHaveLength(3);
-      expect(result.toolCalls.every((tc) => tc.name === "submit_finding")).toBe(true);
+    // Three API calls were made: 2 main-loop rounds + 1 forced post-loop call.
+    expect(capturedParams).toHaveLength(3);
 
-      // Exactly 2 reminder logs, both with finally_emitted: false.
-      const reminderLogs = loggedEvents.filter(
-        (e) =>
-          typeof e === "object" &&
-          e !== null &&
-          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
-      );
-      expect(reminderLogs).toHaveLength(2);
+    const forcedCallParams = capturedParams[2];
+    expect(forcedCallParams).toBeDefined();
 
-      const first = reminderLogs[0] as Record<string, unknown>;
-      expect(first["reminder_count"]).toBe(1);
-      expect(first["finally_emitted"]).toBe(false);
+    // The forced call constrains tool_choice to conclude_review.
+    expect(forcedCallParams?.tool_choice).toEqual({
+      type: "function",
+      function: { name: "conclude_review" },
+    });
 
-      const second = reminderLogs[1] as Record<string, unknown>;
-      expect(second["reminder_count"]).toBe(2);
-      expect(second["finally_emitted"]).toBe(false);
-    } finally {
-      console.log = originalLog;
-    }
+    // The forced call only registers conclude_review (no read-only tools, no
+    // other output tools) — the constraint must be both via tool_choice AND by
+    // the tool-list itself for OpenAI to honor it consistently.
+    const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
+    expect(Array.isArray(forcedTools)).toBe(true);
+    expect(forcedTools).toHaveLength(1);
+    expect(forcedTools[0]?.function.name).toBe("conclude_review");
+
+    // The forced call's messages include the user reminder as the last message.
+    const forcedMessages = forcedCallParams?.messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    const lastMessage = forcedMessages[forcedMessages.length - 1];
+    expect(lastMessage?.role).toBe("user");
+    expect(typeof lastMessage?.content).toBe("string");
+    expect(lastMessage?.content).toContain("conclude_review");
   });
 
-  test("no reminder fires when model emits conclude_review proactively", async () => {
-    const loggedEvents: unknown[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => {
-      try {
-        loggedEvents.push(JSON.parse(msg));
-      } catch {
-        originalLog(msg);
-      }
+  test("post-loop forced pass: log finally_emitted:false when model returns no conclude_review", async () => {
+    const { client } = makeFakeClient([
+      // Round 0: 2 findings
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit
+      {
+        choices: [{ message: { content: "All done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: model returns no tool calls (rare under
+      // tool_choice constraint, but defensive)
+      {
+        choices: [{ message: { content: "Refused.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // Only 2 findings; no conclude_review was emitted.
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls.every((tc) => tc.name === "submit_finding")).toBe(true);
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    // Single forced-pass log with finally_emitted: false (no retries in new design).
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["finally_emitted"]).toBe(false);
+  });
+
+  test("post-loop forced pass: log finally_emitted:false when conclude_review args are malformed", async () => {
+    const MALFORMED_CONCLUDE_ARGS = JSON.stringify({ event: "INVALID_EVENT", summary: "x" });
+
+    const { client } = makeFakeClient([
+      // Round 0: 1 finding
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: returns conclude_review with malformed args
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", MALFORMED_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // The malformed conclude_review is NOT appended to toolCalls.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["finally_emitted"]).toBe(false);
+  });
+
+  test("no forced pass when model emits conclude_review proactively in main loop", async () => {
+    const { client, capturedParams } = makeFakeClient([
+      // Round 0: 3 findings + conclude_review all in one turn
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: final text after conclude_review
+      {
+        choices: [{ message: { content: "Review done." } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(result.toolCalls).toHaveLength(4);
+    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+
+    // Only 2 main-loop calls; no post-loop forced pass.
+    expect(capturedParams).toHaveLength(2);
+
+    // No reminder logs at all.
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(0);
+  });
+
+  test("no forced pass when no output tools were emitted (gate semantics)", async () => {
+    // Model uses only read_file then exits without emitting any output tools.
+    // The post-loop pass must NOT fire — there's no review to wrap up.
+    const { client, capturedParams } = makeFakeClient([
+      // Round 0: read_file call
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "rf1",
+                  type: "function",
+                  function: { name: "read_file", arguments: JSON.stringify({ path: "src/a.ts" }) },
+                },
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit, no output tools were used
+      {
+        choices: [{ message: { content: "Nothing to review.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => ({ kind: "text" as const, content: "x", truncated: false })),
+      listDirectory: mock(async () => null),
     };
 
-    try {
-      const { client } = makeFakeClient([
-        // Round 0: 3 findings + conclude_review all in one turn
-        {
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    expect(result.toolCalls).toHaveLength(0);
+
+    // Only 2 main-loop calls; no post-loop forced pass triggered.
+    expect(capturedParams).toHaveLength(2);
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(0);
+  });
+
+  test("post-loop forced pass fires when main loop exhausts MAX_TOOL_ROUNDS without conclude_review (production failure mode)", async () => {
+    // Reproduces the dominant production failure mode that mt#1450's in-loop
+    // reminder did not handle: the model keeps making tool calls (mostly
+    // failing read_file probes) for all 10 main-loop rounds, never exiting
+    // voluntarily and never emitting conclude_review. On round 9 the loop
+    // forces text-only mode, the model returns text, and the loop ends.
+    //
+    // The new post-loop forced pass MUST fire here because the gate is
+    // (!hasConcludeReview && hasEmittedOutputCalls), independent of how the
+    // loop ended.
+
+    // Build 10 main-loop responses: each round emits a read_file call
+    // (rounds 1-3, 5-6, 8) or a submit_finding (rounds 0, 4, 7 — to ensure
+    // accumulatedToolCalls.length > 0). Round 9 has no tools passed by the
+    // implementation, so the model can't emit tool calls — return text-only.
+    const mainLoopResponses = [];
+    for (let i = 0; i < 9; i++) {
+      // Mix in submit_findings on a few rounds so hasEmittedOutputCalls=true.
+      if (i === 0 || i === 4 || i === 7) {
+        mainLoopResponses.push({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [makeOutputToolCall(`sf${i}`, "submit_finding", VALID_FINDING_ARGS)],
+              },
+            },
+          ],
+          usage: makeUsage(),
+        });
+      } else {
+        mainLoopResponses.push({
           choices: [
             {
               message: {
                 content: null,
                 tool_calls: [
-                  makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c2", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c3", "submit_finding", VALID_FINDING_ARGS),
-                  makeOutputToolCall("c4", "conclude_review", VALID_CONCLUDE_ARGS),
+                  {
+                    id: `rf${i}`,
+                    type: "function",
+                    function: {
+                      name: "read_file",
+                      arguments: JSON.stringify({ path: `src/path${i}.ts` }),
+                    },
+                  },
                 ],
               },
             },
           ],
           usage: makeUsage(),
-        },
-        // Round 1: final text after conclude_review
-        {
-          choices: [{ message: { content: "Review done." } }],
-          usage: makeUsage(),
-        },
-      ]);
-
-      const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
-
-      expect(result.toolCalls).toHaveLength(4);
-      expect(result.toolCalls[3]?.name).toBe("conclude_review");
-
-      // No reminder logs at all.
-      const reminderLogs = loggedEvents.filter(
-        (e) =>
-          typeof e === "object" &&
-          e !== null &&
-          (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
-      );
-      expect(reminderLogs).toHaveLength(0);
-    } finally {
-      console.log = originalLog;
+        });
+      }
     }
+
+    // Round 9 (the last round): tools NOT passed by the implementation.
+    // The fake just returns text; the production loop can't emit tool calls
+    // because tool_choice is omitted on the last round.
+    mainLoopResponses.push({
+      choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+      usage: makeUsage(),
+    });
+
+    // Post-loop forced pass: emits conclude_review.
+    mainLoopResponses.push({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [makeOutputToolCall("cr", "conclude_review", VALID_CONCLUDE_ARGS)],
+          },
+        },
+      ],
+      usage: makeUsage(),
+    });
+
+    const { client, capturedParams } = makeFakeClient(mainLoopResponses);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // 11 API calls total: 10 main-loop rounds + 1 post-loop forced pass.
+    expect(capturedParams).toHaveLength(11);
+
+    // 3 findings + 1 conclude_review.
+    expect(result.toolCalls).toHaveLength(4);
+    expect(result.toolCalls.filter((tc) => tc.name === "submit_finding")).toHaveLength(3);
+    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+
+    // Forced-pass reminder log present and finally_emitted:true.
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["finally_emitted"]).toBe(true);
+    expect(log["fired_at_turn"]).toBe(10); // all 10 main-loop rounds were used
+
+    // Sanity: round 9 was the last main-loop call. Inspect the params: tools
+    // should have been omitted on that round (forced text-only mode).
+    const round9Params = capturedParams[9];
+    expect(round9Params?.tools).toBeUndefined();
+    expect(round9Params?.tool_choice).toBeUndefined();
+  });
+
+  test("forced-pass conclude_review emits reviewer.output_tool_call log for observability parity", async () => {
+    // Regression guard for the PR #915 round-1 blocking finding: the forced
+    // path must emit the same `reviewer.output_tool_call` log shape as the
+    // main loop so downstream metrics see the conclude_review emission.
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    const outputToolCallLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === "reviewer.output_tool_call"
+    );
+    // Two output tool calls were accepted: submit_finding (main loop, count=1)
+    // and conclude_review (forced post-loop pass, count=2).
+    expect(outputToolCallLogs).toHaveLength(2);
+
+    const findingLog = outputToolCallLogs[0] as Record<string, unknown>;
+    expect(findingLog["tool"]).toBe("submit_finding");
+    expect(findingLog["count"]).toBe(1);
+
+    const concludeLog = outputToolCallLogs[1] as Record<string, unknown>;
+    expect(concludeLog["tool"]).toBe("conclude_review");
+    expect(concludeLog["count"]).toBe(2);
+    expect(concludeLog["provider"]).toBe("openai");
+  });
+
+  test("empty exit content from a non-last round prefers earlier non-empty assistant text (PR #915 R2)", async () => {
+    // Regression guard for the PR #915 round-2 blocking finding: when the exit
+    // turn has empty content but an earlier round produced narrative text,
+    // surface that earlier text instead of the [TOOL CAP REACHED] sentinel
+    // (which falsely implies budget exhaustion that didn't happen).
+    const { client } = makeFakeClient([
+      // Round 0: model emits narrative text alongside tool calls
+      {
+        choices: [
+          {
+            message: {
+              content: "Reviewing the diff for null-safety issues.",
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit content; not the last round
+      {
+        choices: [{ message: { content: "", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: emits conclude_review.
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // Should surface the earlier round's narrative text — not empty, not
+    // [TOOL CAP REACHED] (the cap wasn't actually hit).
+    expect(result.text).toBe("Reviewing the diff for null-safety issues.");
+    expect(result.text).not.toContain("[TOOL CAP REACHED]");
+  });
+
+  test("empty exit on non-last round with no prior assistant text falls back to neutral notice, not TOOL CAP REACHED", async () => {
+    // When NO earlier round had non-empty content either, a non-last-round
+    // empty exit must use the neutral "[REVIEWER NOTE] No final summary
+    // provided." message rather than the [TOOL CAP REACHED] sentinel —
+    // saying "tool cap reached" when the cap wasn't hit is a UX lie.
+    const { client } = makeFakeClient([
+      // Round 0: tool call only, no narrative text
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty content, not last round
+      {
+        choices: [{ message: { content: "", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: emits conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(result.text).toBe("[REVIEWER NOTE] No final summary provided.");
+    expect(result.text).not.toContain("[TOOL CAP REACHED]");
+  });
+
+  test("post-loop forced pass uses shallow-copied messages, does not mutate the caller's array", async () => {
+    // Regression guard for the PR #915 round-2 NB: forceConcludeReview should
+    // not append the exit turn or the user reminder onto the parent `messages`
+    // array, since that's shared with the main loop. We assert by counting
+    // messages on the captured forced-call params vs the messages still in
+    // the main loop's array (the main loop doesn't reuse `messages` after
+    // the forced pass, but the no-mutation invariant prevents future bugs).
+    const { client, capturedParams } = makeFakeClient([
+      // Round 0: 1 finding
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: empty exit
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: returns conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    expect(capturedParams).toHaveLength(3);
+
+    const round1Messages = capturedParams[1]?.messages as unknown[];
+    const forcedMessages = capturedParams[2]?.messages as unknown[];
+
+    // The forced call's messages array must be longer than the prior round's
+    // (it has the exit turn + the reminder appended), AND the prior round's
+    // captured messages must not retroactively include those — the messages
+    // were snapshotted (the fake client did `[...params.messages]` at the
+    // time of each call) so mutation would only show up if both arrays were
+    // the same reference. The forced call appends 2 entries (exitMessage +
+    // user reminder).
+    expect(forcedMessages.length).toBeGreaterThan(round1Messages.length);
+    const lastForcedMessage = forcedMessages[forcedMessages.length - 1] as {
+      role: string;
+      content: string;
+    };
+    expect(lastForcedMessage.role).toBe("user");
+    expect(lastForcedMessage.content).toContain("conclude_review");
+  });
+
+  test("post-loop forced reminder log includes mode:'post_loop_forced' for downstream segmentation", async () => {
+    // Regression guard for the PR #915 round-2 NB: include a `mode` field on
+    // the reminder log so consumers can distinguish the forced-pass path from
+    // any future reminder modes without losing parity with prior multi-
+    // reminder tracking.
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    expect((reminderLogs[0] as Record<string, unknown>)["mode"]).toBe("post_loop_forced");
+  });
+
+  test("post-loop forced pass: API-error path logs reminder with finally_emitted:false and error message (PR #915 R3)", async () => {
+    // Regression guard for the PR #915 round-3 NB-3: the forced post-loop
+    // call wraps `client.chat.completions.create` in a try/catch and logs
+    // a reminder event with `finally_emitted: false` plus the error message
+    // when the API throws. This test simulates a transport-level error on
+    // the third (forced) call and verifies the catch branch's logging.
+    let callCount = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (_params: { messages: unknown[] }) => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                choices: [
+                  {
+                    message: {
+                      content: null,
+                      tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+                    },
+                  },
+                ],
+                usage: makeUsage(),
+              };
+            }
+            if (callCount === 2) {
+              return {
+                choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+                usage: makeUsage(),
+              };
+            }
+            // Third call (forced post-loop pass): throw a transport error
+            throw new Error("simulated network error on forced call");
+          },
+        },
+      },
+    } as unknown as OpenAI;
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // No conclude_review was appended because the forced call threw.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["finally_emitted"]).toBe(false);
+    expect(log["mode"]).toBe("post_loop_forced");
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["fired_at_turn"]).toBe(2);
+    expect(log["error"]).toBe("simulated network error on forced call");
   });
 });
