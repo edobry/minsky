@@ -173,20 +173,16 @@ export function extractFindings(body: string): string {
     // narrative prose ("the string [BLOCKING] appears in docs") must NOT
     // trigger inFinding (which would over-capture the body to EOF).
     //
-    // PR #921 R2 catch: pre-fix used negative lookbehind/lookahead on `*`
-    // to reject one-sided wrappers, which:
-    //   (a) had compatibility risk in some JavaScriptCore/Bun versions
-    //       (lookbehind is ES2018; load-time SyntaxError if unsupported);
-    //   (b) was over-permissive — it accepted `[BLOCKING]` anywhere on
-    //       the line, including incidental prose mentions.
-    // The new pattern is start-of-line anchored, accepts an optional
-    // bullet (`-`, `*`, `•`) and whitespace prefix, then either balanced
-    // `**[SEV]**` or bare `[SEV]` followed by a non-`*` char (lookahead-
-    // free balance check via a positive next-char class). The trailing
-    // `(?:[^*]|$)` requires a non-`*` boundary, equivalent to `(?!\*)`
-    // without using lookahead.
+    // PR #921 R3 refinements:
+    //   - Bullet class broadened to `[-+*•]` plus numeric-ordered lists
+    //     (e.g., `1.`, `12.`) for parity with GitHub Markdown.
+    //   - Switched bare-branch boundary from consuming `(?:[^*]|$)` to
+    //     non-consuming negative lookahead `(?!\*)`. Lookahead is broadly
+    //     supported (ES5+), unlike lookbehind, so portability is preserved
+    //     while the regex no longer eats the next character. This avoids
+    //     subtle slicing bugs if the regex is later used for capture.
     if (
-      /^\s*(?:[-*•]\s+)?(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:[^*]|$))/i.test(
+      /^\s*(?:(?:\d+\.|[-+*•])\s+)?(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))/i.test(
         line
       )
     ) {
@@ -226,7 +222,14 @@ export function countBlockingFindings(body: string): number {
   // semantics (next char must not be `*`) without lookahead. The trailing
   // boundary IS consumed, but for counting that's harmless: each bare
   // marker still produces exactly one match.
-  const matches = body.match(/^\s*(?:[-*•]\s+)?(?:\*\*\[BLOCKING\]\*\*|\[BLOCKING\](?:[^*]|$))/gim);
+  // PR #921 R3 refinements: bullet class includes `+` and ordered-list
+  // (`1.`) prefixes; bare branch uses non-consuming negative lookahead
+  // `(?!\*)` instead of consuming `(?:[^*]|$)`. Lookahead is broadly
+  // supported (ES5+); switching avoids the consuming-boundary brittleness
+  // that the R3 reviewer flagged.
+  const matches = body.match(
+    /^\s*(?:(?:\d+\.|[-+*•])\s+)?(?:\*\*\[BLOCKING\]\*\*|\[BLOCKING\](?!\*))/gim
+  );
   return matches?.length ?? 0;
 }
 

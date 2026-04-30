@@ -474,6 +474,19 @@ describe("countBlockingFindings", () => {
     expect(countBlockingFindings("Conclusion: **[BLOCKING]** above are the issues.")).toBe(0);
   });
 
+  test("counts numeric-ordered-list bullet prefix (PR #921 R3)", () => {
+    // GitHub Markdown ordered lists use `1.`, `2.`, etc. The R3 reviewer
+    // flagged the previous bullet class missed these.
+    const body =
+      "1. [BLOCKING] src/foo.ts:1 — first\n2. **[BLOCKING]** src/bar.ts:5 — second\n10. [BLOCKING] src/baz.ts:9 — multi-digit";
+    expect(countBlockingFindings(body)).toBe(3);
+  });
+
+  test("counts plus-style bullet prefix (PR #921 R3)", () => {
+    const body = "+ [BLOCKING] src/foo.ts:1 — plus bullet";
+    expect(countBlockingFindings(body)).toBe(1);
+  });
+
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
     // fetchPriorReviews maps null → "" via r.body ?? "". Simulate a caller
     // that received null at runtime and coalesced before calling countBlockingFindings.
