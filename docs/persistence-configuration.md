@@ -285,9 +285,13 @@ class we explicitly avoid.
 
 A top-level `await` starts the container and computes the connection string; the file then
 registers a `describe` block whose `afterAll` stops the container. Container startup happens
-outside Bun's per-test timeout — Testcontainers' own `withStartupTimeout(120_000)` is the only
-protection during the start phase, which is why `test:integration:docker` uses `--timeout=180000`
-for the test bodies that follow. Testcontainers handles cleanup automatically and reaps orphaned
+outside Bun's per-test timeout. With the no-op wait strategy, Testcontainers'
+`withStartupTimeout(120_000)` effectively bounds only the docker exec/socket calls — the wait
+strategy itself returns immediately. The real readiness deadline is the **60-second SQL probe
+loop** that runs after `start()` returns (described in the compatibility note below); that probe
+is what guarantees we don't move on to test execution against a non-ready Postgres. The
+`test:integration:docker` script uses `--timeout=180000` to give bun:test enough headroom for
+the test bodies after startup. Testcontainers handles cleanup automatically and reaps orphaned
 containers via Ryuk on next start if a previous run was killed mid-flight.
 
 ### Bun + Testcontainers compatibility note
