@@ -154,6 +154,27 @@ describe("computeDiff()", () => {
     delete process.env["SEALED_TEST_VAR"];
   });
 
+  test("classifies sealed current + SecretRef desired as NO-CHANGE without resolving the secret", () => {
+    // Regression test for R3 BLOCKING #1: computeDiff must not call resolveSecret
+    // when current[key].isSealed === true and desired[key] is a SecretRef.
+    // The env var is deliberately absent and the secrets file reader returns null,
+    // so any attempt to resolve would throw — proving the short-circuit fires.
+    const missingEnvVar = "SEALED_NO_CHANGE_SECRET_ABSENT";
+    delete process.env[missingEnvVar];
+    const nullReader: SecretsFileReader = { exists: () => false, read: () => "" };
+
+    const desired: Record<string, VariableValue> = { MY_SECRET: secret(missingEnvVar) };
+    const current: Record<string, CurrentVar> = {
+      MY_SECRET: makeCurrentVar("irrelevant-sealed-value", true),
+    };
+
+    // Must not throw even though the secret cannot be resolved locally
+    const diff = computeDiff(desired, current, nullReader);
+    expect(diff).toHaveLength(1);
+    expect(diff[0]?.kind).toBe("NO-CHANGE");
+    expect(diff[0]?.key).toBe("MY_SECRET");
+  });
+
   test("handles multiple vars with mixed classifications", () => {
     process.env["SECRET_A"] = "secret-a-value";
     const desired: Record<string, VariableValue> = {

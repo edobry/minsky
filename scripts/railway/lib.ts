@@ -111,6 +111,17 @@ export function computeDiff(
   for (const key of desiredKeys) {
     const desiredVal = desired[key];
     if (desiredVal === undefined) continue;
+
+    // Short-circuit: if current is sealed and desired is a SecretRef, no change possible
+    // without resolving the secret locally (which may not be available on all machines).
+    if (currentKeys.has(key)) {
+      const cur = current[key];
+      if (cur !== undefined && cur.isSealed === true && isSecretRef(desiredVal)) {
+        entries.push({ kind: "NO-CHANGE", key });
+        continue;
+      }
+    }
+
     const { resolvedValue, isSealed } = resolveVariableValue(desiredVal, reader);
     const patch: VariablePatch = { value: resolvedValue, isSealed };
 
