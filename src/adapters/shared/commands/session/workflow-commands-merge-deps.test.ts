@@ -8,10 +8,14 @@
  * removed the createConfiguredTaskService fallback in mergeSessionPr,
  * so every session_pr_merge call threw "taskService is required" until
  * this test's target (buildSessionMergeDeps) was fixed.
+ *
+ * mt#1475: also verifies that an explicit askRepository stub is threaded
+ * through so the domain layer can emit quality.review Asks before merge.
  */
 
 import { describe, it, expect } from "bun:test";
 import { buildSessionMergeDeps } from "./workflow-commands";
+import { FakeAskRepository } from "../../../../domain/ask/repository";
 
 describe("buildSessionMergeDeps (mt#1025)", () => {
   it("threads taskService, gitService, and sessionDB from DI deps", () => {
@@ -61,5 +65,26 @@ describe("buildSessionMergeDeps (mt#1025)", () => {
     );
 
     expect(mergeDeps.persistenceProvider).toBeUndefined();
+  });
+
+  it("threads askRepository stub through when provided (mt#1475)", () => {
+    const stubAskRepo = new FakeAskRepository();
+
+    const mergeDeps = buildSessionMergeDeps(
+      { sessionProvider: {}, taskService: {}, gitService: {} } as any,
+      undefined,
+      stubAskRepo
+    );
+
+    expect(mergeDeps.askRepository).toBe(stubAskRepo);
+  });
+
+  it("omits askRepository when not provided", () => {
+    const mergeDeps = buildSessionMergeDeps(
+      { sessionProvider: {}, taskService: {}, gitService: {} } as any,
+      undefined
+    );
+
+    expect(mergeDeps.askRepository).toBeUndefined();
   });
 });
