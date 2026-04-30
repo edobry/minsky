@@ -115,14 +115,20 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   //     (.env), multi-dot names (.eslintrc.json), scoped paths (src/@types/foo).
   //     Pre-PR-#922-R1 the regex required a literal dot-extension and silently
   //     dropped these on production review bodies, reducing recovery effectiveness.
-  //   - Path is anchored on EITHER `:digit` (line citation) OR `\s*—`
-  //     (em-dash boundary terminating the description-less form). Without
-  //     this anchor, prose like "Conclusion: [BLOCKING] above are issues"
-  //     would match `above` as a file.
+  //   - Path is anchored on EITHER `:digit` (line citation) OR a dash
+  //     boundary (em-dash, en-dash, or ASCII hyphen — PR #922 R2#3 catch).
+  //     Pre-PR-#922-R2 the regex hardcoded the U+2014 em-dash, missing real
+  //     bodies that used `-` (typing variation, Markdown rendering).
   //   - Line capture: explicit start + optional end so `:171-176` produces
   //     {line: 171, lineEnd: 176} (pre-fix was lossy parseInt(`171-176`)→171).
+  //
+  // Path char class: any non-whitespace, non-colon char EXCEPT em-dash and
+  // en-dash (rare in paths). ASCII hyphen `-` is permitted inside paths
+  // (common: `task-spec-fetch.ts`, `prior-review-summary.ts`); the dash-
+  // boundary alternative requires WHITESPACE around the dash to disambiguate
+  // from path-internal hyphens.
   const findingRe =
-    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+([^\s:—]+)(?:(?::(\d+)(?:-(\d+))?)?\s*—|:(\d+)(?:-(\d+))?)/gi;
+    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+([^\s:–—]+)(?:(?::(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
 
   for (const match of body.matchAll(findingRe)) {
     // Capture groups (alternation produces parallel sets):
@@ -168,6 +174,36 @@ export function parsePriorReviewFindings(bodies: ReadonlyArray<string>): FlatPri
 // ---------------------------------------------------------------------------
 
 /**
+ * Result of parsing a unified diff: per-file added/removed line ranges plus
+ * rename mappings. PR #922 R2 catch: pre-fix this returned only added ranges,
+ * which made it impossible for applyMonotonicityRecovery to handle deletion
+ * findings (no added overlap by construction) or rename pairs (additions
+ * attributed only to the new path).
+ */
+export interface ParsedDiff {
+  /**
+   * Map of file path → ranges of added lines in the NEW file (1-based,
+   * inclusive). Used for RIGHT-side / unspecified-side overlap checks.
+   */
+  added: Map<string, Array<[number, number]>>;
+  /**
+   * Map of file path → ranges of removed lines in the OLD file (1-based,
+   * inclusive). Used for LEFT-side checks and as a conservative guard for
+   * unspecified-side findings on deletions. Pre-PR-#922-R2 this dimension
+   * wasn't tracked at all.
+   */
+  removed: Map<string, Array<[number, number]>>;
+  /**
+   * Bidirectional rename mapping: oldPath → newPath. Pre-PR-#922-R2 the
+   * parser ignored `rename from`/`rename to` headers, so a finding that
+   * cited the OLD path saw zero added lines on a renamed file and was
+   * incorrectly downgraded. Now: applyMonotonicityRecovery uses this to
+   * resolve the new path's added ranges when a finding cites the old path.
+   */
+  renames: Map<string, string>;
+}
+
+/**
  * Parse a unified-diff string into a per-file map of added line ranges in
  * the new file. Used to determine whether a finding's cited range overlaps
  * any new lines the iteration introduced.
@@ -176,81 +212,117 @@ export function parsePriorReviewFindings(bodies: ReadonlyArray<string>): FlatPri
  * across multiple hunks for the same file are coalesced when contiguous,
  * preserved as separate ranges otherwise.
  *
+ * **Backwards-compat shim** — returns ONLY the added ranges. Prefer
+ * `parseUnifiedDiff` which exposes added + removed + renames in a single
+ * result struct (PR #922 R2#1+R2#2 catch). Existing callers and tests
+ * remain on this shape; new callers should migrate.
+ *
  * Exported for unit testing.
  */
 export function parseDiffAddedRanges(diff: string): Map<string, Array<[number, number]>> {
-  const result = new Map<string, Array<[number, number]>>();
-  if (!diff) return result;
+  return parseUnifiedDiff(diff).added;
+}
+
+/**
+ * Parse a unified-diff string into added/removed line ranges per file plus
+ * rename mappings. PR #922 R2 successor to parseDiffAddedRanges.
+ *
+ * Exported for unit testing.
+ */
+export function parseUnifiedDiff(diff: string): ParsedDiff {
+  const added = new Map<string, Array<[number, number]>>();
+  const removed = new Map<string, Array<[number, number]>>();
+  const renames = new Map<string, string>();
+  if (!diff) return { added, removed, renames };
 
   const lines = diff.split("\n");
   let currentFile: string | null = null;
   let currentNewLine = 0;
-  // Track whether we're inside an active hunk. Set true on `@@` header, set
-  // false on every file-boundary marker (`diff --git`, `--- a/...`, `+++ ...`,
-  // and in/out-of-file metadata). PR #922 R1 catch: pre-fix, non-hunk lines
-  // between hunks (`diff --git`, `index`, `new file mode`, `\ No newline at
-  // end of file`, `rename from/to`) were treated as context lines and
-  // advanced `currentNewLine`, corrupting added-line ranges and producing
-  // false-positive overlap decisions in applyMonotonicityRecovery.
+  // Old-file line counter — advances on context and `-` lines, used to
+  // record removed-line ranges. PR #922 R2#1 addition.
+  let currentOldLine = 0;
   let inHunk = false;
+  // Pending rename pair captured from `rename from X` / `rename to Y` headers.
+  // The pair completes when both lines have been seen; the mapping is
+  // recorded on the second one. PR #922 R2#2 addition.
+  let pendingRenameFrom: string | null = null;
+
+  /** Coalesce or append a range on the appropriate map. */
+  function pushRange(map: Map<string, Array<[number, number]>>, file: string, line: number): void {
+    if (!map.has(file)) map.set(file, []);
+    const ranges = map.get(file);
+    if (!ranges) return;
+    const last = ranges[ranges.length - 1];
+    if (last && last[1] === line - 1) {
+      last[1] = line;
+    } else {
+      ranges.push([line, line]);
+    }
+  }
 
   for (const line of lines) {
-    // Per-file boundary markers: `diff --git a/x b/y` starts a new file
-    // section. Reset state — currentFile is set when the `+++ b/...` line
-    // arrives a few lines later.
     if (line.startsWith("diff --git ")) {
       currentFile = null;
       inHunk = false;
+      pendingRenameFrom = null;
       continue;
     }
 
-    // Old-file path header: `--- a/...` or `--- /dev/null`. Reset currentFile
-    // until the matching `+++ b/...` line arrives. PR #922 R2 catch: pre-fix,
-    // a malformed/truncated diff with `--- a/X` followed by `@@` (no `+++`
-    // header) would accumulate added lines under a stale currentFile from
-    // the previous file section.
+    // Capture rename pairs. PR #922 R2#2 catch: pre-fix these were skipped
+    // as metadata; now we record the mapping so applyMonotonicityRecovery
+    // can resolve old-path findings against new-path added ranges.
+    if (line.startsWith("rename from ")) {
+      pendingRenameFrom = line.slice("rename from ".length);
+      continue;
+    }
+    if (line.startsWith("rename to ")) {
+      const renameTo = line.slice("rename to ".length);
+      if (pendingRenameFrom) {
+        renames.set(pendingRenameFrom, renameTo);
+        pendingRenameFrom = null;
+      }
+      continue;
+    }
+
     if (line.startsWith("--- ")) {
       currentFile = null;
       inHunk = false;
       continue;
     }
 
-    // New-file path header: `+++ b/path/to/file` or `+++ /dev/null`.
     if (line.startsWith("+++ ")) {
       const path = line.slice(4);
       if (path === "/dev/null") {
         currentFile = null;
       } else if (path.startsWith("b/")) {
         currentFile = path.slice(2);
-        if (!result.has(currentFile)) result.set(currentFile, []);
+        if (!added.has(currentFile)) added.set(currentFile, []);
+        if (!removed.has(currentFile)) removed.set(currentFile, []);
       } else {
-        // Defensive: treat as no current file rather than mis-parse.
         currentFile = null;
       }
       inHunk = false;
       continue;
     }
 
-    // Hunk header: `@@ -oldStart,oldLen +newStart,newLen @@` (newLen optional).
-    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    // Hunk header captures BOTH old-file and new-file starts. PR #922 R2#1
+    // addition: pre-fix only the new-file start was captured.
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunkMatch) {
-      const newStart = hunkMatch[1];
+      const oldStart = hunkMatch[1];
+      const newStart = hunkMatch[2];
+      currentOldLine = oldStart ? parseInt(oldStart, 10) : 0;
       currentNewLine = newStart ? parseInt(newStart, 10) : 0;
       inHunk = true;
       continue;
     }
 
-    // Skip known non-hunk metadata lines unconditionally. These appear
-    // between file sections / between hunks and must not advance the
-    // new-file line counter.
     if (
       line.startsWith("index ") ||
       line.startsWith("new file mode") ||
       line.startsWith("deleted file mode") ||
       line.startsWith("old mode") ||
       line.startsWith("new mode") ||
-      line.startsWith("rename from") ||
-      line.startsWith("rename to") ||
       line.startsWith("copy from") ||
       line.startsWith("copy to") ||
       line.startsWith("similarity index") ||
@@ -261,31 +333,25 @@ export function parseDiffAddedRanges(diff: string): Map<string, Array<[number, n
       continue;
     }
 
-    // From here on, only hunk content advances counters. If we're not in a
-    // hunk OR have no current file, skip the line entirely. Pre-PR-#922-R1
-    // the absence of an `inHunk` gate let stray text between hunks bleed
-    // into the new-line counter.
     if (!inHunk || currentFile === null) continue;
 
     if (line.startsWith("+")) {
-      const ranges = result.get(currentFile);
-      if (!ranges) continue;
-      const last = ranges[ranges.length - 1];
-      if (last && last[1] === currentNewLine - 1) {
-        last[1] = currentNewLine;
-      } else {
-        ranges.push([currentNewLine, currentNewLine]);
-      }
+      pushRange(added, currentFile, currentNewLine);
       currentNewLine++;
     } else if (line.startsWith("-")) {
-      // Removed line — doesn't advance the new-file line counter.
+      // Record on the removed map. Use currentFile as the key — for a rename,
+      // currentFile is the new path; the rename mapping handles the
+      // old-path lookup. PR #922 R2#1 addition.
+      pushRange(removed, currentFile, currentOldLine);
+      currentOldLine++;
     } else {
-      // Context line — advances new-file line counter.
+      // Context line — advances both old and new file counters.
+      currentOldLine++;
       currentNewLine++;
     }
   }
 
-  return result;
+  return { added, removed, renames };
 }
 
 /**
@@ -343,7 +409,7 @@ export function applyMonotonicityRecovery(
     stickyByFile.set(f.file, f.severity);
   }
 
-  const addedRangesByFile = parseDiffAddedRanges(diffText);
+  const parsedDiff = parseUnifiedDiff(diffText);
 
   const corrected: ReviewToolCall[] = [];
   const downgrades: DowngradeAuditEntry[] = [];
@@ -362,23 +428,24 @@ export function applyMonotonicityRecovery(
     }
 
     // LEFT-side findings (anchored on the old/base file, e.g. deletions)
-    // cite line numbers in the OLD file. parseDiffAddedRanges only models
-    // NEW-file added lines, so a LEFT-side finding's range can never overlap
-    // — overlapsNewCode would always be false, and we'd over-eagerly downgrade
-    // legitimate re-escalations on removed code. PR #922 R1#3 catch.
-    //
-    // Conservative policy: NEVER downgrade LEFT-side findings. The recovery
-    // layer only operates on RIGHT-side (or unspecified, which defaults to
-    // RIGHT semantics in the diff/composer). If the model decides a deletion
-    // is BLOCKING, we trust that decision.
+    // cite line numbers in the OLD file. PR #922 R1#3 catch + R2#1
+    // refinement: never downgrade LEFT-side. Trust the model's deletion call.
     if (tc.args.side === "LEFT") {
       corrected.push(tc);
       continue;
     }
 
-    // File matches a prior sticky finding. Check whether the diff under
-    // review introduces new lines on the finding's cited range.
-    const addedRanges = addedRangesByFile.get(tc.args.file) ?? [];
+    // Resolve added-range lookups via the rename map: if the finding cites
+    // an OLD path that was renamed to a new path, query the new path's
+    // added ranges. PR #922 R2#2 catch — pre-fix renames silently produced
+    // false-positive downgrades because additions were attributed only to
+    // the new path.
+    const renamedTo = parsedDiff.renames.get(tc.args.file);
+    const lookupFile = renamedTo ?? tc.args.file;
+    const fileWasRenamed = renamedTo !== undefined;
+
+    const addedRanges = parsedDiff.added.get(lookupFile) ?? [];
+    const removedRanges = parsedDiff.removed.get(lookupFile) ?? [];
     const findingStart = tc.args.line;
     const findingEnd = tc.args.lineEnd ?? tc.args.line;
     const overlapsNewCode = rangeOverlapsAny(findingStart, findingEnd, addedRanges);
@@ -391,7 +458,31 @@ export function applyMonotonicityRecovery(
       continue;
     }
 
-    // No new code on the cited range — this is a re-escalation without
+    // PR #922 R2#1 catch: when `side` is undefined, we cannot tell whether
+    // the finding refers to the new file (additions) or the old file
+    // (deletions). Conservative policy: if the cited range overlaps any
+    // REMOVED lines on the file, treat as a deletion finding and preserve
+    // BLOCKING. Pre-fix this was checked only against added lines, so an
+    // unspecified-side finding on removed code was always downgraded.
+    if (tc.args.side === undefined) {
+      const overlapsRemovedCode = rangeOverlapsAny(findingStart, findingEnd, removedRanges);
+      if (overlapsRemovedCode) {
+        corrected.push(tc);
+        continue;
+      }
+    }
+
+    // PR #922 R2#2 catch: rename pairs are also a conservative-preserve
+    // case. If the file was renamed AND the finding cites the old path,
+    // even with no added-line overlap on the new path, the model may be
+    // referring to original-file context. Preserve BLOCKING.
+    if (fileWasRenamed) {
+      corrected.push(tc);
+      continue;
+    }
+
+    // No new code on the cited range, no removed code on the cited range
+    // (when side unspecified), no rename — this is a re-escalation without
     // diff-level evidence. Downgrade.
     const downgradedArgs: SubmitFindingArgs = {
       ...tc.args,

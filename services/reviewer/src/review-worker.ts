@@ -683,14 +683,25 @@ export async function runReview(
         );
       }
       if (recovery.downgrades.length > 0) {
-        // Both pre- and post-recovery BLOCKING counts are emitted so operators
-        // can correlate a downgrade with its effect on the final review event
-        // (REQUEST_CHANGES vs APPROVE/COMMENT). PR #922 R2 catch.
-        const originalBlockingCount = output.toolCalls.filter(
+        // Both pre- and post-recovery counts are emitted so operators can
+        // correlate downgrades with effect on the final review event
+        // (REQUEST_CHANGES vs APPROVE/COMMENT) and with classification mix.
+        // PR #922 R2 catch + R2#4 NON-BLOCKING follow-up: include
+        // post-recovery NON-BLOCKING count and total finding count for
+        // dashboard simplicity.
+        const findings = output.toolCalls.filter((tc) => tc.name === "submit_finding");
+        const totalFindingCount = findings.length;
+        const originalBlockingCount = findings.filter(
           (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
         ).length;
-        const postRecoveryBlockingCount = toolCallsForComposition.filter(
+        const postRecoveryFindings = toolCallsForComposition.filter(
+          (tc) => tc.name === "submit_finding"
+        );
+        const postRecoveryBlockingCount = postRecoveryFindings.filter(
           (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+        ).length;
+        const postRecoveryNonBlockingCount = postRecoveryFindings.filter(
+          (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
         ).length;
         console.log(
           JSON.stringify({
@@ -698,8 +709,10 @@ export async function runReview(
             prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
             sha: pr.headSha,
             downgradeCount: recovery.downgrades.length,
+            totalFindingCount,
             originalBlockingCount,
             postRecoveryBlockingCount,
+            postRecoveryNonBlockingCount,
             // True when the recovery moved the count past zero, signaling the
             // composed event will likely change from REQUEST_CHANGES to COMMENT/
             // APPROVE downstream. Operators reading the audit log can filter on

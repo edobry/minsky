@@ -12,6 +12,7 @@ import {
   parseDiffAddedRanges,
   parsePriorBodyFindings,
   parsePriorReviewFindings,
+  parseUnifiedDiff,
   type FlatPriorFinding,
 } from "./severity-recovery";
 import type { ReviewToolCall } from "./output-tools";
@@ -214,6 +215,55 @@ diff --git a/b.ts b/b.ts
     expect(result.get("b.ts")).toEqual([[6, 6]]);
   });
 
+  test("parseUnifiedDiff captures removed-line ranges (PR #922 R2#1)", () => {
+    const diff = `diff --git a/x.ts b/x.ts
+--- a/x.ts
++++ b/x.ts
+@@ -10,5 +10,3 @@
+ keep
+-removed11
+-removed12
+ keep
+ keep
+`;
+    const result = parseUnifiedDiff(diff);
+    expect(result.removed.get("x.ts")).toEqual([[11, 12]]);
+    // No additions in this hunk → empty added entry.
+    expect(result.added.get("x.ts")).toEqual([]);
+  });
+
+  test("parseUnifiedDiff captures rename mappings (PR #922 R2#2)", () => {
+    const diff = `diff --git a/old-name.ts b/new-name.ts
+similarity index 80%
+rename from old-name.ts
+rename to new-name.ts
+--- a/old-name.ts
++++ b/new-name.ts
+@@ -1,2 +1,3 @@
+ keep
++added
+ keep2
+`;
+    const result = parseUnifiedDiff(diff);
+    expect(result.renames.get("old-name.ts")).toBe("new-name.ts");
+    expect(result.added.get("new-name.ts")).toEqual([[2, 2]]);
+  });
+
+  test("parseDiffAddedRanges remains backwards compatible (PR #922 R2)", () => {
+    // Existing callers expect just a Map<string, ranges>. The shim should
+    // forward to parseUnifiedDiff().added without exposing the new fields.
+    const diff = `diff --git a/x.ts b/x.ts
+--- a/x.ts
++++ b/x.ts
+@@ -1,2 +1,3 @@
+ keep
++added
+ keep2
+`;
+    const result = parseDiffAddedRanges(diff);
+    expect(result.get("x.ts")).toEqual([[2, 2]]);
+  });
+
   test("`--- a/...` header resets currentFile (PR #922 R2#2)", () => {
     // If a malformed/truncated diff has `--- a/X` followed by `@@` without
     // an intervening `+++ b/...`, we must NOT accumulate added lines under
@@ -317,6 +367,41 @@ describe("parsePriorBodyFindings", () => {
   test("does not match severity in prose without file path", () => {
     const body = "Conclusion: [BLOCKING] above are the issues.";
     expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
+
+  test("parses ASCII hyphen as dash separator (PR #922 R2#3)", () => {
+    // Real bodies may use ASCII '-' instead of em-dash due to typing
+    // variation or Markdown rendering. Pre-fix, the regex hardcoded U+2014.
+    const body = [
+      "[BLOCKING] src/foo.ts:42 - bad thing",
+      "[BLOCKING] LICENSE - incompatible terms",
+    ].join("\n");
+    const findings = parsePriorBodyFindings(body);
+    expect(findings).toHaveLength(2);
+    expect(findings[0]?.file).toBe("src/foo.ts");
+    expect(findings[0]?.line).toBe(42);
+    expect(findings[1]?.file).toBe("LICENSE");
+  });
+
+  test("parses en-dash separator (PR #922 R2#3)", () => {
+    const body = "[BLOCKING] src/foo.ts:42 – en-dash variant";
+    expect(parsePriorBodyFindings(body)).toEqual([
+      { file: "src/foo.ts", severity: "BLOCKING", line: 42 },
+    ]);
+  });
+
+  test("preserves ASCII hyphens inside path names (PR #922 R2#3)", () => {
+    // Path-internal hyphens must NOT be confused with the description
+    // separator. Real example: `task-spec-fetch.ts`. The dash-boundary
+    // alternative requires whitespace around the dash to disambiguate.
+    const body = "[BLOCKING] services/reviewer/src/task-spec-fetch.ts:42 — broken";
+    expect(parsePriorBodyFindings(body)).toEqual([
+      {
+        file: "services/reviewer/src/task-spec-fetch.ts",
+        severity: "BLOCKING",
+        line: 42,
+      },
+    ]);
   });
 });
 
@@ -508,6 +593,57 @@ describe("applyMonotonicityRecovery", () => {
       },
     ];
     const result = applyMonotonicityRecovery(tc, prior, "");
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+    expect(result.downgrades).toHaveLength(0);
+  });
+
+  test("preserves BLOCKING when side undefined and finding overlaps removed lines (PR #922 R2#1)", () => {
+    // Unspecified-side findings on deletions cite line numbers in the OLD
+    // file. Without a removed-range check, applyMonotonicityRecovery would
+    // see no added overlap and downgrade. Now: removed-range check fires
+    // when side is undefined.
+    const prior: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const tc = [finding("BLOCKING", "src/foo.ts", 11)];
+    // Diff that REMOVES lines 11-12 of the old file (no additions).
+    const diffWithRemovals = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,4 +10,2 @@
+ keep
+-removed11
+-removed12
+ keep
+`;
+    const result = applyMonotonicityRecovery(tc, prior, diffWithRemovals);
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+    expect(result.downgrades).toHaveLength(0);
+  });
+
+  test("preserves BLOCKING on rename pairs when finding cites old path (PR #922 R2#2)", () => {
+    // Renames attribute additions to the new path. A finding citing the
+    // OLD path would see no added-range overlap and be downgraded — the
+    // rename map preserves BLOCKING in this case.
+    const prior: FlatPriorFinding[] = [
+      { file: "src/old-name.ts", severity: "NON-BLOCKING", line: 5 },
+    ];
+    const tc = [finding("BLOCKING", "src/old-name.ts", 5)];
+    const renameDiff = `diff --git a/src/old-name.ts b/src/new-name.ts
+similarity index 80%
+rename from src/old-name.ts
+rename to src/new-name.ts
+--- a/src/old-name.ts
++++ b/src/new-name.ts
+@@ -1,3 +1,4 @@
+ keep
++added
+ keep2
+ keep3
+`;
+    const result = applyMonotonicityRecovery(tc, prior, renameDiff);
     expect(
       result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
     ).toBe("BLOCKING");
