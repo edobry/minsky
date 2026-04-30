@@ -152,18 +152,26 @@ export function hasBypassPrefix(prTitle: string): boolean {
 // PR data fetching (injectable for tests)
 // ---------------------------------------------------------------------------
 
+/** Result of fetchPrFiles — files plus an optional warning if the API call failed */
+export interface FetchPrFilesResult {
+  files: PrFile[];
+  warning?: string;
+}
+
 export interface PrDeps {
-  fetchPrFiles: (repo: string, prNumber: number) => PrFile[];
+  fetchPrFiles: (repo: string, prNumber: number) => FetchPrFilesResult;
   fetchPrMeta: (repo: string, prNumber: number) => { title: string; body: string } | null;
 }
 
 /**
  * Fetch PR files from GitHub API.
- * Returns empty array on error (fail-open: if we can't check, allow merge).
+ * Returns { files: [], warning } on error (fail-open: if we can't check, allow merge)
+ * so that callers can surface the warning in the audit trail.
+ * Resolves BLOCKING #3 from PR #909 round 2 review.
  */
 export function makeProdPrDeps(cwd?: string): PrDeps {
   return {
-    fetchPrFiles(repo: string, prNumber: number): PrFile[] {
+    fetchPrFiles(repo: string, prNumber: number): FetchPrFilesResult {
       // Use --paginate so PRs with more than 30 files (GitHub's default page
       // size) are not silently truncated. --paginate accumulates all pages and
       // outputs them as a JSON array of per-page arrays; --jq flattens them.
@@ -179,7 +187,12 @@ export function makeProdPrDeps(cwd?: string): PrDeps {
         ],
         { cwd, timeout: 15000 }
       );
-      if (result.exitCode !== 0) return [];
+      if (result.exitCode !== 0) {
+        return {
+          files: [],
+          warning: `fetchPrFiles: gh api failed (exit ${result.exitCode}) for PR #${prNumber} — test-file detection skipped.`,
+        };
+      }
       try {
         // When --paginate is used with --jq, each page outputs one JSON array.
         // Multiple arrays may be concatenated in stdout. Merge them.
@@ -190,9 +203,9 @@ export function makeProdPrDeps(cwd?: string): PrDeps {
             const parsed = JSON.parse(raw);
             // If it's an array of arrays (multi-page), flatten; else use as-is
             if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
-              return (parsed as PrFile[][]).flat();
+              return { files: (parsed as PrFile[][]).flat() };
             }
-            return parsed as PrFile[];
+            return { files: parsed as PrFile[] };
           } catch {
             // Fall through to line-by-line parse
           }
@@ -208,9 +221,12 @@ export function makeProdPrDeps(cwd?: string): PrDeps {
               return [] as PrFile[];
             }
           });
-        return pages.flat();
+        return { files: pages.flat() };
       } catch {
-        return [];
+        return {
+          files: [],
+          warning: `fetchPrFiles: JSON parse failed for PR #${prNumber} — test-file detection skipped.`,
+        };
       }
     },
 
@@ -333,6 +349,81 @@ export function deriveRepoFromGit(repoDir: string): string | null {
 // Top-level hook entry point
 // ---------------------------------------------------------------------------
 
+/** Minimal exec function type for dependency injection in resolvePrNumber */
+export type ExecFn = (
+  cmd: string[],
+  opts?: { cwd?: string; timeout?: number }
+) => { exitCode: number; stdout: string };
+
+/**
+ * Resolve the PR number for the current context.
+ *
+ * Primary path: `gh pr view --json number --jq .number` (no args = current branch).
+ * Handles fork PRs and non-standard branch names naturally.
+ *
+ * Fallback: `gh pr list --repo <repo> --head task/<id>` — the original approach.
+ * Only used if the primary path fails or returns a non-numeric result.
+ *
+ * Returns null if neither path resolves, in which case the caller should emit a
+ * warning and fail-open rather than silently exit(0).
+ *
+ * Resolves BLOCKING #2 from PR #909 round 2 review.
+ *
+ * @param exec - Optional exec function override (for testing). Defaults to execWithPath.
+ */
+export function resolvePrNumber(
+  repo: string,
+  task: string,
+  cwd: string,
+  exec: ExecFn = execWithPath
+): { prNumber: number | null; warning?: string } {
+  // Primary: current-branch PR resolution (works for forks and non-standard names)
+  const viewResult = exec(
+    ["gh", "pr", "view", "--repo", repo, "--json", "number", "--jq", ".number"],
+    { cwd, timeout: 10000 }
+  );
+  if (viewResult.exitCode === 0) {
+    const parsed = parseInt(viewResult.stdout.trim(), 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return { prNumber: parsed };
+    }
+  }
+
+  // Fallback: branch-name-based lookup
+  const branch = `task/${task.replace("#", "-")}`;
+  const listResult = exec(
+    [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--head",
+      branch,
+      "--json",
+      "number",
+      "--jq",
+      ".[0].number",
+    ],
+    { cwd, timeout: 10000 }
+  );
+  if (listResult.exitCode === 0) {
+    const parsed = parseInt(listResult.stdout.trim(), 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return { prNumber: parsed };
+    }
+  }
+
+  // Both failed — caller should warn, not silently exit
+  return {
+    prNumber: null,
+    warning:
+      `[execution-evidence] Could not resolve PR number via \`gh pr view\` or ` +
+      `\`gh pr list --head ${branch}\` — test-file check skipped. ` +
+      `Ensure the branch has an open PR and gh is authenticated.`,
+  };
+}
+
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
@@ -354,32 +445,27 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const branch = `task/${task.replace("#", "-")}`;
-
-  // Resolve PR number from branch
-  const prResult = execWithPath(
-    [
-      "gh",
-      "pr",
-      "list",
-      "--repo",
-      repo,
-      "--head",
-      branch,
-      "--json",
-      "number",
-      "--jq",
-      ".[0].number",
-    ],
-    { cwd: input.cwd }
-  );
-
-  const prNumber = parseInt(prResult.stdout.trim(), 10);
-  if (!prNumber || isNaN(prNumber)) process.exit(0);
+  // Resolve PR number robustly: prefer gh pr view (current branch), fall back
+  // to gh pr list --head task/<id>. Emit a warning if neither resolves.
+  // Resolves BLOCKING #2 from PR #909 round 2 review.
+  const { prNumber, warning: prResolutionWarning } = resolvePrNumber(repo, task, input.cwd);
+  if (!prNumber) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${prResolutionWarning ?? "PR number could not be resolved — test-file check skipped."}`,
+      },
+    });
+    process.exit(0);
+  }
 
   const deps = makeProdPrDeps(input.cwd);
-  const prFiles = deps.fetchPrFiles(repo, prNumber);
+  const { files: prFiles, warning: prFilesWarning } = deps.fetchPrFiles(repo, prNumber);
   const prMeta = deps.fetchPrMeta(repo, prNumber);
+
+  // Accumulate top-level warnings (from fetchPrFiles and other sources)
+  const topLevelWarnings: string[] = [];
+  if (prFilesWarning) topLevelWarnings.push(prFilesWarning);
 
   // If we can't fetch PR data, fail-open (allow merge with a warning).
   // Single writeOutput call — emitting multiple JSON objects to stdout would
@@ -388,7 +474,10 @@ if (import.meta.main) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: `⚠️ Could not fetch PR #${prNumber} metadata to check execution evidence. Proceeding without check.`,
+        additionalContext: [
+          ...topLevelWarnings.map((w) => `⚠️ ${w}`),
+          `⚠️ Could not fetch PR #${prNumber} metadata to check execution evidence. Proceeding without check.`,
+        ].join("\n"),
       },
     });
     process.exit(0);
@@ -396,12 +485,15 @@ if (import.meta.main) {
 
   const result = checkExecutionEvidence(prFiles, prMeta.title, prMeta.body);
 
+  // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
+  const allWarnings = [...topLevelWarnings, ...result.warnings];
+
   if (result.blocked) {
     // Blocked: aggregate warnings + deny into a single writeOutput call.
     // Multiple JSON objects on stdout violate the single-JSON contract.
     // Resolves BLOCKING #1 from PR #909 round 1 review.
     const warningContext =
-      result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠️ ${w}`).join("\n")}\n\n` : "";
+      allWarnings.length > 0 ? `${allWarnings.map((w) => `⚠️ ${w}`).join("\n")}\n\n` : "";
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -409,12 +501,12 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
-  } else if (result.warnings.length > 0) {
+  } else if (allWarnings.length > 0) {
     // Allowed but with warnings: single writeOutput with aggregated context.
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: result.warnings.map((w) => `⚠️ ${w}`).join("\n"),
+        additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
   }

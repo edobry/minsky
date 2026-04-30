@@ -16,7 +16,7 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-execution-evidence-before-merge.ts",
-            "timeout": 20,
+            "timeout": 60,
             "statusMessage": "Checking for execution evidence on new test files..."
           }
         ]

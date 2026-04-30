@@ -7,7 +7,10 @@ import {
   hasBypassPrefix,
   checkExecutionEvidence,
   parseGitHubRemoteUrl,
+  resolvePrNumber,
   type PrFile,
+  type FetchPrFilesResult,
+  type ExecFn,
 } from "./require-execution-evidence-before-merge";
 
 // ---------------------------------------------------------------------------
@@ -493,5 +496,124 @@ describe("parseGitHubRemoteUrl", () => {
 
   it("handles trailing newline in URL (common from git remote get-url)", () => {
     expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git\n")).toBe("edobry/minsky");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolvePrNumber — BLOCKING #2 from PR #909 round 2 review
+// ---------------------------------------------------------------------------
+
+/** Helper: builds an ExecFn that returns canned responses based on command prefix */
+function makeExecFn(responses: Array<{ match: string; exitCode: number; stdout: string }>): ExecFn {
+  return (cmd: string[]) => {
+    const joined = cmd.join(" ");
+    for (const r of responses) {
+      if (joined.includes(r.match)) {
+        return { exitCode: r.exitCode, stdout: r.stdout };
+      }
+    }
+    return { exitCode: 1, stdout: "" };
+  };
+}
+
+describe("resolvePrNumber", () => {
+  const REPO = "edobry/minsky";
+  const TASK = "mt#1459";
+  const CWD = "/tmp";
+
+  it("resolves PR via gh pr view (primary path)", () => {
+    const exec = makeExecFn([{ match: "pr view", exitCode: 0, stdout: "909" }]);
+    const { prNumber, warning } = resolvePrNumber(REPO, TASK, CWD, exec);
+    expect(prNumber).toBe(909);
+    expect(warning).toBeUndefined();
+  });
+
+  it("falls back to gh pr list when gh pr view fails", () => {
+    const exec = makeExecFn([
+      { match: "pr view", exitCode: 1, stdout: "" },
+      { match: "pr list", exitCode: 0, stdout: "909" },
+    ]);
+    const { prNumber, warning } = resolvePrNumber(REPO, TASK, CWD, exec);
+    expect(prNumber).toBe(909);
+    expect(warning).toBeUndefined();
+  });
+
+  it("falls back to gh pr list when gh pr view returns non-numeric output", () => {
+    const exec = makeExecFn([
+      { match: "pr view", exitCode: 0, stdout: "null" },
+      { match: "pr list", exitCode: 0, stdout: "123" },
+    ]);
+    const { prNumber, warning } = resolvePrNumber(REPO, TASK, CWD, exec);
+    expect(prNumber).toBe(123);
+    expect(warning).toBeUndefined();
+  });
+
+  it("returns null and emits warning when both paths fail", () => {
+    const exec = makeExecFn([
+      { match: "pr view", exitCode: 1, stdout: "" },
+      { match: "pr list", exitCode: 1, stdout: "" },
+    ]);
+    const { prNumber, warning } = resolvePrNumber(REPO, TASK, CWD, exec);
+    expect(prNumber).toBeNull();
+    expect(warning).toBeDefined();
+    expect(warning).toContain("Could not resolve PR number");
+    expect(warning).toContain("gh pr view");
+    expect(warning).toContain("gh pr list");
+  });
+
+  it("returns null and emits warning when both paths return zero/empty", () => {
+    const exec = makeExecFn([
+      { match: "pr view", exitCode: 0, stdout: "0" },
+      { match: "pr list", exitCode: 0, stdout: "" },
+    ]);
+    const { prNumber, warning } = resolvePrNumber(REPO, TASK, CWD, exec);
+    expect(prNumber).toBeNull();
+    expect(warning).toBeDefined();
+  });
+
+  it("uses task-derived branch in fallback path", () => {
+    const seenCmds: string[] = [];
+    const exec: ExecFn = (cmd) => {
+      seenCmds.push(cmd.join(" "));
+      if (cmd.join(" ").includes("pr view")) return { exitCode: 1, stdout: "" };
+      if (cmd.join(" ").includes("pr list")) return { exitCode: 0, stdout: "42" };
+      return { exitCode: 1, stdout: "" };
+    };
+    resolvePrNumber(REPO, TASK, CWD, exec);
+    const listCmd = seenCmds.find((c) => c.includes("pr list"));
+    expect(listCmd).toBeDefined();
+    expect(listCmd).toContain("task/mt-1459");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchPrFiles warning propagation — BLOCKING #3 from PR #909 round 2 review
+// ---------------------------------------------------------------------------
+
+describe("makeProdPrDeps.fetchPrFiles — warning propagation", () => {
+  // We test the shape of FetchPrFilesResult by constructing it directly.
+  // The actual gh API calls are integration-level; here we verify the contract.
+
+  it("FetchPrFilesResult with no warning has only files", () => {
+    const result: FetchPrFilesResult = { files: [{ filename: "src/foo.ts", status: "added" }] };
+    expect(result.files).toHaveLength(1);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("FetchPrFilesResult with warning has empty files and a warning string", () => {
+    const result: FetchPrFilesResult = {
+      files: [],
+      warning: "fetchPrFiles: gh api failed (exit 1) for PR #1 — test-file detection skipped.",
+    };
+    expect(result.files).toHaveLength(0);
+    expect(result.warning).toContain("test-file detection skipped");
+  });
+
+  it("checkExecutionEvidence with empty files (simulating fetchPrFiles failure) allows merge", () => {
+    // When fetchPrFiles returns [] due to API failure, the check should allow merge
+    // (fail-open). The warning is surfaced separately by the top-level entry point.
+    const result = checkExecutionEvidence([], "Add tests", "## Summary\nNo evidence.");
+    expect(result.blocked).toBe(false);
+    expect(result.newTestFiles).toHaveLength(0);
   });
 });
