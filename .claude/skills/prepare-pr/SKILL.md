@@ -52,7 +52,7 @@ If in scope:
    - Strip request/response headers beyond Authorization that may carry sensitive identifiers (`Set-Cookie`, `X-Amzn-Trace-Id`, internal trace headers).
    - Strip raw response bodies that may contain stack traces, config fragments, or PII — paste structural assertions only (`status=200, mcp-session-id present`) rather than full response bodies.
    - When in doubt, paste a clearly-attributed summary instead of raw output.
-5. **Paste into the PR body** under a `## Test plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
+5. **Paste into the PR body** under a `## Test Plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
 
 **Override exceptions** (any of the following — document in the PR body which applies):
 
@@ -71,7 +71,7 @@ This is a checklist item, not a hard gate. The override exceptions exist for leg
 
 This step fires unconditionally as part of every /prepare-pr invocation — it is not conditional on the agent remembering to check.
 
-**Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts}` that are newly created (not just modified).
+**Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts,cts}` that are newly created (not just modified).
 
 > Note: the repo currently uses only `.ts` extensions for tests. If `.mts`/`.cts` variants are adopted, also update the merge-time hook (mt#1459) in lockstep.
 
@@ -92,7 +92,7 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
     When in doubt, check `package.json` scripts — the `test:integration` script shows the canonical invocation.
 
 2.  Capture the full output (pass/fail counts, any errors).
-3.  Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example:
+3.  Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example (passing run):
 
     **Test Plan**
 
@@ -100,6 +100,16 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 
         bun test src/domain/new-feature.test.ts
         5 pass, 0 fail
+
+    If tests fail, paste the failing output instead — do not hide failures behind a summary. Example (failing run):
+
+        bun test src/domain/new-feature.test.ts
+        ✗ should handle edge case [src/domain/new-feature.test.ts:42]
+          AssertionError: expected "actual" to equal "expected"
+        4 pass, 1 fail
+        exit code: 1
+
+    Note: redact absolute paths in failure output if they leak system info (e.g., replace `/Users/yourname/...` with `<project-root>/...`).
 
 **If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
 
