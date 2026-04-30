@@ -434,9 +434,13 @@ const UNRESOLVE_REVIEW_THREAD_MUTATION = `
  *
  * GitHub REST API does not expose review-thread resolution; this is a
  * GraphQL-only mutation (`resolveReviewThread`). The `threadId` is the
- * node ID returned by `PullRequestReviewThread.id` in the GraphQL API
- * (also surfaced in `GET /repos/{owner}/{repo}/pulls/{pull_number}/comments`
- * as `node_id` on each comment's thread).
+ * node ID of the `PullRequestReviewThread`. Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{pull_number}/threads`
+ *    carry the thread's `node_id` (the threads endpoint, NOT the comments endpoint).
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343).
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID — distinct GitHub objects.
  *
  * Auth goes through `gh.getToken()` — the same TokenProvider path as other
  * forge mutations — so the resolution is recorded under the bot identity.
