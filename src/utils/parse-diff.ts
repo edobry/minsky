@@ -79,6 +79,14 @@ export interface DiffFile {
   oldPath?: string;
   status: DiffFileStatus;
   hunks: DiffHunk[];
+  /**
+   * When set, signals the parser could not fully recover this file's
+   * metadata from the diff. Consumers selecting review-comment anchors
+   * should filter out warning-flagged entries; the field exists so
+   * downstream tooling can see something was dropped rather than a
+   * silent skip.
+   */
+  warning?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -342,11 +350,24 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       filePath = newPath ?? oldPath ?? gitNewPath ?? gitOldPath ?? "";
     }
 
-    // Skip file entries that ended up with no recoverable path. Emitting
-    // an empty-path DiffFile would silently produce invalid review anchors
-    // downstream; an explicit skip is the right floor.
+    // When path can't be recovered, emit a warning-flagged placeholder
+    // instead of silently skipping. This addresses the reviewer concern
+    // about silent data loss for asymmetric headers (similarity-index-only
+    // renames, certain copy variants, provider-specific shapes that omit
+    // rename-from / rename-to). Consumers anchoring review comments must
+    // filter out warning-flagged entries; the entry exists so callers
+    // observe that something was dropped.
     if (filePath === "") {
-      // Still need to advance past binary content if present
+      files.push({
+        path: "",
+        status: "modified",
+        hunks: [],
+        warning:
+          `Could not recover file path from diff --git header: ${JSON.stringify(line)}. ` +
+          `Likely cause: asymmetric header without rename-from / rename-to extended headers ` +
+          `(e.g. similarity-index-only renames, copy operations, or provider-specific shapes). ` +
+          `See module docstring for out-of-scope variants.`,
+      });
       continue;
     }
 

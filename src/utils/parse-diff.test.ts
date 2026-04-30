@@ -366,10 +366,11 @@ describe("parseUnifiedDiff", () => {
     expect(file.hunks).toHaveLength(0);
   });
 
-  test("skips file entries with no recoverable path (empty filePath)", () => {
+  test("emits warning-flagged placeholder for headers with no recoverable path", () => {
     // Malformed diff --git header without a/ b/ structure — split fails,
-    // no other path source, so the parser should skip this entry rather
-    // than emit a DiffFile with path: "".
+    // no other path source. Rather than silently dropping, the parser
+    // emits a placeholder DiffFile with empty path and a warning so
+    // downstream tooling can observe the drop.
     const diff = [
       "diff --git malformed-header-with-no-paths",
       "old mode 100644",
@@ -381,9 +382,28 @@ describe("parseUnifiedDiff", () => {
     ].join("\n");
 
     const result = parseUnifiedDiff(diff);
-    // Only the valid second file should be emitted; the malformed first is skipped.
+    expect(result).toHaveLength(2);
+    expect(result[0]?.path).toBe("");
+    expect(result[0]?.warning).toBeDefined();
+    expect(result[0]?.warning).toContain("Could not recover file path");
+    expect(result[1]?.path).toBe("valid.txt");
+    expect(result[1]?.warning).toBeUndefined();
+  });
+
+  test("emits warning for asymmetric similarity-index-only headers without rename-from/to", () => {
+    // Some git configurations (case-only renames, certain providers) emit
+    // similarity-index without explicit rename-from/rename-to extended
+    // headers. The parser cannot infer paths from such headers and must
+    // signal the drop rather than silently omit the file.
+    const diff = ["diff --git a/Old Name.txt b/New Name.txt", "similarity index 100%", ""].join(
+      "\n"
+    );
+
+    const result = parseUnifiedDiff(diff);
     expect(result).toHaveLength(1);
-    expect(result[0]?.path).toBe("valid.txt");
+    expect(result[0]?.path).toBe("");
+    expect(result[0]?.warning).toBeDefined();
+    expect(result[0]?.warning).toContain("rename-from");
   });
 
   test("classifies empty-file delete via 'deleted file mode' header (no ---/+++)", () => {
