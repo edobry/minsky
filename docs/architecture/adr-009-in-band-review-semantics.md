@@ -1,8 +1,8 @@
-# ADR-008: In-Band Review Semantics — Compile Reviewer Findings to GitHub Primitives
+# ADR-009: In-Band Review Semantics — Compile Reviewer Findings to GitHub Primitives
 
 ## Status
 
-**ACCEPTED** — Documented 2026-04-27. Builds on [ADR-005](./adr-005-forgebackend-subinterfaces.md) (`ReviewOperations` sub-interface) and [ADR-006](./adr-006-agent-identity.md) (bot identity for review submission). Tracks the cluster of work under task `mt#1335` (parent RFC; sibling tasks `mt#1336` through `mt#1348`). Tasks live in the Minsky DB, not the filesystem — query via `mcp__minsky__tasks_get`.
+**ACCEPTED** — Documented 2026-04-27. Renumbered from ADR-008 to ADR-009 on 2026-04-30 to resolve a number collision with `adr-008-attention-allocation-subsystem.md` (mt#1034 PR #687, merged 2026-04-28). Builds on [ADR-005](./adr-005-forgebackend-subinterfaces.md) (`ReviewOperations` sub-interface) and [ADR-006](./adr-006-agent-identity.md) (bot identity for review submission). Tracks the cluster of work under task `mt#1335` (parent RFC; sibling tasks `mt#1336` through `mt#1348`). Tasks live in the Minsky DB, not the filesystem — query via `mcp__minsky__tasks_get`.
 
 > **Convention note:** ADRs live under `docs/architecture/`, not `docs/adr/`. Some PR descriptions in this cluster reference `docs/adr/` informally; the canonical location is `docs/architecture/` (see ADR-005, ADR-006).
 
