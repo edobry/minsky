@@ -146,14 +146,36 @@ Use `mcp__minsky__session_pr_review_submit`. Extract the task ID from the branch
 ```
 mcp__minsky__session_pr_review_submit
   task: "mt#847"   (or sessionId if known)
-  body: "<full review body>"
+  body: "<review body — summary, spec table, CI status, cross-cutting concerns>"
   event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"
-  comments: [{ path, line, body, side? }]   (optional, for line-level comments)
+  comments: [{ path, line, body, side?, startLine?, startSide? }]
 ```
 
 This posts the review under the configured bot/service-account identity.
 
 The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned by a PreToolUse hook (see mt#1030) because it bypasses TokenProvider and produces identity drift. If the Minsky tool fails, file a bug — don't work around it.
+
+**Location-bearing findings MUST be `comments[]` entries.** Do not put inline findings (those with a specific file:line) only in the review body. The body is reserved for: executive summary, spec-verification table, CI status, cross-cutting concerns that do not anchor to a single location, and findings that failed anchor validation.
+
+**Anchor validation before submitting:** GitHub rejects the **entire review** (422) if any comment targets a line not present in the PR diff. Before building a `comments[]` entry:
+
+1. Find the matching `DiffFile` in `parsedDiff` where `file.path === path` (skip `warning`-flagged files).
+2. Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target line number (`newLine` for RIGHT, `oldLine` for LEFT).
+3. If no match is found, move the finding to the body under an "Unanchored findings" section.
+
+**Side-mapping rule:**
+
+| DiffLine.side | GitHub `side` value                            | Line number to use                    |
+| ------------- | ---------------------------------------------- | ------------------------------------- |
+| `RIGHT`       | `"RIGHT"`                                      | `newLine`                             |
+| `LEFT`        | `"LEFT"`                                       | `oldLine`                             |
+| `CONTEXT`     | `"RIGHT"` or `"LEFT"` (must choose explicitly) | `newLine` (RIGHT) or `oldLine` (LEFT) |
+
+CONTEXT is not a valid GitHub side value. Choose LEFT or RIGHT for context-line anchors.
+
+**Multi-line comments** (e.g., a block spanning lines 88–95): set `startLine` to the first line and `line` to the last. `startSide` must equal `side` — GitHub 422s mismatched sides.
+
+Each comment body must carry a severity prefix: `[BLOCKING] ...` or `[NON-BLOCKING] ...`.
 
 **Event selection:**
 
@@ -163,20 +185,24 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 
 ### 8. Review body format
 
+The body is for summary and metadata — NOT for inline findings. All location-bearing findings go in `comments[]`.
+
 ```markdown
 ## Review: <short description>
 
-**CI status:** <pass/fail/pending>
+**CI status:** <pass/fail/pending — N checks passed, M failed>
 
-### Findings
+### Summary
 
-<For each verified finding:>
-**[BLOCKING/NON-BLOCKING/PRE-EXISTING]** <file:line> — <description>
-<evidence from source code that confirms this is real>
+<2–4 sentences: overall assessment, count of BLOCKING / NON-BLOCKING findings posted as inline comments, high-level risk>
 
-### Checked and clear
+### Cross-cutting concerns
 
-<Brief list of areas reviewed with no issues — shows coverage>
+<Findings that do NOT anchor to a single location — e.g., "8 of 12 new public functions lack JSDoc". Omit section if none.>
+
+### Unanchored findings
+
+<Findings that failed anchor validation against parsedDiff. Format: **[BLOCKING/NON-BLOCKING]** `file:line` — description. Omit section if none.>
 
 ### Spec verification
 
@@ -208,6 +234,8 @@ Updated <doc> in this PR.
 - **A review that isn't on GitHub isn't a review.** Always post via GitHub MCP tools.
 - **Never flag unverified concerns.** Every finding must be confirmed by reading the actual source, not just the diff.
 - **The diff shows what changed; the codebase shows whether the change is correct.** Always check both.
+- **Location-bearing findings go in `comments[]`, not the body.** The inline comment UI is the primary surface reviewers read. The body is for summary, spec table, CI status, and cross-cutting concerns.
+- **Validate anchors against parsedDiff before submitting.** A single invalid anchor 422s the entire review.
 - **Include CI status.** Don't approve with failing checks.
 - **Spec verification is mandatory.** The review must include a spec verification table. The pre-merge hook will reject merges without it.
 - **Documentation impact is mandatory.** The review must include a documentation impact section. The pre-merge hook will reject merges without it. If docs need updating but aren't updated in the PR, that's a blocking finding.
