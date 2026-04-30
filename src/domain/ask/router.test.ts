@@ -32,6 +32,7 @@ const KIND_CAPABILITY_ESCALATE: Ask["kind"] = "capability.escalate";
 const KIND_STUCK_UNBLOCK: Ask["kind"] = "stuck.unblock";
 const KIND_COORD_NOTIFY: Ask["kind"] = "coordination.notify";
 const KIND_QUALITY_REVIEW: Ask["kind"] = "quality.review";
+const KIND_INFO_RETRIEVE: Ask["kind"] = "information.retrieve";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -174,6 +175,15 @@ describe("policyFirstRoute", () => {
       expect(result.state).toBe("routed");
       expect(result.routingTarget).toBe("reviewer");
       expect(result.transport.kind).toBe("inbox");
+    });
+
+    it("routes an information.retrieve Ask to retriever transport", async () => {
+      const ask = makeAsk(KIND_INFO_RETRIEVE, "Fetch the prior migration artifact");
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+      expect(result.state).toBe("routed");
+      expect(result.routingTarget).toBe("retriever");
+      expect(result.transport.kind).toBe("retriever");
     });
 
     it("sets routedAt on routed asks", async () => {
