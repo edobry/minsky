@@ -157,15 +157,19 @@ export function registerTranscriptCommands(
       }
 
       try {
-        const count = await svc.ingestSession(found);
+        const result = await svc.ingestSession(found);
         log.info(`transcripts.ingest --session=${sessionId} complete`, {
-          ingested: count,
+          ingested: result.ingested,
           harness,
+          ...(result.error ? { swallowedError: getErrorMessage(result.error) } : {}),
         });
         return {
-          totalIngested: count,
+          totalIngested: result.ingested,
           sessionsProcessed: 1,
-          sessionsErrored: 0,
+          // mt#1444: ingestSession returns a typed result so degraded paths
+          // (HWM read / stream / upsert failure) surface here instead of
+          // silently reporting 0.
+          sessionsErrored: result.error ? 1 : 0,
           harness,
         };
       } catch (err) {

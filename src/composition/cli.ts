@@ -14,6 +14,7 @@
 
 import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
+import { NoopClientCapabilityRegistry } from "../mcp/client-capabilities";
 
 /**
  * Create a container with real service factories for CLI usage.
@@ -92,6 +93,16 @@ export async function createCliContainer(): Promise<AppContainerInterface> {
     );
     return getRepositoryBackendFromConfig();
   });
+
+  // --- MCP integration ---
+
+  // Default ClientCapabilityRegistry is the no-op fake. The MCP composition
+  // root (lands in mt#1457) overrides this with `MCPClientCapabilityRegistry`,
+  // which reads per-connection capabilities from the active MCP handshake.
+  // Under bare CLI execution (no MCP host attached) the no-op is correct:
+  // the router falls back to the static kind→transport binding matrix
+  // shipped by mt#1069.
+  container.register("clientCapabilityRegistry", () => new NoopClientCapabilityRegistry());
 
   // --- Composite: SessionDeps bundle ---
 
