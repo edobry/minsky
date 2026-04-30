@@ -5,8 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Manual retrigger path when an automatic trigger silently fails to fire
-  # (e.g. session_commit pushes via the App installation token; mt#1469).
+  # Manual retrigger for diagnostic verification only — runs the same job
+  # steps but does NOT satisfy branch protection's required `build` check
+  # (manual runs aren't `pull_request` events). Use `--ref task/<branch>`
+  # explicitly; without it, this dispatches against `main`. mt#1469.
   workflow_dispatch:
 
 jobs:
