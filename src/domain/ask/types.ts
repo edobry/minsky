@@ -137,7 +137,7 @@ export interface AttentionCost {
   transport: TransportKind;
 
   /** How the Ask was ultimately resolved. */
-  resolvedIn: "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
+  resolvedIn: "policy" | "subagent" | "retriever" | "inbox" | "mesh" | "agui" | "timeout";
 }
 
 /**
@@ -145,7 +145,14 @@ export interface AttentionCost {
  *
  * Derived from the transport-binding matrix in ADR-008.
  */
-export type TransportKind = "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
+export type TransportKind =
+  | "policy"
+  | "subagent"
+  | "retriever"
+  | "inbox"
+  | "mesh"
+  | "agui"
+  | "timeout";
 
 /**
  * The Ask entity — the unified domain type for all HITL mechanisms.
