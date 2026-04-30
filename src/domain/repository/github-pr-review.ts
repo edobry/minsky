@@ -51,6 +51,23 @@ export interface ReviewComment {
    * (and vice versa) so the resulting payload is always consistent.
    */
   startSide?: "LEFT" | "RIGHT";
+  /**
+   * Optional replacement code for a GitHub suggestion block.
+   *
+   * When present, the comment body sent to GitHub is augmented with a fenced
+   * suggestion block containing this text. GitHub renders suggestion blocks
+   * with a one-click "Apply suggestion" button.
+   *
+   * Constraint: the number of lines in `suggestion` MUST equal the number of
+   * lines in the anchored range:
+   *  - Single-line comment (no startLine): suggestion must be exactly 1 line.
+   *  - Multi-line comment (startLine..line): suggestion must be exactly
+   *    (line - startLine + 1) lines.
+   *
+   * Validation is enforced in validateReviewComment() and throws a MinskyError
+   * before the Octokit call if the counts differ.
+   */
+  suggestion?: string;
 }
 
 /**
@@ -80,6 +97,28 @@ export function validateReviewComment(comment: ReviewComment): void {
       throw new MinskyError(
         `Invalid multi-line comment: startSide ("${comment.startSide}") must equal ` +
           `side ("${comment.side}") on path "${comment.path}". GitHub rejects mismatched sides.`
+      );
+    }
+  }
+
+  if (comment.suggestion !== undefined) {
+    // Count lines in suggestion (split on newline; trailing newline does not add an extra line)
+    const suggestionText = comment.suggestion.endsWith("\n")
+      ? comment.suggestion.slice(0, -1)
+      : comment.suggestion;
+    const suggestionLineCount = suggestionText.split("\n").length;
+
+    // Determine the anchored line range
+    const anchoredLineCount =
+      comment.startLine !== undefined ? comment.line - comment.startLine + 1 : 1;
+
+    if (suggestionLineCount !== anchoredLineCount) {
+      throw new MinskyError(
+        `Suggestion line count mismatch on path "${comment.path}": suggestion has ` +
+          `${suggestionLineCount} line(s) but the anchored range covers ` +
+          `${anchoredLineCount} line(s) ` +
+          `(${comment.startLine !== undefined ? `startLine ${comment.startLine}..line ${comment.line}` : `line ${comment.line}`}). ` +
+          `GitHub only renders a suggestion block when the line counts match.`
       );
     }
   }
@@ -160,10 +199,19 @@ export async function submitReview(
     // endpoints, and GitHub rejects null start_line.
     const apiComments = options.comments?.map((c) => {
       const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+
+      // When a suggestion is provided, append a fenced suggestion block to the body.
+      // GitHub renders this as an "Apply suggestion" button when the suggestion line
+      // count matches the anchored range (validated above in validateReviewComment).
+      const resolvedBody =
+        c.suggestion !== undefined
+          ? `${c.body}\n\n\`\`\`suggestion\n${c.suggestion}\n\`\`\``
+          : c.body;
+
       return {
         path: c.path,
         line: c.line,
-        body: c.body,
+        body: resolvedBody,
         side: resolvedSide,
         ...(c.startLine !== undefined
           ? {

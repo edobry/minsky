@@ -104,6 +104,63 @@ describe("validateReviewComment", () => {
       validateReviewComment(mkComment({ startLine: 67, line: 78, side: "LEFT", startSide: "LEFT" }))
     ).not.toThrow();
   });
+
+  // suggestion field validation
+  test("passes for a single-line comment with a 1-line suggestion", () => {
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "const x = 1;" }))
+    ).not.toThrow();
+  });
+
+  test("passes for a multi-line comment with matching suggestion line count", () => {
+    // startLine 67, line 78 → 12 lines anchored
+    const suggestion = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))
+    ).not.toThrow();
+  });
+
+  test("passes for suggestion with trailing newline (trailing newline ignored in count)", () => {
+    // 12-line range, suggestion ends with newline — should still match
+    const suggestion = `${Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))
+    ).not.toThrow();
+  });
+
+  test("rejects single-line comment with multi-line suggestion", () => {
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "line 1\nline 2" }))
+    ).toThrow(MinskyError);
+  });
+
+  test("rejects multi-line comment with wrong suggestion line count (11 instead of 12)", () => {
+    const suggestion = Array.from({ length: 11 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() => validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))).toThrow(
+      MinskyError
+    );
+  });
+
+  test("rejects multi-line comment with wrong suggestion line count (13 instead of 12)", () => {
+    const suggestion = Array.from({ length: 13 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() => validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))).toThrow(
+      MinskyError
+    );
+  });
+
+  test("error message for suggestion mismatch mentions line counts and path", () => {
+    let caught: unknown;
+    try {
+      validateReviewComment(mkComment({ line: 10, suggestion: "line 1\nline 2" }));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(MinskyError);
+    const msg = (caught as MinskyError).message;
+    expect(msg).toContain("src/foo.ts");
+    expect(msg).toContain("2 line(s)");
+    expect(msg).toContain("1 line(s)");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -116,10 +173,12 @@ describe("validateReviewComment", () => {
  */
 function buildApiComment(c: ReviewComment): Record<string, unknown> {
   const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+  const resolvedBody =
+    c.suggestion !== undefined ? `${c.body}\n\n\`\`\`suggestion\n${c.suggestion}\n\`\`\`` : c.body;
   return {
     path: c.path,
     line: c.line,
-    body: c.body,
+    body: resolvedBody,
     side: resolvedSide,
     ...(c.startLine !== undefined
       ? {
@@ -226,5 +285,40 @@ describe("Octokit payload mapping", () => {
     expect(payload.side).toBe("LEFT");
     expect(payload.start_side).toBe("LEFT");
     expect(payload.start_line).toBe(67);
+  });
+
+  // suggestion body mapping
+  test("comment without suggestion: body unchanged", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "this looks wrong",
+    });
+
+    expect(payload.body).toBe("this looks wrong");
+  });
+
+  test("comment with suggestion: body contains fenced suggestion block", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "use a const instead",
+      suggestion: "const x = 1;",
+    });
+
+    expect(payload.body).toBe("use a const instead\n\n```suggestion\nconst x = 1;\n```");
+  });
+
+  test("comment with multi-line suggestion: body contains full suggestion fence", () => {
+    const suggestion = "const x = 1;\nconst y = 2;";
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 11,
+      startLine: 10,
+      body: "simplify",
+      suggestion,
+    });
+
+    expect(payload.body).toBe(`simplify\n\n\`\`\`suggestion\n${suggestion}\n\`\`\``);
   });
 });

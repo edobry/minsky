@@ -704,6 +704,14 @@ export const sessionPrReviewSubmitCommandParams = {
         line: z.number().int().positive(),
         body: z.string().min(1),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
+        startLine: z.number().int().positive().optional(),
+        startSide: z.enum(["LEFT", "RIGHT"]).optional(),
+        suggestion: z
+          .string()
+          .optional()
+          .describe(
+            "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
+          ),
       })
     ),
     description: "Optional inline line-level comments",
