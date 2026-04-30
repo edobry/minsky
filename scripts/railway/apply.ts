@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   type RailwayConfig,
   type CurrentVar,
@@ -59,6 +60,14 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
       body: JSON.stringify({ query, variables }),
       signal: controller.signal,
     });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Railway API request timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
+    }
+    throw new Error(
+      `Railway API network error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    );
   } finally {
     clearTimeout(timeoutId);
   }
@@ -148,7 +157,9 @@ async function loadConfig(serviceDir: string): Promise<RailwayConfig> {
   if (!existsSync(configPath)) {
     throw new Error(`No railway.config.ts found at: ${configPath}`);
   }
-  const mod = (await import(configPath)) as { default?: RailwayConfig } | RailwayConfig;
+  const mod = (await import(pathToFileURL(configPath).href)) as
+    | { default?: RailwayConfig }
+    | RailwayConfig;
   // Handle ESM default export (mod.default) and CJS-shaped exports (mod itself).
   const config =
     mod && typeof mod === "object" && "default" in mod && mod.default != null
