@@ -261,3 +261,97 @@ describe("session_pr_merge quality.review Ask emission (mt#1475)", () => {
     expect(fixture.parentSessionId).toBe(SESSION_ID);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Integration test: mergeSessionPr → emission (mt#1475 SC#4)
+// ---------------------------------------------------------------------------
+//
+// Verifies the production emission block by invoking mergeSessionPr directly
+// with an injected FakeAskRepository. A regression that removed the emission
+// block in session-merge-operations.ts would fail this test.
+//
+// The merge path is stubbed to throw at repositoryBackend.pr.merge(); emission
+// fires before that point so the FakeAskRepository must contain one row when
+// the throw propagates. This is the spec-required "synthetic merge attempt
+// produces exactly one quality.review row" check.
+// ---------------------------------------------------------------------------
+
+import { mergeSessionPr } from "./session-merge-operations";
+
+describe("mergeSessionPr → quality.review Ask emission (mt#1475 SC#4)", () => {
+  it("invoking mergeSessionPr emits exactly one quality.review Ask before merge attempt", async () => {
+    const fakeAskRepo = new FakeAskRepository();
+
+    // Non-GitHub session record: skips the GitHub approval-check block entirely
+    // (validateSessionApprovedForMerge requires prBranch + prApproved=true for non-github).
+    const sessionRecord = {
+      sessionId: SESSION_ID,
+      taskId: TASK_ID,
+      backendType: "local",
+      prBranch: "task/mt-test",
+      prApproved: true,
+      repoUrl: "/tmp/test-repo",
+    };
+
+    // Minimal sessionDB stub. The `as any` cast follows the established pattern
+    // in workflow-commands-merge-deps.test.ts — the SessionProviderInterface
+    // has many methods and only a few are reachable on this happy-path test.
+    const stubSessionDB = {
+      getSession: async (id: string) => (id === SESSION_ID ? sessionRecord : null),
+      getSessionByTaskId: async () => null,
+      getSessionWorkdir: async () => "/tmp/test-workdir",
+      updateSession: async () => undefined,
+    } as any;
+
+    const stubTaskService = {
+      setTaskStatus: async () => undefined,
+      getTaskStatus: async () => "IN-REVIEW",
+    } as any;
+
+    // Stub repository backend whose pr.merge throws — this terminates mergeSessionPr
+    // *after* the emission block runs, which is what we want to assert against.
+    const expectedMergeError = new Error("test-stub: merge intentionally aborted after emission");
+    const stubBackend = {
+      pr: {
+        merge: async () => {
+          throw expectedMergeError;
+        },
+      },
+      review: {
+        getApprovalStatus: async () => ({ isApproved: true }),
+      },
+    } as any;
+
+    let thrown: unknown = null;
+    try {
+      await mergeSessionPr(
+        { session: SESSION_ID, json: true, cleanupSession: false },
+        {
+          sessionDB: stubSessionDB,
+          taskService: stubTaskService,
+          createRepositoryBackend: async () => stubBackend,
+          askRepository: fakeAskRepo,
+        }
+      );
+    } catch (err) {
+      thrown = err;
+    }
+
+    // The merge error propagates (we stubbed it to throw).
+    expect(thrown).toBe(expectedMergeError);
+
+    // The emission block must have fired before the merge throw.
+    expect(fakeAskRepo.all).toHaveLength(1);
+
+    const ask = fakeAskRepo.all[0];
+    expect(ask).toBeDefined();
+    if (!ask) return;
+
+    const fixture: AskFixture = ask;
+    expect(fixture.kind).toBe(QUALITY_REVIEW_KIND);
+    expect(fixture.state).toBe(ASK_INITIAL_STATE);
+    expect(fixture.classifierVersion).toBe(MERGE_CLASSIFIER_VERSION);
+    expect(fixture.parentSessionId).toBe(SESSION_ID);
+    expect(fixture.parentTaskId).toBe(TASK_ID);
+  });
+});
