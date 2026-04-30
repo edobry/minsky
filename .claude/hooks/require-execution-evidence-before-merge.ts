@@ -19,36 +19,13 @@
 // @see mt#1460 — sibling /prepare-pr skill step (PR-creation-time guard)
 // @see feedback_behavior_detecting_artifacts_need_execution_evidence — four-incident history
 
-import { readInput, writeOutput } from "./types";
+import { readInput, writeOutput, execWithPath } from "./types";
 import type { ToolHookInput } from "./types";
 
-// ---------------------------------------------------------------------------
-// PATH-augmented subprocess helper
-// ---------------------------------------------------------------------------
-
-/**
- * Wrapper around Bun.spawnSync that prepends common homebrew/system binary
- * directories to PATH so that `gh` resolves correctly regardless of
- * the shell PATH that launched Claude Code.
- */
-function execWithPath(
-  cmd: string[],
-  options?: { cwd?: string; timeout?: number }
-): { exitCode: number; stdout: string; stderr: string } {
-  const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-  const result = Bun.spawnSync(cmd, {
-    cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: options?.timeout ?? 10000,
-    env: { ...process.env, PATH: pathPrefix },
-  });
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-  };
-}
+// NOTE: execWithPath is centralized in types.ts and imported above.
+// Both this hook and parallel-work-guard.ts consume it from there to keep
+// PATH-augmentation and timeout behavior consistent across hooks.
+// See NON-BLOCKING #5 from PR #909 round 1 review.
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,11 +82,62 @@ export function findNewTestFiles(files: PrFile[]): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when the PR body contains an "Execution evidence:" block.
- * The heading is case-insensitive and may appear anywhere in the body.
+ * Returns true when the PR body contains an "Execution evidence:" block with
+ * non-empty content following the marker.
+ *
+ * Acceptance criteria:
+ *   - The marker must appear as a Markdown heading (## Execution evidence:)
+ *     OR as a standalone label line (Execution evidence: <content>).
+ *   - Negation phrases like "No Execution evidence:" do NOT qualify.
+ *   - The heading must be followed by non-whitespace content.
+ *
+ * Detection strategy:
+ *   1. Find a line that, after stripping leading # characters and whitespace,
+ *      matches "Execution evidence:" (case-insensitive) — this is the heading.
+ *   2. Verify the heading line itself does NOT start with "No " (negation guard).
+ *   3. Require that there is at least one non-empty line of content after the
+ *      heading and before the next Markdown heading or end-of-string.
  */
 export function hasExecutionEvidence(prBody: string): boolean {
-  return /execution evidence:/i.test(prBody);
+  // Matches lines that are (optional) Markdown heading + "Execution evidence:"
+  // Anchored at start-of-line via the `m` flag.
+  // The heading prefix (###, ##, #) is optional; plain "Execution evidence:" also matches.
+  // Captures everything on the heading line before the marker for negation check.
+  const headingPattern = /^(#{0,6}\s*)(execution evidence:\s*)(.*)$/im;
+
+  const lines = prBody.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(headingPattern);
+    if (!match) continue;
+
+    // Negation guard: skip lines like "No Execution evidence:" or
+    // "## No Execution evidence:" where the word before the marker is "No".
+    // The text before "Execution" (captured in match[1]) should not end with
+    // a negating word. We check the full line up to "execution" for "no ".
+    const beforeMarker = line.slice(0, line.toLowerCase().indexOf("execution")).toLowerCase();
+    if (/\bno\b/.test(beforeMarker)) continue;
+
+    // Also reject template placeholders where the heading line itself contains
+    // the full text on the same line — allow only if there's content on the same
+    // line OR content follows on subsequent lines.
+    const inlineContent = match[3].trim();
+    if (inlineContent.length > 0) {
+      // Inline content on the heading line counts as evidence
+      return true;
+    }
+
+    // Look for non-empty content on subsequent lines before the next ## heading
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (/^#{1,6}\s/.test(nextLine)) break; // next heading — stop
+      if (nextLine.trim().length > 0) return true; // found content
+    }
+    // Heading found but no content — keep looking in case there's another
+    // Execution evidence: block further down
+  }
+
+  return false;
 }
 
 /**
@@ -136,11 +164,16 @@ export interface PrDeps {
 export function makeProdPrDeps(cwd?: string): PrDeps {
   return {
     fetchPrFiles(repo: string, prNumber: number): PrFile[] {
+      // Use --paginate so PRs with more than 30 files (GitHub's default page
+      // size) are not silently truncated. --paginate accumulates all pages and
+      // outputs them as a JSON array of per-page arrays; --jq flattens them.
+      // Resolves BLOCKING #3 from PR #909 round 1 review.
       const result = execWithPath(
         [
           "gh",
           "api",
           `repos/${repo}/pulls/${prNumber}/files`,
+          "--paginate",
           "--jq",
           "[.[] | {filename: .filename, status: .status}]",
         ],
@@ -148,7 +181,34 @@ export function makeProdPrDeps(cwd?: string): PrDeps {
       );
       if (result.exitCode !== 0) return [];
       try {
-        return JSON.parse(result.stdout) as PrFile[];
+        // When --paginate is used with --jq, each page outputs one JSON array.
+        // Multiple arrays may be concatenated in stdout. Merge them.
+        const raw = result.stdout.trim();
+        // Try direct parse first (single page — most common case)
+        if (raw.startsWith("[")) {
+          try {
+            const parsed = JSON.parse(raw);
+            // If it's an array of arrays (multi-page), flatten; else use as-is
+            if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
+              return (parsed as PrFile[][]).flat();
+            }
+            return parsed as PrFile[];
+          } catch {
+            // Fall through to line-by-line parse
+          }
+        }
+        // Multi-page: each line is a separate JSON array from --jq
+        const pages = raw
+          .split("\n")
+          .filter((l) => l.trim().startsWith("["))
+          .map((l) => {
+            try {
+              return JSON.parse(l) as PrFile[];
+            } catch {
+              return [] as PrFile[];
+            }
+          });
+        return pages.flat();
       } catch {
         return [];
       }
@@ -227,6 +287,49 @@ export function checkExecutionEvidence(
 }
 
 // ---------------------------------------------------------------------------
+// Repo derivation (derives owner/repo from git remote — no hardcoded slugs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an `owner/repo` slug out of a GitHub remote URL. Returns null if the
+ * URL doesn't look like a GitHub remote.
+ *
+ * Supports SCP-style SSH, URL-style SSH, HTTPS with or without credentials.
+ * Pure function — no I/O.
+ */
+export function parseGitHubRemoteUrl(url: string): string | null {
+  const trimmed = url.trim();
+  // SCP-style SSH: git@github.com:owner/repo[.git]
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (sshMatch) return sshMatch[1];
+  // URL-style SSH (with optional port or git+ssh prefix)
+  const sshUrlMatch = trimmed.match(
+    /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
+  );
+  if (sshUrlMatch) return sshUrlMatch[1];
+  // HTTPS form (with optional embedded credentials)
+  const httpsMatch = trimmed.match(
+    /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
+  );
+  if (httpsMatch) return httpsMatch[1];
+  return null;
+}
+
+/**
+ * Derive the GitHub `owner/repo` slug from the `origin` remote of the given
+ * git working directory. Returns null if the remote can't be read or doesn't
+ * look like a GitHub URL — callers should fail-open with a warning.
+ */
+export function deriveRepoFromGit(repoDir: string): string | null {
+  const result = execWithPath(["git", "remote", "get-url", "origin"], {
+    cwd: repoDir,
+    timeout: 5000,
+  });
+  if (result.exitCode !== 0 || !result.stdout.trim()) return null;
+  return parseGitHubRemoteUrl(result.stdout);
+}
+
+// ---------------------------------------------------------------------------
 // Top-level hook entry point
 // ---------------------------------------------------------------------------
 
@@ -235,6 +338,21 @@ if (import.meta.main) {
 
   const task = (input.tool_input.task as string | undefined) ?? "";
   if (!task) process.exit(0);
+
+  // Derive owner/repo from the git remote so the hook works on forks and
+  // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
+  // Resolves BLOCKING #2 from PR #909 round 1 review.
+  const repo = deriveRepoFromGit(input.cwd);
+  if (!repo) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext:
+          "⚠️ [execution-evidence] Could not derive owner/repo from git remote — check skipped.",
+      },
+    });
+    process.exit(0);
+  }
 
   const branch = `task/${task.replace("#", "-")}`;
 
@@ -245,7 +363,7 @@ if (import.meta.main) {
       "pr",
       "list",
       "--repo",
-      "edobry/minsky",
+      repo,
       "--head",
       branch,
       "--json",
@@ -260,10 +378,12 @@ if (import.meta.main) {
   if (!prNumber || isNaN(prNumber)) process.exit(0);
 
   const deps = makeProdPrDeps(input.cwd);
-  const prFiles = deps.fetchPrFiles("edobry/minsky", prNumber);
-  const prMeta = deps.fetchPrMeta("edobry/minsky", prNumber);
+  const prFiles = deps.fetchPrFiles(repo, prNumber);
+  const prMeta = deps.fetchPrMeta(repo, prNumber);
 
-  // If we can't fetch PR data, fail-open (allow merge with a warning)
+  // If we can't fetch PR data, fail-open (allow merge with a warning).
+  // Single writeOutput call — emitting multiple JSON objects to stdout would
+  // produce invalid JSON for consumers. Resolves BLOCKING #1 from PR #909 r1.
   if (!prMeta) {
     writeOutput({
       hookSpecificOutput: {
@@ -276,22 +396,25 @@ if (import.meta.main) {
 
   const result = checkExecutionEvidence(prFiles, prMeta.title, prMeta.body);
 
-  // Surface any warnings even on allow
-  for (const warning of result.warnings) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: `⚠️ ${warning}`,
-      },
-    });
-  }
-
   if (result.blocked) {
+    // Blocked: aggregate warnings + deny into a single writeOutput call.
+    // Multiple JSON objects on stdout violate the single-JSON contract.
+    // Resolves BLOCKING #1 from PR #909 round 1 review.
+    const warningContext =
+      result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠️ ${w}`).join("\n")}\n\n` : "";
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: result.reason,
+        permissionDecisionReason: `${warningContext}${result.reason}`,
+      },
+    });
+  } else if (result.warnings.length > 0) {
+    // Allowed but with warnings: single writeOutput with aggregated context.
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: result.warnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
   }

@@ -6,6 +6,7 @@ import {
   hasExecutionEvidence,
   hasBypassPrefix,
   checkExecutionEvidence,
+  parseGitHubRemoteUrl,
   type PrFile,
 } from "./require-execution-evidence-before-merge";
 
@@ -138,17 +139,22 @@ describe("findNewTestFiles", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasExecutionEvidence", () => {
-  it("detects 'Execution evidence:' heading", () => {
+  it("detects '## Execution evidence:' heading with content on next line", () => {
     const body = `## Summary\nSome PR.\n\n## Execution evidence:\nbun test passed\n`;
     expect(hasExecutionEvidence(body)).toBe(true);
   });
 
-  it("detects lowercase variant", () => {
+  it("detects lowercase variant with inline content", () => {
     expect(hasExecutionEvidence("execution evidence: output here")).toBe(true);
   });
 
-  it("detects mixed case", () => {
+  it("detects mixed case with inline content", () => {
     expect(hasExecutionEvidence("EXECUTION EVIDENCE: all passed")).toBe(true);
+  });
+
+  it("detects heading with content block (code fence)", () => {
+    const body = `## Summary\nChanges made.\n\n## Execution evidence:\n\`\`\`\nbun test\n1 pass\n\`\`\`\n`;
+    expect(hasExecutionEvidence(body)).toBe(true);
   });
 
   it("returns false when heading is absent", () => {
@@ -158,6 +164,45 @@ describe("hasExecutionEvidence", () => {
 
   it("returns false for empty body", () => {
     expect(hasExecutionEvidence("")).toBe(false);
+  });
+
+  // --- Negative cases required by BLOCKING #4 from PR #909 round 1 review ---
+
+  it("returns false for negation: 'No Execution evidence: ...'", () => {
+    // The phrase "No Execution evidence:" must NOT qualify as evidence
+    expect(hasExecutionEvidence("No Execution evidence: this PR has no tests")).toBe(false);
+  });
+
+  it("returns false for negation in a heading: '## No Execution evidence:'", () => {
+    const body = `## Summary\nFoo.\n\n## No Execution evidence:\nThis PR has no test output.\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when heading is present but body after it is empty", () => {
+    // Heading exists but there is no content following it (end of string)
+    const body = `## Summary\nFoo.\n\n## Execution evidence:`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when heading is present but body after it is only whitespace", () => {
+    // Heading exists but subsequent lines are blank before the next section
+    const body = `## Summary\nFoo.\n\n## Execution evidence:\n   \n\t\n## Next Section\nContent`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when 'execution evidence:' appears only mid-sentence in prose", () => {
+    // The phrase appears embedded in a sentence, not as a heading/label at the start of
+    // a line. The implementation requires the marker to appear at line start (after
+    // optional # heading chars), so mid-sentence use is correctly rejected.
+    // This is the desired behavior — mid-sentence text should not qualify as evidence.
+    const body = `## Summary\nThis PR lacks execution evidence: no test run was done.`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when negation uses template placeholder pattern", () => {
+    // Template placeholder: "No Execution evidence: N/A" — common in PR templates
+    const body = `## Summary\nFoo.\n\nNo Execution evidence: N/A\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
   });
 });
 
@@ -396,5 +441,57 @@ describe("checkExecutionEvidence — integration scenarios", () => {
     expect(result.blocked).toBe(true);
     expect(result.reason).toBeDefined();
     expect(result.reason).toContain(FIXTURE_INTEGRATION_TEST_TS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseGitHubRemoteUrl — repo derivation (BLOCKING #2)
+// ---------------------------------------------------------------------------
+
+describe("parseGitHubRemoteUrl", () => {
+  it("parses SCP-style SSH URL", () => {
+    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git")).toBe("edobry/minsky");
+    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS URL with .git suffix", () => {
+    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS URL without .git suffix", () => {
+    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky")).toBe("edobry/minsky");
+  });
+
+  it("parses HTTPS URL with embedded token", () => {
+    expect(parseGitHubRemoteUrl("https://token123@github.com/edobry/minsky.git")).toBe(
+      "edobry/minsky"
+    );
+  });
+
+  it("parses URL-style SSH with git+ssh prefix", () => {
+    expect(parseGitHubRemoteUrl("git+ssh://git@github.com/edobry/minsky.git")).toBe(
+      "edobry/minsky"
+    );
+  });
+
+  it("parses URL-style SSH without prefix", () => {
+    expect(parseGitHubRemoteUrl("ssh://git@github.com/edobry/minsky.git")).toBe("edobry/minsky");
+  });
+
+  it("returns null for non-GitHub remote", () => {
+    expect(parseGitHubRemoteUrl("https://gitlab.com/edobry/minsky.git")).toBeNull();
+    expect(parseGitHubRemoteUrl("git@bitbucket.org:edobry/minsky.git")).toBeNull();
+  });
+
+  it("returns null for empty string", () => {
+    expect(parseGitHubRemoteUrl("")).toBeNull();
+  });
+
+  it("returns null for malformed URL", () => {
+    expect(parseGitHubRemoteUrl("not-a-url")).toBeNull();
+  });
+
+  it("handles trailing newline in URL (common from git remote get-url)", () => {
+    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git\n")).toBe("edobry/minsky");
   });
 });
