@@ -143,9 +143,60 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
         harness: HARNESS,
         isSubagent,
         mtime: stat.mtime,
+        cwd: await recoverCwd(jsonlPath, dir),
       };
     }
   }
+}
+
+/**
+ * Recovers the session's working directory (mt#1445).
+ *
+ * Primary source: the `cwd` field on the first parseable user/assistant turn
+ * in the JSONL — Claude Code records it on each turn and it's the most
+ * reliable signal of where the session ran.
+ *
+ * Fallback: derive from the parent directory's name. Claude Code's
+ * project-dir convention replaces `/` with `-` in the absolute project path
+ * (e.g. `/Users/foo/Projects/bar` → `-Users-foo-Projects-bar`). This is
+ * lossy (a literal `-` in the path collides with the separator) so it's
+ * only used when the JSONL has no parseable turn with a `cwd` field.
+ *
+ * Returns `undefined` when neither source produces a value, so the column
+ * stays NULL rather than receiving a misleading default.
+ */
+async function recoverCwd(jsonlPath: string, parentDir: string): Promise<string | undefined> {
+  const fromTurn = await readFirstTurnCwd(jsonlPath);
+  if (fromTurn) return fromTurn;
+  return deriveCwdFromProjectDir(parentDir);
+}
+
+async function readFirstTurnCwd(jsonlPath: string): Promise<string | undefined> {
+  const raw = await safeReadFile(jsonlPath);
+  if (raw === null) return undefined;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parsed = parseJsonlLine(trimmed);
+    if (!parsed) continue;
+    const cwd = parsed.cwd;
+    if (typeof cwd === "string" && cwd.length > 0) return cwd;
+  }
+  return undefined;
+}
+
+/**
+ * Reverse the Claude Code project-dir naming convention. Only invoked as a
+ * fallback when the JSONL has no parseable cwd; the result is best-effort.
+ */
+function deriveCwdFromProjectDir(parentDir: string): string | undefined {
+  const projectName = basename(parentDir);
+  // The project-dir name shape is `-<path-with-slashes-replaced-by-dashes>`.
+  // Skip names that don't look like that pattern (e.g. the `subagents/`
+  // intermediate directory, or anything else that clearly isn't a project).
+  if (!projectName.startsWith("-")) return undefined;
+  if (projectName === SUBAGENTS_DIR) return undefined;
+  return projectName.replace(/-/g, "/");
 }
 
 function parseJsonlLine(line: string): JsonlLine | null {

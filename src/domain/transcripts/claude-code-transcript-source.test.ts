@@ -95,6 +95,75 @@ describe("ClaudeCodeTranscriptSource.discoverSessions", () => {
     }
   });
 
+  test("populates cwd from project-dir convention when JSONL has no cwd field (mt#1445)", async () => {
+    // Existing fixture USER_LINE has no `cwd` field, so the source falls back
+    // to the project-dir-derivation path: PROJECT_DIR_NAME =
+    // "-Users-edobry-Projects-minsky" decodes to "/Users/edobry/Projects/minsky".
+    const sessions = await collect(makeSource().discoverSessions());
+    const top = sessions.find((s) => s.agentSessionId === TOP_SESSION_ID);
+    expect(top?.cwd).toBe("/Users/edobry/Projects/minsky");
+  });
+
+  test("populates cwd from JSONL turn when present, preferring it over the project-dir fallback (mt#1445)", async () => {
+    // Stand up a fresh fixture in a separate temp root so we can write a
+    // user line that includes the explicit cwd field.
+    const altRoot = await mkdtemp(join(tmpdir(), "minsky-cc-source-cwd-"));
+    try {
+      const altProjectDirName = "-Users-foo-Projects-bar";
+      const altProjectDir = join(altRoot, altProjectDirName);
+      await mkdir(altProjectDir);
+      const sessionWithCwd = "session-with-cwd";
+      const userLineWithCwd = JSON.stringify({
+        type: "user",
+        message: { role: "user", content: "hi" },
+        cwd: "/Users/foo/Projects/bar-with-dashes",
+        uuid: "u1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      });
+      await writeFile(join(altProjectDir, `${sessionWithCwd}.jsonl`), `${userLineWithCwd}\n`);
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: altRoot,
+        projectDirGlob: `${altProjectDirName}*`,
+      });
+      const sessions = await collect(src.discoverSessions());
+      const session = sessions.find((s) => s.agentSessionId === sessionWithCwd);
+      // The JSONL-recorded cwd is preferred — note it contains a `-` that
+      // would have been mangled by the fallback derivation.
+      expect(session?.cwd).toBe("/Users/foo/Projects/bar-with-dashes");
+    } finally {
+      await rm(altRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("returns undefined cwd when JSONL has no cwd and project-dir doesn't match the convention (mt#1445)", async () => {
+    // A project dir whose name doesn't start with "-" can't be reverse-mapped.
+    const altRoot = await mkdtemp(join(tmpdir(), "minsky-cc-source-no-cwd-"));
+    try {
+      const oddProjectDirName = "no-leading-dash-here";
+      const oddProjectDir = join(altRoot, oddProjectDirName);
+      await mkdir(oddProjectDir);
+      const sessionId = "session-no-cwd";
+      const lineWithoutCwd = JSON.stringify({
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "u1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      });
+      await writeFile(join(oddProjectDir, `${sessionId}.jsonl`), `${lineWithoutCwd}\n`);
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: altRoot,
+        projectDirGlob: oddProjectDirName,
+      });
+      const sessions = await collect(src.discoverSessions());
+      const session = sessions.find((s) => s.agentSessionId === sessionId);
+      expect(session?.cwd).toBeUndefined();
+    } finally {
+      await rm(altRoot, { recursive: true, force: true });
+    }
+  });
+
   test("returns empty when no project dirs match the glob", async () => {
     const empty = await mkdtemp(join(tmpdir(), "minsky-cc-source-empty-"));
     try {
