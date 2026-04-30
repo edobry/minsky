@@ -421,8 +421,11 @@ function buildCancelledClose(
       responder: "operator",
       payload: { action },
       attentionCost: {
+        // The dialog reached the operator and they decided to decline/cancel
+        // — the elicitation transport handled this end-to-end. resolvedIn
+        // is "elicitation", not "timeout" (PR #919 R2 BLOCKING).
         transport: "elicitation",
-        resolvedIn: "timeout",
+        resolvedIn: "elicitation",
       },
     },
   };

@@ -292,6 +292,10 @@ describe("dispatchToElicitation — decline / cancel", () => {
 
     expect(result.state).toBe("cancelled");
     expect(result.transport.kind).toBe("elicitation");
+    // PR #919 R2 BLOCKING: decline/cancel went through the elicitation
+    // dialog — resolvedIn must reflect that, not "timeout".
+    expect(result.response?.attentionCost?.resolvedIn).toBe("elicitation");
+    expect(result.response?.attentionCost?.transport).toBe("elicitation");
 
     const persisted = await repo.getById(routed.id);
     expect(persisted?.state).toBe("cancelled");
@@ -306,6 +310,8 @@ describe("dispatchToElicitation — decline / cancel", () => {
     const result = await dispatchToElicitation(routed, { server, repo });
 
     expect(result.state).toBe("cancelled");
+    expect(result.response?.attentionCost?.resolvedIn).toBe("elicitation");
+
     const persisted = await repo.getById(routed.id);
     expect(persisted?.state).toBe("cancelled");
   });
