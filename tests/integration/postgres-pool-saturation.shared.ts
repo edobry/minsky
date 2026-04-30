@@ -448,13 +448,15 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
           await releaseOnce();
-          // Drop the test table AND the extension so long-lived branches
-          // don't accumulate test artifacts. DROP EXTENSION is best-effort:
-          // if another consumer is using vector on the same database, the
-          // drop will fail and we silently ignore (the next run will see
-          // the extension already loaded, which is also fine).
+          // Drop the test table so long-lived branches don't accumulate test
+          // tables. We deliberately do NOT drop the vector extension: if
+          // other concurrent tests (or other test files) depend on vector
+          // being loaded, dropping it here introduces a race. The previous
+          // round of mt#1462 added the drop in response to "leaves extension
+          // state" feedback, and a subsequent reviewer (PR #899) correctly
+          // flagged that as a cross-test flakiness hazard. Net call: leave
+          // the shared extension alone; only drop our own scoped table.
           await sqlClient.unsafe(`DROP TABLE IF EXISTS ${VECTOR_TABLE}`).catch(() => {});
-          await sqlClient.unsafe(`DROP EXTENSION IF EXISTS vector`).catch(() => {});
           await sqlClient.end().catch(() => {});
         }
       },
