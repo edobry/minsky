@@ -67,6 +67,45 @@ This is a checklist item, not a hard gate. The override exceptions exist for leg
 
 **Reviewer-side**: when reviewing a PR that touches a verify/probe/smoke script, confirm the PR body either contains the redacted live output OR a documented override exception. If neither is present, request the live-run output before approving.
 
+### 1b. Run new test files before opening the PR
+
+This step fires unconditionally as part of every /prepare-pr invocation — it is not conditional on the agent remembering to check.
+
+**Does this PR add any new test files?** Scan the diff for files matching `*.test.ts`, `*.integration.test.ts`, or `*.spec.ts` that are newly created (not just modified).
+
+**Background:** Tests and probes are behavior-detecting artifacts whose correctness cannot be verified by code-shape alone. A test file that exists but was never run before merge may have wrong assertions, import errors, or setup that silently skips all cases. This is a recurring failure mode — see memory entry `feedback_behavior_detecting_artifacts_need_execution_evidence`. The merge-time hook (mt#1459) enforces the `[unverified-tests]` escape hatch at merge; this step is the earlier, lower-cost enforcement at PR-open time.
+
+**If new test files are present:**
+
+1. Run the new test files against their intended target:
+   ```
+   bun test --preload ./tests/setup.ts --timeout=15000 <path-to-new-test-file>
+   ```
+2. Capture the full output (pass/fail counts, any errors).
+3. Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example:
+
+   ```
+   ## Test Plan
+
+   Execution evidence:
+   ```
+
+   bun test src/domain/new-feature.test.ts
+   5 pass, 0 fail
+
+   ```
+
+   ```
+
+**If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
+
+1. Prefix the PR title with `[unverified-tests]` — e.g., `[unverified-tests] Add session liveness tests`.
+2. Add a TODO in the PR body identifying the specific gap: which test file(s) could not be run and why.
+
+The `[unverified-tests]` prefix is recognized by the merge-time PreToolUse hook (mt#1459), which will block merge until the prefix is removed or a maintainer explicitly clears it. Making the convention legible here ensures the agent opening the PR and the hook guarding the merge share the same signal.
+
+**Reviewer-side:** when reviewing a PR that adds new test files, confirm the PR body either contains `Execution evidence:` output OR the PR title carries `[unverified-tests]` with a documented reason. If neither is present, request the evidence before approving.
+
 ### 2. Commit all changes
 
 Use `mcp__minsky__session_commit` with:
