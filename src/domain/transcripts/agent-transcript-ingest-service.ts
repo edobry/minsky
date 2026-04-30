@@ -31,14 +31,22 @@ export class AgentTranscriptIngestService {
   /**
    * Ingest a single session identified by its agent session ID.
    *
+   * Returns a typed result so the caller can distinguish success from a caught
+   * failure. Failures along the three swallow paths (HWM read, stream, upsert)
+   * surface as `error !== undefined` instead of being lost — that's what
+   * `ingestAll` uses to count `sessionsErrored` honestly (mt#1444).
+   *
    * @param session - The discovered session metadata (from discoverSessions() or a direct lookup).
-   * @returns Number of new lines ingested (0 for a fully-idempotent re-run).
+   * @returns `{ ingested: number; error?: Error }` — `ingested` is the number of new
+   *   lines written (0 on idempotent re-run or on caught failure); `error` is set
+   *   when any of the three internal paths swallowed a failure.
    */
-  async ingestSession(session: DiscoveredSession): Promise<number> {
+  async ingestSession(session: DiscoveredSession): Promise<IngestSessionResult> {
     const { agentSessionId, harness, jsonlPath, mtime } = session;
 
     // ── 1. Read the current high-water-mark ──────────────────────────────────
     let highWaterMark: Date | null = null;
+    let hwmReadError: Error | undefined;
     try {
       const rows = await this.db
         .select({
@@ -50,10 +58,12 @@ export class AgentTranscriptIngestService {
 
       highWaterMark = rows[0]?.lastIngestedJsonlTimestamp ?? null;
     } catch (err) {
+      hwmReadError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to read high-water-mark for session ${agentSessionId}`, {
         error: getErrorMessage(err),
       });
       // Proceed with null — treat as no prior ingest, will collect all lines.
+      // The error is surfaced in the return value so the sweep can count it.
     }
 
     // ── 2. Stream new lines ──────────────────────────────────────────────────
@@ -81,14 +91,18 @@ export class AgentTranscriptIngestService {
         error: getErrorMessage(err),
       });
       // Return 0 — don't partially-commit a broken read.
-      return 0;
+      // Surface the error so the sweep can count it (mt#1444).
+      return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
     if (newLines.length === 0) {
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`
       );
-      return 0;
+      // Idempotent re-run. Still surface any HWM-read failure that occurred —
+      // a recovered-from HWM error is a degraded state worth counting (without
+      // a HWM, the next ingest would re-collect already-ingested lines).
+      return { ingested: 0, error: hwmReadError };
     }
 
     // ── 3. Derive metadata from the source's DiscoveredSession ───────────────
@@ -129,7 +143,7 @@ export class AgentTranscriptIngestService {
       log.error(`Failed to upsert transcript for session ${agentSessionId}`, {
         error: getErrorMessage(err),
       });
-      return 0;
+      return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
     log.debug(`Ingested ${newLines.length} new lines for session ${agentSessionId}`, {
@@ -137,7 +151,10 @@ export class AgentTranscriptIngestService {
       newHighWaterMark: latestTs?.toISOString(),
     });
 
-    return newLines.length;
+    // Surface any HWM-read failure even on success — caller may want to know
+    // the HWM was lost (the upsert merged via JSONB-array-concat so we may have
+    // duplicated already-ingested lines). The `ingested` count is honest.
+    return { ingested: newLines.length, error: hwmReadError };
   }
 
   /**
@@ -156,9 +173,20 @@ export class AgentTranscriptIngestService {
     for await (const session of this.source.discoverSessions()) {
       sessionsProcessed++;
       try {
-        const count = await this.ingestSession(session);
-        totalIngested += count;
+        const result = await this.ingestSession(session);
+        totalIngested += result.ingested;
+        if (result.error !== undefined) {
+          // ingestSession swallowed a failure along one of three paths
+          // (HWM read, stream, upsert). Count it honestly (mt#1444).
+          sessionsErrored++;
+          log.warn(`Session ${session.agentSessionId} reported a degraded ingest`, {
+            error: getErrorMessage(result.error),
+            ingested: result.ingested,
+          });
+        }
       } catch (err) {
+        // Defensive — ingestSession is documented as never throwing, but if
+        // an unexpected throw escapes (e.g., an iterator boundary), still count it.
         sessionsErrored++;
         log.warn(`Session ${session.agentSessionId} failed during sweep`, {
           error: getErrorMessage(err),
@@ -169,6 +197,17 @@ export class AgentTranscriptIngestService {
     log.info(`Ingest sweep complete`, { totalIngested, sessionsProcessed, sessionsErrored });
     return { totalIngested, sessionsProcessed, sessionsErrored };
   }
+}
+
+export interface IngestSessionResult {
+  /** Number of new lines written to agent_transcripts for this session. */
+  ingested: number;
+  /**
+   * Set when ingestSession swallowed a failure along one of three paths
+   * (HWM read, stream, upsert). The function continued (recovered or returned
+   * 0); the error is surfaced so callers can count it. mt#1444.
+   */
+  error?: Error;
 }
 
 export interface IngestAllResult {
