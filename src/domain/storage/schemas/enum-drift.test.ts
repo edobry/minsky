@@ -5,17 +5,60 @@
  * schema definitions (pgEnum for memory_type; CHECK constraint for
  * task_relationships.type).
  *
- * These are pure unit tests — no live DB required. They compare the TS
- * source-of-truth arrays against values baked into schema objects at
- * import time, so any mismatch (e.g., adding a TS value without updating
- * the schema, or vice versa) will cause the test to fail.
+ * Two drift axes are guarded:
+ *   1. TS const vs runtime schema object (e.g., memoryTypeEnum.enumValues derived
+ *      from MEMORY_TYPE_VALUES — caught by the pgEnum comparison tests).
+ *   2. TS const vs SQL migration file (the actual DDL shipped to the DB) — caught
+ *      by the migration-parsing tests below. This is the critical axis: a divergent
+ *      migration would be invisible to axis 1 because both runtime objects would
+ *      agree with each other while disagreeing with the actual DB schema.
+ *
+ * These are pure unit tests — no live DB required.
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- reading shipped migration SQL IS the point of axis-2 drift checks */
+
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { memoryTypeEnum } from "./memory-embeddings";
 import { RELATIONSHIP_TYPE_VALUES } from "../../tasks/task-graph-service";
 import { taskRelationshipsTable } from "./task-relationships";
+
+// ---------------------------------------------------------------------------
+// Migration-parsing helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads a SQL migration file, applies the given regex to extract a
+ * comma-separated value list from a capture group, and returns the trimmed,
+ * unquoted values as a sorted string array.
+ *
+ * The regex MUST have exactly one capture group that matches the inner list
+ * of quoted SQL identifiers (e.g., `'value1', 'value2'`).
+ */
+function parseSqlValueList(sqlFilePath: string, regex: RegExp): string[] {
+  const sqlRaw = readFileSync(sqlFilePath);
+  const sql = typeof sqlRaw === "string" ? sqlRaw : sqlRaw.toString();
+  const match = regex.exec(sql);
+  if (!match || !match[1]) {
+    throw new Error(
+      `Migration-parsing regex did not match in ${sqlFilePath}.\n` +
+        `Regex: ${regex}\n` +
+        `File content (first 500 chars): ${sql.slice(0, 500)}`
+    );
+  }
+  return match[1]
+    .split(",")
+    .map((s) => s.trim().replace(/^['"]|['"]$/g, ""))
+    .sort();
+}
+
+// Resolve migration file paths relative to this test file. This file lives at
+// src/domain/storage/schemas/enum-drift.test.ts; migrations live at
+// src/domain/storage/migrations/pg/.
+const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
 
 describe("Enum drift-check — memory_type", () => {
   test("MEMORY_TYPE_VALUES matches the values registered in the pgEnum", () => {
@@ -39,6 +82,19 @@ describe("Enum drift-check — memory_type", () => {
     // but not to the pgEnum, the first test above would catch it.
     // Here we verify that the current set is exactly the expected baseline.
     expect(MEMORY_TYPE_VALUES).toHaveLength(4);
+  });
+
+  test("MEMORY_TYPE_VALUES matches the migration's CREATE TYPE memory_type ENUM (axis 2)", () => {
+    // Parse the migration file directly. This catches the case the runtime-object
+    // comparison cannot: a migration shipped to the DB whose enum values diverge
+    // from the TS const. The tests above would still pass in that scenario because
+    // the in-code pgEnum is itself derived from MEMORY_TYPE_VALUES.
+    const migrationPath = join(MIGRATIONS_DIR, "0024_memory_phase_1.sql");
+    const sqlValues = parseSqlValueList(
+      migrationPath,
+      /CREATE TYPE\s+(?:"[^"]+"\.)?"?memory_type"?\s+AS\s+ENUM\s*\(([^)]+)\)/i
+    );
+    expect(sqlValues).toEqual([...MEMORY_TYPE_VALUES].sort());
   });
 });
 
@@ -78,5 +134,17 @@ describe("Enum drift-check — task_relationships.type", () => {
     // 'depends' and 'parent' in the DB, causing failures at runtime.
     // The drift-check test would catch this by asserting the expected baseline count.
     expect(RELATIONSHIP_TYPE_VALUES).toHaveLength(2);
+  });
+
+  test("RELATIONSHIP_TYPE_VALUES matches the migration's CHECK constraint IN-list (axis 2)", () => {
+    // Parse the migration file directly. The earlier test reconstructs the
+    // expected SQL from the same TS const it's checking against, so it cannot
+    // catch a divergent migration. This one reads the actual SQL shipped to the DB.
+    const migrationPath = join(MIGRATIONS_DIR, "0028_add_type_check_to_task_relationships.sql");
+    const sqlValues = parseSqlValueList(
+      migrationPath,
+      /CHECK\s*\(\s*type\s+IN\s*\(([^)]+)\)\s*\)/i
+    );
+    expect(sqlValues).toEqual([...RELATIONSHIP_TYPE_VALUES].sort());
   });
 });
