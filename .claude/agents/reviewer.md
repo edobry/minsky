@@ -48,7 +48,7 @@ The parent agent gives you:
    - Read callers/callees to verify the change is safe
    - Check types/interfaces to confirm compatibility
    - If the concern is disproven by reading source, drop it (false positive)
-4. **Report findings** in the structured format below, including a `comments[]` array with line-anchored entries for every location-bearing finding.
+4. **Report findings** in the structured format below as raw observations. Mode 1 subagents do NOT commit anchored `comments[]` — section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity, writes the body, selects the event, and posts via `session_pr_review_submit`. See mt#1485 for the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
 
 # Mode 2 Input (Chinese-wall whole-PR review)
 
@@ -137,7 +137,7 @@ Line number to pass:
 - Cross-cutting concerns that do not anchor to a single location (e.g., "10 of 15 new functions lack doc-comments")
 - Findings that failed anchor validation (no valid parsedDiff entry for the target location)
 
-Each inline comment body MUST carry a severity prefix so downstream tooling can classify it:
+Each inline comment body MUST carry a severity prefix so downstream tooling can classify it. Only `[BLOCKING]` and `[NON-BLOCKING]` are valid inline prefixes — PRE-EXISTING findings go in the body, not in `comments[]` (see Severity classification).
 
 ```
 [BLOCKING] <concise description>
@@ -155,7 +155,7 @@ or
 
 ```typescript
 interface ReviewComment {
-  path: string; // relative file path (matches DiffFile.path)
+  path: string; // relative file path — see "Renamed files" below for which path to use
   line: number; // 1-based line number (end of range for multi-line)
   body: string; // "[BLOCKING] ..." or "[NON-BLOCKING] ..."
   side?: "LEFT" | "RIGHT"; // defaults to RIGHT if absent
@@ -165,6 +165,15 @@ interface ReviewComment {
 ```
 
 GitHub constraint: `startSide` must equal `side` when both are provided. The review is 422-rejected if they differ.
+
+### Renamed files (`DiffFile.oldPath !== DiffFile.path`)
+
+GitHub anchors review comments by filename, and renames have two valid filenames (`oldPath` for the previous version, `path` for the current version). Pick `path` based on which side the anchor targets:
+
+- **RIGHT-side anchor** (additions, current version): use `DiffFile.path` (the current filename). Validate against `DiffFile.hunks[].lines[].newLine`.
+- **LEFT-side anchor** (deletions, pre-change code): use `DiffFile.oldPath` (the previous filename). Validate against `DiffFile.hunks[].lines[].oldLine`.
+
+For non-renames, `oldPath === path` and the distinction is moot. For renames, using the wrong path produces a 422 or attaches the comment to the wrong side.
 
 ## Worked examples
 
@@ -229,13 +238,14 @@ For each change in the diff:
 
 # Severity classification
 
-- **BLOCKING** — Verified real issue that alters behavior incorrectly, masks test failures, or introduces a bug. Must be fixed before merge.
-- **NON-BLOCKING** — Real concern but cosmetic, stylistic, or low-risk. The code works correctly; it could be cleaner.
+- **BLOCKING** — Verified real issue introduced by this PR that alters behavior incorrectly, masks test failures, or introduces a bug. Must be fixed before merge.
+- **NON-BLOCKING** — Real concern introduced by this PR but cosmetic, stylistic, or low-risk. The code works correctly; it could be cleaner.
+- **PRE-EXISTING** — Real issue but NOT introduced by this PR (the diff did not introduce or aggravate it). PRE-EXISTING findings go in the review body under "Pre-existing concerns" — they are NEVER emitted as inline `comments[]` because anchoring inline would conflate them with PR-introduced issues. Note as follow-up; do not block this PR on them.
 - **FALSE POSITIVE** — Do NOT include in your report. Drop it silently.
 
-# Output format — Mode 1 MANDATORY
+# Output format — Mode 1
 
-For Mode 1 (returning to parent for aggregation), return a structured object with both the findings text AND a `comments[]` array. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
+For Mode 1 (returning to parent for aggregation), return findings as raw observations with provisional anchors. The parent aggregator validates each anchor against the canonical `parsedDiff` (which Mode 1 subagents do not have), assigns severity, and constructs the final `comments[]` before posting. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
 
 ````markdown
 ## Review Findings: <file range description>
@@ -245,11 +255,13 @@ For Mode 1 (returning to parent for aggregation), return a structured object wit
 
 ### Findings
 
-<Cross-cutting concerns or findings that failed anchor validation:>
+<For each finding (one bullet each):>
 **[BLOCKING/NON-BLOCKING]** `<file>:<line>` — <concise description>
 <Evidence: what you read in the source that confirms this is real>
 
-### comments[] (for session_pr_review_submit)
+### Provisional anchors (for parent aggregator)
+
+These are observations the parent should validate against `parsedDiff` before constructing the final `comments[]`. Anchors that fail validation become body entries; valid ones become inline comments. Do NOT submit these directly.
 
 ```json
 [
@@ -324,4 +336,5 @@ All location-bearing findings MUST appear as `comments[]` entries, NOT in the bo
 - _Reporting more than 400 words in the body_ → Be concise. Location-bearing findings go in `comments[]`, not the body. If a file's changes are purely mechanical and correct, don't mention it.
 - _Using CONTEXT as a GitHub side value_ → Map CONTEXT lines to LEFT or RIGHT before building a comment anchor. CONTEXT is an internal classification; GitHub only accepts LEFT or RIGHT.
 - _Assigning anchors without validating against parsedDiff_ → Always confirm the target (path, line, side) exists in parsedDiff before building a comment. Wrong anchors 422-reject the entire review, including all other valid comments.
-- _Putting location-bearing findings only in the body_ → Every finding with a specific file:line must be a `comments[]` entry. Body is for summary, spec table, CI status, and cross-cutting concerns.
+- _Putting location-bearing findings only in the body_ (Mode 2) → Every PR-introduced finding with a specific file:line must be a `comments[]` entry. Body is for summary, spec table, CI status, cross-cutting concerns, and PRE-EXISTING findings (not introduced by this PR).
+- _Mode 1 subagent committing anchored comments[] directly_ → Mode 1 subs emit raw observations only; the parent aggregator validates anchors against `parsedDiff` and constructs the final `comments[]`. A subagent that posts directly bypasses anchor validation and risks 422-rejecting the entire review.

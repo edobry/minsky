@@ -44,6 +44,8 @@ If the diff was not already returned by step 1, use `mcp__github__pull_request_r
 
 Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
 
+**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely. As the parent aggregator, you hold the canonical `parsedDiff` from `session_pr_review_context` — validate each subagent's `(path, line, side)` anchor against it (step 5 + the anchor-validation block below), dedupe across slices, assign final severity, demote failed anchors to body entries, and construct the final `comments[]` yourself before posting in step 7. mt#1485 tracks the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
+
 **Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
 
 ### 4. Analyze changes
