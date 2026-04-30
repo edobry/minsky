@@ -437,25 +437,42 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
         });
 
         try {
+          // Time-based proof of backoff: PostgresVectorStorage.search wraps
+          // its DB ops in withPgPoolRetry internally. We can't observe the
+          // retry counter from outside, but we can prove it fired by
+          // measuring elapsed time. With holders acquiring poolSize slots
+          // and search starting immediately, the first connection attempt
+          // must fail; withPgPoolRetry then waits ~150ms (initialDelayMs)
+          // ±20% jitter (so 120-180ms minimum) before retrying. The held
+          // connections are released ~300ms in, so search succeeds on at
+          // least the second attempt. Any total elapsed time below ~120ms
+          // means no retry waited — saturation wasn't actually achieved
+          // and the test is vacuous.
+          const startMs = Date.now();
           const results = await vectorStorage.search([1, 0, 0], { limit: 5 });
+          // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() in a BinaryExpression for elapsed-time measurement, not path creation; the rule's BinaryExpression check produces a false positive
+          const elapsedMs = Date.now() - startMs;
           process.stdout.write(
-            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s)\n`
+            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ${elapsedMs}ms\n`
           );
           expect(Array.isArray(results)).toBe(true);
           // At least the seed row must come back
           expect(results.length).toBeGreaterThan(0);
+          // Backoff proof: search must have taken at least one retry cycle.
+          // Threshold of 120ms = initialDelayMs (150) * minimum jitter (0.8).
+          // If elapsed < 120ms, withPgPoolRetry never had to wait, meaning
+          // saturation was not actually encountered (test vacuous).
+          expect(elapsedMs).toBeGreaterThanOrEqual(120);
         } finally {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
           await releaseOnce();
           // Drop the test table so long-lived branches don't accumulate test
-          // tables. We deliberately do NOT drop the vector extension: if
-          // other concurrent tests (or other test files) depend on vector
-          // being loaded, dropping it here introduces a race. The previous
-          // round of mt#1462 added the drop in response to "leaves extension
-          // state" feedback, and a subsequent reviewer (PR #899) correctly
-          // flagged that as a cross-test flakiness hazard. Net call: leave
-          // the shared extension alone; only drop our own scoped table.
+          // tables. We deliberately do NOT drop the vector extension here:
+          // if other concurrent tests (or other test files) depend on vector
+          // being loaded, dropping a globally-shared extension introduces a
+          // race. Leave shared extension state alone; only drop our own
+          // scoped table.
           await sqlClient.unsafe(`DROP TABLE IF EXISTS ${VECTOR_TABLE}`).catch(() => {});
           await sqlClient.end().catch(() => {});
         }
