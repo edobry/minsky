@@ -218,6 +218,27 @@ Event: REQUEST_CHANGES`;
     expect(result.length).toBeLessThanOrEqual(1020); // 1000 + truncation marker
     expect(result).toContain("truncated");
   });
+
+  test("strategy 2 also matches bare [BLOCKING] without ** wrappers (mt#1486)", () => {
+    // Real production reviewer-bot bodies (verified 2026-04-30 on PR #732
+    // review #4165932343) emit `[BLOCKING]` without bold wrappers. Pre-mt#1486
+    // the regex required `**[BLOCKING]**` and silently fell through to the
+    // truncated-fallback branch on every production review.
+    const body = `Findings\n\n[BLOCKING] src/foo.ts:42 — broken contract\n[NON-BLOCKING] src/bar.ts:10 — minor nit\n[PRE-EXISTING] src/baz.ts:5 — old issue\n`;
+    const result = extractFindings(body);
+    expect(result).toContain("[BLOCKING] src/foo.ts:42");
+    expect(result).toContain("[NON-BLOCKING] src/bar.ts:10");
+    expect(result).toContain("[PRE-EXISTING] src/baz.ts:5");
+  });
+
+  test("strategy 2 matches bare [BLOCKING] with line-range citations (mt#1486)", () => {
+    // Production bodies cite line ranges (e.g. src/foo.ts:171-176), not just
+    // single lines. The strategy-2 regex only triggers `inFinding`; downstream
+    // capture is line-based, so the range itself is preserved verbatim.
+    const body = "Findings\n\n[BLOCKING] src/foo.ts:171-176 — over-broad guard";
+    const result = extractFindings(body);
+    expect(result).toContain("[BLOCKING] src/foo.ts:171-176");
+  });
 });
 
 // ─── isBotReviewerEntry filter predicate (mt#1189) ───────────────────────────
@@ -381,6 +402,23 @@ describe("countBlockingFindings", () => {
 
   test("case-insensitive match (gi flag)", () => {
     expect(countBlockingFindings("**[blocking]** src/foo.ts:1 — bad")).toBe(1);
+  });
+
+  test("counts bare [BLOCKING] without ** wrappers (mt#1486)", () => {
+    // Real production format. Pre-mt#1486 this returned 0 for every
+    // production review and broke the convergence_metric priorBlockerCount.
+    expect(countBlockingFindings("[BLOCKING] src/foo.ts:1 — bad thing")).toBe(1);
+  });
+
+  test("counts mixed bare and bold-wrapped BLOCKING markers (mt#1486)", () => {
+    const body =
+      "[BLOCKING] src/foo.ts:1 — bare\n**[BLOCKING]** src/bar.ts:5 — wrapped\n[NON-BLOCKING] src/baz.ts:10 — nit";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("counts bare [BLOCKING] with line-range citations (mt#1486)", () => {
+    const body = "[BLOCKING] src/foo.ts:171-176 — over-broad guard";
+    expect(countBlockingFindings(body)).toBe(1);
   });
 
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
