@@ -111,6 +111,13 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
         blockedTasks: 0,
       }),
     } as unknown as AppServices["taskRoutingService"],
+
+    // mt#1456: no-op MCP client capability registry. Tests that exercise
+    // capability-aware routing (mt#1457) override with a stub that returns
+    // true from hasElicitation().
+    clientCapabilityRegistry: {
+      hasElicitation: () => false,
+    },
   };
 
   /* eslint-enable @typescript-eslint/no-explicit-any, custom/no-excessive-as-unknown */

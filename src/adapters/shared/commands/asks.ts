@@ -7,14 +7,27 @@
  * - `asks.reconcile` — runs one reconcile pass over open quality.review Asks.
  *   Uses a production GithubReviewClient backed by `listReviews` infrastructure
  *   and routed through the project's TokenProvider. Wired as mt#1292.
+ * - `asks.create` — agent-facing producer surface. Persists a new Ask via
+ *   `AskRepository` and computes routing via mt#1069's `policyFirstRoute`.
+ *   The capability-aware extension (sync kinds → elicitation when host
+ *   advertises capability) lands in mt#1457. Wired as mt#1456.
  */
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "../../../utils/logger";
-import { DrizzleAskRepository, type AskRepository } from "../../../domain/ask/repository";
-import type { Ask, AskKind, AskState } from "../../../domain/ask/types";
+import {
+  DrizzleAskRepository,
+  type AskRepository,
+  type CreateAskInput,
+} from "../../../domain/ask/repository";
+import type { Ask, AskKind, AskState, AskOption, ContextRef } from "../../../domain/ask/types";
 import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
+import {
+  policyFirstRoute,
+  type RoutedAsk,
+  type PolicyFirstRouteOptions,
+} from "../../../domain/ask/router";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
@@ -127,6 +140,140 @@ async function gatherAsks(
 const asksReconcileParams = {};
 
 // ---------------------------------------------------------------------------
+// asks.create — schemas
+// ---------------------------------------------------------------------------
+
+const askOptionSchema = z.object({
+  label: z.string(),
+  value: z.unknown(),
+  description: z.string().optional(),
+});
+
+const contextRefSchema = z.object({
+  kind: z.string(),
+  ref: z.string(),
+  description: z.string().optional(),
+});
+
+const asksCreateParams = {
+  kind: {
+    schema: z.enum(ALL_KINDS as [AskKind, ...AskKind[]]),
+    description: "Ask kind (one of the 7 ADR-008 taxonomy values)",
+    required: true,
+  },
+  title: {
+    schema: z.string().min(1),
+    description: "Short summary line used for list rendering and notifications",
+    required: true,
+  },
+  question: {
+    schema: z.string().min(1),
+    description: "Full ask body — what the requestor needs resolved",
+    required: true,
+  },
+  options: {
+    schema: z.array(askOptionSchema).optional(),
+    description: "Decision frame: array of {label, value, description?}; for decision-like kinds",
+    required: false,
+  },
+  contextRefs: {
+    schema: z.array(contextRefSchema).optional(),
+    description: "Pointers to artifacts the responder may need",
+    required: false,
+  },
+  parentTaskId: {
+    schema: z.string().optional(),
+    description: "Parent task ID (e.g. mt#123)",
+    required: false,
+  },
+  parentSessionId: {
+    schema: z.string().optional(),
+    description: "Parent session UUID when the Ask originates in an active session",
+    required: false,
+  },
+  deadline: {
+    schema: z.string().optional(),
+    description: "ISO-8601 soft deadline; when exceeded the Ask transitions to expired",
+    required: false,
+  },
+  metadata: {
+    schema: z.record(z.string(), z.unknown()).optional(),
+    description: "Arbitrary metadata for transport adapters and future extensions",
+    required: false,
+  },
+  classifierVersion: {
+    schema: z.string(),
+    description: "Classifier version (caller-provided; v1 is agent self-declaration)",
+    required: false,
+    defaultValue: "v1.0.0",
+  },
+  requestor: {
+    schema: z.string().min(1),
+    description: "AgentId of the requestor; defaults to a session-unknown marker",
+    required: false,
+  },
+};
+
+/**
+ * Typed input for `createAsk` — the internal helper exposed for testing.
+ *
+ * Mirrors `CreateAskInput` plus the producer-specific defaults that
+ * `asks.create` applies before calling `repo.create`.
+ */
+export interface CreateAskParams {
+  kind: AskKind;
+  title: string;
+  question: string;
+  options?: AskOption[];
+  contextRefs?: ContextRef[];
+  parentTaskId?: string;
+  parentSessionId?: string;
+  deadline?: string;
+  metadata?: Record<string, unknown>;
+  classifierVersion?: string;
+  requestor?: string;
+}
+
+/**
+ * Create an Ask via the repository and route it via mt#1069's policy-first
+ * router. Returns the `RoutedAsk` (state="routed" or "closed").
+ *
+ * Persistence semantics: this function writes the initial Ask row in
+ * "detected" state via `repo.create`. The router's state-transition output
+ * (state="routed" for kind-based fallback, state="closed" for policy
+ * coverage) is reflected in the returned `RoutedAsk` object but is **not**
+ * persisted to the database in v1 — the row remains in "detected" until a
+ * downstream transport adapter (mt#1070 subagent, mt#1457 elicitation,
+ * mt#454 inbox, etc.) walks the state machine. This matches Tree A's
+ * shipped semantics in mt#1069 / mt#1070 / `policy-resolver.ts`.
+ *
+ * Exposed (rather than inlined into the command's `execute` closure) so
+ * tests can exercise the producer end-to-end with a `FakeAskRepository`.
+ */
+export async function createAsk(
+  repo: AskRepository,
+  params: CreateAskParams,
+  routerOptions: PolicyFirstRouteOptions = {}
+): Promise<RoutedAsk> {
+  const input: CreateAskInput = {
+    kind: params.kind,
+    classifierVersion: params.classifierVersion ?? "v1.0.0",
+    requestor: params.requestor ?? "minsky.agent:unknown",
+    title: params.title,
+    question: params.question,
+    options: params.options,
+    contextRefs: params.contextRefs,
+    parentTaskId: params.parentTaskId,
+    parentSessionId: params.parentSessionId,
+    deadline: params.deadline,
+    metadata: params.metadata,
+  };
+
+  const ask = await repo.create(input);
+  return policyFirstRoute(ask, routerOptions);
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -214,6 +361,39 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const githubClient = makeProductionGithubReviewClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
         return reconcile(repo, githubClient, operatorNotify);
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.create",
+      category: CommandCategory.TOOLS,
+      name: "create",
+      description: "Create an Ask and route it via the policy-first router (ADR-008)",
+      requiresSetup: true,
+      parameters: asksCreateParams,
+      execute: async (params): Promise<RoutedAsk> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.create: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return createAsk(repo, {
+          kind: params.kind as AskKind,
+          title: params.title as string,
+          question: params.question as string,
+          options: params.options as AskOption[] | undefined,
+          contextRefs: params.contextRefs as ContextRef[] | undefined,
+          parentTaskId: params.parentTaskId as string | undefined,
+          parentSessionId: params.parentSessionId as string | undefined,
+          deadline: params.deadline as string | undefined,
+          metadata: params.metadata as Record<string, unknown> | undefined,
+          classifierVersion: params.classifierVersion as string | undefined,
+          requestor: params.requestor as string | undefined,
+        });
       },
     })
   );
