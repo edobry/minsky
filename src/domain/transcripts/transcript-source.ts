@@ -37,6 +37,14 @@ export interface DiscoveredSession {
   isSubagent: boolean;
   /** Last modified time; consumers use it for incremental ingest decisions. */
   mtime: Date;
+  /**
+   * Session working directory if recoverable from the source; absent
+   * otherwise. Sources should populate from harness-recorded metadata
+   * (e.g. Claude Code records `cwd` on each user turn). When absent,
+   * downstream consumers leave `agent_transcripts.cwd` NULL rather than
+   * substituting the JSONL path. mt#1445.
+   */
+  cwd?: string;
 }
 
 /**
