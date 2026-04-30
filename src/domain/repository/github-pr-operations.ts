@@ -689,8 +689,13 @@ export interface ReviewThread {
   isOutdated: boolean;
   /** Whether the thread is collapsed in the GitHub UI */
   isCollapsed: boolean;
-  /** Ordered list of comments in the thread (oldest first) */
+  /** Ordered list of comments in the thread (oldest first, up to 10) */
   comments: ReviewThreadComment[];
+  /**
+   * True when the thread has more than 10 comments — only the first 10 are
+   * included in `comments`. The caller should display a "more comments" notice.
+   */
+  truncatedComments: boolean;
 }
 
 /**
@@ -723,6 +728,7 @@ interface GraphQLReviewThread {
   isOutdated: boolean;
   isCollapsed: boolean;
   comments: {
+    totalCount: number;
     nodes: GraphQLReviewThreadComment[];
   };
 }
@@ -757,6 +763,7 @@ const REVIEW_THREADS_QUERY = `
             isOutdated
             isCollapsed
             comments(first: 10) {
+              totalCount
               nodes {
                 author { login }
                 body
@@ -785,6 +792,11 @@ const MAX_REVIEW_THREADS = 200;
  * Auth is routed through `gh.getToken()` — the same TokenProvider path used
  * by all other PR operations.
  *
+ * Returns `{ threads: [], truncated: false }` on network, auth, or GraphQL
+ * failures — the reviewer context is non-fatal and should degrade gracefully.
+ * Only programmer-level errors (TypeError, etc.) from within the iteration
+ * logic are unexpected; recoverable runtime errors are logged at debug level.
+ *
  * @param gh GitHub context (owner, repo, token provider)
  * @param prNumber The pull request number
  * @param octokitOverride Optional Octokit instance (for testing / DI)
@@ -794,67 +806,80 @@ export async function getPRReviewThreads(
   prNumber: number,
   octokitOverride?: Octokit
 ): Promise<ReviewThreadsResult> {
+  const emptyResult: ReviewThreadsResult = { threads: [], truncated: false };
+
+  let token: string;
   try {
-    const token = await gh.getToken();
-    const octokit = octokitOverride ?? createOctokit(token);
+    token = await gh.getToken();
+  } catch (error) {
+    log.debug(`getPRReviewThreads: failed to acquire token for PR #${prNumber}`, {
+      error: getErrorMessage(error),
+    });
+    return emptyResult;
+  }
 
-    const allThreads: ReviewThread[] = [];
-    let hasNextPage = true;
-    let cursor: string | null = null;
-    let truncated = false;
+  const octokit = octokitOverride ?? createOctokit(token);
 
-    while (hasNextPage) {
-      const response = await octokit.graphql<GraphQLReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
+  const allThreads: ReviewThread[] = [];
+  let hasNextPage = true;
+  let cursor: string | null = null;
+  let truncated = false;
+
+  while (hasNextPage) {
+    let response: GraphQLReviewThreadsResponse;
+    try {
+      response = await octokit.graphql<GraphQLReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
         owner: gh.owner,
         repo: gh.repo,
         prNumber,
         after: cursor,
       });
-
-      const page = response.repository.pullRequest.reviewThreads;
-
-      for (const node of page.nodes) {
-        if (allThreads.length >= MAX_REVIEW_THREADS) {
-          truncated = true;
-          hasNextPage = false;
-          break;
-        }
-
-        allThreads.push({
-          id: node.id,
-          path: node.path,
-          line: node.line,
-          ...(node.startLine !== null ? { startLine: node.startLine } : {}),
-          isResolved: node.isResolved,
-          isOutdated: node.isOutdated,
-          isCollapsed: node.isCollapsed,
-          comments: node.comments.nodes.map((c) => ({
-            author: c.author?.login ?? null,
-            body: c.body,
-            createdAt: c.createdAt,
-          })),
-        });
-      }
-
-      if (!truncated) {
-        hasNextPage = page.pageInfo.hasNextPage;
-        cursor = page.pageInfo.endCursor;
-      }
+    } catch (error) {
+      log.debug(`getPRReviewThreads: GraphQL error for PR #${prNumber}`, {
+        error: getErrorMessage(error),
+      });
+      return emptyResult;
     }
 
-    log.debug("Fetched PR review threads", {
-      prNumber,
-      threadCount: allThreads.length,
-      truncated,
-      owner: gh.owner,
-      repo: gh.repo,
-    });
+    const page = response.repository.pullRequest.reviewThreads;
 
-    return { threads: allThreads, truncated };
-  } catch (error) {
-    if (error instanceof MinskyError) throw error;
-    throw new MinskyError(
-      `Failed to fetch review threads for PR #${prNumber}: ${getErrorMessage(error)}`
-    );
+    for (const node of page.nodes) {
+      if (allThreads.length >= MAX_REVIEW_THREADS) {
+        truncated = true;
+        hasNextPage = false;
+        break;
+      }
+
+      allThreads.push({
+        id: node.id,
+        path: node.path,
+        line: node.line,
+        ...(node.startLine !== null ? { startLine: node.startLine } : {}),
+        isResolved: node.isResolved,
+        isOutdated: node.isOutdated,
+        isCollapsed: node.isCollapsed,
+        comments: node.comments.nodes.map((c) => ({
+          author: c.author?.login ?? null,
+          body: c.body,
+          createdAt: c.createdAt,
+        })),
+        truncatedComments: node.comments.totalCount > 10,
+      });
+    }
+
+    if (!truncated) {
+      hasNextPage = page.pageInfo.hasNextPage;
+      cursor = page.pageInfo.endCursor;
+    }
   }
+
+  log.debug("Fetched PR review threads", {
+    prNumber,
+    threadCount: allThreads.length,
+    truncated,
+    owner: gh.owner,
+    repo: gh.repo,
+  });
+
+  return { threads: allThreads, truncated };
 }

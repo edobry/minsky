@@ -7,6 +7,9 @@
  *  - Truncation: > 200 threads capped, truncated: true.
  *  - Outdated thread: isOutdated true with line null.
  *  - Empty PR: returns { threads: [], truncated: false }.
+ *  - truncatedComments: true when totalCount > 10, false otherwise.
+ *  - Recoverable GraphQL error: returns empty result instead of throwing.
+ *  - Token acquisition failure: returns empty result (graceful degradation).
  *
  * Tests inject a mock Octokit via the octokitOverride parameter on
  * getPRReviewThreads. The project's no-global-module-mocks rule forbids
@@ -28,7 +31,10 @@ interface GraphQLNode {
   isResolved: boolean;
   isOutdated: boolean;
   isCollapsed: boolean;
-  comments: { nodes: Array<{ author: { login: string } | null; body: string; createdAt: string }> };
+  comments: {
+    totalCount: number;
+    nodes: Array<{ author: { login: string } | null; body: string; createdAt: string }>;
+  };
 }
 
 function mkNode(overrides: Partial<GraphQLNode> = {}): GraphQLNode {
@@ -41,6 +47,7 @@ function mkNode(overrides: Partial<GraphQLNode> = {}): GraphQLNode {
     isOutdated: false,
     isCollapsed: false,
     comments: {
+      totalCount: 1,
       nodes: [
         {
           author: { login: "alice" },
@@ -123,6 +130,7 @@ describe("getPRReviewThreads", () => {
         nodes: [
           mkNode({
             comments: {
+              totalCount: 2,
               nodes: [
                 {
                   author: { login: "reviewer" },
@@ -314,5 +322,82 @@ describe("getPRReviewThreads", () => {
     expect(thread.id).toBe("T_shape");
     expect(thread.isCollapsed).toBe(true);
     expect(Array.isArray(thread.comments)).toBe(true);
+  });
+
+  test("truncatedComments: true when totalCount > 10, false when <= 10", async () => {
+    const mockOctokit = buildMockOctokit([
+      {
+        nodes: [
+          // 11 comments in API response (totalCount > 10) => truncatedComments: true
+          mkNode({
+            id: "T_many",
+            comments: {
+              totalCount: 11,
+              nodes: [
+                { author: { login: "alice" }, body: "c1", createdAt: "2026-04-30T00:00:00Z" },
+              ],
+            },
+          }),
+          // 10 comments exactly (totalCount == 10) => truncatedComments: false
+          mkNode({
+            id: "T_ten",
+            comments: {
+              totalCount: 10,
+              nodes: [{ author: { login: "bob" }, body: "c1", createdAt: "2026-04-30T01:00:00Z" }],
+            },
+          }),
+          // 1 comment (totalCount < 10) => truncatedComments: false
+          mkNode({
+            id: "T_one",
+            comments: {
+              totalCount: 1,
+              nodes: [{ author: null, body: "c1", createdAt: "2026-04-30T02:00:00Z" }],
+            },
+          }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await getPRReviewThreads(
+      gh,
+      TEST_PR,
+      mockOctokit as unknown as Parameters<typeof getPRReviewThreads>[2]
+    );
+
+    expect(result.threads).toHaveLength(3);
+    expect(result.threads[0]?.truncatedComments).toBe(true);
+    expect(result.threads[1]?.truncatedComments).toBe(false);
+    expect(result.threads[2]?.truncatedComments).toBe(false);
+  });
+
+  test("recoverable GraphQL error: returns empty result instead of throwing", async () => {
+    const failingOctokit = {
+      graphql: mock(async () => {
+        throw new Error("GraphQL request failed: 401 Unauthorized");
+      }),
+    };
+
+    const result = await getPRReviewThreads(
+      gh,
+      TEST_PR,
+      failingOctokit as unknown as Parameters<typeof getPRReviewThreads>[2]
+    );
+
+    expect(result).toEqual({ threads: [], truncated: false });
+  });
+
+  test("token acquisition failure: returns empty result (graceful degradation with user-only config)", async () => {
+    const ghWithBrokenToken = {
+      owner: TEST_OWNER,
+      repo: TEST_REPO,
+      getToken: async (): Promise<string> => {
+        throw new Error("No token available");
+      },
+    };
+
+    const result = await getPRReviewThreads(ghWithBrokenToken, TEST_PR);
+
+    expect(result).toEqual({ threads: [], truncated: false });
   });
 });

@@ -220,11 +220,15 @@ async function fetchReviewThreads(
     const cfg = getConfiguration();
     const userToken = cfg.github?.token ?? "";
     const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    const repoScope = `${githubInfo.owner}/${githubInfo.repo}`;
 
     const gh = {
       owner: githubInfo.owner,
       repo: githubInfo.repo,
-      getToken: () => tokenProvider.getServiceToken(),
+      // Mirror the pattern from asks-github-client.ts: scope the installation
+      // token to the specific repository. FallbackTokenProvider ignores the
+      // scope and returns the user PAT directly, so this is safe in both paths.
+      getToken: () => tokenProvider.getServiceToken(repoScope),
     };
 
     return await getPRReviewThreads(gh, prNumber);
