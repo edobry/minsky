@@ -71,31 +71,35 @@ This is a checklist item, not a hard gate. The override exceptions exist for leg
 
 This step fires unconditionally as part of every /prepare-pr invocation — it is not conditional on the agent remembering to check.
 
-**Does this PR add any new test files?** Scan the diff for files matching `*.test.ts`, `*.integration.test.ts`, or `*.spec.ts` that are newly created (not just modified).
+**Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts}` that are newly created (not just modified).
+
+> Note: the repo currently uses only `.ts` extensions for tests. If `.mts`/`.cts` variants are adopted, also update the merge-time hook (mt#1459) in lockstep.
 
 **Background:** Tests and probes are behavior-detecting artifacts whose correctness cannot be verified by code-shape alone. A test file that exists but was never run before merge may have wrong assertions, import errors, or setup that silently skips all cases. This is a recurring failure mode — see memory entry `feedback_behavior_detecting_artifacts_need_execution_evidence`. The merge-time hook (mt#1459) enforces the `[unverified-tests]` escape hatch at merge; this step is the earlier, lower-cost enforcement at PR-open time.
 
 **If new test files are present:**
 
-1. Run the new test files against their intended target:
-   ```
-   bun test --preload ./tests/setup.ts --timeout=15000 <path-to-new-test-file>
-   ```
-2. Capture the full output (pass/fail counts, any errors).
-3. Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example:
+1.  Run the new test files against their intended target. Choose the right invocation for the file type:
 
-   ```
-   ## Test Plan
+    For unit tests (`*.test.ts`, `*.spec.ts`):
 
-   Execution evidence:
-   ```
+        bun test --preload ./tests/setup.ts --timeout=15000 <path-to-new-test-file>
 
-   bun test src/domain/new-feature.test.ts
-   5 pass, 0 fail
+    For integration tests (`*.integration.test.ts`):
 
-   ```
+        RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000 <path-to-new-test-file>
 
-   ```
+    When in doubt, check `package.json` scripts — the `test:integration` script shows the canonical invocation.
+
+2.  Capture the full output (pass/fail counts, any errors).
+3.  Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example:
+
+    **Test Plan**
+
+    Execution evidence:
+
+        bun test src/domain/new-feature.test.ts
+        5 pass, 0 fail
 
 **If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
 
