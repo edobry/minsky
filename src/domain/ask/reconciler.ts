@@ -16,6 +16,7 @@ import { log } from "../../utils/logger";
 import type { AskRepository } from "./repository";
 import type { Ask, AskState } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
+import { buildAttentionCost } from "./accounting/index";
 
 // ---------------------------------------------------------------------------
 // GitHub client interface — narrow projection used by the reconciler.
@@ -304,10 +305,21 @@ async function reconcileAsk(
   // respond() state-machine guard (suspended -> responded) succeeds.
   await walkToSuspended(askRepository, ask);
 
+  // Build the responder AgentId: reviewer service prefixed for transport mapping.
+  // Using "reviewer:service:..." means buildAttentionCost maps this to "subagent"
+  // transport (no recognized agui/mesh/inbox prefix), which is correct per ADR-008:
+  // the reviewer agent is a subagent-class responder.
+  const responderAgentId = `reviewer:service:${latestReview.reviewerLogin ?? "unknown"}`;
+
+  // Compute attentionCost for this respond() call.
+  // buildAttentionCost throws if it encounters an invalid input — that propagates
+  // up through the per-Ask try/catch and surfaces in the reconcile result.
+  const attentionCost = buildAttentionCost({ responder: responderAgentId });
+
   // Transition Ask to responded via the respond() API.
   await askRepository.respond(ask.id, {
     response: {
-      responder: `reviewer:service:${latestReview.reviewerLogin ?? "unknown"}`,
+      responder: responderAgentId,
       payload: {
         reviewBody: latestReview.body,
         reviewState: latestReview.state,
@@ -317,7 +329,7 @@ async function reconcileAsk(
         owner,
         repo,
       },
-      attentionCost: undefined,
+      attentionCost,
     },
   });
 

@@ -19,42 +19,51 @@ import type { AskRepository } from "../repository";
 // ---------------------------------------------------------------------------
 
 /**
- * Responder values that map to a known TransportKind.
- * When the responder is an arbitrary AgentId string (e.g. a subagent id),
- * we default to "subagent" transport.
- */
-const RESPONDER_TO_TRANSPORT: Record<string, TransportKind> = {
-  operator: "inbox",
-  policy: "policy",
-  timeout: "timeout",
-};
-
-/**
- * Responder values that map to a known resolvedIn value.
- */
-const RESPONDER_TO_RESOLVED_IN: Record<string, AttentionCost["resolvedIn"]> = {
-  operator: "inbox",
-  policy: "policy",
-  timeout: "timeout",
-};
-
-/**
  * Derive transport and resolvedIn from a responder string.
  *
- * - "policy" -> transport = "policy", resolvedIn = "policy"
- * - "operator" -> transport = "inbox", resolvedIn = "inbox"
- * - "timeout" -> transport = "timeout", resolvedIn = "timeout"
- * - any other string (AgentId) -> transport = "subagent", resolvedIn = "subagent"
+ * Mapping rules (ADR-008 §Transport-binding matrix + responder taxonomy):
+ *   - "policy"            → transport = "policy",   resolvedIn = "policy"
+ *   - "operator"          → transport = "inbox",    resolvedIn = "inbox"
+ *   - "timeout"           → transport = "timeout",  resolvedIn = "timeout"
+ *   - responder.startsWith("agui:")   → transport = "agui",    resolvedIn = "agui"
+ *   - responder.startsWith("mesh:")   → transport = "mesh",    resolvedIn = "mesh"
+ *   - responder.startsWith("inbox:")  → transport = "inbox",   resolvedIn = "inbox"
+ *   - any other string (bare AgentId) → transport = "subagent", resolvedIn = "subagent"
+ *
+ * ADR-008 semantics: the responder prefix determines the transport because the
+ * prefix encodes which wire format carried the answer back (AgentId format from
+ * mt#953: `{kind}:{scope}:{id}`). An "agui:foo" responder resolved via the
+ * AG-UI interrupt; "mesh:foo" via the mesh signal channel; "inbox:foo" via the
+ * operator inbox.
  */
 function deriveTransportAndResolvedIn(responder: string): {
   transport: TransportKind;
   resolvedIn: AttentionCost["resolvedIn"];
 } {
-  const transport: TransportKind =
-    (RESPONDER_TO_TRANSPORT[responder] as TransportKind | undefined) ?? "subagent";
-  const resolvedIn: AttentionCost["resolvedIn"] =
-    (RESPONDER_TO_RESOLVED_IN[responder] as AttentionCost["resolvedIn"] | undefined) ?? "subagent";
-  return { transport, resolvedIn };
+  // Named pseudo-agents with fixed transport mappings
+  if (responder === "policy") {
+    return { transport: "policy", resolvedIn: "policy" };
+  }
+  if (responder === "operator") {
+    return { transport: "inbox", resolvedIn: "inbox" };
+  }
+  if (responder === "timeout") {
+    return { transport: "timeout", resolvedIn: "timeout" };
+  }
+
+  // AgentId-prefixed responders — the prefix encodes the wire transport
+  if (responder.startsWith("agui:")) {
+    return { transport: "agui", resolvedIn: "agui" };
+  }
+  if (responder.startsWith("mesh:")) {
+    return { transport: "mesh", resolvedIn: "mesh" };
+  }
+  if (responder.startsWith("inbox:")) {
+    return { transport: "inbox", resolvedIn: "inbox" };
+  }
+
+  // Any other string (bare AgentId or unrecognised prefix) → subagent bucket
+  return { transport: "subagent", resolvedIn: "subagent" };
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +100,10 @@ export interface AttentionCostInput {
  *   - responder = "policy" -> tokenCost = 0, resolvedIn = "policy", no operatorCost
  *   - responder = "operator" -> transport = "inbox", attach operatorCost if provided
  *   - responder = "timeout" -> transport = "timeout", resolvedIn = "timeout"
- *   - other responders (AgentId) -> transport = "subagent", attach tokenCost if provided
+ *   - responder starts with "agui:" -> transport = "agui", resolvedIn = "agui"
+ *   - responder starts with "mesh:" -> transport = "mesh", resolvedIn = "mesh"
+ *   - responder starts with "inbox:" -> transport = "inbox", resolvedIn = "inbox"
+ *   - other responders (bare AgentId) -> transport = "subagent", attach tokenCost if provided
  *
  * Does NOT apply to cancelled/expired Asks — callers must check state before calling.
  */

@@ -13,6 +13,13 @@ import {
   type AttentionCostInput,
 } from "./index";
 import type { Ask, AskKind, AttentionCost } from "../types";
+import { closeWithPolicy } from "../transports/policy-resolver";
+import { dispatchToSubagent } from "../transports/subagent";
+import type { SubagentDispatcher, SubagentRequest, SubagentResponse } from "../transports/subagent";
+import { reconcile } from "../reconciler";
+import type { GithubReviewClient, GithubReview } from "../reconciler";
+import type { OperatorNotify } from "../../notify/operator-notify";
+import type { RoutedAsk, AskPayload, TransportBinding } from "../router";
 
 // ---------------------------------------------------------------------------
 // Constants to avoid magic strings
@@ -126,15 +133,43 @@ describe("buildAttentionCost", () => {
     expect(cost.tokenCost).toBeUndefined();
   });
 
-  test("inbox close: responder = some-inbox-agent maps to subagent transport", () => {
-    // Non-magic-string AgentId → subagent bucket
-    const input: AttentionCostInput = {
-      responder: "inbox:session:abc",
-      tokenCost: 0,
-    };
+  // AgentId-prefixed responder tests (ADR-008: prefix encodes the wire transport)
+
+  test("agui: prefix maps to agui transport and resolvedIn", () => {
+    const input: AttentionCostInput = { responder: "agui:session:foo123" };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("agui");
+    expect(cost.resolvedIn).toBe("agui");
+  });
+
+  test("mesh: prefix maps to mesh transport and resolvedIn", () => {
+    const input: AttentionCostInput = { responder: "mesh:broadcast:abc" };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("mesh");
+    expect(cost.resolvedIn).toBe("mesh");
+  });
+
+  test("inbox: prefix maps to inbox transport and resolvedIn", () => {
+    const input: AttentionCostInput = { responder: "inbox:session:abc", tokenCost: 0 };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("inbox");
+    expect(cost.resolvedIn).toBe("inbox");
+  });
+
+  test("bare AgentId (no recognized prefix) maps to subagent transport", () => {
+    // e.g. a reviewer bot ID that doesn't carry a transport prefix
+    const input: AttentionCostInput = { responder: "reviewer:service:minsky-reviewer-bot" };
     const cost = buildAttentionCost(input);
     expect(cost.transport).toBe("subagent");
     expect(cost.resolvedIn).toBe("subagent");
+  });
+
+  test("agui: prefix with tokenCost: tokenCost is preserved", () => {
+    const input: AttentionCostInput = { responder: "agui:proc:xyz", tokenCost: 200 };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("agui");
+    expect(cost.resolvedIn).toBe("agui");
+    expect(cost.tokenCost).toBe(200);
   });
 });
 
@@ -476,10 +511,221 @@ describe("getRollupForKind", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration: buildAttentionCost + getRollupForTask
+// Integration: production close path fills in attentionCost
+//
+// These tests call the REAL production close functions (closeWithPolicy,
+// dispatchToSubagent, reconcile) — not _seedAtState — to verify that SC#1
+// is met: every Ask that reaches state=closed has non-null attentionCost.
+//
+// Per mt#1071 requirements:
+//  - 3 close sites covered: policy-resolver, subagent, reconciler
+//  - At least one AgentId-prefixed responder case (agui: prefix)
+//  - Tests FAIL if buildAttentionCost is removed from each close site
 // ---------------------------------------------------------------------------
 
-describe("integration: close path fills in attentionCost, rollup reads it", () => {
+// ---------------------------------------------------------------------------
+// Close site 1: policy-resolver — closeWithPolicy()
+// ---------------------------------------------------------------------------
+
+describe("integration: close site 1 — closeWithPolicy() fills attentionCost", () => {
+  test("policy close produces non-null attentionCost with transport=policy", () => {
+    const ask: Ask = {
+      id: "policy-ask-1",
+      kind: KIND_AUTHORIZATION_APPROVE,
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "detected",
+      requestor: "agent:task:test",
+      title: "Approve action",
+      question: "Can I proceed?",
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+
+    const citation = {
+      source: "CLAUDE.md",
+      quote: "auto-approve all test actions",
+    };
+
+    // Call the REAL production close path (not _seedAtState)
+    const closed = closeWithPolicy(ask, citation);
+
+    // SC#1: attentionCost is non-null
+    expect(closed.response?.attentionCost).toBeDefined();
+    const cost = closed.response?.attentionCost;
+    if (!cost) throw new Error("attentionCost must be non-null");
+
+    // ADR-008: policy close → tokenCost=0, transport="policy", resolvedIn="policy"
+    expect(cost.transport).toBe("policy");
+    expect(cost.resolvedIn).toBe("policy");
+    expect(cost.tokenCost).toBe(0);
+    expect(cost.operatorCost).toBeUndefined();
+
+    // State must be closed
+    expect(closed.state).toBe("closed");
+    expect(closed.routingTarget).toBe("policy");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Close site 2: subagent transport — dispatchToSubagent()
+// ---------------------------------------------------------------------------
+
+const MUST_BE_NON_NULL = "attentionCost must be non-null";
+
+// Minimal mock dispatcher for subagent integration tests (no as-casts)
+function makeSubagentDispatcher(response: SubagentResponse): SubagentDispatcher {
+  return {
+    dispatch: async (_req: SubagentRequest): Promise<SubagentResponse> => response,
+  };
+}
+
+describe("integration: close site 2 — dispatchToSubagent() fills attentionCost", () => {
+  test("subagent success close has non-null attentionCost with transport=subagent", async () => {
+    const transport: TransportBinding = { kind: "subagent" };
+    const packagedPayload: AskPayload = { question: "What is the best approach?" };
+    const now = new Date().toISOString();
+
+    const routedAsk: RoutedAsk = {
+      id: "subagent-ask-1",
+      kind: KIND_CAPABILITY_ESCALATE,
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "routed",
+      requestor: "agent:task:test",
+      routingTarget: "subagent",
+      title: "Escalate to Opus",
+      question: "What is the best approach?",
+      createdAt: now,
+      routedAt: now,
+      metadata: {},
+      transport,
+      packagedPayload,
+    };
+
+    const dispatcher = makeSubagentDispatcher({ text: "Use approach X", tokenCost: 1200 });
+
+    // Call the REAL production close path
+    const closed = await dispatchToSubagent(routedAsk, { dispatcher });
+
+    // SC#1: attentionCost is non-null
+    expect(closed.response).toBeDefined();
+    const cost = closed.response?.attentionCost;
+    expect(cost).toBeDefined();
+    if (!cost) throw new Error(MUST_BE_NON_NULL);
+
+    // ADR-008: subagent close → transport="subagent", resolvedIn="subagent"
+    expect(cost.transport).toBe("subagent");
+    expect(cost.resolvedIn).toBe("subagent");
+    expect(cost.tokenCost).toBe(1200);
+    expect(cost.operatorCost).toBeUndefined();
+
+    expect(closed.state).toBe("closed");
+  });
+
+  test("subagent close with agui: responderId maps to agui transport", async () => {
+    // Covers the new AgentId-prefix mapping branch (agui:)
+    const transport: TransportBinding = { kind: "subagent" };
+    const packagedPayload: AskPayload = { question: "Review this output" };
+    const now = new Date().toISOString();
+
+    const routedAsk: RoutedAsk = {
+      id: "agui-ask-1",
+      kind: KIND_CAPABILITY_ESCALATE,
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "routed",
+      requestor: "agent:task:test",
+      routingTarget: "subagent",
+      title: "AG-UI escalation",
+      question: "Review this output",
+      createdAt: now,
+      routedAt: now,
+      metadata: {},
+      transport,
+      packagedPayload,
+    };
+
+    // Dispatcher returns an agui:-prefixed responderId
+    const dispatcher = makeSubagentDispatcher({
+      text: "Reviewed via AG-UI",
+      tokenCost: 500,
+      responderId: "agui:session:sess123",
+    });
+
+    const closed = await dispatchToSubagent(routedAsk, { dispatcher });
+
+    const cost = closed.response?.attentionCost;
+    expect(cost).toBeDefined();
+    if (!cost) throw new Error(MUST_BE_NON_NULL);
+
+    // agui: prefix → transport="agui", resolvedIn="agui"
+    expect(cost.transport).toBe("agui");
+    expect(cost.resolvedIn).toBe("agui");
+    expect(cost.tokenCost).toBe(500);
+
+    expect(closed.state).toBe("closed");
+  });
+
+  test("subagent error close has non-null attentionCost with transport=timeout", async () => {
+    const transport: TransportBinding = { kind: "subagent" };
+    const packagedPayload: AskPayload = { question: "Unblock me" };
+    const now = new Date().toISOString();
+
+    const routedAsk: RoutedAsk = {
+      id: "subagent-err-ask-1",
+      kind: "stuck.unblock",
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "routed",
+      requestor: "agent:task:test",
+      routingTarget: "subagent",
+      title: "Unblock issue",
+      question: "Unblock me",
+      createdAt: now,
+      routedAt: now,
+      metadata: {},
+      transport,
+      packagedPayload,
+    };
+
+    // Dispatcher that always fails
+    const failingDispatcher: SubagentDispatcher = {
+      dispatch: async (_req: SubagentRequest): Promise<SubagentResponse> => {
+        throw new Error("Opus dispatch failed: quota exceeded");
+      },
+    };
+
+    const closed = await dispatchToSubagent(routedAsk, { dispatcher: failingDispatcher });
+
+    const cost = closed.response?.attentionCost;
+    expect(cost).toBeDefined();
+    if (!cost) throw new Error(MUST_BE_NON_NULL);
+
+    // Error close: responder="timeout" → transport="timeout", resolvedIn="timeout"
+    expect(cost.transport).toBe("timeout");
+    expect(cost.resolvedIn).toBe("timeout");
+
+    expect(closed.state).toBe("closed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Close site 3: reconciler — reconcile() fills attentionCost on respond()
+// ---------------------------------------------------------------------------
+
+function makeFakeNotify(): OperatorNotify {
+  return {
+    bell(): void {},
+    notify(_title: string, _body: string): void {},
+  };
+}
+
+function makeFakeGithubClient(reviews: GithubReview[]): GithubReviewClient {
+  return {
+    async listReviews(): Promise<GithubReview[]> {
+      return reviews;
+    },
+  };
+}
+
+describe("integration: close site 3 — reconcile() fills attentionCost on respond()", () => {
   let repo: FakeAskRepository;
 
   beforeEach(() => {
@@ -487,54 +733,75 @@ describe("integration: close path fills in attentionCost, rollup reads it", () =
     repo = new FakeAskRepository();
   });
 
-  test("3 closed Asks on same task produce correct rollup", async () => {
-    const asks: Ask[] = [
-      makeAsk({
-        kind: KIND_DIRECTION_DECIDE,
-        parentTaskId: TASK_A,
-        state: STATE_CLOSED,
-        response: {
-          responder: RESPONDER_OPERATOR,
-          payload: {},
-          attentionCost: buildAttentionCost({
-            responder: RESPONDER_OPERATOR,
-            operatorCost: { kind: "deep" },
-          }),
-        },
-      }),
-      makeAsk({
-        kind: KIND_QUALITY_REVIEW,
-        parentTaskId: TASK_A,
-        state: STATE_CLOSED,
-        response: {
-          responder: RESPONDER_POLICY,
-          payload: {},
-          attentionCost: buildAttentionCost({ responder: RESPONDER_POLICY }),
-        },
-      }),
-      makeAsk({
-        kind: KIND_CAPABILITY_ESCALATE,
-        parentTaskId: TASK_A,
-        state: STATE_CLOSED,
-        response: {
-          responder: RESPONDER_SUBAGENT,
-          payload: {},
-          attentionCost: buildAttentionCost({ responder: RESPONDER_SUBAGENT, tokenCost: 800 }),
-        },
-      }),
-    ];
+  test("reconciler respond() sets non-null attentionCost on quality.review Ask", async () => {
+    // Seed a quality.review Ask at detected state (forces walkToSuspended path)
+    const ask: Ask = {
+      id: "reconciler-ask-1",
+      kind: KIND_QUALITY_REVIEW,
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "detected",
+      requestor: "agent:task:test",
+      title: "Review PR #10",
+      question: "Please review PR #10",
+      contextRefs: [{ kind: "github-pr", ref: "github-pr:owner/repo/10" }],
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+    repo._seedAtState(ask);
 
-    for (const ask of asks) {
-      repo._seedAtState(ask);
-    }
+    const review: GithubReview = {
+      reviewId: 9001,
+      state: "APPROVED",
+      reviewerLogin: "minsky-reviewer[bot]",
+      body: "LGTM",
+    };
 
-    const rollup = await getRollupForTask(repo, TASK_A);
+    // Call the REAL production reconcile path (not _seedAtState on a closed Ask)
+    const result = await reconcile(repo, makeFakeGithubClient([review]), makeFakeNotify());
 
-    expect(rollup.total).toBe(3);
-    expect(rollup.kindCounts[KIND_DIRECTION_DECIDE]).toBe(1);
-    expect(rollup.kindCounts[KIND_QUALITY_REVIEW]).toBe(1);
-    expect(rollup.kindCounts[KIND_CAPABILITY_ESCALATE]).toBe(1);
-    // Only the operator close has operatorCost
-    expect(rollup.operatorCostDistribution).toEqual({ quick: 0, medium: 0, deep: 1 });
+    expect(result.responded).toBe(1);
+    expect(result.errors).toBe(0);
+
+    // Verify the persisted Ask has non-null attentionCost
+    const responded = await repo.getById("reconciler-ask-1");
+    expect(responded?.state).toBe("responded");
+    expect(responded?.response).toBeDefined();
+
+    const cost = responded?.response?.attentionCost;
+    expect(cost).toBeDefined();
+    if (!cost) throw new Error("attentionCost must be non-null after reconcile respond()");
+
+    // The reviewer agent ID has no recognized prefix → subagent transport
+    expect(cost.transport).toBe("subagent");
+    expect(cost.resolvedIn).toBe("subagent");
+    // operatorCost is absent: reviewer agent is not a human operator
+    expect(cost.operatorCost).toBeUndefined();
+  });
+
+  test("reconciler attentionCost is absent when no new reviews (no close occurs)", async () => {
+    // No-op case: ensure we don't write attentionCost on unchanged asks
+    const ask: Ask = {
+      id: "reconciler-ask-2",
+      kind: KIND_QUALITY_REVIEW,
+      classifierVersion: CLASSIFIER_VERSION,
+      state: "suspended",
+      requestor: "agent:task:test",
+      title: "Review PR #11",
+      question: "Please review PR #11",
+      contextRefs: [{ kind: "github-pr", ref: "github-pr:owner/repo/11" }],
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+    repo._seedAtState(ask);
+
+    const result = await reconcile(repo, makeFakeGithubClient([]), makeFakeNotify());
+
+    expect(result.unchanged).toBe(1);
+    expect(result.responded).toBe(0);
+
+    // Ask state must remain suspended with no response written
+    const unchanged = await repo.getById("reconciler-ask-2");
+    expect(unchanged?.state).toBe("suspended");
+    expect(unchanged?.response).toBeUndefined();
   });
 });
