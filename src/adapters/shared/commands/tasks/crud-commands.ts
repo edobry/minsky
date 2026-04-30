@@ -265,8 +265,12 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
             }
           }
         }
-      } catch {
-        // Best-effort — fall back to plain BLOCKED if ask enrichment fails
+      } catch (err) {
+        // Best-effort — fall back to plain BLOCKED if ask enrichment fails.
+        // Common cause: persistence provider lacks SQL capability.
+        log.debug("[tasks.list] BLOCKED subtype enrichment skipped", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -452,8 +456,13 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
               extras.blockingAsk = blockingAsk;
             }
           }
-        } catch {
-          // Best-effort — don't fail task get if ask enrichment fails
+        } catch (err) {
+          // Best-effort — don't fail task get if ask enrichment fails.
+          // Common cause: persistence provider lacks SQL capability.
+          log.debug("[tasks.get] blockingAsk enrichment skipped", {
+            taskId: validatedTaskId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
 
