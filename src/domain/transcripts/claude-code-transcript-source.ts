@@ -13,7 +13,7 @@
 
 import { promises as fs, type Dirent } from "fs";
 import { homedir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 
 import { glob } from "glob";
 
@@ -143,9 +143,84 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
         harness: HARNESS,
         isSubagent,
         mtime: stat.mtime,
+        cwd: await recoverCwd(jsonlPath, dir),
       };
     }
   }
+}
+
+/**
+ * Recovers the session's working directory (mt#1445).
+ *
+ * Primary source: the `cwd` field on the first parseable user/assistant turn
+ * in the JSONL — Claude Code records it on each turn and it's the most
+ * reliable signal of where the session ran.
+ *
+ * Fallback: derive from the parent directory's name. Claude Code's
+ * project-dir convention replaces `/` with `-` in the absolute project path
+ * (e.g. `/Users/foo/Projects/bar` → `-Users-foo-Projects-bar`). This is
+ * lossy (a literal `-` in the path collides with the separator) so it's
+ * only used when the JSONL has no parseable turn with a `cwd` field.
+ *
+ * Returns `undefined` when neither source produces a value, so the column
+ * stays NULL rather than receiving a misleading default.
+ */
+async function recoverCwd(jsonlPath: string, parentDir: string): Promise<string | undefined> {
+  const fromTurn = await readFirstTurnCwd(jsonlPath);
+  if (fromTurn) return fromTurn;
+  return deriveCwdFromProjectDir(parentDir);
+}
+
+async function readFirstTurnCwd(jsonlPath: string): Promise<string | undefined> {
+  const raw = await safeReadFile(jsonlPath);
+  if (raw === null) return undefined;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parsed = parseJsonlLine(trimmed);
+    if (!parsed) continue;
+    const cwd = parsed.cwd;
+    if (typeof cwd === "string" && cwd.length > 0) return cwd;
+  }
+  return undefined;
+}
+
+/**
+ * Reverse the Claude Code project-dir naming convention. Only invoked as a
+ * fallback when the JSONL has no parseable cwd; the result is best-effort.
+ *
+ * Subagent transcripts live two levels deep — `<projectDir>/<sessionId>/subagents/`
+ * — so when the immediate parent's basename is the literal `subagents` or
+ * the parent appears to be a session UUID rather than a project dir, walk up
+ * to find the actual project dir before applying the convention reverse
+ * (mt#1445 R1 BLOCKING).
+ */
+function deriveCwdFromProjectDir(parentDir: string): string | undefined {
+  const projectName = findProjectDirName(parentDir);
+  if (projectName === undefined) return undefined;
+  return projectName.replace(/-/g, "/");
+}
+
+/**
+ * Walk up from `parentDir` until we find a directory whose basename starts
+ * with `-` (the Claude Code project-dir convention). Returns the basename or
+ * undefined if none found within a small number of hops.
+ *
+ * This handles both top-level session files (parent is the project dir) and
+ * subagent files (parent is `<projectDir>/<sessionId>/subagents`).
+ */
+function findProjectDirName(parentDir: string): string | undefined {
+  let current = parentDir;
+  // Cap at 3 hops to avoid walking the whole filesystem on misconfigured input:
+  // the deepest legitimate case is subagents/ → sessionId/ → projectDir/ (2 hops).
+  for (let i = 0; i < 3; i++) {
+    const name = basename(current);
+    if (name.startsWith("-") && name !== SUBAGENTS_DIR) return name;
+    const next = dirname(current);
+    if (next === current) return undefined; // reached filesystem root
+    current = next;
+  }
+  return undefined;
 }
 
 function parseJsonlLine(line: string): JsonlLine | null {
