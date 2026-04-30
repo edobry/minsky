@@ -61,15 +61,19 @@ export interface StrikeTracker {
  * Derive a stable, human-readable error signature from an error value.
  *
  * Priority:
- *   1. `error.code` (string) — MCP errors carry a numeric or string code.
+ *   1. `error.code` (string or number) — MCP errors carry numeric codes (e.g. -32000, -32600).
  *   2. First 200 chars of `error.message`.
  *   3. First 200 chars of `String(error)`.
  */
 export function normalizeErrorSignature(error: unknown): string {
   if (error !== null && typeof error === "object") {
     const obj = error as Record<string, unknown>;
-    if (typeof obj["code"] === "string" && obj["code"].length > 0) {
-      return obj["code"];
+    const code = obj["code"];
+    if (code != null && (typeof code === "string" || typeof code === "number")) {
+      const codeStr = String(code);
+      if (codeStr.length > 0) {
+        return codeStr;
+      }
     }
     if (typeof obj["message"] === "string") {
       return obj["message"].slice(0, 200);
@@ -105,6 +109,9 @@ export class MapLruStrikeTracker implements StrikeTracker {
   private readonly store = new Map<string, StrikeRecord>();
 
   constructor(capacity = 256) {
+    if (capacity < 1) {
+      throw new Error("StrikeTracker capacity must be >= 1");
+    }
     this.capacity = capacity;
   }
 

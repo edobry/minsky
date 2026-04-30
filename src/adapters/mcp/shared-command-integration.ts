@@ -156,6 +156,28 @@ export interface McpSharedCommandConfig {
 const STRIKES_CLASSIFIER_VERSION = "v1.0.0";
 
 /**
+ * Serialize one attempt payload into a JSON-safe object.
+ *
+ * Error instances serialize to `{}` by default because their properties
+ * are non-enumerable. This helper extracts `name`, `code`, `message`,
+ * and `stack` explicitly so the Ask metadata round-trips cleanly via
+ * JSON.parse(JSON.stringify(...)) and does not leak raw Error objects.
+ */
+function serializeAttempt(payload: unknown): unknown {
+  if (payload instanceof Error) {
+    const err = payload as Error & { code?: unknown };
+    return {
+      name: err.name,
+      code: err.code !== undefined ? err.code : undefined,
+      message: err.message,
+      stack: err.stack,
+    };
+  }
+  // For plain objects or primitives, return as-is (assumed JSON-safe).
+  return payload;
+}
+
+/**
  * Best-effort emission of a `stuck.unblock` Ask on the 2nd identical MCP error.
  *
  * Called from the MCP command error path when `count === 2`. Failures are
@@ -169,7 +191,16 @@ async function emitStuckUnblockAsk(params: {
   attempts: unknown[];
 }): Promise<void> {
   const { askRepository, taskId, sessionId, toolName, attempts } = params;
-  const requestor = sessionId ?? taskId ?? "minsky.mcp:unknown";
+  // Build a valid AgentId per ADR-006: {kind}:{scope}:{id}
+  const requestor = sessionId
+    ? `minsky.mcp:session:${sessionId}`
+    : taskId
+      ? `minsky.mcp:task:${taskId}`
+      : "minsky.mcp:unknown:unknown";
+  // Serialize attempts before storing: Error instances serialize to {} by
+  // default (non-enumerable properties). serializeAttempt extracts name,
+  // code, message, and stack explicitly so metadata round-trips via JSON.
+  const serializedAttempts = attempts.map(serializeAttempt);
   await askRepository.create({
     kind: "stuck.unblock",
     classifierVersion: STRIKES_CLASSIFIER_VERSION,
@@ -178,7 +209,7 @@ async function emitStuckUnblockAsk(params: {
     parentSessionId: sessionId,
     title: `MCP tool ${toolName} failed twice with same error`,
     question: `The MCP tool "${toolName}" has produced the same error signature twice in a row. Prior attempts are in metadata.`,
-    metadata: { priorAttempts: attempts },
+    metadata: { priorAttempts: serializedAttempts },
   });
 }
 
@@ -294,6 +325,8 @@ export function registerSharedCommandsWithMcp(
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });
 
             // 2-strikes success path: clear strikes for this (taskId, toolName) pair.
+            // MCP commands signal errors exclusively by throwing — there is no { ok: false }
+            // non-throw contract here, so a non-throwing return always means success.
             if (config.strikeTracker) {
               const taskId = typeof args?.task === "string" ? args.task : "_global";
               config.strikeTracker.recordSuccess(taskId, command.id);

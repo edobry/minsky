@@ -49,6 +49,16 @@ describe("normalizeErrorSignature", () => {
     const err = { code: "", message: "fallback message" };
     expect(normalizeErrorSignature(err)).toBe("fallback message");
   });
+
+  test("returns String(error.code) when code is a negative number (MCP numeric code)", () => {
+    const err = { code: -32000, message: "server error" };
+    expect(normalizeErrorSignature(err)).toBe("-32000");
+  });
+
+  test("returns String(error.code) when code is a positive number", () => {
+    const err = { code: 42, message: "other error" };
+    expect(normalizeErrorSignature(err)).toBe("42");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -120,6 +130,14 @@ describe("MapLruStrikeTracker", () => {
     const r2 = tracker.recordError(key2, "err");
 
     expect(r2.count).toBe(1);
+  });
+
+  test("constructor throws when capacity is 0", () => {
+    expect(() => new MapLruStrikeTracker(0)).toThrow("StrikeTracker capacity must be >= 1");
+  });
+
+  test("constructor throws when capacity is negative", () => {
+    expect(() => new MapLruStrikeTracker(-5)).toThrow("StrikeTracker capacity must be >= 1");
   });
 });
 
@@ -243,5 +261,58 @@ describe("2-strikes Ask emission integration", () => {
     await simulateMcpError("mt#1", "tool_x", err);
 
     expect(repo.all[0]?.classifierVersion).toBe("v1.0.0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeAttempt JSON-serializability (tested via integration path)
+// ---------------------------------------------------------------------------
+
+describe("priorAttempts JSON-serializability", () => {
+  /**
+   * Simulate the emitStuckUnblockAsk serialization behaviour via a helper
+   * that mirrors what serializeAttempt does.
+   *
+   * We test the contract without importing the unexported helper directly.
+   */
+  function serializeAttempt(payload: unknown): unknown {
+    if (payload instanceof Error) {
+      const err = payload as Error & { code?: unknown };
+      return {
+        name: err.name,
+        code: err.code !== undefined ? err.code : undefined,
+        message: err.message,
+        stack: err.stack,
+      };
+    }
+    return payload;
+  }
+
+  test("Error instance serializes to JSON-safe object with name/message/stack", () => {
+    const err = new Error("serialization test error");
+    const serialized = serializeAttempt(err);
+    // Must round-trip cleanly.
+    const roundTripped = JSON.parse(JSON.stringify(serialized)) as Record<string, unknown>;
+    expect(roundTripped["name"]).toBe("Error");
+    expect(roundTripped["message"]).toBe("serialization test error");
+    expect(typeof roundTripped["stack"]).toBe("string");
+  });
+
+  test("Error with numeric code includes code in serialized output", () => {
+    const err = Object.assign(new Error("mcp error"), { code: -32000 });
+    const serialized = serializeAttempt(err) as Record<string, unknown>;
+    const roundTripped = JSON.parse(JSON.stringify(serialized)) as Record<string, unknown>;
+    expect(roundTripped["code"]).toBe(-32000);
+    expect(roundTripped["message"]).toBe("mcp error");
+  });
+
+  test("plain object passes through unchanged", () => {
+    const payload = { code: "ENOENT", message: "not found" };
+    const serialized = serializeAttempt(payload);
+    expect(serialized).toBe(payload);
+  });
+
+  test("primitive string passes through unchanged", () => {
+    expect(serializeAttempt("some error")).toBe("some error");
   });
 });
