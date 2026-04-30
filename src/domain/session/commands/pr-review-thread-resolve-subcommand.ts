@@ -9,9 +9,12 @@
  * subcommand wraps both in a single action-parameterised call so callers do
  * not need to know which mutation to invoke.
  *
- * Thread IDs are the GraphQL node IDs surfaced as `node_id` on individual
- * review comments (from `GET /repos/{owner}/{repo}/pulls/{n}/comments`) or
- * as `id` on `PullRequestReviewThread` nodes in the GitHub GraphQL API.
+ * Thread IDs are the GraphQL node IDs of `PullRequestReviewThread` objects, NOT
+ * review comments. The two are distinct: a review comment has its own `node_id`
+ * which is NOT a thread ID. Sources for the thread node ID:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: `GET /repos/{owner}/{repo}/pulls/{n}/threads` returns thread items whose `node_id` is the thread ID
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343)
  *
  * @see mt#1342 — the task that introduced this primitive.
  */
@@ -37,9 +40,12 @@ export interface SessionPrReviewThreadResolveParams {
   /**
    * GraphQL node ID of the `PullRequestReviewThread` to act on.
    *
-   * Surfaced as `node_id` on individual review comments from the REST API
-   * (`GET /repos/{owner}/{repo}/pulls/{n}/comments`) or as `id` on
-   * `PullRequestReviewThread` nodes in the GraphQL API.
+   * Sources:
+   *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+   *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{n}/threads` carry `node_id` of the thread
+   *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343) — recommended source for callers already in the review flow
+   *
+   * Note: a review comment's `node_id` is NOT a thread ID — distinct objects.
    */
   threadId: string;
   /** Whether to resolve or unresolve the thread */
@@ -72,7 +78,9 @@ export async function sessionPrReviewThreadResolve(
   if (!params.threadId || params.threadId.trim().length === 0) {
     throw new ValidationError(
       "session.pr.review.thread.resolve requires a non-empty threadId " +
-        "(the GraphQL node ID of the review thread — see PR review comment node_id)."
+        "(the GraphQL node ID of a PullRequestReviewThread; obtain it from " +
+        "session_pr_review_context.reviewThreads[].id, GraphQL " +
+        "pullRequest.reviewThreads, or REST GET /pulls/{n}/threads)."
     );
   }
 

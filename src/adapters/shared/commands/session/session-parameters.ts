@@ -743,10 +743,14 @@ export const sessionPrReviewDismissCommandParams = {
  * Resolves or unresolves a GitHub PR review thread (GraphQL-only operation)
  * through Minsky using the configured bot identity.
  *
- * `threadId` is the GraphQL node ID of the `PullRequestReviewThread`. It is
- * surfaced as `node_id` on individual review comments from the REST API
- * (`GET /repos/{owner}/{repo}/pulls/{n}/comments`) or as `id` on
- * `PullRequestReviewThread` nodes in the GraphQL API.
+ * `threadId` is the GraphQL node ID of a `PullRequestReviewThread` object.
+ * Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{n}/threads` carry `node_id` of the thread
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343)
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID. The two are distinct
+ * objects in the GitHub API; only thread node IDs are accepted here.
  */
 export const sessionPrReviewThreadResolveCommandParams = {
   sessionId: commonSessionParams.sessionId,
@@ -755,8 +759,10 @@ export const sessionPrReviewThreadResolveCommandParams = {
   threadId: {
     schema: z.string().min(1),
     description:
-      "GraphQL node ID of the PullRequestReviewThread to act on. " +
-      "Surfaced as node_id on review comments from the REST API, or as id in the GraphQL API.",
+      "GraphQL node ID of a PullRequestReviewThread. Obtain from " +
+      "session_pr_review_context.reviewThreads[].id, GraphQL " +
+      "pullRequest.reviewThreads, or REST GET /pulls/{n}/threads. " +
+      "Note: a review comment's node_id is NOT a thread ID.",
     required: true,
   },
   action: {
