@@ -54,25 +54,36 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
   // retry, because retrying a mutation whose query already executed
   // would double-apply.
   //
-  // mt#1193 originally used `"query" in e` (presence check), which
-  // returns `true` even when `e.query === undefined`. That made
-  // `isPgPoolExhaustionError` reject every real `PostgresError`, and
-  // `withPgPoolRetry` was a silent no-op for the entire production
+  // Errors with NO `query` own-property at all (e.g. plain Error,
+  // PgBouncer's wire-protocol-rejection errors that bypass postgres-js'
+  // error wrapping) fall through to the code/message match below — they
+  // could not have transmitted a query through postgres-js.
+  //
+  // mt#1193 originally used `"query" in e` (presence + prototype-chain
+  // check), which returns `true` even when `e.query === undefined`.
+  // That made `isPgPoolExhaustionError` reject every real `PostgresError`,
+  // and `withPgPoolRetry` was a silent no-op for the entire production
   // path from 2026-04-25 to 2026-04-28.
   //
-  // mt#1461 corrects this with a CONSERVATIVE check that ONLY accepts
-  // the concrete postgres-js pre-send shape (`query === undefined`).
-  // Any other value of `query` — including `null`, `""`, or a SQL
-  // string — is treated as ambiguous and rejected. A wrapper that
-  // redacts the SQL of a post-send error to `null` would otherwise
-  // create a double-apply hazard for mutating callers; rejecting it
-  // is the safe default. (Reviewer-bot raised this on PR #893.)
-  if ("query" in e && e.query !== undefined) return false;
+  // mt#1461 corrects this with a CONSERVATIVE own-property check that
+  // ONLY accepts the concrete postgres-js pre-send shape (`query` own-
+  // property exactly `undefined`). Any other own-property value of
+  // `query` — including `null`, `""`, or a SQL string — is treated as
+  // ambiguous and rejected. A wrapper that redacts the SQL of a post-
+  // send error to `null` would otherwise create a double-apply hazard
+  // for mutating callers; rejecting it is the safe default.
+  //
+  // Why hasOwnProperty instead of `in`: prototype-chain inheritance.
+  // If any wrapper or accidental global mutation defines `query` on
+  // `Error.prototype` (or another prototype in the chain), `"query" in e`
+  // would be true for unrelated errors and they'd be silently rejected.
+  // Own-property check guarantees we only inspect what postgres-js
+  // actually attached. (Reviewer-bot raised this on PR #893.)
+  if (Object.prototype.hasOwnProperty.call(e, "query") && e.query !== undefined) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (
     code === "53300" ||
-    (code === "XX000" && /max clients reached/i.test(message)) ||
     /max clients reached/i.test(message) ||
     /too_many_connections/i.test(message) ||
     /sorry, too many clients already/i.test(message)
