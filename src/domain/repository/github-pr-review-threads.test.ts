@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolveReviewThread, unresolveReviewThread } from "./github-pr-review";
 import { MinskyError } from "../../errors/index";
-import type { GitHubContext } from "./github-pr-operations";
+import { createOctokit, type GitHubContext } from "./github-pr-operations";
 
 // ---------------------------------------------------------------------------
 // String constants (no-magic-string-duplication rule)
@@ -210,5 +210,31 @@ describe("resolve / unresolve round trip", () => {
     if (!firstCall || !secondCall) throw new Error("Expected two graphql calls");
     expect(firstCall.query).toContain(MUTATION_NAME_RESOLVE);
     expect(secondCall.query).toContain(MUTATION_NAME_UNRESOLVE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Production-path smoke test (mt#1342, PR #898 round 3)
+// ---------------------------------------------------------------------------
+//
+// The reviewer-bot flagged a concern that octokit.graphql is undefined on
+// @octokit/rest, which would break resolveReviewThread/unresolveReviewThread
+// in production (where no octokitOverride is supplied). The override-based
+// tests above don't catch that regression because they substitute their own
+// graphql stub.
+//
+// This test exercises the production wiring: it constructs an Octokit via
+// the real createOctokit factory (no override) and asserts the .graphql
+// method exists and is callable. Network is never reached.
+//
+// @octokit/rest v22 is built on @octokit/core, which exposes graphql() on
+// every Octokit instance via the standard plugin chain. If the dependency
+// drifts (e.g. a future major version drops the graphql plugin), this test
+// will fail and surface the regression before resolveReviewThread does.
+
+describe("production path: createOctokit exposes .graphql", () => {
+  test("createOctokit returns an instance with a callable graphql method", () => {
+    const octokit = createOctokit("dummy-token-not-used");
+    expect(typeof octokit.graphql).toBe("function");
   });
 });

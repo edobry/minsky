@@ -759,10 +759,12 @@ export const sessionPrReviewThreadResolveCommandParams = {
   threadId: {
     schema: z.string().min(1),
     description:
-      "GraphQL node ID of a PullRequestReviewThread. Obtain from " +
-      "session_pr_review_context.reviewThreads[].id, GraphQL " +
-      "pullRequest.reviewThreads, or REST GET /pulls/{n}/threads. " +
-      "Note: a review comment's node_id is NOT a thread ID.",
+      "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: " +
+      "(1) session_pr_review_context.reviewThreads[].id, " +
+      "(2) GraphQL pullRequest.reviewThreads.nodes[].id, or " +
+      "(3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). " +
+      "Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — " +
+      "comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type.",
     required: true,
   },
   action: {
