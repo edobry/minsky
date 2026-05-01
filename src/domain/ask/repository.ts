@@ -272,6 +272,37 @@ export interface AskRepository {
    * @returns     The updated Ask.
    */
   updateWindowMissedCount(id: string, count: number): Promise<Ask>;
+
+  /**
+   * Persist an updated `forceImmediate` flag on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by the Reaper (mt#1490) to persist the escalation flag so that
+   * subsequent reads reflect the true escalated state on the DB row.
+   *
+   * @param id    Primary key of the Ask to update.
+   * @param value New `forceImmediate` value.
+   * @returns     The updated Ask.
+   */
+  updateForceImmediate(id: string, value: boolean): Promise<Ask>;
+
+  /**
+   * Persist an updated `routingTarget` on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by `createAsk` (mt#1490) to persist the router's `routingTarget`
+   * decision on window-deferred Asks so that subsequent reads see the target
+   * the router resolved (e.g. "operator" for inbox/elicitation Asks).
+   *
+   * @param id     Primary key of the Ask to update.
+   * @param target New `routingTarget` value.
+   * @returns      The updated Ask.
+   */
+  updateRoutingTarget(id: string, target: string): Promise<Ask>;
 }
 
 /**
@@ -519,6 +550,44 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return toAsk(row);
   }
+
+  async updateForceImmediate(id: string, value: boolean): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ forceImmediate: value })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateForceImmediate returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async updateRoutingTarget(id: string, target: string): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ routingTarget: target })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateRoutingTarget returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -722,6 +791,28 @@ export class FakeAskRepository implements AskRepository {
     }
 
     const updated: Ask = { ...existing, windowMissedCount: count };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateForceImmediate(id: string, value: boolean): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, forceImmediate: value };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateRoutingTarget(id: string, target: string): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, routingTarget: target };
     this.store.set(id, updated);
     return { ...updated };
   }
