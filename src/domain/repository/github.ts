@@ -46,6 +46,8 @@ import {
 import { submitReview as submitReviewImpl } from "./github-pr-review";
 import {
   dismissReview as dismissReviewImpl,
+  resolveReviewThread as resolveReviewThreadImpl,
+  unresolveReviewThread as unresolveReviewThreadImpl,
   type DismissReviewOptions,
   type DismissReviewResult,
 } from "./github-pr-review";
@@ -735,6 +737,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
       listReviews: async (prIdentifier: string | number): Promise<ReviewListEntry[]> => {
         const gh = this.requireGitHubContext();
         return listReviewsImpl(gh, prIdentifier);
+      },
+
+      resolveReviewThread: async (threadId: string): Promise<void> => {
+        const gh = this.requireGitHubContext();
+        return resolveReviewThreadImpl(gh, threadId);
+      },
+
+      unresolveReviewThread: async (threadId: string): Promise<void> => {
+        const gh = this.requireGitHubContext();
+        return unresolveReviewThreadImpl(gh, threadId);
       },
     };
   }
