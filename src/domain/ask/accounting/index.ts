@@ -111,6 +111,7 @@ export interface AttentionCostInput {
  *   - responder starts with "agui:" -> transport = "agui", resolvedIn = "agui"
  *   - responder starts with "mesh:" -> transport = "mesh", resolvedIn = "mesh"
  *   - responder starts with "inbox:" -> transport = "inbox", resolvedIn = "inbox"
+ *   - responder starts with "retriever:" -> transport = "retriever", resolvedIn = "retriever"
  *   - other responders (bare AgentId) -> transport = "subagent", attach tokenCost if provided
  *
  * Does NOT apply to cancelled/expired Asks — callers must check state before calling.
