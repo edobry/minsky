@@ -400,4 +400,29 @@ describe("getPRReviewThreads", () => {
 
     expect(result).toEqual({ threads: [], truncated: false });
   });
+
+  test("null GraphQL subfield (cross-repo permission): returns empty result instead of TypeError", async () => {
+    // GitHub returns data with null subfields (rather than throwing) when the
+    // repository or pullRequest is inaccessible. Without the null-guard in
+    // getPRReviewThreads, the property dereference would throw a TypeError
+    // that escapes the try/catch and breaks the non-fatal contract.
+    const nullRepoOctokit = {
+      graphql: mock(
+        async () =>
+          ({
+            // Simulates the GraphQL response shape for an inaccessible repo:
+            // data is present, but repository is null.
+            repository: null,
+          }) as unknown as { repository: { pullRequest: { reviewThreads: unknown } } | null }
+      ),
+    };
+
+    const result = await getPRReviewThreads(
+      gh,
+      TEST_PR,
+      nullRepoOctokit as unknown as Parameters<typeof getPRReviewThreads>[2]
+    );
+
+    expect(result).toEqual({ threads: [], truncated: false });
+  });
 });

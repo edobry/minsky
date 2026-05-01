@@ -841,7 +841,18 @@ export async function getPRReviewThreads(
       return emptyResult;
     }
 
-    const page = response.repository.pullRequest.reviewThreads;
+    // Null-guard: GraphQL returns data with null subfields (rather than throwing)
+    // when the repository or pullRequest is inaccessible (cross-repo permissions,
+    // PR not found in scope, 403/404). Without this guard, the dereference below
+    // would throw a TypeError that escapes the per-call try/catch and breaks the
+    // documented non-fatal contract.
+    const page = response.repository?.pullRequest?.reviewThreads;
+    if (!page) {
+      log.debug(
+        `getPRReviewThreads: GraphQL returned null repository or pullRequest for PR #${prNumber} (likely permissions or scope mismatch)`
+      );
+      return emptyResult;
+    }
 
     for (const node of page.nodes) {
       if (allThreads.length >= MAX_REVIEW_THREADS) {

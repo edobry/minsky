@@ -68,13 +68,20 @@ export interface SessionPrReviewContextResult {
   parsedDiff: DiffFile[];
   taskSpec: string | null;
   taskId: string | null;
-  /** Inline review threads on this PR (resolved, unresolved, and outdated). */
-  reviewThreads: ReviewThread[];
+  /**
+   * Inline review threads on this PR (resolved, unresolved, and outdated).
+   *
+   * Optional for backward compatibility: pre-mt#1343 callers reading the
+   * result shape will not break if they don't reference this field. Each
+   * thread carries its own `truncatedComments` flag (see `ReviewThread`)
+   * surfacing per-thread truncation when a thread has more than 10 comments.
+   */
+  reviewThreads?: ReviewThread[];
   /**
    * True when the PR has more than 200 threads. The list is capped at 200
-   * in that case.
+   * in that case. Optional for backward compatibility.
    */
-  reviewThreadsTruncated: boolean;
+  reviewThreadsTruncated?: boolean;
 }
 
 /**
