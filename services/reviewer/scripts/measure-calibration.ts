@@ -157,8 +157,20 @@ interface RunResult {
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
+// Token gating: dry-run still needs GITHUB_TOKEN for corpus enumeration and
+// prior-review fetches, but in CI environments lacking a token we want
+// SKIPPED semantics (exit 0) rather than a hard failure that fails the
+// pipeline. Match replay-severity.ts's graceful-skip pattern. PR #934 R1.
+const isDryRunInvocation = process.argv.includes("--dry-run");
 if (!GITHUB_TOKEN) {
-  console.error("ERROR: GITHUB_TOKEN not set. All modes require GitHub API access.");
+  if (isDryRunInvocation) {
+    console.log(
+      "SKIPPED: GITHUB_TOKEN not set. Dry-run requires GitHub API access for " +
+        "prior-review fetches and corpus enumeration. Treating as skipped (exit 0)."
+    );
+    process.exit(0);
+  }
+  console.error("ERROR: GITHUB_TOKEN not set. Live measurement requires GitHub API access.");
   process.exit(1);
 }
 
@@ -381,6 +393,18 @@ async function enumerateTrivialCorpus(octokit: Octokit): Promise<TrivialCorpusRe
   // pulls.list does not include additions/deletions. Reduces enumeration cost
   // from ~50-100 REST calls per dry-run to ~1-3 GraphQL calls. GraphQL has its
   // own 5000-points/hour budget separate from REST 5000-requests/hour.
+  //
+  // KNOWN BIAS (PR #934 R1): orderBy=UPDATED_AT means PRs whose `updated_at`
+  // moves outside the time window (e.g. via late comments/labels) can drop
+  // off the first 5 pages even if they merged within the window. GraphQL's
+  // IssueOrder enum doesn't support MERGED_AT directly; CREATED_AT is the
+  // closest proxy but biases toward newly-opened PRs. For this corpus
+  // (edobry/minsky, ~30 day window, hard cap 500 PRs scanned) the bias is
+  // negligible — the repo doesn't have hundreds of PRs being re-touched
+  // without re-merging. If extending to higher-volume repos, consider:
+  // (a) using CREATED_AT and post-filtering by mergedAt, or
+  // (b) doing two passes: GraphQL by UPDATED_AT + GraphQL by CREATED_AT, then
+  //     deduplicating on number.
   const graphqlQuery =
     "query($owner: String!, $repo: String!, $cursor: String) {\n" +
     "  repository(owner: $owner, name: $repo) {\n" +
