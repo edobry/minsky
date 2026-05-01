@@ -114,6 +114,7 @@ function runFreshnessCheck(
       aheadSubjects: [],
       reason: `Fresh branch: origin/${branch} does not exist yet — no divergence to check`,
       silent: true,
+      currentBranch: branch,
     };
   }
 
@@ -125,6 +126,7 @@ function runFreshnessCheck(
       aheadSubjects: [],
       reason: "Could not detect origin/main or origin/master — freshness check skipped",
       silent: true,
+      currentBranch: branch,
     };
   }
 
@@ -139,6 +141,7 @@ function runFreshnessCheck(
       reason: `Branch ${branch} is up to date with ${mainRef}`,
       mainRef,
       silent: true,
+      currentBranch: branch,
     };
   }
 
@@ -148,6 +151,7 @@ function runFreshnessCheck(
     aheadSubjects: subjects,
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${branch}`,
     mainRef,
+    currentBranch: branch,
   };
 }
 
@@ -336,6 +340,34 @@ describe("branch freshness logic (injectable deps)", () => {
 
       expect(result.blocked).toBe(false);
       expect(result.silent).toBe(true);
+    });
+  });
+
+  describe("currentBranch pass-through (round-5 BLOCKING #2 fix)", () => {
+    test("blocked result includes currentBranch so the entrypoint avoids re-detection outside the budget guard", () => {
+      const deps = makeDeps({
+        listCommitsAhead: () => ({ count: 2, subjects: ["a feat", "b fix"] }),
+      });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(true);
+      expect(result.currentBranch).toBe(FEATURE_BRANCH);
+    });
+
+    test("up-to-date result includes currentBranch", () => {
+      const deps = makeDeps({
+        listCommitsAhead: () => ({ count: 0, subjects: [] }),
+      });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.currentBranch).toBe(FEATURE_BRANCH);
+    });
+
+    test("fresh-branch result includes currentBranch", () => {
+      const deps = makeDeps({ remoteBranchExists: () => false });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.currentBranch).toBe(FEATURE_BRANCH);
     });
   });
 });

@@ -53,6 +53,16 @@ export interface BranchFreshnessResult {
    */
   mainRef?: string;
   /**
+   * The current HEAD branch name as detected by `detectCurrentBranch`. Set
+   * whenever a branch was detected (regardless of allow/block); undefined
+   * for detached HEAD or when budget was exhausted before detection.
+   *
+   * Returned so the entrypoint does not need to call `detectCurrentBranch`
+   * separately (which would run outside the budget guard) — the round-5
+   * BLOCKING fix.
+   */
+  currentBranch?: string;
+  /**
    * True for paths that are explicitly silent per the Behavioral Contract:
    * branch-even-with-main, fresh branch, detached HEAD, undetectable default.
    * The entrypoint emits no stdout or additionalContext for the result's
@@ -81,10 +91,11 @@ const FETCH_TIMEOUT_MS = 5_000;
 /**
  * Overall wall-clock budget for the hook from `hookStart` (which is captured
  * BEFORE the fetch — so fetch IS counted in this budget). Worst-case wall
- * time = fetch (5s) + remaining git probes ≤ 10s, well under the 15s
- * PreToolUse cap with margin for process startup / shutdown / write.
+ * time = OVERALL_BUDGET_MS + GIT_TIMEOUT_MS_for_last_call_started ≈ 10.5s,
+ * leaving ~4.5s headroom under the 15s PreToolUse cap for process startup,
+ * stdout writes, and OS scheduling jitter.
  */
-const OVERALL_BUDGET_MS = 10_000;
+const OVERALL_BUDGET_MS = 9_000;
 
 /**
  * Budget guard. Returns true if there's enough remaining wall-clock time to
@@ -242,6 +253,17 @@ export function checkBranchFreshness(
   const overBudget = (callBudgetMs: number): boolean =>
     startMs !== null && !budgetAllows(startMs, callBudgetMs);
 
+  // Budget-guard the branch detection itself (round-5 BLOCKING fix —
+  // previously this ran in the entrypoint outside any guard).
+  if (overBudget(GIT_TIMEOUT_MS)) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: "Overall budget exhausted before current-branch detect — freshness check skipped",
+    };
+  }
+
   // Resolve current branch
   const currentBranch = branch ?? detectCurrentBranch(repoDir);
   if (!currentBranch) {
@@ -256,13 +278,12 @@ export function checkBranchFreshness(
   }
 
   if (overBudget(GIT_TIMEOUT_MS)) {
-    // Budget-exhausted is NOT a contract-silent path — surface so operators
-    // know the hook ran but couldn't complete due to time.
     return {
       blocked: false,
       aheadCount: 0,
       aheadSubjects: [],
       reason: "Overall budget exhausted before remote-branch check — freshness check skipped",
+      currentBranch,
     };
   }
 
@@ -274,6 +295,7 @@ export function checkBranchFreshness(
       aheadSubjects: [],
       reason: `Fresh branch: origin/${currentBranch} does not exist yet — no divergence to check`,
       silent: true,
+      currentBranch,
     };
   }
 
@@ -284,6 +306,7 @@ export function checkBranchFreshness(
       aheadCount: 0,
       aheadSubjects: [],
       reason: "Overall budget exhausted before default-branch detect — freshness check skipped",
+      currentBranch,
     };
   }
 
@@ -297,6 +320,7 @@ export function checkBranchFreshness(
       aheadSubjects: [],
       reason: "Could not detect origin/main or origin/master — freshness check skipped",
       silent: true,
+      currentBranch,
     };
   }
 
@@ -307,6 +331,7 @@ export function checkBranchFreshness(
       aheadSubjects: [],
       reason: "Overall budget exhausted before commits-ahead probe — freshness check skipped",
       mainRef,
+      currentBranch,
     };
   }
 
@@ -322,6 +347,7 @@ export function checkBranchFreshness(
       reason: `Branch ${currentBranch} is up to date with ${mainRef}`,
       mainRef,
       silent: true,
+      currentBranch,
     };
   }
 
@@ -331,6 +357,7 @@ export function checkBranchFreshness(
     aheadSubjects: subjects,
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
     mainRef,
+    currentBranch,
   };
 }
 
@@ -419,9 +446,10 @@ if (import.meta.main) {
     );
   }
 
-  // Detect current branch
-  const currentBranch = detectCurrentBranch(repoDir);
-  const result = checkBranchFreshness(repoDir, currentBranch, hookStart);
+  // Branch detection moved INSIDE checkBranchFreshness (round-5 BLOCKING fix)
+  // so it's covered by the budget guard. Pass undefined so checkBranchFreshness
+  // performs its own detection.
+  const result = checkBranchFreshness(repoDir, undefined, hookStart);
 
   if (!result.blocked) {
     // Behavioral Contract: silent paths emit no `reason` to stdout or
@@ -452,14 +480,13 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Blocked: format and emit denial. Reuse `result.mainRef` (the ref the
-  // comparison was actually computed against) instead of re-detecting —
-  // re-detection could yield a different ref under flaky probes, producing
-  // a denial message that mentions origin/master while the diff was computed
-  // against origin/main.
+  // Blocked: format and emit denial. Reuse `result.mainRef` and
+  // `result.currentBranch` (set by checkBranchFreshness) instead of
+  // re-detecting — re-detection could yield different values under flaky
+  // probes, AND re-detection would run outside the budget guard.
   const mainRef = result.mainRef ?? "origin/main";
   const message = formatBlockMessage(
-    currentBranch ?? "unknown",
+    result.currentBranch ?? "unknown",
     mainRef,
     result.aheadCount,
     result.aheadSubjects
