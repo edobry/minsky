@@ -102,6 +102,39 @@ function makeEntry(
 // ---------------------------------------------------------------------------
 
 describe("makeProductionGithubReviewClient", () => {
+  test("smoke: factory returns object with callable listReviews that delegates to listReviewsImpl", async () => {
+    // Programmatic enforcement of the docstring's "delete the body and tests
+    // fail" claim. If makeProductionGithubReviewClient stops returning a
+    // usable client, or stops wiring listReviewsImpl through, this test fails
+    // immediately and unambiguously — the docstring's guarantee is now
+    // backed by an assertion rather than only by prose.
+    //
+    // Addresses PR #927 round-1 NON-BLOCKING (pullrequestreview-4210089517).
+    let invocationCount = 0;
+    let capturedPrNumber: string | number | undefined;
+    const fakeListReviews: ListReviewsFn = async (_gh, prNumber) => {
+      invocationCount += 1;
+      capturedPrNumber = prNumber;
+      return [];
+    };
+
+    const tokenProvider = makeFakeTokenProvider();
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
+
+    // 1. Factory returned an object.
+    expect(client).toBeDefined();
+    expect(typeof client).toBe("object");
+
+    // 2. Object has a callable `listReviews` function.
+    expect(typeof client.listReviews).toBe("function");
+
+    // 3. Calling listReviews invokes the injected impl exactly once with the
+    //    correct prNumber — proves the factory's body wires the impl through.
+    await client.listReviews("owner", "repo", 42);
+    expect(invocationCount).toBe(1);
+    expect(capturedPrNumber).toBe(42);
+  });
+
   test("maps ReviewListEntry fields to GithubReview correctly", async () => {
     const entries: ReviewListEntry[] = [
       makeEntry(1001, { state: "APPROVED", reviewerLogin: "alice", body: "LGTM" }),
