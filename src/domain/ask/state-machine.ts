@@ -19,11 +19,49 @@
 import type { AskState } from "./types";
 import { assertNever } from "./types";
 
+// ---------------------------------------------------------------------------
+// AskState universe — single source of truth
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime-exhaustive index of all AskState values.
+ *
+ * The `Record<AskState, true>` shape forces TypeScript to require every
+ * union member as a key — if a new AskState is added to the union, this
+ * object fails to type-check unless updated. `Object.keys` then yields the
+ * full set at runtime, used wherever an exhaustive runtime list is needed
+ * (`ALL_ASK_STATES`, `TERMINAL_ASK_STATES`, `buildValidTransitions`).
+ *
+ * This is the canonical AskState enumeration for the module — there is no
+ * second hand-maintained list. Per PR #930 R3 BLOCKING fix: previously
+ * `buildValidTransitions` had its own local `states` array that could
+ * silently drift from the union; that array is now derived from
+ * `ALL_ASK_STATES` so the Record-type guard above is the only place to
+ * update when the union grows.
+ */
+const ALL_ASK_STATES_INDEX: Record<AskState, true> = {
+  detected: true,
+  classified: true,
+  routed: true,
+  suspended: true,
+  responded: true,
+  closed: true,
+  cancelled: true,
+  expired: true,
+};
+
+/** Runtime-exhaustive list of all AskState values. */
+export const ALL_ASK_STATES: readonly AskState[] = Object.keys(ALL_ASK_STATES_INDEX) as AskState[];
+
 /**
  * Valid state transitions as a map from `from` → set of allowed `to` states.
  *
  * Each case in the switch below must be exhaustive over AskState so that
  * adding a new state triggers a compile error at the `assertNever` call.
+ * The iteration source is `ALL_ASK_STATES` (the canonical union enumeration
+ * derived from `ALL_ASK_STATES_INDEX`), so adding a new union member is
+ * caught at compile time by the Record guard above and at runtime by the
+ * exhaustive switch below.
  */
 function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
   const map = new Map<AskState, ReadonlySet<AskState>>();
@@ -33,19 +71,7 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
     map.set(from, new Set(to));
   }
 
-  // Exhaustive switch forces a compile error when a new AskState is added.
-  const states: AskState[] = [
-    "detected",
-    "classified",
-    "routed",
-    "suspended",
-    "responded",
-    "closed",
-    "cancelled",
-    "expired",
-  ];
-
-  for (const state of states) {
+  for (const state of ALL_ASK_STATES) {
     switch (state) {
       case "detected":
         // Classifier runs → classified; or operator/policy short-circuits to cancelled/expired.
@@ -140,29 +166,6 @@ export function isTerminal(state: AskState): boolean {
       return assertNever(state);
   }
 }
-
-/**
- * Runtime-exhaustive index of all AskState values.
- *
- * The `Record<AskState, true>` shape forces TypeScript to require every
- * union member as a key — if a new AskState is added to the union, this
- * object fails to type-check unless updated. `Object.keys` then yields the
- * full set at runtime, used to derive `TERMINAL_ASK_STATES` below without a
- * second hand-maintained list.
- */
-const ALL_ASK_STATES_INDEX: Record<AskState, true> = {
-  detected: true,
-  classified: true,
-  routed: true,
-  suspended: true,
-  responded: true,
-  closed: true,
-  cancelled: true,
-  expired: true,
-};
-
-/** Runtime-exhaustive list of all AskState values. */
-export const ALL_ASK_STATES: readonly AskState[] = Object.keys(ALL_ASK_STATES_INDEX) as AskState[];
 
 /**
  * Canonical list of terminal Ask states (no further transitions allowed).

@@ -12,6 +12,7 @@ import type { AskState } from "./types";
 import {
   ALL_ASK_STATES,
   TERMINAL_ASK_STATES,
+  VALID_TRANSITIONS,
   isTerminal,
   guardTransition,
   InvalidAskTransitionError,
@@ -69,5 +70,25 @@ describe("guardTransition", () => {
 
   it("throws InvalidAskTransitionError when the move is not in the table", () => {
     expect(() => guardTransition("closed", "detected")).toThrow(InvalidAskTransitionError);
+  });
+});
+
+describe("VALID_TRANSITIONS", () => {
+  // SoT invariant — VALID_TRANSITIONS must have an entry for every AskState
+  // (including terminals, which map to an empty set). Per PR #930 R3
+  // BLOCKING fix: previously `buildValidTransitions` had a local `states`
+  // array that could silently drift from the union; now it iterates
+  // `ALL_ASK_STATES`. This test pins the invariant in case the iteration
+  // source is ever changed.
+  it("has an entry for every AskState (no missing keys)", () => {
+    const transitionKeys = [...VALID_TRANSITIONS.keys()].sort();
+    const allStates = [...ALL_ASK_STATES].sort();
+    expect(transitionKeys).toEqual(allStates);
+  });
+
+  it("terminal states map to an empty allowed-set (closed/cancelled/expired)", () => {
+    for (const terminal of TERMINAL_ASK_STATES) {
+      expect(VALID_TRANSITIONS.get(terminal)?.size).toBe(0);
+    }
   });
 });
