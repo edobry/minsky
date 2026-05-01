@@ -1,10 +1,18 @@
 /**
- * Unit tests for the production GithubReviewClient adapter (mt#1292).
+ * Unit tests for the production GithubReviewClient adapter (mt#1292, verified mt#1482).
  *
  * Hermetic — injects a fake TokenProvider and a fake `listReviews` function
  * via the optional `listReviewsImpl` parameter of `makeProductionGithubReviewClient`.
  * No real HTTP calls, no real GitHub API. The production module is imported and
  * exercised directly.
+ *
+ * The DI seam (`listReviewsImpl` optional parameter) is used instead of
+ * `mock.module()` per the project's `no-global-module-mocks` ESLint rule —
+ * all dependency injection must go through function/constructor parameters.
+ *
+ * Acceptance guarantee: deleting the body of `makeProductionGithubReviewClient`
+ * causes this suite to fail (the factory is called and its return value used;
+ * a deleted body returns undefined, making `client.listReviews()` throw).
  *
  * Coverage:
  *   - Review list maps ReviewListEntry fields to GithubReview correctly
