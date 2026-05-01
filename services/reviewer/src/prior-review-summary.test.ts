@@ -218,6 +218,58 @@ Event: REQUEST_CHANGES`;
     expect(result.length).toBeLessThanOrEqual(1020); // 1000 + truncation marker
     expect(result).toContain("truncated");
   });
+
+  test("strategy 2 also matches bare [BLOCKING] without ** wrappers (mt#1486)", () => {
+    // Real production reviewer-bot bodies (verified 2026-04-30 on PR #732
+    // review #4165932343) emit `[BLOCKING]` without bold wrappers. Pre-mt#1486
+    // the regex required `**[BLOCKING]**` and silently fell through to the
+    // truncated-fallback branch on every production review.
+    const body = `Findings\n\n[BLOCKING] src/foo.ts:42 — broken contract\n[NON-BLOCKING] src/bar.ts:10 — minor nit\n[PRE-EXISTING] src/baz.ts:5 — old issue\n`;
+    const result = extractFindings(body);
+    expect(result).toContain("[BLOCKING] src/foo.ts:42");
+    expect(result).toContain("[NON-BLOCKING] src/bar.ts:10");
+    expect(result).toContain("[PRE-EXISTING] src/baz.ts:5");
+  });
+
+  test("strategy 2 matches bare [BLOCKING] with line-range citations (mt#1486)", () => {
+    // Production bodies cite line ranges (e.g. src/foo.ts:171-176), not just
+    // single lines. The strategy-2 regex only triggers `inFinding`; downstream
+    // capture is line-based, so the range itself is preserved verbatim.
+    const body = "Findings\n\n[BLOCKING] src/foo.ts:171-176 — over-broad guard";
+    const result = extractFindings(body);
+    expect(result).toContain("[BLOCKING] src/foo.ts:171-176");
+  });
+
+  test("strategy 2 does NOT trigger on one-sided bold wrappers (PR #921 R1+R5)", () => {
+    // Stray formatting like `**[BLOCKING]` (no closing) or `[BLOCKING]**`
+    // (no opening) is not a valid finding marker. If extractFindings
+    // triggered on these, it would over-capture the body to EOF.
+    //
+    // PR #921 R5 NON-BLOCKING -> R5 BLOCKING (self-reversal): the test
+    // previously asserted toBe(oneSidedOpen) — exact equality. That
+    // couples the test to the fallback policy (truncated-to-1000-chars),
+    // which is implementation detail. R5 flagged this as brittle. Now we
+    // assert SHAPE: (a) no severity-prefixed lines were extracted (i.e.,
+    // strategy 2 did not trigger), (b) for inputs under the fallback
+    // truncation threshold, the output equals the input length.
+    const oneSidedOpen = "Findings\n\n**[BLOCKING] src/foo.ts:42 — stray open\n";
+    const oneSidedClose = "Findings\n\n[BLOCKING]** src/foo.ts:42 — stray close\n";
+
+    for (const body of [oneSidedOpen, oneSidedClose]) {
+      const result = extractFindings(body);
+      // Shape: result must NOT have a structurally-extracted findings prefix
+      // (which would only appear if strategy 1 or strategy 2 had triggered).
+      // Both strategies must miss on these inputs.
+      expect(result.startsWith("### Findings")).toBe(false);
+      // The bare/balanced finding line itself is permitted in the result
+      // because the fallback returns the whole body — but it must NOT have
+      // been the trigger for strategy 2. Length-based check confirms the
+      // fallback path: under the 1000-char threshold, result length equals
+      // input length (no truncation marker added).
+      expect(body.length).toBeLessThan(1000);
+      expect(result.length).toBe(body.length);
+    }
+  });
 });
 
 // ─── isBotReviewerEntry filter predicate (mt#1189) ───────────────────────────
@@ -381,6 +433,80 @@ describe("countBlockingFindings", () => {
 
   test("case-insensitive match (gi flag)", () => {
     expect(countBlockingFindings("**[blocking]** src/foo.ts:1 — bad")).toBe(1);
+  });
+
+  test("counts bare [BLOCKING] without ** wrappers (mt#1486)", () => {
+    // Real production format. Pre-mt#1486 this returned 0 for every
+    // production review and broke the convergence_metric priorBlockerCount.
+    expect(countBlockingFindings("[BLOCKING] src/foo.ts:1 — bad thing")).toBe(1);
+  });
+
+  test("counts mixed bare and bold-wrapped BLOCKING markers (mt#1486)", () => {
+    const body =
+      "[BLOCKING] src/foo.ts:1 — bare\n**[BLOCKING]** src/bar.ts:5 — wrapped\n[NON-BLOCKING] src/baz.ts:10 — nit";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("counts bare [BLOCKING] with line-range citations (mt#1486)", () => {
+    const body = "[BLOCKING] src/foo.ts:171-176 — over-broad guard";
+    expect(countBlockingFindings(body)).toBe(1);
+  });
+
+  test("does NOT count one-sided bold wrappers as BLOCKING (PR #921 R1)", () => {
+    // **[BLOCKING] (no close) and [BLOCKING]** (no open) are stray formatting
+    // and must not count at all. The negative lookbehind/lookahead on the
+    // bare branch prevents the embedded `[BLOCKING]` substring from matching
+    // when adjacent to `*`. Result: 0 valid markers in either form.
+    expect(countBlockingFindings("**[BLOCKING] missing close")).toBe(0);
+    expect(countBlockingFindings("[BLOCKING]** missing open")).toBe(0);
+  });
+
+  test("counts balanced wrapper at line start (PR #921 R2)", () => {
+    expect(countBlockingFindings("**[BLOCKING]**")).toBe(1);
+  });
+
+  test("counts markers at line start across multiple lines (PR #921 R2)", () => {
+    // Multiline body with two findings on separate lines, one balanced one
+    // bare, both at line start. Both must count.
+    const body = "**[BLOCKING]** src/foo.ts:1 — bold\n[BLOCKING] src/bar.ts:5 — bare";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("counts markers with optional bullet prefix (PR #921 R2)", () => {
+    const body =
+      "- [BLOCKING] src/foo.ts:1 — bullet-prefixed\n* **[BLOCKING]** src/bar.ts:5 — asterisk bullet";
+    expect(countBlockingFindings(body)).toBe(2);
+  });
+
+  test("does NOT count mid-line incidental [BLOCKING] mentions (PR #921 R2)", () => {
+    // Pre-PR-#921-R2 the regex matched [BLOCKING] anywhere on the line,
+    // including narrative prose mentions. New start-of-line anchor rejects
+    // these.
+    expect(countBlockingFindings("the string [BLOCKING] appears in the docs")).toBe(0);
+    expect(countBlockingFindings("Conclusion: **[BLOCKING]** above are the issues.")).toBe(0);
+  });
+
+  test("counts numeric-ordered-list bullet prefix (PR #921 R3)", () => {
+    // GitHub Markdown ordered lists use `1.`, `2.`, etc. The R3 reviewer
+    // flagged the previous bullet class missed these.
+    const body =
+      "1. [BLOCKING] src/foo.ts:1 — first\n2. **[BLOCKING]** src/bar.ts:5 — second\n10. [BLOCKING] src/baz.ts:9 — multi-digit";
+    expect(countBlockingFindings(body)).toBe(3);
+  });
+
+  test("counts plus-style bullet prefix (PR #921 R3)", () => {
+    const body = "+ [BLOCKING] src/foo.ts:1 — plus bullet";
+    expect(countBlockingFindings(body)).toBe(1);
+  });
+
+  test("strategy 1 returns header-only content when ### Findings is last line without newline (PR #921 R7)", () => {
+    // Pre-fix this returned "" due to a slicing bug where indexOf("\n")
+    // returned -1, the search began at offset 0 and matched the same header,
+    // and slice(0, 0).trim() yielded an empty string.
+    const body = "Some preamble text.\n\n### Findings";
+    const result = extractFindings(body);
+    expect(result).toContain("### Findings");
+    expect(result).not.toBe("");
   });
 
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
