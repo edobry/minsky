@@ -218,8 +218,8 @@ export const asksTable = pgTable(
     byParentSession: index("idx_asks_parent_session_id").on(table.parentSessionId),
 
     // NOTE: The partial index `asks_window_idx` (WHERE window_key IS NOT NULL) is
-    // declared in raw SQL migration `0029_ask_service_window_columns.sql` because
-    // Drizzle ORM cannot express partial index predicates. Do NOT re-declare it here
+    // declared in raw SQL migration `src/domain/storage/migrations/pg/0029_ask_service_window_columns.sql`
+    // because Drizzle ORM cannot express partial index predicates. Do NOT re-declare it here
     // — a non-partial Drizzle index with the same name would conflict with the
     // migration's partial definition, causing schema drift.
 

@@ -39,6 +39,13 @@ CREATE INDEX IF NOT EXISTS "asks_window_idx"
 UPDATE "asks" SET "service_strategy" = 'asap' WHERE "service_strategy" IS NULL;
 --> statement-breakpoint
 
+-- Backfill: existing rows get default values for window_missed_count and force_immediate.
+-- Belt-and-suspenders with toAsk() defaults: data is consistent AND code defends against NULLs.
+-- PostgreSQL ADD COLUMN DEFAULT does not backfill pre-existing rows, so explicit UPDATE is required.
+UPDATE "asks" SET "window_missed_count" = 0 WHERE "window_missed_count" IS NULL;
+UPDATE "asks" SET "force_immediate" = false WHERE "force_immediate" IS NULL;
+--> statement-breakpoint
+
 -- CHECK: enum guard — reject unknown service_strategy values at DB level.
 -- NULL is allowed (treated as 'asap' by the router).
 ALTER TABLE "asks"

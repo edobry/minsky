@@ -260,7 +260,7 @@ const asksCreateParams = {
  */
 export function validateAsksCreateParams(params: {
   windowKey?: string;
-  serviceStrategy?: string;
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
 }): void {
   if (params.windowKey !== undefined && params.serviceStrategy !== "scheduled") {
     throw new ValidationError(
@@ -407,6 +407,9 @@ export async function createAsk(
     // increments this field as scheduled windows are missed. Callers must not
     // set this directly — it is reaper-owned state.
     windowMissedCount: 0,
+    // forceImmediate is persisted here to record the caller's intent at creation time.
+    // The router (mt#1490) observes this field to bypass the window check and route
+    // immediately. createAsk does not act on it directly — that logic lives in the router.
     forceImmediate: params.forceImmediate ?? false,
   };
 

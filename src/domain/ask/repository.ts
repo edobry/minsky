@@ -36,8 +36,10 @@ import { guardTransition } from "./state-machine";
  *
  * Timestamps stored as `Date | null` in Drizzle are converted to ISO-8601
  * strings (or `undefined`) to match the `Ask` interface.
+ *
+ * @internal Exported for unit testing only — do not import outside of tests.
  */
-function toAsk(row: AskRecord): Ask {
+export function toAsk(row: AskRecord): Ask {
   return {
     id: row.id,
     kind: row.kind as AskKind,
@@ -61,8 +63,11 @@ function toAsk(row: AskRecord): Ask {
     // Service-window fields (mt#1411 spine — mt#1488)
     serviceStrategy: (row.serviceStrategy as Ask["serviceStrategy"]) ?? undefined,
     windowKey: row.windowKey ?? undefined,
-    windowMissedCount: row.windowMissedCount ?? undefined,
-    forceImmediate: row.forceImmediate ?? undefined,
+    // Coalesce NULLs to documented defaults: types.ts states "Defaults to 0 when absent"
+    // and "Defaults to false when absent". Legacy rows (pre-migration-0029) may have NULL
+    // because PostgreSQL ADD COLUMN DEFAULT does not backfill existing rows.
+    windowMissedCount: row.windowMissedCount ?? 0,
+    forceImmediate: row.forceImmediate ?? false,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
