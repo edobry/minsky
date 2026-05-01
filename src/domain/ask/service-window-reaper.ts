@@ -447,12 +447,18 @@ export class ServiceWindowReaper {
       return null;
     }
 
+    // Persist windowMissedCount on the DB row before transitioning. R3 fix:
+    // the re-batch path in incrementMissCount persists; the escalation path
+    // here must too, otherwise audit trails see stale counts.
+    await this.repo.updateWindowMissedCount(id, newMissCount);
+
     // Record in the forceImmediate counter store (anti-pattern audit).
     this.counterStore.record(ask.requestor, new Date().toISOString());
 
-    // Transition to routed with updated miss count reflected in metadata.
-    // v1: we don't have a DB-level forceImmediate update path, so we
-    // augment the in-memory Ask object before dispatching.
+    // Transition to routed. The persisted windowMissedCount is now in sync;
+    // the in-memory return value carries forceImmediate=true for the dispatch
+    // callback to act on. v1: no DB-level forceImmediate column, so the
+    // counter store + persisted windowMissedCount provide the audit trail.
     const transitioned = await this.transitionToRouted(id);
     if (!transitioned) return null;
 
