@@ -523,6 +523,22 @@ describe("parsePriorBodyFindings", () => {
       { file: "examples/foo,bar.ts", severity: "NON-BLOCKING", line: 3 },
     ]);
   });
+
+  test("rejects prose with space adjacent to slash (PR #922 R19#1)", () => {
+    // Bot flagged that bare `[BLOCKING] see /docs — text` could match
+    // with file=`see /docs`. Segment grammar forbids bare space adjacent
+    // to a `/` separator outside parens.
+    const body = "Conclusion: [BLOCKING] see /docs — for details";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
+
+  test("rejects URL-style strings (PR #922 R19#1)", () => {
+    // URLs like `http://example.com/foo.html` should not be parsed as
+    // file paths. The `://` sequence is rejected because `:` is not in
+    // the segment char class.
+    const body = "[BLOCKING] http://example.com/foo.html — broken link";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
 });
 
 describe("parsePriorReviewFindings", () => {
