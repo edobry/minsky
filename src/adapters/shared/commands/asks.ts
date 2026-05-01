@@ -40,6 +40,7 @@ import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
+import { ConcurrentTransitionError } from "../../../domain/ask/repository";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 
 // ---------------------------------------------------------------------------
@@ -514,13 +515,27 @@ export async function respondToAsk(
   // The Drizzle backend's optimistic-concurrency check guarantees no
   // stuck-in-responded state under concurrent transitions; the Fake backend
   // mirrors the same precondition.
-  const closed = await repo.respondAndClose(
-    params.id,
-    { response: respondPayload },
-    { response: closePayload }
-  );
-
-  return { ask: closed };
+  //
+  // Catch ConcurrentTransitionError and re-throw with the same friendly
+  // not-suspended message the pre-check uses, so callers see ONE error shape
+  // for "Ask is not in suspended state" regardless of whether the cause was
+  // a stale read (pre-check path) or a concurrent transition (race path).
+  try {
+    const closed = await repo.respondAndClose(
+      params.id,
+      { response: respondPayload },
+      { response: closePayload }
+    );
+    return { ask: closed };
+  } catch (err) {
+    if (err instanceof ConcurrentTransitionError) {
+      throw new Error(
+        `asks.respond: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
+          `(Concurrent actor transitioned the Ask between read and write.)`
+      );
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -621,8 +636,10 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       category: CommandCategory.TOOLS,
       name: "respond",
       description:
-        "Respond to a suspended Ask via the operator surface (mt#1458, ADR-008). " +
-        "v1 does not gate on routingTarget — see respondToAsk doc comment.",
+        "Respond to any suspended Ask (mt#1458, ADR-008). " +
+        "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
+        "Pre-suspended (detected/classified/routed) and terminal " +
+        "(closed/cancelled/expired) states are rejected with a clear error.",
       requiresSetup: true,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {

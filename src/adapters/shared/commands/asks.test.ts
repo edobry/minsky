@@ -562,8 +562,11 @@ describe("respondToAsk", () => {
       return result;
     };
 
+    // PR #924 R3 BLOCKING #2: race-path error is now normalized to the same
+    // friendly not-suspended message as the pre-check path. Single error
+    // shape for "Ask is not in suspended state" regardless of cause.
     await expect(respondToAsk(realRepo, { id: ask.id, message: "ok" })).rejects.toThrow(
-      /Concurrent transition.*found state="cancelled"/
+      /Ask is in "cancelled" state.*only "suspended" Asks can be responded to.*Concurrent actor/s
     );
 
     // Assert the Ask is NOT stuck in responded — race should leave it cancelled.

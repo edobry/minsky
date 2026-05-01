@@ -184,11 +184,16 @@ export interface AskRepository {
   /**
    * Atomically respond to and close a `"suspended"` Ask in one step.
    *
-   * Walks the Ask through `suspended → responded → closed` as a single
-   * persistence operation. Both the response payload (without `attentionCost`)
-   * and the close payload (with `attentionCost`) are recorded; the persisted
-   * row ends up in `state: "closed"` with the close payload as `response`,
-   * `respondedAt` and `closedAt` both set to now.
+   * Logically walks the Ask through `suspended → responded → closed`, but
+   * persists ONLY the close stage: the row goes from suspended to closed
+   * in a single UPDATE with `respondedAt` and `closedAt` both set to now,
+   * `state: "closed"`, and `response = closeInput.response`. The
+   * `respondInput` parameter exists solely to document the two-stage
+   * logical model (the same shape `repo.respond` would receive); the
+   * intermediate "responded" payload is NOT persisted to a separate row
+   * or column. Callers that need an audit trail of the intermediate
+   * payload should design that separately (e.g., via metadata or a
+   * dedicated audit table); v1 has no such trail.
    *
    * Atomicity guarantee:
    *   - **Drizzle backend**: implemented via an optimistic-concurrency
@@ -199,19 +204,20 @@ export interface AskRepository {
    *   - **Fake backend**: single-threaded — atomic by virtue of the
    *     synchronous in-memory implementation.
    *
-   * Used by `respondToAsk` (mt#1458) and the elicitation transport's
-   * accept-path (mt#1457) to honor:
+   * Used by `respondToAsk` (mt#1458) to honor:
    *   1. The `Ask.response` contract: `attentionCost` is filled on close.
    *   2. The "no stuck-in-responded" invariant: if respond/close were
    *      separate calls and the second failed, the Ask would be left in
    *      `responded` without `attentionCost` and unable to advance.
    *
    * @param id          Primary key of the suspended Ask.
-   * @param respondInput Response payload written at the responded stage
-   *                    (no `attentionCost`).
-   * @param closeInput   Response payload (with `attentionCost`) written at
-   *                    the closed stage. Both `response` fields land in the
-   *                    final row; the close payload wins.
+   * @param respondInput Response payload at the responded stage (without
+   *                    `attentionCost`). Carries the two-stage contract
+   *                    in the type signature; not persisted to a separate
+   *                    row in v1 (see paragraph above).
+   * @param closeInput   Response payload (with `attentionCost`) written
+   *                    to the persisted row. This is the payload that
+   *                    becomes `Ask.response` on the closed row.
    * @throws `Error` — Ask not found.
    * @throws `ConcurrentTransitionError` — Ask was not in `"suspended"` state
    *         when the atomic update ran.
