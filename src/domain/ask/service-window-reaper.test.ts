@@ -613,3 +613,82 @@ describe("ServiceWindowReaper: forceImmediate recording", () => {
     expect(record?.count).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// windowMissedCount persistence — R1 fix verification
+// ---------------------------------------------------------------------------
+
+describe("ServiceWindowReaper: windowMissedCount persistence (R1 fix)", () => {
+  it("persists windowMissedCount on the Ask row after onWindowClosed", async () => {
+    const { callback } = makeRecordingDispatch();
+    const reaper = new ServiceWindowReaper(
+      repo,
+      callback,
+      { windowConfigs: DEFAULT_WINDOW_CONFIGS },
+      counterStore
+    );
+
+    // Start with windowMissedCount=0 (as produced by createAsk).
+    // Do NOT seed windowMissedCount directly — we must observe the persistence flow.
+    const ask = makeSuspendedAsk({
+      state: "suspended",
+      serviceStrategy: "scheduled",
+      windowKey: WINDOW_KEY,
+      // windowMissedCount intentionally not overridden — uses makeSuspendedAsk default of 0
+    });
+    repo._seedAtState(ask);
+
+    // First window close: count goes 0 → 1.
+    await reaper.onWindowClosed(makeWindowClosedPayload());
+
+    // Re-read the Ask from the repo to verify the count was persisted.
+    const afterFirst = await repo.getById(ask.id);
+    expect(afterFirst?.windowMissedCount).toBe(1);
+  });
+
+  it("persists windowMissedCount across consecutive onWindowClosed calls", async () => {
+    const { callback } = makeRecordingDispatch();
+
+    // Use maxMisses=5 so we get multiple increments without escalation.
+    const multiMissConfigs: AttentionWindowConfig[] = [
+      {
+        key: WINDOW_KEY,
+        schedule: { type: "cron", expr: "0 16 * * 1-5" },
+        durationMin: 30,
+        maxMisses: 5,
+        description: "Daily 4pm decision window (many-miss variant)",
+      },
+    ];
+
+    const reaper = new ServiceWindowReaper(
+      repo,
+      callback,
+      { windowConfigs: multiMissConfigs },
+      counterStore
+    );
+
+    // Seed a fresh suspended Ask at windowMissedCount=0.
+    const ask = makeSuspendedAsk({
+      state: "suspended",
+      serviceStrategy: "scheduled",
+      windowKey: WINDOW_KEY,
+    });
+    repo._seedAtState(ask);
+
+    // First close: 0 → 1.
+    await reaper.onWindowClosed(makeWindowClosedPayload());
+    const afterFirst = await repo.getById(ask.id);
+    expect(afterFirst?.windowMissedCount).toBe(1);
+
+    // Second close: 1 → 2.  The reaper must read the persisted count, not
+    // an in-memory snapshot, so this verifies round-trip persistence.
+    await reaper.onWindowClosed(makeWindowClosedPayload());
+    const afterSecond = await repo.getById(ask.id);
+    expect(afterSecond?.windowMissedCount).toBe(2);
+
+    // Third close: 2 → 3.
+    await reaper.onWindowClosed(makeWindowClosedPayload());
+    const afterThird = await repo.getById(ask.id);
+    expect(afterThird?.windowMissedCount).toBe(3);
+  });
+});
