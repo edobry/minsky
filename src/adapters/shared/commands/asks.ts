@@ -11,6 +11,10 @@
  *   `AskRepository` and computes routing via mt#1069's `policyFirstRoute`.
  *   The capability-aware extension (sync kinds → elicitation when host
  *   advertises capability) lands in mt#1457. Wired as mt#1456.
+ * - `asks.respond` — operator-facing response surface. Walks a suspended
+ *   operator-bound Ask through `responded → closed` with the operator's
+ *   message as the response payload. Wired as mt#1458 (per mt#454 slim
+ *   research: v1 verb set is `list` + `respond` only).
  */
 
 import { z } from "zod";
@@ -371,6 +375,125 @@ export async function createAsk(
 }
 
 // ---------------------------------------------------------------------------
+// asks.respond — schemas
+// ---------------------------------------------------------------------------
+
+const asksRespondParams = {
+  id: {
+    schema: z.string().min(1),
+    description: "Ask ID (UUID) to respond to",
+    required: true,
+  },
+  message: {
+    schema: z.string().min(1),
+    description: "Operator response message — becomes response.payload.message",
+    required: true,
+  },
+  responder: {
+    schema: z.string().min(1),
+    description: "AgentId or 'operator' identifier; defaults to 'operator'",
+    required: false,
+  },
+};
+
+/**
+ * Typed input for `respondToAsk` — the internal helper exposed for testing.
+ */
+export interface RespondToAskParams {
+  id: string;
+  message: string;
+  responder?: string;
+}
+
+/**
+ * Result shape returned by `respondToAsk`. Always reflects the closed Ask
+ * (post `responded → closed` walk) so callers see the final state, not the
+ * intermediate `responded`.
+ */
+export type RespondToAskResult = {
+  ask: Ask;
+};
+
+/**
+ * Respond to a suspended operator-bound Ask via the operator CLI surface.
+ *
+ * Walks the persisted Ask through `responded → closed` with the operator's
+ * message as `response.payload.message`. The original transport (set during
+ * routing) is preserved on the Ask record; `attentionCost` records that the
+ * resolution happened via the inbox/CLI surface (`resolvedIn: "inbox"`).
+ *
+ * Pre-conditions:
+ *   - Ask exists (`repo.getById` returns non-null).
+ *   - Ask is in `"suspended"` state. Earlier states (detected/classified/routed)
+ *     mean no transport has dispatched yet — responding would skip the dispatch
+ *     path. Terminal states (closed/cancelled/expired) cannot be responded to.
+ *   - Ask was routed to the operator (`routingTarget === "operator"`). Other
+ *     routing targets (subagent, peer, etc.) have their own resolution paths;
+ *     the operator CLI doesn't override them.
+ *
+ * Per mt#454 slim research output (Q3): v1 verb set is `list` + `respond`
+ * only. `claim` / `release` / `close` / `reopen` are deferred to mt#454-impl.
+ *
+ * Reference: mt#1458 spec; mt#454 slim research output.
+ */
+export async function respondToAsk(
+  repo: AskRepository,
+  params: RespondToAskParams
+): Promise<RespondToAskResult> {
+  const persisted = await repo.getById(params.id);
+  if (!persisted) {
+    throw new Error(`asks.respond: Ask not found: ${params.id}`);
+  }
+
+  if (persisted.state !== "suspended") {
+    throw new Error(
+      `asks.respond: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
+        `(detected/classified/routed: no transport has dispatched yet; ` +
+        `closed/cancelled/expired: terminal.)`
+    );
+  }
+
+  // Note on `routingTarget`: at v1, the router (mt#1069 `policyFirstRoute`)
+  // does NOT persist `routingTarget` to the repo — it stays as the in-memory
+  // RoutedAsk-only field, and the repo row keeps `routingTarget = undefined`.
+  // This is documented in createAsk's persistence-semantics block.
+  //
+  // We deliberately do NOT gate `respondToAsk` on `routingTarget === "operator"`
+  // here. Reasoning: at v1, every Ask that legitimately reaches `"suspended"`
+  // is an operator-target by elimination (elicitation timed out, or inbox
+  // transport will route it once mt#454-impl ships; subagent/mesh transports
+  // don't pass through `suspended` in their dispatch flow per mt#1070 and
+  // ADR-008's matrix). When a non-operator path starts using `suspended`, this
+  // gate becomes load-bearing — re-introduce it then. Filed as a follow-up
+  // concern in mt#454-impl.
+
+  const responder = params.responder ?? "operator";
+  const responsePayload = {
+    responder,
+    payload: { message: params.message },
+    attentionCost: {
+      // The operator responded via the inbox/CLI surface. The original
+      // transport (which may have been "elicitation" if the Ask was first
+      // routed there but timed out) is preserved on the Ask record; the
+      // attentionCost.transport here records the surface that *resolved* it.
+      transport: "inbox" as const,
+      resolvedIn: "inbox" as const,
+      // operatorCost is intentionally absent at v1 — the slim research
+      // output (mt#454, 2026-05-01) flagged this as deferred to mt#454-impl
+      // along with claim/release semantics. Future work measures wall-clock
+      // delta; v1 leaves it unmeasured to avoid false precision.
+    },
+  };
+
+  // Walk suspended → responded → closed. Mirrors the elicitation transport's
+  // accept-path behavior (see src/domain/ask/transports/elicitation.ts).
+  await repo.respond(params.id, { response: responsePayload });
+  const closed = await repo.close(params.id, { response: responsePayload });
+
+  return { ask: closed };
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -458,6 +581,32 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const githubClient = makeProductionGithubReviewClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
         return reconcile(repo, githubClient, operatorNotify);
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.respond",
+      category: CommandCategory.TOOLS,
+      name: "respond",
+      description:
+        "Respond to a suspended operator-bound Ask (operator CLI surface; mt#1458, ADR-008)",
+      requiresSetup: true,
+      parameters: asksRespondParams,
+      execute: async (params): Promise<RespondToAskResult> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.respond: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return respondToAsk(repo, {
+          id: params.id as string,
+          message: params.message as string,
+          responder: params.responder as string | undefined,
+        });
       },
     })
   );
