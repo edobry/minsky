@@ -695,6 +695,22 @@ describe("applyMonotonicityRecovery", () => {
     expect(result.downgrades).toHaveLength(0);
   });
 
+  test("normalizes backslash paths to match POSIX-style current findings (PR #922 R10)", () => {
+    // Prior finding cites a Windows-style path; current finding (from
+    // production reviewer-bot) uses POSIX-style. Without normalization,
+    // the lookup misses and gating fails. Now: both sides normalize
+    // backslashes to forward slashes before map insert/lookup.
+    const prior: FlatPriorFinding[] = [
+      { file: "packages\\app\\Foo.ts", severity: "NON-BLOCKING", line: 5 },
+    ];
+    const tc = [finding("BLOCKING", "packages/app/Foo.ts", 5)];
+    const result = applyMonotonicityRecovery(tc, prior, "");
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("NON-BLOCKING");
+    expect(result.downgrades).toHaveLength(1);
+  });
+
   test("preserves BLOCKING on rename pairs when finding cites NEW path with prior on OLD path (PR #922 R4#1)", () => {
     // Inverse direction of R2#2: prior finding was on the old path, current
     // finding cites the new path. Pre-PR-#922-R4 the stickyByFile lookup

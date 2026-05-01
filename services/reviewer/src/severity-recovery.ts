@@ -445,16 +445,25 @@ export function applyMonotonicityRecovery(
   // on the OLD path also gates a current finding on the NEW path (and
   // vice versa via the inverse). Pre-fix the lookup was strictly by
   // tc.args.file; renames silently bypassed monotonicity gating.
+  //
+  // PR #922 R10 catch: normalize backslash → forward-slash before map
+  // insert/lookup. Pre-fix priors parsed as `packages\app\Foo.ts` would
+  // not match a current finding citing `packages/app/Foo.ts`, silently
+  // bypassing gating on cross-platform path representations. Both prior
+  // and current paths are normalized to a canonical POSIX form.
+  const normalizePath = (p: string): string => p.replace(/\\/g, "/");
+
   const stickyByFile = new Map<string, "NON-BLOCKING" | "PRE-EXISTING">();
   // Build inverse rename map (new → old) once for cross-direction aliasing.
   const inverseRenames = new Map<string, string>();
   for (const [oldPath, newPath] of parsedDiff.renames.entries()) {
-    inverseRenames.set(newPath, oldPath);
+    inverseRenames.set(normalizePath(newPath), normalizePath(oldPath));
   }
   function setSticky(file: string, severity: "NON-BLOCKING" | "PRE-EXISTING"): void {
-    const existing = stickyByFile.get(file);
+    const key = normalizePath(file);
+    const existing = stickyByFile.get(key);
     if (existing === "NON-BLOCKING") return; // NON-BLOCKING wins (see comment below)
-    stickyByFile.set(file, severity);
+    stickyByFile.set(key, severity);
   }
   for (const f of priorFindings) {
     if (f.severity === "BLOCKING") continue;
@@ -464,9 +473,12 @@ export function applyMonotonicityRecovery(
     // rarer in calibration data).
     setSticky(f.file, f.severity);
     // Alias under the rename counterpart so old↔new lookups both succeed.
-    const renamedTo = parsedDiff.renames.get(f.file);
+    // Use normalized-key lookups since the rename map was built with
+    // normalized keys above.
+    const normalizedFile = normalizePath(f.file);
+    const renamedTo = parsedDiff.renames.get(normalizedFile);
     if (renamedTo) setSticky(renamedTo, f.severity);
-    const renamedFrom = inverseRenames.get(f.file);
+    const renamedFrom = inverseRenames.get(normalizedFile);
     if (renamedFrom) setSticky(renamedFrom, f.severity);
   }
 
@@ -479,7 +491,10 @@ export function applyMonotonicityRecovery(
       continue;
     }
 
-    const matchingPrior = stickyByFile.get(tc.args.file);
+    // Normalize the current finding's file path to match the canonical form
+    // used in stickyByFile (PR #922 R10 catch).
+    const normalizedCurrentFile = normalizePath(tc.args.file);
+    const matchingPrior = stickyByFile.get(normalizedCurrentFile);
     if (!matchingPrior) {
       // File wasn't in any prior NON-BLOCKING / PRE-EXISTING — keep BLOCKING.
       corrected.push(tc);
