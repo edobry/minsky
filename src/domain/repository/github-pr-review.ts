@@ -102,9 +102,11 @@ export function validateReviewComment(comment: ReviewComment): void {
   }
 
   if (comment.suggestion !== undefined) {
-    // Count lines in suggestion after stripping ALL trailing newlines so that
-    // suggestions ending with "\n", "\n\n", etc. are counted the same way.
-    const suggestionText = comment.suggestion.replace(/\n+$/, "");
+    // Normalize line endings first so that \r\n (Windows) and lone \r (old Mac)
+    // are both treated as a single newline for line-counting purposes.
+    // Strip ALL trailing newlines after normalization so that suggestions ending
+    // with "\n", "\r\n", "\r\n\r\n", etc. are counted the same way.
+    const suggestionText = comment.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
     const suggestionLineCount = suggestionText.split("\n").length;
 
     // Determine the anchored line range
@@ -202,15 +204,30 @@ export async function submitReview(
       // When a suggestion is provided, append a fenced suggestion block to the body.
       // GitHub renders this as an "Apply suggestion" button when the suggestion line
       // count matches the anchored range (validated above in validateReviewComment).
-      // Normalize trailing newlines from suggestion before placing it in the fence,
-      // so that suggestions ending with "\n\n" etc. don't produce double-blank-lines
-      // inside the fenced block.
+      //
+      // 1. Normalize line endings: convert \r\n (Windows) and lone \r (old Mac) to \n
+      //    first, so that \r characters don't leak into the fenced block.
+      // 2. Strip trailing newlines after normalization so suggestions ending with
+      //    "\n\n" etc. don't produce double-blank-lines inside the fenced block.
+      // 3. Compute fence length: if the suggestion contains backtick runs, the fence
+      //    delimiter must be longer than the longest such run to prevent early fence
+      //    termination. Use at least 3 backticks (the GitHub minimum), and at least
+      //    one more than the longest backtick run found in the content.
       const normalizedSuggestion =
-        c.suggestion !== undefined ? c.suggestion.replace(/\n+$/, "") : undefined;
-      const resolvedBody =
-        normalizedSuggestion !== undefined
-          ? `${c.body}\n\n\`\`\`suggestion\n${normalizedSuggestion}\n\`\`\``
-          : c.body;
+        c.suggestion !== undefined
+          ? c.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
+          : undefined;
+      let resolvedBody: string;
+      if (normalizedSuggestion !== undefined) {
+        // Find longest backtick run in the suggestion content.
+        const backtickRuns = normalizedSuggestion.match(/`+/g);
+        const longestRun = backtickRuns ? Math.max(...backtickRuns.map((r) => r.length)) : 0;
+        const fenceLen = Math.max(3, longestRun + 1);
+        const fence = "`".repeat(fenceLen);
+        resolvedBody = `${c.body}\n\n${fence}suggestion\n${normalizedSuggestion}\n${fence}`;
+      } else {
+        resolvedBody = c.body;
+      }
 
       return {
         path: c.path,
