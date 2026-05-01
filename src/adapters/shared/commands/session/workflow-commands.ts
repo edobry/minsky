@@ -42,6 +42,7 @@ export { createSessionPrReviewContextCommand } from "./pr-review-context-command
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
 export { createSessionPrReviewThreadResolveCommand } from "./pr-review-thread-resolve-command";
+export { createSessionPrCheckRunSubmitCommand } from "./pr-check-run-submit-command";
 
 /**
  * Classify a caught error from `git commit` as a pre-commit hook failure.
