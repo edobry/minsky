@@ -32,7 +32,9 @@ import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler"
 import {
   policyFirstRoute,
   type RoutedAsk,
+  type SuspendedAsk,
   type PolicyFirstRouteOptions,
+  isSuspendedAsk,
 } from "../../../domain/ask/router";
 import {
   dispatchToElicitation,
@@ -526,9 +528,10 @@ async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): 
  * mt#1241) get the same result shape as the `asks.create` MCP tool: a
  * single coherent producer path regardless of entrypoint (PR #919 R3).
  *
- * Return shape (`RoutedAsk | ElicitationClosedAsk`):
+ * Return shape (`RoutedAsk | SuspendedAsk | ElicitationClosedAsk`):
  *   - Policy coverage  → `state: "closed"` (RoutedAsk shape, transport=policy)
  *   - Async transport  → `state: "routed"` (RoutedAsk shape, transport=inbox/mesh/subagent/retriever)
+ *   - Window-deferred  → `state: "suspended"` (SuspendedAsk, pending window open via reaper)
  *   - Elicitation accept → `state: "closed"` (ElicitationClosedAsk, response populated)
  *   - Elicitation decline/cancel → `state: "cancelled"` (ElicitationClosedAsk, no response)
  *   - Elicitation dispatch error → `state: "suspended"` (ElicitationClosedAsk, no response)
@@ -539,6 +542,8 @@ async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): 
  *   - For async transports: row stays at "detected"; downstream transport
  *     adapter (mt#1070 subagent, mt#454 inbox, etc.) walks the state
  *     machine. This matches Tree A's existing semantics in mt#1069/mt#1070.
+ *   - For window-deferred asks: row stays at "detected"; the reaper (mt#1490)
+ *     transitions to "suspended" when the window opens.
  *   - For elicitation: walks the state machine end-to-end. The repo state
  *     after this call always matches the returned object's state.
  *   - Per `Ask.response`'s contract in `types.ts`, `response` is only
@@ -549,7 +554,7 @@ export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
-): Promise<RoutedAsk | ElicitationClosedAsk> {
+): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> {
   // Apply per-kind service-window defaults when the requestor has not supplied
   // explicit values. Explicit params always win over defaults (mt#1488 SC4).
   const kindDefaults = getServiceWindowDefault(params.kind);
@@ -588,6 +593,12 @@ export async function createAsk(
 
   const ask = await repo.create(input);
   const routed = await policyFirstRoute(ask, routerOptions);
+
+  // Window-deferred path: Ask is suspended pending a service window.
+  // The reaper (mt#1490) will transition it and dispatch when the window opens.
+  if (isSuspendedAsk(routed)) {
+    return routed;
+  }
 
   // Non-elicitation paths: return the routed Ask as-is. Async transports
   // (subagent, inbox, mesh, retriever) are dispatched elsewhere; policy
@@ -755,7 +766,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Reject at the parameter boundary so callers get immediate, actionable feedback.
         validateAsksCreateParams(params);
       },
-      execute: async (params): Promise<RoutedAsk | ElicitationClosedAsk> => {
+      execute: async (params): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
