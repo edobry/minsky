@@ -433,8 +433,9 @@ export function applyRecoveryAndCompose(
     });
   }
 
-  // Step 4: compose.
-  const composed = composeReviewBody(toolCallsForComposition);
+  // Step 4: compose. Spread to coerce the readonly local to the mutable
+  // signature expected by composeReviewBody (which only reads).
+  const composed = composeReviewBody([...toolCallsForComposition]);
 
   return {
     toolCalls: toolCallsForComposition,
