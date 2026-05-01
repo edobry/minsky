@@ -182,7 +182,7 @@ This is intentional and follows conventional commits. If a reviewer flags the vi
 Use `mcp__minsky__session_pr_create` with:
 
 - `title`: description-only title
-- `type`: one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+- `type`: one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`, `revert`, `merge`
 - `body`: the PR description (starts with `## Summary`, never duplicates the title)
 - `task`: the task ID
 
@@ -198,16 +198,25 @@ After PR creation, do NOT continue committing to the session branch. Switch to m
 
 ## PR types
 
-| Type       | Use for                                |
-| ---------- | -------------------------------------- |
-| `feat`     | New features                           |
-| `fix`      | Bug fixes                              |
-| `docs`     | Documentation changes                  |
-| `style`    | Formatting, no logic change            |
-| `refactor` | Code restructuring, no behavior change |
-| `perf`     | Performance improvements               |
-| `test`     | Adding or modifying tests              |
-| `chore`    | Build process, auxiliary tools         |
+The accepted set is the commit-msg hook's allowlist (`src/hooks/commit-msg.ts`,
+backed by `src/domain/git/conventional-commit-types.ts`). Use the type that
+most accurately reflects the change — the hook treats them all equally; this
+table is for human readers.
+
+| Type       | Use for                                                  |
+| ---------- | -------------------------------------------------------- |
+| `feat`     | New features                                             |
+| `fix`      | Bug fixes                                                |
+| `docs`     | Documentation changes                                    |
+| `style`    | Formatting, no logic change                              |
+| `refactor` | Code restructuring, no behavior change                   |
+| `perf`     | Performance improvements                                 |
+| `test`     | Adding or modifying tests                                |
+| `chore`    | Build process, auxiliary tools                           |
+| `ci`       | CI configuration (workflows, actions, runners)           |
+| `build`    | Build system / package manager changes                   |
+| `revert`   | Reverting a previous commit                              |
+| `merge`    | Explicit merge commits with conventional-format subjects |
 
 ## Anti-patterns
 

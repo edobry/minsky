@@ -18,6 +18,10 @@ import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import {
+  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
+  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
+} from "../../../../domain/git/conventional-commit-types";
 
 export interface SessionPrEditParams {
   sessionId?: string;
@@ -135,11 +139,14 @@ export async function executeSessionPrEdit(
           finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
         }
       } else {
-        const conventionalRe = /^(feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:\s+/i;
+        const conventionalRe = new RegExp(
+          `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?:\\s+`,
+          "i"
+        );
         if (!conventionalRe.test(params.title)) {
           throw new ValidationError(
             "Invalid title. Provide either:\n" +
-              "  • --type <feat|fix|docs|style|refactor|perf|test|chore> with a description-only --title\n" +
+              `  • --type <${CONVENTIONAL_COMMIT_TYPES_DISPLAY.replaceAll(", ", "|")}> with a description-only --title\n` +
               "  • or a full conventional commit title like 'feat(scope): short description'"
           );
         }

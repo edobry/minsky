@@ -11,6 +11,7 @@ import { log } from "../utils/logger";
 
 // Import actual validation logic instead of duplicating it
 import { isDuplicateContent } from "../domain/session/pr-validation";
+import { CONVENTIONAL_COMMIT_TYPE_ALTERNATION } from "../domain/git/conventional-commit-types";
 
 export interface CommitMsgResult {
   success: boolean;
@@ -37,8 +38,9 @@ const FORBIDDEN_MESSAGES = [
   "change",
 ];
 
-const CONVENTIONAL_COMMIT_PATTERN =
-  /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|merge)(\(.+\))?: .{1,50}/;
+const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
+  `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,50}`
+);
 
 /**
  * Unified commit message validation hook

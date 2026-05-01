@@ -271,10 +271,10 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 
 **Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
 
-**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use \`wip(mt#${taskId}): <what's done>\` for intermediate commits — the \`wip\` prefix signals in-progress state.
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (\`feat\`/\`fix\`/\`refactor\`/\`docs\`/etc.) and prefix the description with \`partial:\` to signal in-progress state — e.g., \`feat(mt#${taskId}): partial: <what's done>\`. The commit-msg hook rejects \`wip(...)\`; status lives in the description, not the type.
 
 **Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
-1. If code is modified, commit with \`wip(mt#${taskId}): <status>\` via \`mcp__minsky__session_commit\`
+1. If code is modified, commit with \`<type>(mt#${taskId}): partial: <status>\` via \`mcp__minsky__session_commit\` (use the type matching the work)
 2. Write a handoff note to \`.minsky/sessions/${sessionId}/handoff.md\` with four fields:
    - **Done:** what shipped this dispatch
    - **In progress:** partial work, with file paths and line ranges
