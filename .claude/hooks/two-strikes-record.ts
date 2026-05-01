@@ -16,8 +16,22 @@
 //   export MINSKY_TWO_STRIKES_MODE=live
 //
 // Hook input contract (Claude Code PostToolUse): see `.claude/hooks/types.ts`.
-// This hook never blocks tool execution — exits 0 unconditionally so the
-// agent proceeds normally regardless of what we record.
+//
+// Latency / ordering contract (PR #926 R2 BLOCKING fix):
+//   - PostToolUse hooks ARE blocking: the harness waits for command exit
+//     or timeout. This hook is short-running by design — in-memory tracker
+//     work plus one or two small fs writes (per-session state ~1KB,
+//     observations.jsonl append). No network IO. Configured timeout: 5s.
+//   - Registered LAST in `.claude/settings.json` PostToolUse so the
+//     existing typecheck-on-edit / validate-task-spec / post-merge-pull /
+//     post-session-start hooks run first and aren't penalized by this
+//     hook's latency.
+//   - Matcher is narrowed to high-traffic tool kinds (Bash, Edit, Write,
+//     Read, Grep, Glob, mcp__.*) rather than `.*` so cumulative cost is
+//     bounded to tools whose errors actually carry the calibration signal.
+//   - Exits 0 on every error path so a hook bug never propagates failure
+//     to the agent (failure here means a missed observation, not a broken
+//     tool call).
 
 import os from "os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "fs";
@@ -229,9 +243,10 @@ export function defaultDeps(): HookDeps {
 }
 
 // Run the hook only when invoked as a script (not when imported by tests).
-// Bun.main is the entrypoint path; comparing against import.meta.path picks
-// out direct invocation. Imports leave Bun.main pointing at the test runner.
-if (import.meta.path === Bun.main) {
+// `import.meta.main` is the idiomatic Bun entrypoint check (Bun >= 0.4) —
+// stable across versions per Bun docs (PR #926 R2 BLOCKING fix replaced
+// the brittle `import.meta.path === Bun.main` form).
+if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   runHook(input, defaultDeps());
   process.exit(0);

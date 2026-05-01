@@ -157,12 +157,13 @@
         ]
       },
       {
-        "matcher": ".*",
+        "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/two-strikes-record.ts",
-            "timeout": 5
+            "timeout": 5,
+            "statusMessage": "Recording 2-strikes streak..."
           }
         ]
       }
