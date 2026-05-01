@@ -1,0 +1,2360 @@
+{
+  "runStartedAt": "2026-05-01T13:16:37.605Z",
+  "mode": "trivial",
+  "model": "gpt-5",
+  "dryRun": false,
+  "summary": {
+    "mode": "trivial",
+    "entriesTested": 20,
+    "attemptsPerEntry": 3,
+    "totalAttempts": 60,
+    "requestChangesRate": 0.9166666666666666,
+    "meanBlockingCount": 1.6833333333333333
+  },
+  "perEntry": [
+    {
+      "prNumber": 904,
+      "iteration": 1,
+      "notes": "5 lines (5+/0-)",
+      "iterationSha": "adaf9d95d04f32db5d950c972e340ceede1023d3",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 4,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "BLOCKING",
+              "line": 7
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 9
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 6904,
+          "usage": {
+            "promptTokens": 54148,
+            "completionTokens": 9100,
+            "reasoningTokens": 6272,
+            "totalTokens": 63248
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 4,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 5
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 8
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 11
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 903,
+          "usage": {
+            "promptTokens": 44161,
+            "completionTokens": 7589,
+            "reasoningTokens": 6336,
+            "totalTokens": 51750
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 11
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "BLOCKING",
+              "line": 9
+            },
+            {
+              "file": ".github/workflows/ci.yml",
+              "severity": "NON-BLOCKING",
+              "line": 11
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 1069,
+          "usage": {
+            "promptTokens": 45292,
+            "completionTokens": 6787,
+            "reasoningTokens": 5248,
+            "totalTokens": 52079
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 812,
+      "iteration": 1,
+      "notes": "10 lines (4+/6-)",
+      "iterationSha": "67f4c72ce7a0010ce428cd3faeb1b5a7eeb724b3",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 4,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 550
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 559
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "BLOCKING",
+              "line": 233
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 6056,
+          "usage": {
+            "promptTokens": 58387,
+            "completionTokens": 6416,
+            "reasoningTokens": 3968,
+            "totalTokens": 64803
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "BLOCKING",
+              "line": 550
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 559
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 545
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 6273,
+          "usage": {
+            "promptTokens": 58583,
+            "completionTokens": 3448,
+            "reasoningTokens": 960,
+            "totalTokens": 62031
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "BLOCKING",
+              "line": 548
+            },
+            {
+              "file": "src/mcp/server.ts",
+              "severity": "NON-BLOCKING",
+              "line": 559
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 6535,
+          "usage": {
+            "promptTokens": 58071,
+            "completionTokens": 3682,
+            "reasoningTokens": 1216,
+            "totalTokens": 61753
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 770,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "8b16bfa155cd46d6fe25f9dfc377766360e99223",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 72
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 87
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 3225,
+          "usage": {
+            "promptTokens": 56451,
+            "completionTokens": 5419,
+            "reasoningTokens": 3520,
+            "totalTokens": 61870
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 84
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 69
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 6827,
+          "usage": {
+            "promptTokens": 59019,
+            "completionTokens": 5489,
+            "reasoningTokens": 2560,
+            "totalTokens": 64508
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 3,
+          "preExistingCount": 1,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "BLOCKING",
+              "line": 72
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 59
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "PRE-EXISTING",
+              "line": 60
+            },
+            {
+              "file": ".claude/hooks/require-review-before-merge.ts",
+              "severity": "NON-BLOCKING",
+              "line": 59
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 5823,
+          "usage": {
+            "promptTokens": 58382,
+            "completionTokens": 4295,
+            "reasoningTokens": 1600,
+            "totalTokens": 62677
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 731,
+      "iteration": 1,
+      "notes": "4 lines (2+/2-)",
+      "iterationSha": "9a3c3bdd3e73715ba39b6960be221e4b5280debd",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 171
+            },
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "BLOCKING",
+              "line": 681
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 171
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4973,
+          "usage": {
+            "promptTokens": 57338,
+            "completionTokens": 3364,
+            "reasoningTokens": 1344,
+            "totalTokens": 60702
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 171
+            },
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "NON-BLOCKING",
+              "line": 681
+            },
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "BLOCKING",
+              "line": 681
+            },
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "NON-BLOCKING",
+              "line": 681
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4672,
+          "usage": {
+            "promptTokens": 58319,
+            "completionTokens": 4416,
+            "reasoningTokens": 2176,
+            "totalTokens": 62735
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "BLOCKING",
+              "line": 681
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 174
+            },
+            {
+              "file": "src/adapters/shared/commands/session/session-parameters.ts",
+              "severity": "NON-BLOCKING",
+              "line": 681
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4468,
+          "usage": {
+            "promptTokens": 58633,
+            "completionTokens": 4637,
+            "reasoningTokens": 2496,
+            "totalTokens": 63270
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 708,
+      "iteration": 1,
+      "notes": "5 lines (1+/4-)",
+      "iterationSha": "a58430a58e858ba08f83393c7b9ffe6d9b61e2a6",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 459
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 484
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 428
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 528
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 5839,
+          "usage": {
+            "promptTokens": 55409,
+            "completionTokens": 4461,
+            "reasoningTokens": 2048,
+            "totalTokens": 59870
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 483
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 459
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 428
+            },
+            {
+              "file": "src/commands/mcp/scheduler-wiring.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 526
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 5360,
+          "usage": {
+            "promptTokens": 57061,
+            "completionTokens": 4240,
+            "reasoningTokens": 1728,
+            "totalTokens": 61301
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 483
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 459
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 428
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 484
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 459
+            },
+            {
+              "file": "src/domain/session/commands/repair-command.ts",
+              "severity": "BLOCKING",
+              "line": 459
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 7024,
+          "usage": {
+            "promptTokens": 55778,
+            "completionTokens": 9183,
+            "reasoningTokens": 6464,
+            "totalTokens": 64961
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 651,
+      "iteration": 1,
+      "notes": "6 lines (4+/2-)",
+      "iterationSha": "72604594b412ff88b3dfa28ce0d1e01136383049",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/skills/implement-task/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 66
+            },
+            {
+              "file": ".claude/skills/orchestrate/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 75
+            },
+            {
+              "file": ".claude/skills/orchestrate/SKILL.md",
+              "severity": "NON-BLOCKING",
+              "line": 74
+            },
+            {
+              "file": ".claude/skills/implement-task/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 63
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 10486,
+          "usage": {
+            "promptTokens": 55548,
+            "completionTokens": 5208,
+            "reasoningTokens": 1856,
+            "totalTokens": 60756
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/skills/implement-task/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 65
+            },
+            {
+              "file": ".claude/skills/orchestrate/SKILL.md",
+              "severity": "NON-BLOCKING",
+              "line": 75
+            },
+            {
+              "file": ".claude/skills/orchestrate/SKILL.md",
+              "severity": "NON-BLOCKING",
+              "line": 73
+            },
+            {
+              "file": ".claude/skills/implement-task/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 5625,
+          "usage": {
+            "promptTokens": 54539,
+            "completionTokens": 6038,
+            "reasoningTokens": 3712,
+            "totalTokens": 60577
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/skills/implement-task/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 61
+            },
+            {
+              "file": ".claude/skills/orchestrate/SKILL.md",
+              "severity": "BLOCKING",
+              "line": 72
+            },
+            {
+              "file": "(repo root)",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 3002,
+          "usage": {
+            "promptTokens": 52406,
+            "completionTokens": 2833,
+            "reasoningTokens": 1344,
+            "totalTokens": 55239
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 648,
+      "iteration": 1,
+      "notes": "2 lines (2+/0-)",
+      "iterationSha": "6d0b53e32d8ae751ba6349077f66f7a903aed1aa",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 5,
+          "scratchTextLength": 604,
+          "usage": {
+            "promptTokens": 35992,
+            "completionTokens": 1913,
+            "reasoningTokens": 1280,
+            "totalTokens": 37905
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 5,
+          "scratchTextLength": 772,
+          "usage": {
+            "promptTokens": 36246,
+            "completionTokens": 2081,
+            "reasoningTokens": 1344,
+            "totalTokens": 38327
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 14
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 14
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 14
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 3983,
+          "usage": {
+            "promptTokens": 52129,
+            "completionTokens": 3169,
+            "reasoningTokens": 1152,
+            "totalTokens": 55298
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 644,
+      "iteration": 1,
+      "notes": "7 lines (6+/1-)",
+      "iterationSha": "e1f303fd4b36084bbb626ec7cd309180dd755c9d",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 4,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/settings.json",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "NON-BLOCKING",
+              "line": 5
+            },
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "NON-BLOCKING",
+              "line": 6
+            },
+            {
+              "file": ".claude/agents/verify-completion.md",
+              "severity": "NON-BLOCKING",
+              "line": 5
+            },
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "BLOCKING",
+              "line": 6
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 625,
+          "usage": {
+            "promptTokens": 56120,
+            "completionTokens": 6126,
+            "reasoningTokens": 4608,
+            "totalTokens": 62246
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/settings.json",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/agents/verify-completion.md",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 693,
+          "usage": {
+            "promptTokens": 45059,
+            "completionTokens": 2337,
+            "reasoningTokens": 1472,
+            "totalTokens": 47396
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/agents/verify-completion.md",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/agents/refactor.md",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 7266,
+          "usage": {
+            "promptTokens": 58237,
+            "completionTokens": 6377,
+            "reasoningTokens": 3328,
+            "totalTokens": 64614
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 639,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "9d3814cbdda4f2803182af90aed99739748fdd75",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 579
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "BLOCKING",
+              "line": 578
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 572
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 570
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "BLOCKING",
+              "line": 581
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 2705,
+          "usage": {
+            "promptTokens": 45477,
+            "completionTokens": 4240,
+            "reasoningTokens": 2624,
+            "totalTokens": 49717
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "docs/architecture.md",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 569
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 569
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 569
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 1248,
+          "usage": {
+            "promptTokens": 43873,
+            "completionTokens": 1827,
+            "reasoningTokens": 704,
+            "totalTokens": 45700
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 573
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "BLOCKING",
+              "line": 578
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "BLOCKING",
+              "line": 578
+            },
+            {
+              "file": "docs/architecture.md",
+              "severity": "NON-BLOCKING",
+              "line": 571
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 1244,
+          "usage": {
+            "promptTokens": 45696,
+            "completionTokens": 2775,
+            "reasoningTokens": 1472,
+            "totalTokens": 48471
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 638,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "f7a4e761798e52b65715a81e33b42ab860cbc8f0",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "BLOCKING",
+              "line": 149
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "BLOCKING",
+              "line": 145
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "NON-BLOCKING",
+              "line": 145
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "BLOCKING",
+              "line": 145
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4815,
+          "usage": {
+            "promptTokens": 52808,
+            "completionTokens": 5385,
+            "reasoningTokens": 3072,
+            "totalTokens": 58193
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "NON-BLOCKING",
+              "line": 145
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "NON-BLOCKING",
+              "line": 145
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 2107,
+          "usage": {
+            "promptTokens": 45346,
+            "completionTokens": 4841,
+            "reasoningTokens": 3520,
+            "totalTokens": 50187
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "BLOCKING",
+              "line": 149
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "NON-BLOCKING",
+              "line": 147
+            },
+            {
+              "file": "src/domain/storage/migrations/pg/meta/_journal.json",
+              "severity": "NON-BLOCKING",
+              "line": 145
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 1802,
+          "usage": {
+            "promptTokens": 50704,
+            "completionTokens": 3574,
+            "reasoningTokens": 2176,
+            "totalTokens": 54278
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 613,
+      "iteration": 1,
+      "notes": "7 lines (0+/7-)",
+      "iterationSha": "4064a22e24a43ddc973471bbab216c10db6333fb",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 1302,
+          "usage": {
+            "promptTokens": 47438,
+            "completionTokens": 3539,
+            "reasoningTokens": 2240,
+            "totalTokens": 50977
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 1346,
+          "usage": {
+            "promptTokens": 47589,
+            "completionTokens": 2788,
+            "reasoningTokens": 1472,
+            "totalTokens": 50377
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 196
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 813,
+          "usage": {
+            "promptTokens": 38161,
+            "completionTokens": 2334,
+            "reasoningTokens": 1344,
+            "totalTokens": 40495
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 603,
+      "iteration": 1,
+      "notes": "10 lines (8+/2-)",
+      "iterationSha": "1198998921776a97aaac71597d813c21afd251d2",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 147
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 149
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 154
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 12300,
+          "usage": {
+            "promptTokens": 52452,
+            "completionTokens": 4645,
+            "reasoningTokens": 1088,
+            "totalTokens": 57097
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 149
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 151
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 10421,
+          "usage": {
+            "promptTokens": 51961,
+            "completionTokens": 8290,
+            "reasoningTokens": 1728,
+            "totalTokens": 60251
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 5,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 149
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 146
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 145
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 146
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 162
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/base-task-command.ts",
+              "severity": "BLOCKING",
+              "line": 149
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 7076,
+          "usage": {
+            "promptTokens": 55240,
+            "completionTokens": 6060,
+            "reasoningTokens": 3072,
+            "totalTokens": 61300
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 559,
+      "iteration": 1,
+      "notes": "8 lines (5+/3-)",
+      "iterationSha": "30dcf4d3a9b526d710475b4fdcbab961a00553df",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "COMMENT",
+          "blockingCount": 0,
+          "nonBlockingCount": 2,
+          "preExistingCount": 1,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "PRE-EXISTING",
+              "line": 92
+            },
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "NON-BLOCKING",
+              "line": 94
+            },
+            {
+              "file": "src/schemas/command-registry.ts",
+              "severity": "NON-BLOCKING",
+              "line": 24
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 2699,
+          "usage": {
+            "promptTokens": 36241,
+            "completionTokens": 5350,
+            "reasoningTokens": 4096,
+            "totalTokens": 41591
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "NON-BLOCKING",
+              "line": 95
+            },
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "BLOCKING",
+              "line": 92
+            },
+            {
+              "file": "src/schemas/command-registry.ts",
+              "severity": "BLOCKING",
+              "line": 24
+            },
+            {
+              "file": "src/schemas/command-registry.ts",
+              "severity": "NON-BLOCKING",
+              "line": 21
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 2992,
+          "usage": {
+            "promptTokens": 46601,
+            "completionTokens": 2506,
+            "reasoningTokens": 832,
+            "totalTokens": 49107
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 1,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "NON-BLOCKING",
+              "line": 94
+            },
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "PRE-EXISTING",
+              "line": 92
+            },
+            {
+              "file": ".claude/hooks/post-session-start.ts",
+              "severity": "BLOCKING",
+              "line": 93
+            },
+            {
+              "file": "src/schemas/command-registry.ts",
+              "severity": "NON-BLOCKING",
+              "line": 24
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4048,
+          "usage": {
+            "promptTokens": 51027,
+            "completionTokens": 5316,
+            "reasoningTokens": 3328,
+            "totalTokens": 56343
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 519,
+      "iteration": 1,
+      "notes": "8 lines (8+/0-)",
+      "iterationSha": "67028ed4b24a5e51772148496604960b9c1d4d72",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "ERROR",
+          "blockingCount": 0,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [],
+          "findingSource": "none",
+          "toolCallCount": 0,
+          "scratchTextLength": 0,
+          "usage": {}
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 138
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 136
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 140
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 142
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 136
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 443,
+          "usage": {
+            "promptTokens": 50525,
+            "completionTokens": 3261,
+            "reasoningTokens": 1984,
+            "totalTokens": 53786
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 138
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "NON-BLOCKING",
+              "line": 136
+            },
+            {
+              "file": "CLAUDE.md",
+              "severity": "BLOCKING",
+              "line": 134
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 1437,
+          "usage": {
+            "promptTokens": 45403,
+            "completionTokens": 4922,
+            "reasoningTokens": 3648,
+            "totalTokens": 50325
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 520,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "455675341453a181051b6a766b2709a5c5f21ea4",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 39
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 39
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 41
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 39
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 2536,
+          "usage": {
+            "promptTokens": 42574,
+            "completionTokens": 3845,
+            "reasoningTokens": 2240,
+            "totalTokens": 46419
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 39
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 153
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 39
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 39
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 984,
+          "usage": {
+            "promptTokens": 43001,
+            "completionTokens": 3200,
+            "reasoningTokens": 1984,
+            "totalTokens": 46201
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 43
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 41
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 153
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 39
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks/routing-commands.ts",
+              "severity": "BLOCKING",
+              "line": 39
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 9,
+          "scratchTextLength": 4240,
+          "usage": {
+            "promptTokens": 53617,
+            "completionTokens": 3326,
+            "reasoningTokens": 1152,
+            "totalTokens": 56943
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 509,
+      "iteration": 1,
+      "notes": "2 lines (1+/1-)",
+      "iterationSha": "ed2e98cf32a2555924c7bd462d0c9c233b1eda56",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "BLOCKING",
+              "line": 231
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "BLOCKING",
+              "line": 231
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 231
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 231
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 5,
+          "scratchTextLength": 1000,
+          "usage": {
+            "promptTokens": 40112,
+            "completionTokens": 2528,
+            "reasoningTokens": 1344,
+            "totalTokens": 42640
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "COMMENT",
+          "blockingCount": 0,
+          "nonBlockingCount": 4,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 230
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 230
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 230
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 230
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4845,
+          "usage": {
+            "promptTokens": 48550,
+            "completionTokens": 2816,
+            "reasoningTokens": 832,
+            "totalTokens": 51366
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 233
+            },
+            {
+              "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+              "severity": "NON-BLOCKING",
+              "line": 233
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 3173,
+          "usage": {
+            "promptTokens": 44149,
+            "completionTokens": 2776,
+            "reasoningTokens": 1088,
+            "totalTokens": 46925
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 496,
+      "iteration": 1,
+      "notes": "2 lines (1+/1-)",
+      "iterationSha": "8f378a6a382f569bc466d4f202ded65145936d4f",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "NON-BLOCKING",
+              "line": 41
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4462,
+          "usage": {
+            "promptTokens": 48318,
+            "completionTokens": 3469,
+            "reasoningTokens": 1664,
+            "totalTokens": 51787
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "NON-BLOCKING",
+              "line": 38
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "BLOCKING",
+              "line": 38
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "NON-BLOCKING",
+              "line": 38
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4877,
+          "usage": {
+            "promptTokens": 49780,
+            "completionTokens": 4245,
+            "reasoningTokens": 2112,
+            "totalTokens": 54025
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "BLOCKING",
+              "line": 41
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "BLOCKING",
+              "line": 41
+            },
+            {
+              "file": "src/adapters/shared/commands/tasks-modular.ts",
+              "severity": "NON-BLOCKING",
+              "line": 41
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 5,
+          "scratchTextLength": 11300,
+          "usage": {
+            "promptTokens": 48977,
+            "completionTokens": 8781,
+            "reasoningTokens": 2752,
+            "totalTokens": 57758
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 480,
+      "iteration": 1,
+      "notes": "8 lines (0+/8-)",
+      "iterationSha": "a99909a6ebf1766236689cd497f321033e196c06",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "BLOCKING",
+              "line": 202
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "BLOCKING",
+              "line": 196
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "NON-BLOCKING",
+              "line": 195
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 2816,
+          "usage": {
+            "promptTokens": 41581,
+            "completionTokens": 2608,
+            "reasoningTokens": 1088,
+            "totalTokens": 44189
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "BLOCKING",
+              "line": 209
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "NON-BLOCKING",
+              "line": 195
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "BLOCKING",
+              "line": 205
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "NON-BLOCKING",
+              "line": 195
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 714,
+          "usage": {
+            "promptTokens": 41569,
+            "completionTokens": 3791,
+            "reasoningTokens": 2624,
+            "totalTokens": 45360
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "BLOCKING",
+              "line": 201
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "NON-BLOCKING",
+              "line": 195
+            },
+            {
+              "file": "src/domain/session/prompt-generation.ts",
+              "severity": "NON-BLOCKING",
+              "line": 195
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 850,
+          "usage": {
+            "promptTokens": 41565,
+            "completionTokens": 3217,
+            "reasoningTokens": 2112,
+            "totalTokens": 44782
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 478,
+      "iteration": 1,
+      "notes": "5 lines (3+/2-)",
+      "iterationSha": "825a41bf3aad151ec0ea8401f84cfdacfaf80978",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 15
+            },
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 16
+            },
+            {
+              "file": "CONTRIBUTING.md",
+              "severity": "BLOCKING",
+              "line": 185
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 1098,
+          "usage": {
+            "promptTokens": 45755,
+            "completionTokens": 2828,
+            "reasoningTokens": 1728,
+            "totalTokens": 48583
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "COMMENT",
+          "blockingCount": 0,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 14
+            },
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 15
+            },
+            {
+              "file": "CONTRIBUTING.md",
+              "severity": "NON-BLOCKING",
+              "line": 182
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 1282,
+          "usage": {
+            "promptTokens": 31540,
+            "completionTokens": 3464,
+            "reasoningTokens": 2560,
+            "totalTokens": 35004
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 0,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "CONTRIBUTING.md",
+              "severity": "NON-BLOCKING",
+              "line": 182
+            },
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 14
+            },
+            {
+              "file": "docs/README.md",
+              "severity": "NON-BLOCKING",
+              "line": 15
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 5904,
+          "usage": {
+            "promptTokens": 50068,
+            "completionTokens": 4815,
+            "reasoningTokens": 2624,
+            "totalTokens": 54883
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 475,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "faf980383a0bf8102bc36d6eea7069f266b14edb",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "COMMENT",
+          "blockingCount": 0,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/test-quality.yml",
+              "severity": "NON-BLOCKING",
+              "line": 17
+            },
+            {
+              "file": ".github/workflows/release.yml",
+              "severity": "NON-BLOCKING",
+              "line": 33
+            },
+            {
+              "file": ".github/workflows/release.yml",
+              "severity": "NON-BLOCKING",
+              "line": 64
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4747,
+          "usage": {
+            "promptTokens": 50033,
+            "completionTokens": 3974,
+            "reasoningTokens": 1984,
+            "totalTokens": 54007
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/release.yml",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".github/workflows/test-quality.yml",
+              "severity": "BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 6,
+          "scratchTextLength": 915,
+          "usage": {
+            "promptTokens": 44135,
+            "completionTokens": 1722,
+            "reasoningTokens": 832,
+            "totalTokens": 45857
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".github/workflows/release.yml",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".github/workflows/test-quality.yml",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 4609,
+          "usage": {
+            "promptTokens": 50461,
+            "completionTokens": 3238,
+            "reasoningTokens": 1280,
+            "totalTokens": 53699
+          }
+        }
+      ]
+    }
+  ]
+}

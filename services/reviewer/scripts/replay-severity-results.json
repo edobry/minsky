@@ -1,0 +1,728 @@
+{
+  "runStartedAt": "2026-04-30T19:42:58.256Z",
+  "model": "gpt-5",
+  "promptVariant": "post-restructure",
+  "summary": {
+    "entriesTested": 5,
+    "attemptsPerEntry": 3,
+    "totalAttempts": 15,
+    "totalCurrentBlocking": 28,
+    "totalInflated": 18,
+    "weightedInflationRate": 0.6428571428571429
+  },
+  "perEntry": [
+    {
+      "prNumber": 732,
+      "iteration": 4,
+      "notes": "5-round PR; R4 re-raised R1/R2/R3 NON-BLOCKING as BLOCKING",
+      "iterationSha": "3fa71436bbf45745ddfd076fca3c0bc3ce92a32e",
+      "attempts": [
+        {
+          "attempt": 1,
+          "toolCallCount": 5,
+          "scratchTextLength": 2671,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 2,
+          "concludeEvent": "REQUEST_CHANGES",
+          "currentFindings": [
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 22
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 170
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 172
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 2,
+            "inflatedFindings": [
+              {
+                "file": "src/adapters/mcp/shared-command-integration.ts",
+                "severity": "BLOCKING",
+                "line": 22
+              },
+              {
+                "file": "src/adapters/mcp/shared-command-integration.ts",
+                "severity": "BLOCKING",
+                "line": 170
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 3593
+        },
+        {
+          "attempt": 2,
+          "toolCallCount": 6,
+          "scratchTextLength": 1566,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 3,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/command-registry.ts",
+              "severity": "BLOCKING",
+              "line": 348
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "BLOCKING",
+              "line": 82
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 186
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 3,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 3593
+        },
+        {
+          "attempt": 3,
+          "toolCallCount": 5,
+          "scratchTextLength": 12338,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 3,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 170
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 3,
+            "inflatedFindings": [
+              {
+                "file": "src/adapters/mcp/shared-command-integration.ts",
+                "severity": "BLOCKING",
+                "line": 186
+              },
+              {
+                "file": "src/adapters/mcp/shared-command-integration.ts",
+                "severity": "BLOCKING",
+                "line": 186
+              }
+            ],
+            "inflationRate": 0.6666666666666666
+          },
+          "priorReviewsMarkdownChars": 3593
+        }
+      ],
+      "priorNonBlockingFileCount": 1
+    },
+    {
+      "prNumber": 743,
+      "iteration": 3,
+      "notes": "3-round PR; R3 escalated 6 NON-BLOCKING to BLOCKING",
+      "iterationSha": "945e3731b846a158f9f730032d3de45e6e18d467",
+      "attempts": [
+        {
+          "attempt": 1,
+          "toolCallCount": 6,
+          "scratchTextLength": 1579,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 0,
+          "concludeEvent": "APPROVE",
+          "currentFindings": [
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 70
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 109
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 75
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 121
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 0,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 2,
+          "toolCallCount": 8,
+          "scratchTextLength": 14014,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 2,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "BLOCKING",
+              "line": 90
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "BLOCKING",
+              "line": 119
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 67
+            },
+            {
+              "file": "src/domain/cognition/index.ts",
+              "severity": "NON-BLOCKING",
+              "line": 14
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 2,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 3,
+          "toolCallCount": 5,
+          "scratchTextLength": 9748,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 2,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 94
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "BLOCKING",
+              "line": 71
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "BLOCKING",
+              "line": 26
+            },
+            {
+              "file": "src/domain/cognition/providers/direct.ts",
+              "severity": "NON-BLOCKING",
+              "line": 119
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 2,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 2388
+        }
+      ],
+      "priorNonBlockingFileCount": 3
+    },
+    {
+      "prNumber": 751,
+      "iteration": 3,
+      "notes": "4-round PR; R3 same `as PostgresJsDatabase` cast NON-BLOCKING→BLOCKING",
+      "iterationSha": "eb1a1676f24abcad04b2331af84aff0c7c769f2f",
+      "attempts": [
+        {
+          "attempt": 1,
+          "toolCallCount": 3,
+          "scratchTextLength": 3860,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 3,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/mcp-client.ts",
+              "severity": "BLOCKING",
+              "line": 132
+            },
+            {
+              "file": "services/reviewer/src/mcp-client.ts",
+              "severity": "BLOCKING",
+              "line": 204
+            },
+            {
+              "file": "services/reviewer/src/tier-routing.ts",
+              "severity": "BLOCKING",
+              "line": 70
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 3,
+            "inflatedFindings": [
+              {
+                "file": "services/reviewer/src/mcp-client.ts",
+                "severity": "BLOCKING",
+                "line": 132
+              },
+              {
+                "file": "services/reviewer/src/mcp-client.ts",
+                "severity": "BLOCKING",
+                "line": 204
+              },
+              {
+                "file": "services/reviewer/src/tier-routing.ts",
+                "severity": "BLOCKING",
+                "line": 70
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 2,
+          "toolCallCount": 4,
+          "scratchTextLength": 11397,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 2,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/mcp-client.ts",
+              "severity": "BLOCKING",
+              "line": 175
+            },
+            {
+              "file": "services/reviewer/src/tier-routing.ts",
+              "severity": "BLOCKING",
+              "line": 66
+            },
+            {
+              "file": "src/adapters/shared/commands/provenance.ts",
+              "severity": "NON-BLOCKING",
+              "line": 73
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 2,
+            "inflatedFindings": [
+              {
+                "file": "services/reviewer/src/mcp-client.ts",
+                "severity": "BLOCKING",
+                "line": 175
+              },
+              {
+                "file": "services/reviewer/src/tier-routing.ts",
+                "severity": "BLOCKING",
+                "line": 66
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 3,
+          "toolCallCount": 6,
+          "scratchTextLength": 12402,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 3,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/tier-routing.ts",
+              "severity": "BLOCKING",
+              "line": 85
+            },
+            {
+              "file": "services/reviewer/src/mcp-client.ts",
+              "severity": "BLOCKING",
+              "line": 180
+            },
+            {
+              "file": "services/reviewer/src/mcp-client.test.ts",
+              "severity": "BLOCKING",
+              "line": 119
+            },
+            {
+              "file": "services/reviewer/src/mcp-client.ts",
+              "severity": "NON-BLOCKING",
+              "line": 61
+            },
+            {
+              "file": "src/adapters/shared/commands/provenance.ts",
+              "severity": "NON-BLOCKING",
+              "line": 58
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 3,
+            "inflatedFindings": [
+              {
+                "file": "services/reviewer/src/tier-routing.ts",
+                "severity": "BLOCKING",
+                "line": 85
+              },
+              {
+                "file": "services/reviewer/src/mcp-client.ts",
+                "severity": "BLOCKING",
+                "line": 180
+              },
+              {
+                "file": "services/reviewer/src/mcp-client.test.ts",
+                "severity": "BLOCKING",
+                "line": 119
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 2388
+        }
+      ],
+      "priorNonBlockingFileCount": 5
+    },
+    {
+      "prNumber": 758,
+      "iteration": 5,
+      "notes": "5-round PR; R5 bold-heading NON-BLOCKING→BLOCKING + hallucinated info-leak",
+      "iterationSha": "c0f86d3a143fe535e99e8e4a9695ae8e5fa44ed6",
+      "attempts": [
+        {
+          "attempt": 1,
+          "toolCallCount": 7,
+          "scratchTextLength": 2057,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 4,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "BLOCKING",
+              "line": 64
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "BLOCKING",
+              "line": 91
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 126
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "BLOCKING",
+              "line": 108
+            },
+            {
+              "file": "services/reviewer/src/review-worker.ts",
+              "severity": "NON-BLOCKING",
+              "line": 334
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "BLOCKING",
+              "line": 86
+            },
+            {
+              "file": "services/reviewer/src/sanitize.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 4,
+            "inflatedFindings": [
+              {
+                "file": "services/reviewer/src/sanitize.ts",
+                "severity": "BLOCKING",
+                "line": 64
+              },
+              {
+                "file": "services/reviewer/src/sanitize.ts",
+                "severity": "BLOCKING",
+                "line": 91
+              },
+              {
+                "file": "services/reviewer/src/sanitize.ts",
+                "severity": "BLOCKING",
+                "line": 108
+              },
+              {
+                "file": "services/reviewer/src/sanitize.ts",
+                "severity": "BLOCKING",
+                "line": 86
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 10544
+        },
+        {
+          "attempt": 2,
+          "toolCallCount": 6,
+          "scratchTextLength": 2015,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 0,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 48
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 134
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 30
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 23
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 108
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 0,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 10544
+        },
+        {
+          "attempt": 3,
+          "toolCallCount": 6,
+          "scratchTextLength": 1383,
+          "scratchSanitize": "errored",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 1,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "BLOCKING",
+              "line": 36
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 69
+            },
+            {
+              "file": "docs/architecture/critic-constitution-reliability.md",
+              "severity": "NON-BLOCKING",
+              "line": 82
+            },
+            {
+              "file": "services/reviewer/src/sanitize.ts",
+              "severity": "NON-BLOCKING",
+              "line": 36
+            },
+            {
+              "file": "services/reviewer/src/review-worker.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 76
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 1,
+            "inflatedFindings": [
+              {
+                "file": "services/reviewer/src/sanitize.ts",
+                "severity": "BLOCKING",
+                "line": 36
+              }
+            ],
+            "inflationRate": 1
+          },
+          "priorReviewsMarkdownChars": 10544
+        }
+      ],
+      "priorNonBlockingFileCount": 2
+    },
+    {
+      "prNumber": 829,
+      "iteration": 3,
+      "notes": "3-round PR; R3 re-flagged misclassification despite PR-description rebuttal",
+      "iterationSha": "daac6d1eeeca313a844009a09cdd44951a90662c",
+      "attempts": [
+        {
+          "attempt": 1,
+          "toolCallCount": 5,
+          "scratchTextLength": 2731,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 1,
+          "concludeEvent": "REQUEST_CHANGES",
+          "currentFindings": [
+            {
+              "file": "src/domain/pr-watch/types.ts",
+              "severity": "NON-BLOCKING",
+              "line": 86
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.ts",
+              "severity": "NON-BLOCKING",
+              "line": 396
+            },
+            {
+              "file": "src/domain/pr-watch/types.ts",
+              "severity": "BLOCKING",
+              "line": 84
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 399
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 1,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 2,
+          "toolCallCount": 5,
+          "scratchTextLength": 2782,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 0,
+          "concludeEvent": "APPROVE",
+          "currentFindings": [
+            {
+              "file": "src/domain/pr-watch/types.ts",
+              "severity": "NON-BLOCKING",
+              "line": 86
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.ts",
+              "severity": "NON-BLOCKING",
+              "line": 360
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 399
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 0,
+            "inflatedFindings": [],
+            "inflationRate": 0
+          },
+          "priorReviewsMarkdownChars": 2388
+        },
+        {
+          "attempt": 3,
+          "toolCallCount": 7,
+          "scratchTextLength": 9756,
+          "scratchSanitize": "passthrough",
+          "postedBodySanitize": "passthrough",
+          "blockingFindingCount": 2,
+          "concludeEvent": "NONE",
+          "currentFindings": [
+            {
+              "file": "src/domain/pr-watch/types.ts",
+              "severity": "BLOCKING",
+              "line": 84
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 16
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.ts",
+              "severity": "BLOCKING",
+              "line": 412
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.ts",
+              "severity": "NON-BLOCKING",
+              "line": 405
+            },
+            {
+              "file": "src/domain/pr-watch/watcher.ts",
+              "severity": "NON-BLOCKING",
+              "line": 400
+            }
+          ],
+          "inflation": {
+            "currentBlockingCount": 2,
+            "inflatedFindings": [
+              {
+                "file": "src/domain/pr-watch/watcher.ts",
+                "severity": "BLOCKING",
+                "line": 412
+              }
+            ],
+            "inflationRate": 0.5
+          },
+          "priorReviewsMarkdownChars": 2388
+        }
+      ],
+      "priorNonBlockingFileCount": 2
+    }
+  ]
+}

@@ -20,13 +20,13 @@
  */
 
 import { injectable } from "tsyringe";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId } from "./types";
-import { guardTransition } from "./state-machine";
+import { guardTransition, isTerminal, TERMINAL_ASK_STATES } from "./state-machine";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -168,6 +168,22 @@ export interface AskRepository {
 
   /** List all Asks produced by the given classifier version. */
   listByClassifierVersion(version: string): Promise<Ask[]>;
+
+  /**
+   * Batch-list open Asks for any task in `taskIds`.
+   *
+   * "Open" means state is not one of the terminal states (closed / cancelled
+   * / expired). Rows are returned ordered by `createdAt` descending so the
+   * caller can group by `parentTaskId` and pick the first row per task.
+   *
+   * Replaces the N-query `Promise.all(taskIds.map(listByParentTask))` pattern
+   * with a single query — see `getOpenAsksByTaskIds` in queries.ts. Returns
+   * an empty array when `taskIds` is empty (no query is issued).
+   *
+   * @param taskIds Task IDs to filter by.
+   * @returns       Open Asks across all matching tasks, sorted createdAt desc.
+   */
+  findOpenByTaskIds(taskIds: string[]): Promise<Ask[]>;
 
   /**
    * Transition an Ask to a new state.
@@ -317,6 +333,26 @@ export class DrizzleAskRepository implements AskRepository {
       .select()
       .from(asksTable)
       .where(eq(asksTable.classifierVersion, version));
+    return rows.map(toAsk);
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    // Explicit isNotNull on parentTaskId is redundant with `IN (...)` in
+    // standard SQL (NULL evaluates to UNKNOWN and is filtered out), but
+    // we keep it explicit for parity with FakeAskRepository and for
+    // robustness against ORM/dialect surprises.
+    const rows = await this.db
+      .select()
+      .from(asksTable)
+      .where(
+        and(
+          isNotNull(asksTable.parentTaskId),
+          inArray(asksTable.parentTaskId, taskIds),
+          notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[])
+        )
+      )
+      .orderBy(desc(asksTable.createdAt));
     return rows.map(toAsk);
   }
 
@@ -533,6 +569,17 @@ export class FakeAskRepository implements AskRepository {
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {
     return this.all.filter((a) => a.classifierVersion === version).map((a) => ({ ...a }));
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    const taskIdSet = new Set(taskIds);
+    return this.all
+      .filter(
+        (a) => a.parentTaskId !== undefined && taskIdSet.has(a.parentTaskId) && !isTerminal(a.state)
+      )
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : b.createdAt < a.createdAt ? -1 : 0))
+      .map((a) => ({ ...a }));
   }
 
   async transition(id: string, to: AskState): Promise<Ask> {

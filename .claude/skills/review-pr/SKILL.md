@@ -19,7 +19,7 @@ The argument is a PR number (e.g., `/review-pr 328`) or a GitHub PR URL.
 
 ### 1. Gather context
 
-Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the diff, and the task spec.
+Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the raw diff, the structured `parsedDiff` (with hunks for line-anchored comment selection), the task spec, and existing review threads with resolved/outdated state.
 
 If the session tool fails (e.g., no session exists for this PR), fall back to fetching in parallel:
 
@@ -43,6 +43,8 @@ If the diff was not already returned by step 1, use `mcp__github__pull_request_r
 - 100+ files: Dispatch 5+ reviewer agents
 
 Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
+
+**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely. As the parent aggregator, you hold the canonical `parsedDiff` from `session_pr_review_context` — validate each subagent's `(path, line, side)` anchor against it (step 5 + the anchor-validation block below), dedupe across slices, assign final severity, demote failed anchors to body entries, and construct the final `comments[]` yourself before posting in step 7. mt#1485 tracks the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
 
 **Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
 
@@ -157,14 +159,44 @@ Use `mcp__minsky__session_pr_review_submit`. Extract the task ID from the branch
 ```
 mcp__minsky__session_pr_review_submit
   task: "mt#847"   (or sessionId if known)
-  body: "<full review body>"
+  body: "<review body — summary, spec table, CI status, cross-cutting concerns>"
   event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"
-  comments: [{ path, line, body, side? }]   (optional, for line-level comments)
+  comments: [{ path, line, body, side?, startLine?, startSide? }]
 ```
 
 This posts the review under the configured bot/service-account identity.
 
 The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned by a PreToolUse hook (see mt#1030) because it bypasses TokenProvider and produces identity drift. If the Minsky tool fails, file a bug — don't work around it.
+
+**Location-bearing findings MUST be `comments[]` entries.** Do not put inline findings (those with a specific file:line) only in the review body. The body is reserved for: executive summary, spec-verification table, CI status, cross-cutting concerns that do not anchor to a single location, and findings that failed anchor validation.
+
+**Anchor validation before submitting:** GitHub rejects the **entire review** (422) if any comment targets a line not present in the PR diff. Before building a `comments[]` entry:
+
+1. Find the matching `DiffFile` in `parsedDiff` (skip `warning`-flagged files). Lookup depends on side and rename status:
+   - **RIGHT-side anchor:** match `file.path === path` (the current filename).
+   - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that's the post-rename name.
+   - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
+2. Verify the file's `status` permits the chosen side:
+   - `status: "added"` — only RIGHT anchors valid (no pre-image to anchor to).
+   - `status: "deleted"` — only LEFT anchors valid (no post-image to anchor to). Use `DiffFile.path` (deletions are not renames).
+   - `status: "modified"` or `"renamed"` — both sides valid.
+3. Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target line number (`newLine` for RIGHT, `oldLine` for LEFT).
+4. **For multi-line ranges** (`startLine` is set): also confirm `startLine` exists on the same side AND both endpoints fall within the same `DiffHunk`; verify `startSide === side`. **This applies equally when the parent aggregator constructs `comments[]` from Mode 1 subagent observations** — provisional anchors that span hunks must be demoted to body, not posted.
+5. If any check fails, move the finding to the body under an "Unanchored findings" section.
+
+**Side-mapping rule:**
+
+| DiffLine.side | GitHub `side` value                            | Line number to use                    |
+| ------------- | ---------------------------------------------- | ------------------------------------- |
+| `RIGHT`       | `"RIGHT"`                                      | `newLine`                             |
+| `LEFT`        | `"LEFT"`                                       | `oldLine`                             |
+| `CONTEXT`     | `"RIGHT"` or `"LEFT"` (must choose explicitly) | `newLine` (RIGHT) or `oldLine` (LEFT) |
+
+CONTEXT is not a valid GitHub side value. Choose LEFT or RIGHT for context-line anchors.
+
+**Multi-line comments** (e.g., a block spanning lines 88–95): set `startLine` to the first line and `line` to the last. `startSide` must equal `side` — GitHub 422s mismatched sides.
+
+Each comment body must carry a severity prefix: `[BLOCKING] ...` or `[NON-BLOCKING] ...`.
 
 **Event selection:**
 
@@ -205,20 +237,24 @@ References: `feedback_self_authored_pr_merge_constraints`, `feedback_gh_api_bypa
 
 ### 9. Review body format
 
+The body is for summary and metadata — NOT for inline findings. All location-bearing findings go in `comments[]`.
+
 ```markdown
 ## Review: <short description>
 
-**CI status:** <pass/fail/pending>
+**CI status:** <pass/fail/pending — N checks passed, M failed>
 
-### Findings
+### Summary
 
-<For each verified finding:>
-**[BLOCKING/NON-BLOCKING/PRE-EXISTING]** <file:line> — <description>
-<evidence from source code that confirms this is real>
+<2–4 sentences: overall assessment, count of BLOCKING / NON-BLOCKING findings posted as inline comments, high-level risk>
 
-### Checked and clear
+### Cross-cutting concerns
 
-<Brief list of areas reviewed with no issues — shows coverage>
+<Findings that do NOT anchor to a single location — e.g., "8 of 12 new public functions lack JSDoc". Omit section if none.>
+
+### Unanchored findings
+
+<Findings that failed anchor validation against parsedDiff. Format: **[BLOCKING/NON-BLOCKING]** `file:line` — description. Omit section if none.>
 
 ### Spec verification
 
@@ -262,6 +298,8 @@ This pattern is now canonical operating procedure for bot-authored PRs.
 - **A review that isn't on GitHub isn't a review.** Always post via GitHub MCP tools.
 - **Never flag unverified concerns.** Every finding must be confirmed by reading the actual source, not just the diff.
 - **The diff shows what changed; the codebase shows whether the change is correct.** Always check both.
+- **Location-bearing findings go in `comments[]`, not the body.** The inline comment UI is the primary surface reviewers read. The body is for summary, spec table, CI status, and cross-cutting concerns.
+- **Validate anchors against parsedDiff before submitting.** A single invalid anchor 422s the entire review.
 - **Include CI status.** Don't approve with failing checks.
 - **Spec verification is mandatory.** The review must include a spec verification table. The pre-merge hook will reject merges without it.
 - **Documentation impact is mandatory.** The review must include a documentation impact section. The pre-merge hook will reject merges without it. If docs need updating but aren't updated in the PR, that's a blocking finding.
