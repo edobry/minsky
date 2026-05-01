@@ -206,10 +206,15 @@ Event: REQUEST_CHANGES`;
     expect(result).toContain("**[NON-BLOCKING]** src/config.ts:5");
   });
 
-  test("returns full body (truncated) when no findings structure found", () => {
+  test("returns full body unchanged when no findings structure found and body is short", () => {
+    // Short unstructured bodies fall through to the fallback branch but
+    // are NOT truncated (length below the 1000-char threshold). Asserting
+    // exact equality verifies the no-truncation path explicitly.
     const body = "This is a review with no structured findings at all.";
+    expect(body.length).toBeLessThan(1000);
     const result = extractFindings(body);
     expect(result).toBe(body);
+    expect(result).not.toContain("truncated");
   });
 
   test("truncates very long unstructured bodies at 1000 chars", () => {
