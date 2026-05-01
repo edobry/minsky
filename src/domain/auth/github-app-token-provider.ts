@@ -10,7 +10,7 @@ import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { TokenProvider } from "./token-provider";
+import type { TokenProvider, TokenRole } from "./token-provider";
 
 export interface GitHubAppConfig {
   appId: number;
@@ -63,6 +63,14 @@ export class GitHubAppTokenProvider implements TokenProvider {
   // ---------------------------------------------------------------------------
   // TokenProvider implementation
   // ---------------------------------------------------------------------------
+
+  /**
+   * Role-keyed token accessor. For a single-App provider every role maps to
+   * the same installation, so this simply delegates to getServiceToken.
+   */
+  async getToken(_role?: TokenRole, repo?: string): Promise<string> {
+    return this.getServiceToken(repo);
+  }
 
   async getServiceToken(repo?: string): Promise<string> {
     // If a specific repo scope is requested, always fetch a fresh scoped token
