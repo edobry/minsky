@@ -19,7 +19,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
@@ -180,6 +180,66 @@ export interface AskRepository {
    * operation. Throws on invalid transitions (same as `transition`).
    */
   close(id: string, input: CloseAskInput): Promise<Ask>;
+
+  /**
+   * Atomically respond to and close a `"suspended"` Ask in one step.
+   *
+   * Walks the Ask through `suspended → responded → closed` as a single
+   * persistence operation. Both the response payload (without `attentionCost`)
+   * and the close payload (with `attentionCost`) are recorded; the persisted
+   * row ends up in `state: "closed"` with the close payload as `response`,
+   * `respondedAt` and `closedAt` both set to now.
+   *
+   * Atomicity guarantee:
+   *   - **Drizzle backend**: implemented via an optimistic-concurrency
+   *     `WHERE id = ? AND state = 'suspended'` clause. If a concurrent actor
+   *     transitions the Ask between this call and its execution (cancel,
+   *     expire, etc.), the update matches zero rows and the method throws
+   *     a `ConcurrentTransitionError` describing the actual current state.
+   *   - **Fake backend**: single-threaded — atomic by virtue of the
+   *     synchronous in-memory implementation.
+   *
+   * Used by `respondToAsk` (mt#1458) and the elicitation transport's
+   * accept-path (mt#1457) to honor:
+   *   1. The `Ask.response` contract: `attentionCost` is filled on close.
+   *   2. The "no stuck-in-responded" invariant: if respond/close were
+   *      separate calls and the second failed, the Ask would be left in
+   *      `responded` without `attentionCost` and unable to advance.
+   *
+   * @param id          Primary key of the suspended Ask.
+   * @param respondInput Response payload written at the responded stage
+   *                    (no `attentionCost`).
+   * @param closeInput   Response payload (with `attentionCost`) written at
+   *                    the closed stage. Both `response` fields land in the
+   *                    final row; the close payload wins.
+   * @throws `Error` — Ask not found.
+   * @throws `ConcurrentTransitionError` — Ask was not in `"suspended"` state
+   *         when the atomic update ran.
+   */
+  respondAndClose(
+    id: string,
+    respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask>;
+}
+
+/**
+ * Thrown when `respondAndClose` finds the Ask is not in `"suspended"` state
+ * at the moment of the atomic update — typically because a concurrent actor
+ * cancelled / expired / closed the Ask between read and write.
+ */
+export class ConcurrentTransitionError extends Error {
+  readonly id: string;
+  readonly observedState: AskState | "(deleted)";
+
+  constructor(id: string, observedState: AskState | "(deleted)") {
+    super(
+      `Concurrent transition on Ask ${id}: expected state="suspended" at atomic respondAndClose, found state="${observedState}". Another actor (cancel / expire / close) transitioned the Ask between read and write.`
+    );
+    this.name = "ConcurrentTransitionError";
+    this.id = id;
+    this.observedState = observedState;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +379,50 @@ export class DrizzleAskRepository implements AskRepository {
     const row = rows[0];
     if (!row) {
       throw new Error(`Ask close returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async respondAndClose(
+    id: string,
+    _respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask> {
+    // Optimistic concurrency: only update if the row is still in "suspended".
+    // If a concurrent actor (cancel / expire / close) transitioned the Ask
+    // between read and write, this WHERE clause matches zero rows and we
+    // surface a ConcurrentTransitionError — no stuck-in-responded state can
+    // result from a partial walk because the walk happens in a single UPDATE.
+    //
+    // The persisted row goes from suspended → closed directly. Per the
+    // Ask.response contract, the final `response` is the closeInput payload
+    // (which includes attentionCost). The respondInput is intentionally not
+    // persisted to a separate intermediate row — its existence in the API
+    // signature documents the two-stage contract for callers, but persistence
+    // of the responded intermediate is collapsed into the close write.
+    const now = new Date();
+    const rows = await this.db
+      .update(asksTable)
+      .set({
+        state: "closed",
+        response: closeInput.response as AskInsert["response"],
+        respondedAt: now,
+        closedAt: now,
+      })
+      .where(and(eq(asksTable.id, id), eq(asksTable.state, "suspended")))
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. wrong-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new ConcurrentTransitionError(id, existing.state);
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask respondAndClose returned no row: ${id}`);
     }
     return toAsk(row);
   }
@@ -462,6 +566,35 @@ export class FakeAskRepository implements AskRepository {
       response: input.response,
       closedAt: now,
       respondedAt: existing.respondedAt ?? now,
+    };
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async respondAndClose(
+    id: string,
+    _respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask> {
+    // Single-threaded fake — atomic by virtue of synchronous in-memory ops.
+    // Mirrors the Drizzle backend's optimistic-concurrency check: refuses if
+    // state is not "suspended" at the moment of the call.
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    if (existing.state !== "suspended") {
+      throw new ConcurrentTransitionError(id, existing.state);
+    }
+
+    const now = new Date().toISOString();
+    const updated: Ask = {
+      ...existing,
+      state: "closed",
+      response: closeInput.response,
+      respondedAt: now,
+      closedAt: now,
     };
 
     this.store.set(id, updated);

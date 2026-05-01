@@ -504,35 +504,105 @@ describe("respondToAsk", () => {
   });
 
   test("attentionCost is attached on close(), NOT on respond() — Ask.response contract", async () => {
-    // PR #924 R1 BLOCKING regression test: enforce that the responded-stage
-    // row does NOT carry attentionCost. We probe this by intercepting the
-    // repo to capture the response object passed to repo.respond before it
-    // moves on to repo.close.
+    // PR #924 R1 BLOCKING regression test: enforce that the respond-stage
+    // payload does NOT carry attentionCost. We probe this by intercepting
+    // repo.respondAndClose (the atomic combined op respondToAsk now calls)
+    // and asserting the respondInput has no attentionCost.
     const realRepo = new FakeAskRepository();
-    const responseAtRespondStage: Array<{
+    const respondInputs: Array<{
       responder: string;
       payload: unknown;
       attentionCost?: unknown;
     }> = [];
 
-    // Wrap the respond method to capture the input.
-    const originalRespond = realRepo.respond.bind(realRepo);
-    realRepo.respond = async (id, input) => {
-      responseAtRespondStage.push(input.response);
-      return await originalRespond(id, input);
+    const originalRespondAndClose = realRepo.respondAndClose.bind(realRepo);
+    realRepo.respondAndClose = async (id, respondInput, closeInput) => {
+      respondInputs.push(respondInput.response);
+      return await originalRespondAndClose(id, respondInput, closeInput);
     };
 
     const ask = await seedAskInState(realRepo, "suspended");
     await respondToAsk(realRepo, { id: ask.id, message: "ok" });
 
-    expect(responseAtRespondStage).toHaveLength(1);
-    const respondInput = responseAtRespondStage[0];
-    expect(respondInput).toBeDefined();
-    if (!respondInput) return;
+    expect(respondInputs).toHaveLength(1);
+    const captured = respondInputs[0];
+    expect(captured).toBeDefined();
+    if (!captured) return;
     // Per Ask.response contract: attentionCost is "filled on close" only.
-    expect(respondInput.attentionCost).toBeUndefined();
-    expect(respondInput.responder).toBe("operator");
-    expect(respondInput.payload).toEqual({ message: "ok" });
+    expect(captured.attentionCost).toBeUndefined();
+    expect(captured.responder).toBe("operator");
+    expect(captured.payload).toEqual({ message: "ok" });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #924 R2 BLOCKING — atomicity + input validation
+  // -------------------------------------------------------------------------
+
+  test("atomicity: throws ConcurrentTransitionError when Ask cancelled mid-call", async () => {
+    // Simulate a concurrent transition between getById and respondAndClose:
+    // wrap getById to return a fresh suspended Ask (passing the state check),
+    // then transition the underlying row to "cancelled" before respondAndClose
+    // runs. The atomic check inside respondAndClose surfaces the race.
+    const realRepo = new FakeAskRepository();
+    const ask = await seedAskInState(realRepo, "suspended");
+
+    // Hook: after the state-check getById returns, race the row to cancelled.
+    let raceArmed = true;
+    const originalGetById = realRepo.getById.bind(realRepo);
+    realRepo.getById = async (id: string) => {
+      const result = await originalGetById(id);
+      if (raceArmed && result?.state === "suspended") {
+        raceArmed = false; // Only race once.
+        // Use the test seam to force the underlying row to cancelled,
+        // simulating a concurrent actor.
+        if (result) {
+          realRepo._seedAtState({ ...result, state: "cancelled" });
+        }
+      }
+      return result;
+    };
+
+    await expect(respondToAsk(realRepo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /Concurrent transition.*found state="cancelled"/
+    );
+
+    // Assert the Ask is NOT stuck in responded — race should leave it cancelled.
+    const persisted = await originalGetById(ask.id);
+    expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
+  });
+
+  test("validation: rejects empty message", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "" })).rejects.toThrow(
+      /message is required/
+    );
+  });
+
+  test("validation: rejects whitespace-only message", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "   " })).rejects.toThrow(
+      /message is required/
+    );
+  });
+
+  test("validation: rejects empty id", async () => {
+    const repo = new FakeAskRepository();
+
+    await expect(respondToAsk(repo, { id: "", message: "ok" })).rejects.toThrow(/id is required/);
+  });
+
+  test("validation: rejects empty responder if explicitly provided", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok", responder: "" })).rejects.toThrow(
+      /responder.*must not be empty/
+    );
   });
 
   test("uses 'operator' as default responder when not provided", async () => {

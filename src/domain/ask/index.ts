@@ -28,7 +28,7 @@ export {
 
 // Repository interface + implementations
 export type { AskRepository, CreateAskInput, CloseAskInput, RespondAskInput } from "./repository";
-export { DrizzleAskRepository, FakeAskRepository } from "./repository";
+export { DrizzleAskRepository, FakeAskRepository, ConcurrentTransitionError } from "./repository";
 
 // Reconciler
 export type {

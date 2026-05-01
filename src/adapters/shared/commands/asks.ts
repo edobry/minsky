@@ -415,40 +415,62 @@ export type RespondToAskResult = {
 };
 
 /**
- * Respond to a suspended Ask via the operator CLI surface.
+ * Validate inputs to `respondToAsk`. Mirrors the zod schema on the
+ * `asks.respond` shared command (`asksRespondParams`) so programmatic
+ * callers get the same enforcement as MCP/CLI users — no empty IDs,
+ * no empty/whitespace-only messages.
+ */
+function validateRespondParams(params: RespondToAskParams): void {
+  if (!params.id || params.id.trim() === "") {
+    throw new Error("asks.respond: id is required and must not be empty");
+  }
+  if (!params.message || params.message.trim() === "") {
+    throw new Error("asks.respond: message is required and must not be empty");
+  }
+  if (params.responder !== undefined && params.responder.trim() === "") {
+    throw new Error("asks.respond: responder, if provided, must not be empty");
+  }
+}
+
+/**
+ * Respond to a suspended Ask via the operator surface.
  *
- * Walks the persisted Ask through `responded → closed` with the operator's
- * message as `response.payload.message`. The original transport (set during
- * routing) is preserved on the Ask record; `attentionCost` is attached on
- * the `close()` step only — per the `Ask.response` contract in `types.ts`,
- * "`attentionCost` is filled on close."
+ * Walks the persisted Ask atomically from `"suspended"` to `"closed"` via
+ * `repo.respondAndClose`, recording the operator's message as the response
+ * payload and `attentionCost` on the closed row (per the `Ask.response`
+ * contract in `types.ts` — "`attentionCost` is filled on close").
  *
- * Pre-conditions:
+ * Atomicity (concurrency safety): the underlying `respondAndClose` uses
+ * optimistic-concurrency in the Drizzle backend (`WHERE state = 'suspended'`),
+ * so a concurrent cancel/expire/close between read and write surfaces a
+ * `ConcurrentTransitionError` rather than leaving the Ask stuck in a
+ * partially-updated state. The Fake backend mirrors the same precondition.
+ *
+ * Pre-conditions (validated up front; throw clear errors on violation):
+ *   - `params.id` is a non-empty string.
+ *   - `params.message` is a non-empty (post-trim) string.
  *   - Ask exists (`repo.getById` returns non-null).
  *   - Ask is in `"suspended"` state. Earlier states (detected/classified/routed)
- *     mean no transport has dispatched yet — responding would skip the dispatch
- *     path. Terminal states (closed/cancelled/expired) cannot be responded to.
+ *     mean no transport has dispatched yet; terminal states
+ *     (closed/cancelled/expired) cannot be responded to.
  *
- * Note: at v1, `routingTarget === "operator"` is NOT enforced here. The
- * router (mt#1069 `policyFirstRoute`) does not persist `routingTarget` to
- * the repo, so the persisted row keeps `routingTarget = undefined`. By
- * elimination at v1, every Ask that legitimately reaches `"suspended"` is
- * operator-bound (subagent/mesh transports don't pass through `suspended`
- * per mt#1070 + ADR-008's matrix; elicitation may suspend on timeout, in
- * which case the operator IS the recovery path). When a non-operator
- * transport starts using `suspended`, re-introduce a gate here. Filed as
- * a follow-up concern in mt#454-impl.
+ * Note: at v1, `routingTarget === "operator"` is NOT enforced. The router
+ * (`policyFirstRoute`) does not persist `routingTarget`, so the persisted
+ * row keeps `routingTarget = undefined`. By elimination at v1, every Ask
+ * that legitimately reaches `"suspended"` is operator-bound (subagent/mesh
+ * transports do not pass through suspended; elicitation may suspend on
+ * timeout, in which case the operator IS the recovery path). When a non-
+ * operator transport starts using `suspended`, re-introduce a gate here.
  *
  * Per mt#454 slim research output (Q3): v1 verb set is `list` + `respond`
  * only. `claim` / `release` / `close` / `reopen` are deferred to mt#454-impl.
- *
- * Reference: mt#1458 spec; mt#454 slim research output; PR #924 R1 BLOCKING
- * (attentionCost-on-close contract enforcement).
  */
 export async function respondToAsk(
   repo: AskRepository,
   params: RespondToAskParams
 ): Promise<RespondToAskResult> {
+  validateRespondParams(params);
+
   const persisted = await repo.getById(params.id);
   if (!persisted) {
     throw new Error(`asks.respond: Ask not found: ${params.id}`);
@@ -464,14 +486,9 @@ export async function respondToAsk(
 
   const responder = params.responder ?? "operator";
 
-  // Per Ask.response contract in types.ts: `attentionCost` is "filled on
-  // close" only. We split the response payload across the two transitions:
-  // - `respond()` writes responder + payload (no attentionCost).
-  // - `close()` adds attentionCost.
-  //
-  // PR #924 R1 BLOCKING: the prior shape attached attentionCost at the
-  // `responded` stage, silently extending the contract. Splitting honors
-  // the documented invariant.
+  // Two-stage response payload, matching the Ask.response contract in
+  // types.ts: `attentionCost` is filled on close only. The respond stage
+  // gets responder + payload; the close stage adds attentionCost.
   const respondPayload = {
     responder,
     payload: { message: params.message },
@@ -493,11 +510,15 @@ export async function respondToAsk(
     },
   };
 
-  // Walk suspended → responded → closed. Mirrors the elicitation transport's
-  // accept-path behavior (see src/domain/ask/transports/elicitation.ts), with
-  // the attentionCost-on-close split correctly applied.
-  await repo.respond(params.id, { response: respondPayload });
-  const closed = await repo.close(params.id, { response: closePayload });
+  // Atomic walk suspended → closed via the repository's combined operation.
+  // The Drizzle backend's optimistic-concurrency check guarantees no
+  // stuck-in-responded state under concurrent transitions; the Fake backend
+  // mirrors the same precondition.
+  const closed = await repo.respondAndClose(
+    params.id,
+    { response: respondPayload },
+    { response: closePayload }
+  );
 
   return { ask: closed };
 }
@@ -600,7 +621,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       category: CommandCategory.TOOLS,
       name: "respond",
       description:
-        "Respond to a suspended operator-bound Ask (operator CLI surface; mt#1458, ADR-008)",
+        "Respond to a suspended Ask via the operator surface (mt#1458, ADR-008). " +
+        "v1 does not gate on routingTarget — see respondToAsk doc comment.",
       requiresSetup: true,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {
