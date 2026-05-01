@@ -58,6 +58,23 @@ export interface ReviewComment {
    * (and vice versa) so the resulting payload is always consistent.
    */
   startSide?: "LEFT" | "RIGHT";
+  /**
+   * Optional replacement code for a GitHub suggestion block.
+   *
+   * When present, the comment body sent to GitHub is augmented with a fenced
+   * suggestion block containing this text. GitHub renders suggestion blocks
+   * with a one-click "Apply suggestion" button.
+   *
+   * Constraint: the number of lines in `suggestion` MUST equal the number of
+   * lines in the anchored range:
+   *  - Single-line comment (no startLine): suggestion must be exactly 1 line.
+   *  - Multi-line comment (startLine..line): suggestion must be exactly
+   *    (line - startLine + 1) lines.
+   *
+   * Validation is enforced in validateReviewComment() and throws a MinskyError
+   * before the Octokit call if the counts differ.
+   */
+  suggestion?: string;
 }
 
 /**
@@ -87,6 +104,29 @@ export function validateReviewComment(comment: ReviewComment): void {
       throw new MinskyError(
         `Invalid multi-line comment: startSide ("${comment.startSide}") must equal ` +
           `side ("${comment.side}") on path "${comment.path}". GitHub rejects mismatched sides.`
+      );
+    }
+  }
+
+  if (comment.suggestion !== undefined) {
+    // Normalize line endings first so that \r\n (Windows) and lone \r (old Mac)
+    // are both treated as a single newline for line-counting purposes.
+    // Strip ALL trailing newlines after normalization so that suggestions ending
+    // with "\n", "\r\n", "\r\n\r\n", etc. are counted the same way.
+    const suggestionText = comment.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+    const suggestionLineCount = suggestionText.split("\n").length;
+
+    // Determine the anchored line range
+    const anchoredLineCount =
+      comment.startLine !== undefined ? comment.line - comment.startLine + 1 : 1;
+
+    if (suggestionLineCount !== anchoredLineCount) {
+      throw new MinskyError(
+        `Suggestion line count mismatch on path "${comment.path}": suggestion has ` +
+          `${suggestionLineCount} line(s) but the anchored range covers ` +
+          `${anchoredLineCount} line(s) ` +
+          `(${comment.startLine !== undefined ? `startLine ${comment.startLine}..line ${comment.line}` : `line ${comment.line}`}). ` +
+          `GitHub only renders a suggestion block when the line counts match.`
       );
     }
   }
@@ -194,10 +234,39 @@ export async function submitReview(
     // endpoints, and GitHub rejects null start_line.
     const apiComments = options.comments?.map((c) => {
       const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+
+      // When a suggestion is provided, append a fenced suggestion block to the body.
+      // GitHub renders this as an "Apply suggestion" button when the suggestion line
+      // count matches the anchored range (validated above in validateReviewComment).
+      //
+      // 1. Normalize line endings: convert \r\n (Windows) and lone \r (old Mac) to \n
+      //    first, so that \r characters don't leak into the fenced block.
+      // 2. Strip trailing newlines after normalization so suggestions ending with
+      //    "\n\n" etc. don't produce double-blank-lines inside the fenced block.
+      // 3. Compute fence length: if the suggestion contains backtick runs, the fence
+      //    delimiter must be longer than the longest such run to prevent early fence
+      //    termination. Use at least 3 backticks (the GitHub minimum), and at least
+      //    one more than the longest backtick run found in the content.
+      const normalizedSuggestion =
+        c.suggestion !== undefined
+          ? c.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
+          : undefined;
+      let resolvedBody: string;
+      if (normalizedSuggestion !== undefined) {
+        // Find longest backtick run in the suggestion content.
+        const backtickRuns = normalizedSuggestion.match(/`+/g);
+        const longestRun = backtickRuns ? Math.max(...backtickRuns.map((r) => r.length)) : 0;
+        const fenceLen = Math.max(3, longestRun + 1);
+        const fence = "`".repeat(fenceLen);
+        resolvedBody = `${c.body}\n\n${fence}suggestion\n${normalizedSuggestion}\n${fence}`;
+      } else {
+        resolvedBody = c.body;
+      }
+
       return {
         path: c.path,
         line: c.line,
-        body: c.body,
+        body: resolvedBody,
         side: resolvedSide,
         ...(c.startLine !== undefined
           ? {
