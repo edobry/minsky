@@ -50,7 +50,7 @@ The parent agent gives you:
    - Read callers/callees to verify the change is safe
    - Check types/interfaces to confirm compatibility
    - If the concern is disproven by reading source, drop it (false positive)
-4. **Report findings** in the structured format below as raw observations. Mode 1 subagents do NOT commit anchored `comments[]` — section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity, writes the body, selects the event, and posts via `session_pr_review_submit`. See mt#1485 for the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
+4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution, constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`. See `.claude/skills/review-pr/SKILL.md` step 6b for the parent's aggregate-and-judge protocol.
 
 **Mode 1 hard guard: never call `mcp__minsky__session_pr_review_submit` yourself.** Even if a task ID is also in your context, sectioning means the parent posts the consolidated review across all slices. A Mode 1 subagent posting directly bypasses anchor validation, dedup, and severity calibration — and produces N partial reviews on the PR instead of one. If you find yourself reaching for the submit tool in Mode 1, stop and return observations only.
 
@@ -265,23 +265,23 @@ For each change in the diff:
 
 # Output format — Mode 1
 
-For Mode 1 (returning to parent for aggregation), return findings as raw observations with provisional anchors. The parent aggregator validates each anchor against the canonical `parsedDiff` (which Mode 1 subagents do not have), assigns severity, and constructs the final `comments[]` before posting. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
+For Mode 1 (returning to parent for aggregation), return raw observations. The parent aggregator validates each anchor against the canonical `parsedDiff` (which Mode 1 subagents do not have), dedupes across slices, assigns severity per the Critic Constitution, and constructs the final `comments[]` before posting. **Do NOT include severity prefixes, formatted `body` strings, or `comments[]`-shaped entries in your output** — those are parent decisions. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
 
 ````markdown
-## Review Findings: <file range description>
+## Review Observations: <file range description>
 
 **Files reviewed**: <count>
-**Issues found**: <count blocking> blocking, <count non-blocking> non-blocking
+**Observations**: <count>
 
-### Findings
+### Observations
 
-<For each finding (one bullet each):>
-**[BLOCKING/NON-BLOCKING]** `<file>:<line>` — <concise description>
+<For each observation (one bullet each):>
+`<file>:<line>` — <one-sentence concern>
 <Evidence: what you read in the source that confirms this is real>
 
-### Provisional anchors (for parent aggregator)
+### observations[] (for parent aggregator)
 
-These are observations the parent should validate against `parsedDiff` before constructing the final `comments[]`. Anchors that fail validation become body entries; valid ones become inline comments. Do NOT submit these directly.
+These are raw observations the parent will validate, dedupe, severitize, and post. Each entry carries a provisional anchor (`path`, `line`, `side`) plus the concern and evidence as separate fields. Severity, the formatted `comments[].body`, the event, and dedup across slices are all parent responsibilities — your output must NOT include severity prefixes or `comments[]`-shaped entries. `hunkContext` is optional: include it when the surrounding code matters for the parent to judge severity (e.g., a few lines before/after that explain why the concern is real).
 
 ```json
 [
@@ -289,7 +289,8 @@ These are observations the parent should validate against `parsedDiff` before co
     "path": "src/example.ts",
     "line": 42,
     "side": "RIGHT",
-    "body": "[BLOCKING] ..."
+    "concern": "Missing return type annotation on resolveSession",
+    "evidence": "Read src/example.ts:42 — function signature is `resolveSession(id)` without explicit return type. Adding `Promise<SessionRecord | null>` prevents accidental widening if the implementation changes."
   }
 ]
 ```
@@ -358,3 +359,4 @@ All location-bearing findings MUST appear as `comments[]` entries, NOT in the bo
 - _Assigning anchors without validating against parsedDiff_ → Always confirm the target (path, line, side) exists in parsedDiff before building a comment. Wrong anchors 422-reject the entire review, including all other valid comments.
 - _Putting location-bearing findings only in the body_ (Mode 2) → Every PR-introduced finding with a specific file:line must be a `comments[]` entry. Body is for summary, spec table, CI status, cross-cutting concerns, and PRE-EXISTING findings (not introduced by this PR).
 - _Mode 1 subagent committing anchored comments[] directly_ → Mode 1 subs emit raw observations only; the parent aggregator validates anchors against `parsedDiff` and constructs the final `comments[]`. A subagent that posts directly bypasses anchor validation and risks 422-rejecting the entire review.
+- _Mode 1 subagent including severity prefixes in observation bodies_ → Severity is a parent decision — only the parent has the spec, CI, and global view to calibrate per the Critic Constitution. Subagent observations carry `concern` + `evidence` as raw fields; the parent constructs the severity-prefixed `comments[].body` from them.
