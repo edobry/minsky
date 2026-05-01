@@ -704,6 +704,14 @@ export const sessionPrReviewSubmitCommandParams = {
         line: z.number().int().positive(),
         body: z.string().min(1),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
+        startLine: z.number().int().positive().optional(),
+        startSide: z.enum(["LEFT", "RIGHT"]).optional(),
+        suggestion: z
+          .string()
+          .optional()
+          .describe(
+            "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
+          ),
       })
     ),
     description: "Optional inline line-level comments",
@@ -734,6 +742,80 @@ export const sessionPrReviewDismissCommandParams = {
       "the dismissed review. Include why the review is stale (e.g. 'covers " +
       "commit <sha>; blocker addressed in <sha>').",
     required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session PR Review Thread Resolve command parameters
+ * Resolves or unresolves a GitHub PR review thread (GraphQL-only operation)
+ * through Minsky using the configured bot identity.
+ *
+ * `threadId` is the GraphQL node ID of a `PullRequestReviewThread` object.
+ * Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{n}/threads` carry `node_id` of the thread
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343)
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID. The two are distinct
+ * objects in the GitHub API; only thread node IDs are accepted here.
+ */
+export const sessionPrReviewThreadResolveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  threadId: {
+    schema: z.string().min(1),
+    description:
+      "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: " +
+      "(1) session_pr_review_context.reviewThreads[].id, " +
+      "(2) GraphQL pullRequest.reviewThreads.nodes[].id, or " +
+      "(3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). " +
+      "Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — " +
+      "comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type.",
+    required: true,
+  },
+  action: {
+    schema: z.enum(["resolve", "unresolve"]),
+    description: 'Action to perform: "resolve" marks the thread as done; "unresolve" reopens it.',
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session PR Check Run Submit command parameters
+ * Submits a GitHub Check Run for the session's PR, compiling reviewer findings
+ * into check-run annotations (machine-shaped, branch-protection-eligible surface).
+ */
+export const sessionPrCheckRunSubmitCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  findings: {
+    schema: z.array(
+      z.object({
+        path: z.string().min(1),
+        startLine: z.number().int().positive(),
+        endLine: z.number().int().positive().optional(),
+        severity: z.string().min(1),
+        title: z.string().min(1),
+        message: z.string().min(1),
+        rawDetails: z.string().optional(),
+      })
+    ),
+    description:
+      "List of reviewer findings to compile into check-run annotations. " +
+      "severity: 'BLOCKING' → failure, 'NON-BLOCKING' → warning, other → notice. " +
+      "An empty list produces a check run with conclusion 'success' and no annotations.",
+    required: true,
+  },
+  checkRunName: {
+    schema: z.string().min(1),
+    description:
+      "Override the check run name (default: 'minsky-reviewer/findings'). " +
+      "Must be stable across runs for branch-protection integration.",
+    required: false,
   },
   json: commonSessionParams.json,
 };
