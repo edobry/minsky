@@ -1,0 +1,119 @@
+{
+  "runStartedAt": "2026-05-01T13:16:37.605Z",
+  "mode": "contradiction",
+  "model": "gpt-5",
+  "dryRun": false,
+  "summary": {
+    "mode": "contradiction",
+    "entriesTested": 1,
+    "attemptsPerEntry": 3,
+    "totalAttempts": 3,
+    "requestChangesRate": 1,
+    "meanBlockingCount": 2
+  },
+  "perEntry": [
+    {
+      "prNumber": 881,
+      "iteration": 3,
+      "notes": "PR #881 R3: check if R3 emits BLOCKING contradicting R1 accepted finding (process.exit vs exit() helper)",
+      "iterationSha": "53a3fd538a5a443be0375ad45d55e0447d9c002b",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 0,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 452
+            },
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 468
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 9232,
+          "usage": {
+            "promptTokens": 108461,
+            "completionTokens": 9824,
+            "reasoningTokens": 6784,
+            "totalTokens": 118285
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 452
+            },
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "NON-BLOCKING",
+              "line": 438
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 4,
+          "scratchTextLength": 5909,
+          "usage": {
+            "promptTokens": 107466,
+            "completionTokens": 9836,
+            "reasoningTokens": 7040,
+            "totalTokens": 117302
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 458
+            },
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 441
+            },
+            {
+              "file": "src/commands/mcp/start-command.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/commands/mcp/start-command.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 5,
+          "scratchTextLength": 2925,
+          "usage": {
+            "promptTokens": 108031,
+            "completionTokens": 5186,
+            "reasoningTokens": 3584,
+            "totalTokens": 113217
+          }
+        }
+      ]
+    }
+  ]
+}

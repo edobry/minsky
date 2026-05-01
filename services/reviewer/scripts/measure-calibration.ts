@@ -602,12 +602,33 @@ async function runAttempts(
     const attemptNum = i + 1;
     console.log(`    Attempt ${attemptNum}/${attemptsPerEntry}...`);
 
-    // No-op tool handlers — same constraint as replay-severity.ts.
-    // See KNOWN LIMITATION in replay-severity.ts for full explanation.
-    const output = await callOpenAIWithClient(openaiClient, model, systemPrompt, userPrompt, {
-      readFile: async (_path: string) => null,
-      listDirectory: async (_path: string) => null,
-    });
+    let output;
+    try {
+      // No-op tool handlers — same constraint as replay-severity.ts.
+      // See KNOWN LIMITATION in replay-severity.ts for full explanation.
+      output = await callOpenAIWithClient(openaiClient, model, systemPrompt, userPrompt, {
+        readFile: async (_path: string) => null,
+        listDirectory: async (_path: string) => null,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`    Attempt ${attemptNum} failed: ${msg}`);
+      // Push a placeholder so result count matches attemptsPerEntry; downstream
+      // analysis can filter on event === "ERROR" to exclude failed attempts.
+      results.push({
+        attempt: attemptNum,
+        event: "ERROR",
+        blockingCount: 0,
+        nonBlockingCount: 0,
+        preExistingCount: 0,
+        currentFindings: [],
+        findingSource: "none",
+        toolCallCount: 0,
+        scratchTextLength: 0,
+        usage: { promptTokens: undefined, completionTokens: undefined, reasoningTokens: undefined },
+      });
+      continue;
+    }
 
     const composed = composeReviewBody(output.toolCalls);
     const scratchSanitized = sanitizeReviewBody(output.text);
@@ -1009,7 +1030,13 @@ async function main() {
   console.log("");
 
   const octokit = new Octokit({ auth: GITHUB_TOKEN });
-  const openaiClient = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+  // 20-min per-request timeout: gpt-5 with deep reasoning can take 5-10 min per
+  // call (10K+ output tokens at ~30 tokens/sec). maxRetries handles transient
+  // network errors at the SDK level; the per-attempt try/catch in runAttempts
+  // handles unrecoverable failures by skipping the attempt.
+  const openaiClient = OPENAI_API_KEY
+    ? new OpenAI({ apiKey: OPENAI_API_KEY, timeout: 1200000, maxRetries: 3 })
+    : null;
 
   let perEntry: PerEntryResult[] = [];
   let broadeningNote: string | undefined;
