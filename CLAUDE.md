@@ -188,6 +188,25 @@ When spawning subagents, use the appropriate model and type:
 - **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
 - **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.
 
+## Temporary mechanism budget
+
+When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary," "escape hatch," "workaround," "interim,"** or **"until X ships,"** it MUST cite both:
+
+1. A **tracking task** (the structural fix that retires the mechanism), AND
+2. An **escalation threshold** — a count, time window, or both — at which the mechanism's continued use indicates the temporary framing has failed.
+
+When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
+
+**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
+
+**How to apply:**
+
+- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
+- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
+- When you observe the **same workaround memory cited 2+ times in a 5-day rolling window** (or **3+ workaround invocations in 5 days**, or **2+ in 24h**), treat it as the budget signal regardless of whether the original entry recorded one — search for the tracking task and surface its status.
+- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
+- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
+
 # Compact Instructions
 
 When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
