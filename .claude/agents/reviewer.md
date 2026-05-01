@@ -69,9 +69,10 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
 4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
-   - Find the `DiffFile` in `parsedDiff`. The lookup depends on side:
-     - **RIGHT-side anchor:** `file.path === path` (current filename).
-     - **LEFT-side anchor:** `file.path === path` OR `file.oldPath === path`. For renamed files (`DiffFile.oldPath !== DiffFile.path`), LEFT anchors must use `oldPath` per the Renamed files rule below — so the lookup must consider both fields.
+   - Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:
+     - **RIGHT-side anchor:** match `file.path === path` (the current filename).
+     - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that would be the post-rename name and produces a wrong-side anchor.
+     - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
    - Skip warning-flagged files (`file.warning` set).
    - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
    - **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
