@@ -44,7 +44,7 @@ If the diff was not already returned by step 1, use `mcp__github__pull_request_r
 
 Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
 
-**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely or calibrate severity per the Critic Constitution. As the parent aggregator, you collect observation streams from each subagent and run the full aggregate-and-judge pass before posting — see step 6b below for the protocol. Per mt#1485, observations carry `{ path, line, side, concern, evidence, hunkContext? }` with NO severity prefix and NO formatted `body` field; the parent constructs severity-prefixed `comments[].body` strings from `concern` + `evidence`.
+**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely or calibrate severity per the Critic Constitution (see `.claude/agents/reviewer.md` § "Severity classification"). As the parent aggregator, you collect observation streams from each subagent and run the full aggregate-and-judge pass before posting — see step 6b below for the protocol. Per mt#1485, observations carry `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` with NO severity prefix and NO formatted `body` field; the parent constructs severity-prefixed `comments[].body` strings from `concern` + `evidence`.
 
 **Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
 
@@ -154,9 +154,9 @@ Classify the impact:
 
 ### 6b. Aggregate observations from Mode 1 subagents
 
-**Skip this step if you read the diff yourself (1–20 file path) — there are no subagent observations to aggregate.** Otherwise, before posting, run the full aggregate-and-judge pass on the observation streams returned by each Mode 1 subagent. The parent is the only actor with `parsedDiff`, the task spec, CI state, and a global view across slices, so all anchor validation, deduplication, severity calibration, and event selection happen here.
+**Skip this step if you read the diff yourself (1–20 files) — there are no subagent observations to aggregate.** Otherwise, before posting, run the full aggregate-and-judge pass on the observation streams returned by each Mode 1 subagent. The parent is the only actor with `parsedDiff`, the task spec, CI state, and a global view across slices, so all anchor validation, deduplication, severity calibration, and event selection happen here.
 
-Per `.claude/agents/reviewer.md` Mode 1, each subagent's `observations[]` entries have shape `{ path, line, side, concern, evidence, hunkContext? }` — no severity prefix, no `comments[]`-shaped `body`, no event. Your job is to turn N observation streams into one coherent review.
+Per `.claude/agents/reviewer.md` Mode 1, each subagent returns `{ "observations": [ ... ] }` where each entry has shape `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — no severity prefix, no `comments[]`-shaped `body`, no event. Your job is to turn N observation streams into one coherent review.
 
 **Aggregate-and-judge protocol:**
 
@@ -166,7 +166,7 @@ Per `.claude/agents/reviewer.md` Mode 1, each subagent's `observations[]` entrie
 
 3. **Validate each anchor against `parsedDiff`.** Apply the anchor-validation block in step 7 (rename rules, file-status checks, `DiffLine` existence, multi-line same-hunk constraint). Observations that fail validation are **not dropped** — move them to a body "Unanchored findings" section. The subagent's evidence is still useful even if the anchor is bad.
 
-4. **Assign severity per the Critic Constitution.** This is where you apply the global view the subagent did not have:
+4. **Assign severity per the Critic Constitution** (see `.claude/agents/reviewer.md` § "Severity classification"). This is where you apply the global view the subagent did not have:
 
    - Read the task spec (already loaded in step 6) and consider whether the observation is in-scope per the spec's success criteria.
    - Apply the **Decision gate for non-blocking findings** from step 5: if the observation is in-scope AND the fix is known and actionable, it is **BLOCKING**, not non-blocking.
@@ -442,7 +442,7 @@ A 75-file PR triggers the proportionality rule (51–100 files → 4 reviewer ag
      }
    ]
    ```
-6. **Construct body** — Summary (3 BLOCKING, 1 NON-BLOCKING posted as inline comments + 1 unanchored), Spec verification table, CI status, Documentation impact, Unanchored findings (1: `router.ts:999`), Checked and clear (union of A/B/C, deduped). The "Checked and clear" coverage statement is produced **once** — not three times — even though three subagents reported it per slice.
+6. **Construct body** — Summary (3 BLOCKING inline, 0 NON-BLOCKING inline, 1 NON-BLOCKING unanchored in body), Spec verification table, CI status, Documentation impact, Unanchored findings (1: `router.ts:999`), Checked and clear (union of A/B/C, deduped). The "Checked and clear" coverage statement is produced **once** — not three times — even though three subagents reported it per slice.
 7. **Event** — `REQUEST_CHANGES` (3 BLOCKING) if PR author differs from reviewer identity; otherwise `COMMENT` per step 8.
 8. **Post** via step 7.
 

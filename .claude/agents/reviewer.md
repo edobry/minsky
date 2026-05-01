@@ -50,7 +50,7 @@ The parent agent gives you:
    - Read callers/callees to verify the change is safe
    - Check types/interfaces to confirm compatibility
    - If the concern is disproven by reading source, drop it (false positive)
-4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution, constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`. See `.claude/skills/review-pr/SKILL.md` step 6b for the parent's aggregate-and-judge protocol.
+4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution (see "Severity classification" below), constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`. See `.claude/skills/review-pr/SKILL.md` step 6b for the parent's aggregate-and-judge protocol.
 
 **Mode 1 hard guard: never call `mcp__minsky__session_pr_review_submit` yourself.** Even if a task ID is also in your context, sectioning means the parent posts the consolidated review across all slices. A Mode 1 subagent posting directly bypasses anchor validation, dedup, and severity calibration — and produces N partial reviews on the PR instead of one. If you find yourself reaching for the submit tool in Mode 1, stop and return observations only.
 
@@ -60,6 +60,8 @@ The parent agent gives you:
 
 - A task ID (e.g., `mt#847`) — preferred. Pass as `task:` to `mcp__minsky__session_pr_review_context`.
 - OR a session ID, if the parent has that handy. Pass as `sessionId:`.
+
+**Reiteration of the discriminant:** Mode 2 applies only when a task/session ID is present AND no diff file path is provided. If a diff file path is present anywhere in your inputs (even alongside a task ID), you are in Mode 1 — return observations to the parent and do NOT post. The diff-file-path slot is the discriminant; presence of a task ID does not override it.
 
 If the parent gives you only a bare PR number, ask the parent to resolve it to a task ID before retrying; do not attempt to map PR number to task ID yourself.
 
@@ -265,7 +267,7 @@ For each change in the diff:
 
 # Output format — Mode 1
 
-For Mode 1 (returning to parent for aggregation), return raw observations. The parent aggregator validates each anchor against the canonical `parsedDiff` (which Mode 1 subagents do not have), dedupes across slices, assigns severity per the Critic Constitution, and constructs the final `comments[]` before posting. **Do NOT include severity prefixes, formatted `body` strings, or `comments[]`-shaped entries in your output** — those are parent decisions. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
+For Mode 1 (returning to parent for aggregation), return raw observations. The parent aggregator validates each anchor against the canonical `parsedDiff` (which Mode 1 subagents do not have), dedupes across slices, assigns severity per the Critic Constitution (see "Severity classification" below), and constructs the final `comments[]` before posting. **Do NOT include severity prefixes, formatted `body` strings, or `comments[]`-shaped entries in your output** — those are parent decisions. The 5-backtick outer fence below contains a 3-backtick inner fence for the JSON sample — copy the inside of the outer fence as your output, not the fence itself.
 
 ````markdown
 ## Review Observations: <file range description>
@@ -281,18 +283,32 @@ For Mode 1 (returning to parent for aggregation), return raw observations. The p
 
 ### observations[] (for parent aggregator)
 
-These are raw observations the parent will validate, dedupe, severitize, and post. Each entry carries a provisional anchor (`path`, `line`, `side`) plus the concern and evidence as separate fields. Severity, the formatted `comments[].body`, the event, and dedup across slices are all parent responsibilities — your output must NOT include severity prefixes or `comments[]`-shaped entries. `hunkContext` is optional: include it when the surrounding code matters for the parent to judge severity (e.g., a few lines before/after that explain why the concern is real).
+Return a single JSON object with an `observations` key whose value is the array of observation entries. The parent will validate, dedupe, severitize, and post these — your output must NOT include severity prefixes or `comments[]`-shaped entries.
+
+**Field reference:**
+
+- `path` (string, required) — relative file path of the target.
+- `line` (number, required) — 1-based line number; for multi-line ranges, this is the END line.
+- `side` (`"LEFT"` | `"RIGHT"` | `"CONTEXT"`, required) — which side of the diff the anchor targets. The parent will normalize CONTEXT to LEFT or RIGHT during anchor validation.
+- `concern` (string, required) — one-sentence description of what's wrong, with NO severity prefix.
+- `evidence` (string, required) — what you read in the source that confirms this is real (file:line citations preferred).
+- `startLine` (number, optional) — set when the observation spans multiple lines; first line of the range. Must be `< line`.
+- `startSide` (`"LEFT"` | `"RIGHT"`, optional) — required when `startLine` is set; must equal `side` for the parent to construct a valid multi-line anchor.
+- `hunkContext` (string, optional) — a few surrounding lines or a short note explaining why the concern is real (useful when the parent needs context to judge severity). Keep concise — a sentence or 2-4 lines, not a full file dump.
 
 ```json
-[
-  {
-    "path": "src/example.ts",
-    "line": 42,
-    "side": "RIGHT",
-    "concern": "Missing return type annotation on resolveSession",
-    "evidence": "Read src/example.ts:42 — function signature is `resolveSession(id)` without explicit return type. Adding `Promise<SessionRecord | null>` prevents accidental widening if the implementation changes."
-  }
-]
+{
+  "observations": [
+    {
+      "path": "src/example.ts",
+      "line": 42,
+      "side": "RIGHT",
+      "concern": "Missing return type annotation on resolveSession",
+      "evidence": "Read src/example.ts:42 — function signature is `resolveSession(id)` without explicit return type. Adding `Promise<SessionRecord | null>` prevents accidental widening if the implementation changes.",
+      "hunkContext": "function resolveSession(id) {\n  return cache.get(id) ?? loadFromDb(id);\n}"
+    }
+  ]
+}
 ```
 
 ### Checked and clear
