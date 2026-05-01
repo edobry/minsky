@@ -15,6 +15,7 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import { ValidationError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import {
   DrizzleAskRepository,
@@ -37,6 +38,7 @@ import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
+import { getServiceWindowDefault } from "../../../domain/ask/service-window-defaults";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -217,7 +219,70 @@ const asksCreateParams = {
     description: "AgentId of the requestor; defaults to a session-unknown marker",
     required: false,
   },
+  // Service-window fields (mt#1411 spine — mt#1488)
+  serviceStrategy: {
+    schema: z.enum(["asap", "scheduled", "deadline-bound"] as const).optional(),
+    description:
+      "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. " +
+      "When absent, per-kind defaults apply.",
+    required: false,
+  },
+  windowKey: {
+    schema: z.string().optional(),
+    description:
+      "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'.",
+    required: false,
+  },
+  forceImmediate: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the window check and route immediately. " +
+      "Use only for critical-path unblocking.",
+    required: false,
+  },
+  // NOTE: `windowMissedCount` is intentionally omitted from this MCP parameter schema.
+  // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
+  // window opens and the Ask is still pending. Callers must not set it directly via
+  // asks.create — createAsk always initialises it to 0 for new Asks.
 };
+
+/**
+ * Cross-field coherence validation for `asks.create` MCP params.
+ *
+ * `windowKey` is only meaningful when `serviceStrategy='scheduled'`. Passing it
+ * alongside an *explicitly* non-scheduled strategy is a caller error that should
+ * be caught at the parameter boundary — not silently ignored later.
+ *
+ * When `serviceStrategy` is *absent*, the validation passes. Per-kind defaults in
+ * `createAsk` resolve the strategy (e.g., `direction.decide` → `scheduled`), so a
+ * caller may legitimately omit `serviceStrategy` and supply a custom `windowKey` —
+ * the kind's default resolves to `scheduled`, and the caller's `windowKey` overrides
+ * the default window name.
+ *
+ * Only when `serviceStrategy` is *explicitly* set to a non-scheduled value does a
+ * `windowKey` become incoherent: the caller has explicitly chosen a strategy that
+ * doesn't use windows, yet is also specifying a window.
+ *
+ * Exported for direct testing without requiring the full command factory setup.
+ * The `asks.create` command's `validate` hook delegates to this function.
+ *
+ * @throws {ValidationError} when `windowKey` is set AND `serviceStrategy` is explicitly non-scheduled
+ */
+export function validateAsksCreateParams(params: {
+  windowKey?: string;
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+}): void {
+  if (
+    params.windowKey !== undefined &&
+    params.serviceStrategy !== undefined &&
+    params.serviceStrategy !== "scheduled"
+  ) {
+    throw new ValidationError(
+      `windowKey is only valid when serviceStrategy='scheduled'. You explicitly set serviceStrategy='${params.serviceStrategy}' but also provided windowKey. ` +
+        "Either drop windowKey, set serviceStrategy='scheduled', or omit serviceStrategy to use the kind's default."
+    );
+  }
+}
 
 /**
  * Typed input for `createAsk` — the internal helper exposed for testing.
@@ -237,6 +302,12 @@ export interface CreateAskParams {
   metadata?: Record<string, unknown>;
   classifierVersion?: string;
   requestor?: string;
+  /** Service-window routing strategy (mt#1411 spine — mt#1488). When absent, per-kind default applies. */
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+  /** Named window to target when strategy is "scheduled". When absent, per-kind default applies. */
+  windowKey?: string;
+  /** Bypass window check and route immediately (default false). */
+  forceImmediate?: boolean;
 }
 
 /**
@@ -316,6 +387,21 @@ export async function createAsk(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<RoutedAsk | ElicitationClosedAsk> {
+  // Apply per-kind service-window defaults when the requestor has not supplied
+  // explicit values. Explicit params always win over defaults (mt#1488 SC4).
+  const kindDefaults = getServiceWindowDefault(params.kind);
+  const resolvedStrategy = params.serviceStrategy ?? kindDefaults.serviceStrategy;
+  // windowKey: requestor-explicit value wins; kind default only applies when
+  // the resolved strategy is "scheduled" (windowKey is meaningless for asap /
+  // deadline-bound and should not be inherited from a "scheduled" default when
+  // the requestor has overridden the strategy to something else).
+  // windowKey: only meaningful when strategy is "scheduled". If the requestor
+  // supplies a windowKey with a non-scheduled strategy (e.g. "asap"), it is
+  // ignored — persisting it would contradict documented semantics in types.ts
+  // ("Only meaningful when serviceStrategy is 'scheduled'").
+  const resolvedWindowKey =
+    resolvedStrategy === "scheduled" ? (params.windowKey ?? kindDefaults.windowKey) : undefined;
+
   const input: CreateAskInput = {
     kind: params.kind,
     classifierVersion: params.classifierVersion ?? "v1.0.0",
@@ -328,6 +414,17 @@ export async function createAsk(
     parentSessionId: params.parentSessionId,
     deadline: params.deadline,
     metadata: params.metadata,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: resolvedStrategy,
+    windowKey: resolvedWindowKey,
+    // windowMissedCount starts at 0 for all new Asks. The reaper (mt#1490)
+    // increments this field as scheduled windows are missed. Callers must not
+    // set this directly — it is reaper-owned state.
+    windowMissedCount: 0,
+    // forceImmediate is persisted here to record the caller's intent at creation time.
+    // The router (mt#1490) observes this field to bypass the window check and route
+    // immediately. createAsk does not act on it directly — that logic lives in the router.
+    forceImmediate: params.forceImmediate ?? false,
   };
 
   const ask = await repo.create(input);
@@ -470,6 +567,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       description: "Create an Ask and route it via the policy-first router (ADR-008)",
       requiresSetup: true,
       parameters: asksCreateParams,
+      validate: async (params) => {
+        // Cross-field coherence: windowKey is only meaningful when serviceStrategy='scheduled'.
+        // Reject at the parameter boundary so callers get immediate, actionable feedback.
+        validateAsksCreateParams(params);
+      },
       execute: async (params): Promise<RoutedAsk | ElicitationClosedAsk> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
@@ -508,6 +610,14 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             metadata: params.metadata as Record<string, unknown> | undefined,
             classifierVersion: params.classifierVersion as string | undefined,
             requestor: params.requestor as string | undefined,
+            // Service-window fields (mt#1411 spine — mt#1488)
+            serviceStrategy: params.serviceStrategy as
+              | "asap"
+              | "scheduled"
+              | "deadline-bound"
+              | undefined,
+            windowKey: params.windowKey as string | undefined,
+            forceImmediate: params.forceImmediate as boolean | undefined,
           },
           routerOptions
         );

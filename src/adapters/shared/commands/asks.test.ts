@@ -18,8 +18,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk } from "./asks";
+import { createAsk, validateAsksCreateParams } from "./asks";
 import { FakeAskRepository } from "../../../domain/ask/repository";
+import {
+  getServiceWindowDefault,
+  SERVICE_WINDOW_DEFAULTS,
+} from "../../../domain/ask/service-window-defaults";
+import { ValidationError } from "../../../errors/index";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -43,6 +48,10 @@ const NONEXISTENT_WORKSPACE_ROOT = "/__nonexistent_test_dir_for_asks_create__";
 const KIND_DIRECTION_DECIDE = "direction.decide" as const;
 const KIND_CAPABILITY_ESCALATE = "capability.escalate" as const;
 const KIND_COORDINATION_NOTIFY = "coordination.notify" as const;
+const KIND_QUALITY_REVIEW = "quality.review" as const;
+const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
+const KIND_STUCK_UNBLOCK = "stuck.unblock" as const;
+const KIND_INFORMATION_RETRIEVE = "information.retrieve" as const;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -393,5 +402,350 @@ describe("createAsk", () => {
     // Subagent transport — never touches elicitation regardless of registry state.
     expect(result.transport.kind).toBe("subagent");
     expect(result.state).toBe("routed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Service-window defaults — mt#1411 spine (mt#1488)
+// ---------------------------------------------------------------------------
+
+describe("service-window-defaults module", () => {
+  test("covers all 7 AskKind values (completeness)", () => {
+    const kinds = [
+      KIND_DIRECTION_DECIDE,
+      KIND_QUALITY_REVIEW,
+      KIND_AUTHORIZATION_APPROVE,
+      KIND_STUCK_UNBLOCK,
+      KIND_COORDINATION_NOTIFY,
+      KIND_CAPABILITY_ESCALATE,
+      KIND_INFORMATION_RETRIEVE,
+    ] as const;
+    for (const kind of kinds) {
+      const def = SERVICE_WINDOW_DEFAULTS[kind];
+      expect(def).toBeDefined();
+      expect(["asap", "scheduled", "deadline-bound"]).toContain(def.serviceStrategy);
+    }
+  });
+
+  test("direction.decide defaults to scheduled/ask-hours", () => {
+    const def = getServiceWindowDefault(KIND_DIRECTION_DECIDE);
+    expect(def.serviceStrategy).toBe("scheduled");
+    expect(def.windowKey).toBe("ask-hours");
+  });
+
+  test("quality.review defaults to scheduled/ask-hours", () => {
+    const def = getServiceWindowDefault(KIND_QUALITY_REVIEW);
+    expect(def.serviceStrategy).toBe("scheduled");
+    expect(def.windowKey).toBe("ask-hours");
+  });
+
+  test("authorization.approve defaults to deadline-bound with no windowKey", () => {
+    const def = getServiceWindowDefault(KIND_AUTHORIZATION_APPROVE);
+    expect(def.serviceStrategy).toBe("deadline-bound");
+    expect(def.windowKey).toBeUndefined();
+  });
+
+  test("stuck.unblock defaults to asap with no windowKey", () => {
+    const def = getServiceWindowDefault(KIND_STUCK_UNBLOCK);
+    expect(def.serviceStrategy).toBe("asap");
+    expect(def.windowKey).toBeUndefined();
+  });
+
+  test("coordination.notify defaults to asap", () => {
+    const def = getServiceWindowDefault(KIND_COORDINATION_NOTIFY);
+    expect(def.serviceStrategy).toBe("asap");
+  });
+
+  test("capability.escalate defaults to asap", () => {
+    const def = getServiceWindowDefault(KIND_CAPABILITY_ESCALATE);
+    expect(def.serviceStrategy).toBe("asap");
+  });
+
+  test("information.retrieve defaults to asap", () => {
+    const def = getServiceWindowDefault(KIND_INFORMATION_RETRIEVE);
+    expect(def.serviceStrategy).toBe("asap");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createAsk service-window wiring — mt#1488 acceptance tests
+// ---------------------------------------------------------------------------
+
+describe("createAsk — service-window defaults and overrides", () => {
+  test("direction.decide with no service-window args gets scheduled/ask-hours", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Choose direction",
+        question: "Which approach should we take?",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("scheduled");
+    expect(persisted.windowKey).toBe("ask-hours");
+  });
+
+  test("stuck.unblock with no service-window args gets asap/null windowKey", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_STUCK_UNBLOCK,
+        title: "Stuck",
+        question: "Help me unblock",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("asap");
+    expect(persisted.windowKey).toBeUndefined();
+  });
+
+  test("explicit serviceStrategy overrides per-kind default", async () => {
+    const repo = new FakeAskRepository();
+
+    // direction.decide default is "scheduled", but requestor explicitly passes "asap"
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Urgent decision",
+        question: "Must decide now",
+        serviceStrategy: "asap",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("asap");
+    // windowKey should not be set when strategy is explicitly asap
+    expect(persisted.windowKey).toBeUndefined();
+  });
+
+  test("forceImmediate=true round-trips through FakeAskRepository", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Critical path decision",
+        question: "Must decide now, no time to wait",
+        forceImmediate: true,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.forceImmediate).toBe(true);
+  });
+
+  test("forceImmediate defaults to false when not provided", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_STUCK_UNBLOCK,
+        title: "Blocked",
+        question: "Help",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.forceImmediate).toBe(false);
+  });
+
+  test("windowMissedCount defaults to 0 on create", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.windowMissedCount).toBe(0);
+  });
+
+  test("explicit windowKey overrides per-kind default when strategy is scheduled", async () => {
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+        serviceStrategy: "scheduled",
+        windowKey: "custom-window",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("scheduled");
+    expect(persisted.windowKey).toBe("custom-window");
+  });
+
+  test("absent serviceStrategy + windowKey for scheduled-default kind persists custom windowKey", async () => {
+    // R4 fix: absent serviceStrategy is legitimate when kind defaults to scheduled.
+    // direction.decide defaults to scheduled/ask-hours; caller may supply a custom windowKey
+    // to override just the window name without specifying the strategy explicitly.
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+        // serviceStrategy intentionally absent — should resolve to "scheduled" via kind default
+        windowKey: "custom-window",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    // Kind default resolves strategy to "scheduled"
+    expect(persisted.serviceStrategy).toBe("scheduled");
+    // Caller's windowKey overrides the kind default ("ask-hours")
+    expect(persisted.windowKey).toBe("custom-window");
+  });
+
+  test("absent serviceStrategy + windowKey for asap-default kind silently drops windowKey", async () => {
+    // R4 fix: absent serviceStrategy + windowKey for a kind whose default is asap.
+    // stuck.unblock defaults to asap; windowKey is meaningless for asap and must be dropped
+    // (R1 fix #3 silent-drop logic in createAsk).
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_STUCK_UNBLOCK,
+        title: "Blocked",
+        question: "Help me unblock",
+        // serviceStrategy intentionally absent — resolves to "asap" via kind default
+        windowKey: "ask-hours", // Caller provides windowKey; should be silently dropped
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    // Kind default resolves strategy to "asap"
+    expect(persisted.serviceStrategy).toBe("asap");
+    // windowKey is not valid for asap — must be undefined
+    expect(persisted.windowKey).toBeUndefined();
+  });
+
+  test("windowKey is cleared when caller supplies non-scheduled strategy alongside a windowKey", async () => {
+    // Finding #3 (R1 review): windowKey must only be persisted when strategy is
+    // 'scheduled'. If a caller passes serviceStrategy='asap' and windowKey='ask-hours',
+    // the windowKey must be ignored — storing it would contradict the documented
+    // semantics in types.ts ("Only meaningful when serviceStrategy is 'scheduled'").
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Urgent decision",
+        question: "Must decide now",
+        serviceStrategy: "asap",
+        windowKey: "ask-hours", // Caller incorrectly passes a windowKey with asap strategy
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("asap");
+    // windowKey must be null/undefined — it should not be stored for non-scheduled strategies
+    expect(persisted.windowKey).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAsksCreateParams — boundary-time enforcement (R2 review feedback)
+// ---------------------------------------------------------------------------
+
+describe("validateAsksCreateParams", () => {
+  test("rejects windowKey when serviceStrategy is 'asap'", () => {
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "asap", windowKey: "ask-hours" })
+    ).toThrow(ValidationError);
+  });
+
+  test("rejects windowKey when serviceStrategy is 'deadline-bound'", () => {
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "deadline-bound", windowKey: "ask-hours" })
+    ).toThrow(ValidationError);
+  });
+
+  test("allows windowKey when serviceStrategy is absent (per-kind default handles coherence)", () => {
+    // When serviceStrategy is absent, per-kind defaults in createAsk resolve the strategy.
+    // For scheduled-default kinds (e.g. direction.decide), the caller's windowKey overrides
+    // the default window name. The validation must not block this legitimate usage.
+    expect(() => validateAsksCreateParams({ windowKey: "ask-hours" })).not.toThrow();
+  });
+
+  test("error message is actionable and includes the explicit strategy value", () => {
+    let caught: unknown;
+    try {
+      validateAsksCreateParams({ serviceStrategy: "asap", windowKey: "ask-hours" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const error = caught as ValidationError;
+    expect(error.message).toContain("windowKey is only valid when serviceStrategy='scheduled'");
+    expect(error.message).toContain("serviceStrategy='asap'");
+    expect(error.message).toContain("omit serviceStrategy to use the kind's default");
+  });
+
+  test("accepts windowKey when serviceStrategy is 'scheduled'", () => {
+    // Should not throw
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "scheduled", windowKey: "ask-hours" })
+    ).not.toThrow();
+  });
+
+  test("accepts absent windowKey with any serviceStrategy", () => {
+    expect(() => validateAsksCreateParams({ serviceStrategy: "asap" })).not.toThrow();
+    expect(() => validateAsksCreateParams({ serviceStrategy: "scheduled" })).not.toThrow();
+    expect(() => validateAsksCreateParams({ serviceStrategy: "deadline-bound" })).not.toThrow();
+    expect(() => validateAsksCreateParams({})).not.toThrow();
   });
 });

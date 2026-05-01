@@ -304,6 +304,58 @@ export interface Ask {
   };
 
   // -------------------------------------------------------------------------
+  // Service-window fields (mt#1411 spine — mt#1488)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Routing strategy for the service-window primitive.
+   *
+   * - `"asap"` (default when absent) — route immediately, no window check.
+   * - `"scheduled"` — route only during the named `windowKey` window.
+   * - `"deadline-bound"` — route immediately but escalate as deadline nears.
+   *
+   * When absent, the router behaves as if the value were `"asap"`.
+   * Per-kind defaults are applied by `asks.create` via the
+   * `service-window-defaults` module; explicit requestor values override.
+   */
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+
+  /**
+   * Named service window this Ask targets (e.g. `"ask-hours"`).
+   *
+   * Only meaningful when `serviceStrategy` is `"scheduled"`. The router
+   * (mt#1490) will look up window configuration by this key and defer the
+   * Ask until the window opens. Absent when strategy is `"asap"` or
+   * `"deadline-bound"`.
+   */
+  windowKey?: string;
+
+  /**
+   * How many scheduled windows this Ask has already missed.
+   *
+   * Incremented by the reaper (mt#1490) each time the window opens and
+   * the Ask is still pending. Used to decide when to escalate beyond the
+   * scheduled window. Defaults to `0` when absent.
+   */
+  windowMissedCount?: number;
+
+  /**
+   * When `true`, bypass the service-window check and route immediately.
+   *
+   * Intended for critical-path unblocking where waiting for the next
+   * scheduled window would cause unacceptable delay. Stored as a top-level
+   * field (not metadata) because four downstream consumers cross the
+   * typed-contract threshold: Router, mt#1035 noticer, Cockpit render,
+   * and per-kind defaults logic.
+   *
+   * NOTE: mt#1035 noticer anti-pattern guard (flag to operator when this
+   * is used too frequently) is tracked as a TODO for mt#1490.
+   *
+   * Defaults to `false` when absent.
+   */
+  forceImmediate?: boolean;
+
+  // -------------------------------------------------------------------------
   // Extensibility
   // -------------------------------------------------------------------------
 
