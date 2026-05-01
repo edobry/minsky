@@ -480,19 +480,22 @@ async function replayEntry(
     );
 
     // Flatten current submit_finding tool calls for severity analysis.
-    const currentFindings: FlatFinding[] = output.toolCalls
-      .filter((tc) => tc.name === "submit_finding")
-      .map((tc) => {
-        if (tc.name !== "submit_finding") {
-          // Discriminator narrowed at runtime; this branch is unreachable.
-          throw new Error("unreachable");
-        }
-        return {
-          file: tc.args.file,
-          severity: tc.args.severity,
-          line: tc.args.line,
-        };
+    // Deduplicate by file:line:severity (PR #920 R6#3): the model
+    // occasionally emits the same finding twice in one review (observed
+    // on PR #732 attempt 3); dedup avoids inflating the inflation metric.
+    const seenFindings = new Set<string>();
+    const currentFindings: FlatFinding[] = [];
+    for (const tc of output.toolCalls) {
+      if (tc.name !== "submit_finding") continue;
+      const key = `${tc.args.file}:${tc.args.line}:${tc.args.severity}`;
+      if (seenFindings.has(key)) continue;
+      seenFindings.add(key);
+      currentFindings.push({
+        file: tc.args.file,
+        severity: tc.args.severity,
+        line: tc.args.line,
       });
+    }
 
     const inflation = detectSeverityInflation(currentFindings, ctx.priorFindings);
 
