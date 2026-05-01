@@ -13,6 +13,7 @@ import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
+import { registerSetupGithubAppCommand } from "./setup-github-app";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -60,6 +61,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register setup commands
   registerSetupCommands();
+
+  // Register `setup github-app` subcommand (mt#1087)
+  registerSetupGithubAppCommand();
 
   // Register config commands
   registerConfigCommands();
@@ -130,6 +134,7 @@ export {
   registerRulesCommands,
   registerInitCommands,
   registerSetupCommands,
+  registerSetupGithubAppCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,
