@@ -542,8 +542,9 @@ async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): 
  *   - For async transports: row stays at "detected"; downstream transport
  *     adapter (mt#1070 subagent, mt#454 inbox, etc.) walks the state
  *     machine. This matches Tree A's existing semantics in mt#1069/mt#1070.
- *   - For window-deferred asks: row stays at "detected"; the reaper (mt#1490)
- *     transitions to "suspended" when the window opens.
+ *   - For window-deferred asks: row is immediately walked to "suspended" via
+ *     `advanceRoutedAskToSuspended`. The reaper (mt#1490) wakes it when the
+ *     window opens by transitioning to "routed" and dispatching.
  *   - For elicitation: walks the state machine end-to-end. The repo state
  *     after this call always matches the returned object's state.
  *   - Per `Ask.response`'s contract in `types.ts`, `response` is only
@@ -595,8 +596,11 @@ export async function createAsk(
   const routed = await policyFirstRoute(ask, routerOptions);
 
   // Window-deferred path: Ask is suspended pending a service window.
-  // The reaper (mt#1490) will transition it and dispatch when the window opens.
+  // Walk the DB row to "suspended" immediately so the persisted state
+  // matches the router decision. The reaper (mt#1490) transitions it
+  // to "routed" and dispatches when the window opens.
   if (isSuspendedAsk(routed)) {
+    await advanceRoutedAskToSuspended(repo, ask.id);
     return routed;
   }
 
