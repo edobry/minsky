@@ -9,6 +9,10 @@
  * Lifecycle (in order):
  *   detected → classified → routed → suspended → responded → closed
  *
+ * Window-deferred lifecycle (mt#1490):
+ *   classified → suspended (router Phase 3 sets suspended directly for window-deferred Asks)
+ *   suspended  → routed    (reaper wakes up the Ask when the window opens)
+ *
  * Terminal states (closed, cancelled, expired) can only be reached from
  * specific non-terminal states; once terminal, no further transitions are
  * allowed.
@@ -53,7 +57,8 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
         break;
       case "classified":
         // Router picks a target → routed; or short-circuit close paths.
-        allow(state, "routed", "cancelled", "expired");
+        // Also → suspended directly for window-deferred Asks (mt#1490 Phase 3).
+        allow(state, "routed", "suspended", "cancelled", "expired");
         break;
       case "routed":
         // Transport dispatched → suspended (waiting for response).
@@ -61,7 +66,8 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
         break;
       case "suspended":
         // Response received → responded; or deadline/cancel.
-        allow(state, "responded", "cancelled", "expired");
+        // Also → routed when the reaper wakes up a window-deferred Ask (mt#1490).
+        allow(state, "routed", "responded", "cancelled", "expired");
         break;
       case "responded":
         // Post-response validation/side-effects complete → closed.
