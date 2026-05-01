@@ -33,15 +33,55 @@ export interface BranchFreshnessResult {
   aheadSubjects: string[];
   /** Human-readable reason for allow/block decision */
   reason: string;
+  /**
+   * The default-branch ref that the comparison was computed against
+   * (e.g. `"origin/main"` or `"origin/master"`). Set whenever the check
+   * actually ran a comparison (blocked or up-to-date); undefined when the
+   * check returned early (detached HEAD, fresh branch, undetectable default).
+   *
+   * Returned so the hook entrypoint can render the denial message against
+   * the SAME ref the comparison used, preventing the round-2 inconsistency
+   * where re-detection could disagree with the original detection.
+   */
+  mainRef?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Core check
 // ---------------------------------------------------------------------------
 
-const GIT_TIMEOUT_MS = 5_000;
-/** Slightly larger timeout for the network-bound `git fetch` call. */
-const FETCH_TIMEOUT_MS = 6_000;
+/**
+ * Per-call timeout for fast local git operations. Realistic git invocations
+ * complete in <100ms; 1.5s is generous for degraded conditions and keeps the
+ * cumulative worst case under the 15s PreToolUse cap.
+ */
+const GIT_TIMEOUT_MS = 1_500;
+
+/**
+ * Per-call timeout for the network-bound `git fetch`. Higher than other calls
+ * because it's the only one going over the wire.
+ */
+const FETCH_TIMEOUT_MS = 5_000;
+
+/**
+ * Overall wall-clock budget for the hook. Below the 15s PreToolUse cap to
+ * leave headroom for process startup / shutdown and the output write. When
+ * cumulative time approaches this, the hook short-circuits with a warning
+ * rather than risk SIGTERM mid-call (which would yield no structured
+ * decision and flake the agent's commit).
+ *
+ * Worst-case math: FETCH (5s) + 6 × GIT (1.5s each) = 14s — fits 15s cap.
+ */
+const OVERALL_BUDGET_MS = 12_000;
+
+/**
+ * Budget guard. Returns true if there's enough remaining wall-clock time to
+ * safely run another call of the given duration. Used to short-circuit
+ * before further git operations when the budget is nearly exhausted.
+ */
+function budgetAllows(start: number, callBudgetMs: number): boolean {
+  return Date.now() - start + callBudgetMs <= OVERALL_BUDGET_MS;
+}
 
 /**
  * Detect the current HEAD branch name in the given working directory.
@@ -181,13 +221,22 @@ export function listCommitsAhead(
  *
  * `repoDir`: the working directory to run git in (from `input.cwd`)
  * `branch`: optional override for the current branch name (defaults to HEAD)
+ * `hookStart`: optional timestamp marking when the hook began. When provided,
+ * the check enforces the overall wall-clock budget and short-circuits with a
+ * "skipped" reason if any further git call would risk exceeding it. When
+ * omitted (e.g., from unit tests), no budget enforcement occurs.
  *
  * Returns a BranchFreshnessResult.
  */
 export function checkBranchFreshness(
   repoDir: string,
-  branch?: string | null
+  branch?: string | null,
+  hookStart?: number
 ): BranchFreshnessResult {
+  const startMs = typeof hookStart === "number" ? hookStart : null;
+  const overBudget = (callBudgetMs: number): boolean =>
+    startMs !== null && !budgetAllows(startMs, callBudgetMs);
+
   // Resolve current branch
   const currentBranch = branch ?? detectCurrentBranch(repoDir);
   if (!currentBranch) {
@@ -199,6 +248,15 @@ export function checkBranchFreshness(
     };
   }
 
+  if (overBudget(GIT_TIMEOUT_MS)) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: "Overall budget exhausted before remote-branch check — freshness check skipped",
+    };
+  }
+
   // Check if the remote branch exists; if not, it's a fresh branch — allow
   if (!remoteBranchExists(repoDir, currentBranch)) {
     return {
@@ -206,6 +264,16 @@ export function checkBranchFreshness(
       aheadCount: 0,
       aheadSubjects: [],
       reason: `Fresh branch: origin/${currentBranch} does not exist yet — no divergence to check`,
+    };
+  }
+
+  // detectDefaultRemoteBranch may run up to 4 sub-probes — guard with budget
+  if (overBudget(GIT_TIMEOUT_MS * 4)) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: "Overall budget exhausted before default-branch detect — freshness check skipped",
     };
   }
 
@@ -220,6 +288,16 @@ export function checkBranchFreshness(
     };
   }
 
+  if (overBudget(GIT_TIMEOUT_MS * 2)) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: "Overall budget exhausted before commits-ahead probe — freshness check skipped",
+      mainRef,
+    };
+  }
+
   // Compare origin/<branch> vs origin/main (not local HEAD, to avoid local-only commits skewing the check)
   const branchRef = `origin/${currentBranch}`;
   const { count, subjects } = listCommitsAhead(repoDir, branchRef, mainRef);
@@ -230,6 +308,7 @@ export function checkBranchFreshness(
       aheadCount: 0,
       aheadSubjects: [],
       reason: `Branch ${currentBranch} is up to date with ${mainRef}`,
+      mainRef,
     };
   }
 
@@ -238,6 +317,7 @@ export function checkBranchFreshness(
     aheadCount: count,
     aheadSubjects: subjects,
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
+    mainRef,
   };
 }
 
@@ -309,6 +389,7 @@ if (import.meta.main) {
   }
 
   const repoDir = input.cwd;
+  const hookStart = Date.now();
 
   // Refresh remote-tracking refs so the comparison runs against current state.
   // Failure is non-fatal (warn + continue): a slow / unreachable origin should
@@ -324,17 +405,20 @@ if (import.meta.main) {
 
   // Detect current branch
   const currentBranch = detectCurrentBranch(repoDir);
-  const result = checkBranchFreshness(repoDir, currentBranch);
+  const result = checkBranchFreshness(repoDir, currentBranch, hookStart);
 
   if (!result.blocked) {
-    // Emit reason for transparency on every non-blocked allow path so host
-    // UIs that only surface hookSpecificOutput (not stdout) can audit the
-    // decision. Matches parallel-work-guard's pattern. The "up to date"
-    // branch is the silent happy path — no need to surface it.
-    const isUpToDate = result.reason.includes("up to date");
-    if (!isUpToDate || warnings.length > 0) {
+    // Behavioral Contract (silent paths): "Allows silently: branch even with
+    // main, fresh branch (no upstream), detached HEAD, undetectable default
+    // branch." Only emit when there's something operationally interesting:
+    // a "skipped" reason (detached HEAD, undetectable default, budget
+    // exhausted) OR a fetch warning that operators should see. Fresh-branch
+    // and up-to-date paths emit nothing — they're the silent happy paths.
+    const isSkipped = result.reason.toLowerCase().includes("skipped");
+    const shouldEmit = isSkipped || warnings.length > 0;
+    if (shouldEmit) {
       const lines: string[] = [];
-      if (!isUpToDate) {
+      if (isSkipped) {
         lines.push(`[check-branch-fresh] ${result.reason}`);
       }
       for (const w of warnings) {
@@ -353,8 +437,12 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Blocked: format and emit denial
-  const mainRef = detectDefaultRemoteBranch(repoDir) ?? "origin/main";
+  // Blocked: format and emit denial. Reuse `result.mainRef` (the ref the
+  // comparison was actually computed against) instead of re-detecting —
+  // re-detection could yield a different ref under flaky probes, producing
+  // a denial message that mentions origin/master while the diff was computed
+  // against origin/main.
+  const mainRef = result.mainRef ?? "origin/main";
   const message = formatBlockMessage(
     currentBranch ?? "unknown",
     mainRef,

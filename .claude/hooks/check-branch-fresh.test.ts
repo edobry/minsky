@@ -135,6 +135,7 @@ function runFreshnessCheck(
       aheadCount: 0,
       aheadSubjects: [],
       reason: `Branch ${branch} is up to date with ${mainRef}`,
+      mainRef,
     };
   }
 
@@ -143,6 +144,7 @@ function runFreshnessCheck(
     aheadCount: count,
     aheadSubjects: subjects,
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${branch}`,
+    mainRef,
   };
 }
 
@@ -247,6 +249,54 @@ describe("branch freshness logic (injectable deps)", () => {
       expect(result.reason).toContain("freshness check skipped");
     });
   });
+
+  describe("mainRef pass-through (round-2 BLOCKING #2 fix)", () => {
+    test("includes mainRef on blocked result so denial message uses the same ref the comparison used", () => {
+      const deps = makeDeps({
+        detectDefaultRemoteBranch: () => "origin/master",
+        listCommitsAhead: () => ({ count: 2, subjects: ["a feat", "b fix"] }),
+      });
+
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(true);
+      expect(result.mainRef).toBe("origin/master");
+    });
+
+    test("includes mainRef on up-to-date result", () => {
+      const deps = makeDeps({
+        detectDefaultRemoteBranch: () => "origin/main",
+        listCommitsAhead: () => ({ count: 0, subjects: [] }),
+      });
+
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.mainRef).toBe("origin/main");
+    });
+
+    test("omits mainRef on fresh-branch result (no comparison ran)", () => {
+      const deps = makeDeps({
+        remoteBranchExists: () => false,
+      });
+
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.mainRef).toBeUndefined();
+    });
+
+    test("omits mainRef on undetectable-default result", () => {
+      const deps = makeDeps({
+        detectDefaultRemoteBranch: () => null,
+      });
+
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.mainRef).toBeUndefined();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -260,6 +310,22 @@ describe("checkBranchFreshness (exported)", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toContain("skipped");
+  });
+
+  test("budget guard: skips remaining work when hookStart deadline is already past", () => {
+    // Round-2 BLOCKING #1 fix: pass hookStart from the entrypoint so that
+    // the cumulative wall-clock budget is enforced. Simulate a past deadline
+    // by passing a hookStart timestamp far in the past — the check should
+    // short-circuit with a "skipped" reason rather than running git probes.
+    //
+    // The branch arg is a non-null string so the early "detached HEAD" guard
+    // does not fire; the budget guard at the next step is what we're testing.
+    const longAgo = Date.now() - 60_000;
+    const result = checkBranchFreshness(MOCK_REPO, "test-branch", longAgo);
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toContain("skipped");
+    expect(result.reason.toLowerCase()).toContain("budget");
   });
 });
 
