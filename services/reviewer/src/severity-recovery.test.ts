@@ -505,6 +505,24 @@ describe("parsePriorBodyFindings", () => {
     const body = "Conclusion: [BLOCKING] above are issues — see context";
     expect(parsePriorBodyFindings(body)).toEqual([]);
   });
+
+  test("accepts paths with bare spaces (PR #922 R15#1)", () => {
+    // Some real codebases use spaced filenames: `src/My Component.tsx`.
+    // The permissive path branch allows spaces but requires `.`, `/`, or
+    // `\\` somewhere — pure prose without those chars is still rejected.
+    const body = "[BLOCKING] src/My Component.tsx:12 — bad pattern";
+    expect(parsePriorBodyFindings(body)).toEqual([
+      { file: "src/My Component.tsx", severity: "BLOCKING", line: 12 },
+    ]);
+  });
+
+  test("accepts paths with commas (PR #922 R15#1)", () => {
+    // Comma-containing paths (rare but valid): `examples/foo,bar.ts`.
+    const body = "[NON-BLOCKING] examples/foo,bar.ts:3 — note";
+    expect(parsePriorBodyFindings(body)).toEqual([
+      { file: "examples/foo,bar.ts", severity: "NON-BLOCKING", line: 3 },
+    ]);
+  });
 });
 
 describe("parsePriorReviewFindings", () => {

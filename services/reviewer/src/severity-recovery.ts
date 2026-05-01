@@ -122,16 +122,19 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   //   - Line capture: explicit start + optional end so `:171-176` produces
   //     {line: 171, lineEnd: 176} (pre-fix was lossy parseInt(`171-176`)→171).
   //
-  // Path char class: word chars, `@`, `.`, `_`, `-`, `/`, `\`. The
-  // parenthesized continuation `(?:\s*\([^)]+\)[\w...]*)*` allows paths with
-  // bracketed annotations (e.g., `docs/Guide (draft).md`) while rejecting
-  // bare-space prose (`above are issues — text`) — the over-match would
-  // require an English word to be followed by `(...)`, which is rare in
-  // narrative review bodies. ASCII hyphen `-` is permitted inside paths
-  // (common: `task-spec-fetch.ts`); the dash-boundary alternative requires
-  // WHITESPACE around the dash to disambiguate from path-internal hyphens.
+  // Path char class: two alternatives.
+  //   (a) Strict: `[A-Za-z0-9@._\-/\\]+` (with optional parenthesized
+  //       continuation) — covers the overwhelming majority of paths.
+  //   (b) Permissive: allows spaces, commas, and parens BUT requires at
+  //       least one `/`, `.`, or `\` in the run so bare prose like
+  //       "above are issues" — which lacks path-distinctive chars — does
+  //       NOT match. Real-world examples: `src/My Component.tsx`,
+  //       `examples/foo,bar.ts` (PR #922 R15#1).
+  // ASCII hyphen `-` is permitted inside paths (common: `task-spec-fetch.ts`);
+  // the dash-boundary alternative requires WHITESPACE around the dash to
+  // disambiguate from path-internal hyphens.
   const findingRe =
-    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+([A-Za-z0-9@._\-/\\]+(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)*)(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
+    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+((?:[A-Za-z0-9@._\-/\\]+(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)*)|(?:[A-Za-z0-9@_\-,() ]*[./\\][A-Za-z0-9@._\-/\\,() ]*))(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
 
   for (const match of body.matchAll(findingRe)) {
     // Capture groups (alternation produces parallel sets):
