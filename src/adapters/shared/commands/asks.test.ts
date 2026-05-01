@@ -674,17 +674,10 @@ describe("respondToAsk", () => {
     );
   });
 
-  // The routingTarget check that would gate this case lives behind the
-  // mt#454-impl follow-up — see the inline note in src/adapters/shared/
-  // commands/asks.ts:respondToAsk. At v1, every suspended Ask is an
-  // operator-target by elimination, so we don't gate on routingTarget.
-  // When a non-operator transport starts using suspended state, re-introduce
-  // the gate AND this test.
-  test("v1 placeholder: routingTarget gating deferred to mt#454-impl", () => {
-    // Documented in the respondToAsk doc comment + the inline note. This
-    // test slot exists to keep the future test's name reserved.
-    expect(true).toBe(true);
-  });
+  // Note: routingTarget gating is intentionally not enforced at v1.
+  // See respondToAsk's doc comment for the full rationale + mt#454-impl
+  // follow-up. When a non-operator transport starts using suspended state,
+  // add a gate AND a test asserting it rejects non-operator routingTargets.
 
   test("integrates end-to-end with createAsk: produce → suspend → respond → close", async () => {
     const repo = new FakeAskRepository();
