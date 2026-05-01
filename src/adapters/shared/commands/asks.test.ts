@@ -492,6 +492,8 @@ describe("respondToAsk", () => {
     expect(result.ask.state).toBe("closed");
     expect(result.ask.response?.responder).toBe("operator");
     expect(result.ask.response?.payload).toEqual({ message: "go with X" });
+    // PR #924 R1 BLOCKING: attentionCost is present on the closed Ask
+    // (filled on close per the Ask.response contract in types.ts).
     expect(result.ask.response?.attentionCost?.transport).toBe("inbox");
     expect(result.ask.response?.attentionCost?.resolvedIn).toBe("inbox");
 
@@ -499,6 +501,38 @@ describe("respondToAsk", () => {
     const persisted = await repo.getById(ask.id);
     expect(persisted?.state).toBe("closed");
     expect(persisted?.response?.payload).toEqual({ message: "go with X" });
+  });
+
+  test("attentionCost is attached on close(), NOT on respond() — Ask.response contract", async () => {
+    // PR #924 R1 BLOCKING regression test: enforce that the responded-stage
+    // row does NOT carry attentionCost. We probe this by intercepting the
+    // repo to capture the response object passed to repo.respond before it
+    // moves on to repo.close.
+    const realRepo = new FakeAskRepository();
+    const responseAtRespondStage: Array<{
+      responder: string;
+      payload: unknown;
+      attentionCost?: unknown;
+    }> = [];
+
+    // Wrap the respond method to capture the input.
+    const originalRespond = realRepo.respond.bind(realRepo);
+    realRepo.respond = async (id, input) => {
+      responseAtRespondStage.push(input.response);
+      return await originalRespond(id, input);
+    };
+
+    const ask = await seedAskInState(realRepo, "suspended");
+    await respondToAsk(realRepo, { id: ask.id, message: "ok" });
+
+    expect(responseAtRespondStage).toHaveLength(1);
+    const respondInput = responseAtRespondStage[0];
+    expect(respondInput).toBeDefined();
+    if (!respondInput) return;
+    // Per Ask.response contract: attentionCost is "filled on close" only.
+    expect(respondInput.attentionCost).toBeUndefined();
+    expect(respondInput.responder).toBe("operator");
+    expect(respondInput.payload).toEqual({ message: "ok" });
   });
 
   test("uses 'operator' as default responder when not provided", async () => {

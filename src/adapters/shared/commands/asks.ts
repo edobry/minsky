@@ -415,26 +415,35 @@ export type RespondToAskResult = {
 };
 
 /**
- * Respond to a suspended operator-bound Ask via the operator CLI surface.
+ * Respond to a suspended Ask via the operator CLI surface.
  *
  * Walks the persisted Ask through `responded → closed` with the operator's
  * message as `response.payload.message`. The original transport (set during
- * routing) is preserved on the Ask record; `attentionCost` records that the
- * resolution happened via the inbox/CLI surface (`resolvedIn: "inbox"`).
+ * routing) is preserved on the Ask record; `attentionCost` is attached on
+ * the `close()` step only — per the `Ask.response` contract in `types.ts`,
+ * "`attentionCost` is filled on close."
  *
  * Pre-conditions:
  *   - Ask exists (`repo.getById` returns non-null).
  *   - Ask is in `"suspended"` state. Earlier states (detected/classified/routed)
  *     mean no transport has dispatched yet — responding would skip the dispatch
  *     path. Terminal states (closed/cancelled/expired) cannot be responded to.
- *   - Ask was routed to the operator (`routingTarget === "operator"`). Other
- *     routing targets (subagent, peer, etc.) have their own resolution paths;
- *     the operator CLI doesn't override them.
+ *
+ * Note: at v1, `routingTarget === "operator"` is NOT enforced here. The
+ * router (mt#1069 `policyFirstRoute`) does not persist `routingTarget` to
+ * the repo, so the persisted row keeps `routingTarget = undefined`. By
+ * elimination at v1, every Ask that legitimately reaches `"suspended"` is
+ * operator-bound (subagent/mesh transports don't pass through `suspended`
+ * per mt#1070 + ADR-008's matrix; elicitation may suspend on timeout, in
+ * which case the operator IS the recovery path). When a non-operator
+ * transport starts using `suspended`, re-introduce a gate here. Filed as
+ * a follow-up concern in mt#454-impl.
  *
  * Per mt#454 slim research output (Q3): v1 verb set is `list` + `respond`
  * only. `claim` / `release` / `close` / `reopen` are deferred to mt#454-impl.
  *
- * Reference: mt#1458 spec; mt#454 slim research output.
+ * Reference: mt#1458 spec; mt#454 slim research output; PR #924 R1 BLOCKING
+ * (attentionCost-on-close contract enforcement).
  */
 export async function respondToAsk(
   repo: AskRepository,
@@ -453,22 +462,21 @@ export async function respondToAsk(
     );
   }
 
-  // Note on `routingTarget`: at v1, the router (mt#1069 `policyFirstRoute`)
-  // does NOT persist `routingTarget` to the repo — it stays as the in-memory
-  // RoutedAsk-only field, and the repo row keeps `routingTarget = undefined`.
-  // This is documented in createAsk's persistence-semantics block.
-  //
-  // We deliberately do NOT gate `respondToAsk` on `routingTarget === "operator"`
-  // here. Reasoning: at v1, every Ask that legitimately reaches `"suspended"`
-  // is an operator-target by elimination (elicitation timed out, or inbox
-  // transport will route it once mt#454-impl ships; subagent/mesh transports
-  // don't pass through `suspended` in their dispatch flow per mt#1070 and
-  // ADR-008's matrix). When a non-operator path starts using `suspended`, this
-  // gate becomes load-bearing — re-introduce it then. Filed as a follow-up
-  // concern in mt#454-impl.
-
   const responder = params.responder ?? "operator";
-  const responsePayload = {
+
+  // Per Ask.response contract in types.ts: `attentionCost` is "filled on
+  // close" only. We split the response payload across the two transitions:
+  // - `respond()` writes responder + payload (no attentionCost).
+  // - `close()` adds attentionCost.
+  //
+  // PR #924 R1 BLOCKING: the prior shape attached attentionCost at the
+  // `responded` stage, silently extending the contract. Splitting honors
+  // the documented invariant.
+  const respondPayload = {
+    responder,
+    payload: { message: params.message },
+  };
+  const closePayload = {
     responder,
     payload: { message: params.message },
     attentionCost: {
@@ -486,9 +494,10 @@ export async function respondToAsk(
   };
 
   // Walk suspended → responded → closed. Mirrors the elicitation transport's
-  // accept-path behavior (see src/domain/ask/transports/elicitation.ts).
-  await repo.respond(params.id, { response: responsePayload });
-  const closed = await repo.close(params.id, { response: responsePayload });
+  // accept-path behavior (see src/domain/ask/transports/elicitation.ts), with
+  // the attentionCost-on-close split correctly applied.
+  await repo.respond(params.id, { response: respondPayload });
+  const closed = await repo.close(params.id, { response: closePayload });
 
   return { ask: closed };
 }
