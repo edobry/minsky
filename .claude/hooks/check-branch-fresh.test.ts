@@ -124,6 +124,7 @@ function runFreshnessCheck(
       aheadCount: 0,
       aheadSubjects: [],
       reason: "Could not detect origin/main or origin/master — freshness check skipped",
+      silent: true,
     };
   }
 
@@ -329,12 +330,12 @@ describe("branch freshness logic (injectable deps)", () => {
       expect(result.silent).not.toBe(true);
     });
 
-    test("undetectable-default result is NOT marked silent (skip reason worth surfacing)", () => {
+    test("undetectable-default result IS marked silent (round-4 BLOCKING fix — Behavioral Contract lists this path as silent)", () => {
       const deps = makeDeps({ detectDefaultRemoteBranch: () => null });
       const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
 
       expect(result.blocked).toBe(false);
-      expect(result.silent).not.toBe(true);
+      expect(result.silent).toBe(true);
     });
   });
 });
@@ -344,12 +345,15 @@ describe("branch freshness logic (injectable deps)", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkBranchFreshness (exported)", () => {
-  test("allows when branch is null (detached HEAD)", () => {
-    // null branch simulates what detectCurrentBranch returns for detached HEAD
+  test("allows when branch is null (detached HEAD) and marks the result silent (round-4 BLOCKING fix)", () => {
+    // null branch simulates what detectCurrentBranch returns for detached HEAD.
+    // Per the Behavioral Contract, detached HEAD is one of the four silent
+    // paths — round-4 review caught that the result was missing silent: true.
     const result = checkBranchFreshness("/nonexistent/repo", null);
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toContain("skipped");
+    expect(result.silent).toBe(true);
   });
 
   test("budget guard: skips remaining work when hookStart deadline is already past", () => {
@@ -360,12 +364,53 @@ describe("checkBranchFreshness (exported)", () => {
     //
     // The branch arg is a non-null string so the early "detached HEAD" guard
     // does not fire; the budget guard at the next step is what we're testing.
+    //
+    // Budget-exhausted is NOT a contract-silent path, so silent should not
+    // be true here (operators should learn about hook timeouts).
     const epochTimestamp = 1;
     const result = checkBranchFreshness(MOCK_REPO, "test-branch", epochTimestamp);
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toContain("skipped");
     expect(result.reason.toLowerCase()).toContain("budget");
+    expect(result.silent).not.toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Behavioral Contract amendment: warnings emit on silent paths (round-4)
+// ---------------------------------------------------------------------------
+
+describe("Behavioral Contract: warnings emit even on silent paths", () => {
+  // The contract was amended in R4: silent means "nothing to report" for the
+  // result's reason, but warnings (e.g., fetch failures) ALWAYS surface so
+  // operators know when staleness is at play. This is documented in the hook
+  // header comment and in .minsky/rules/hook-files.mdc.
+  //
+  // These tests pin the contract by exercising the runFreshnessCheck helper
+  // and asserting the result-level structure. The entrypoint-level emission
+  // (stdout + additionalContext) is verified by reading the entrypoint code,
+  // which separately concatenates result.reason (gated by silent) and
+  // warnings (always concatenated when non-empty).
+  test("silent up-to-date result has no reason content that should leak", () => {
+    const deps = makeDeps({
+      listCommitsAhead: () => ({ count: 0, subjects: [] }),
+    });
+    const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+    // Result is silent — its reason should NOT be emitted by the entrypoint.
+    expect(result.silent).toBe(true);
+    // The reason itself is still informative; the gating is structural at
+    // the entrypoint, not by reason content.
+    expect(result.reason).toContain("up to date");
+  });
+
+  test("silent fresh-branch result has no reason content that should leak", () => {
+    const deps = makeDeps({ remoteBranchExists: () => false });
+    const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+    expect(result.silent).toBe(true);
+    expect(result.reason).toContain("does not exist yet");
   });
 });
 

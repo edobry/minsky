@@ -11,7 +11,15 @@
 //   - Compares origin/<branch> vs origin/main via `git log --oneline`.
 //   - If main has commits not reachable from the branch: BLOCK with a structured
 //     message listing the first 10 diverging commit subjects.
-//   - Fresh branches (no upstream / no remote branch yet): ALLOW silently.
+//   - Allows silently (no stdout, no additionalContext): branch even with main,
+//     fresh branch (no upstream), detached HEAD, undetectable default branch.
+//     These are the four "nothing to report" paths in the Behavioral Contract.
+//   - Warnings always surface even on silent paths: when the pre-check git fetch
+//     failed (network down, auth issue, etc.), the resulting "comparison may be
+//     against STALE refs" warning IS emitted regardless of silent. The carve-out
+//     is intentional — silence means "nothing to report"; warnings mean
+//     "something the operator should know," and operators should always learn
+//     about staleness.
 //   - Override: MINSKY_SKIP_FRESHNESS=1 bypasses with an audit log entry.
 //
 // @see mt#1483 — structural hook for the branch-behind-main pattern
@@ -45,11 +53,11 @@ export interface BranchFreshnessResult {
    */
   mainRef?: string;
   /**
-   * True for paths that are explicitly silent per the Behavioral Contract
-   * (branch-even-with-main, fresh branch). The entrypoint must NOT emit any
-   * stdout or hookSpecificOutput for these paths beyond what `warnings`
-   * carries — round-3 BLOCKING fix to make silence structural rather than
-   * a reason-string heuristic.
+   * True for paths that are explicitly silent per the Behavioral Contract:
+   * branch-even-with-main, fresh branch, detached HEAD, undetectable default.
+   * The entrypoint emits no stdout or additionalContext for the result's
+   * `reason` when `silent === true`. Warnings still emit regardless of silent
+   * (see header comment for the carve-out rationale).
    */
   silent?: boolean;
 }
@@ -72,11 +80,9 @@ const FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Overall wall-clock budget for the hook from `hookStart` (which is captured
- * BEFORE the fetch — so fetch IS counted in this budget). Lowered to 10s so
- * fetch (worst case 5s) + remaining git probes stay well under the 15s
+ * BEFORE the fetch — so fetch IS counted in this budget). Worst-case wall
+ * time = fetch (5s) + remaining git probes ≤ 10s, well under the 15s
  * PreToolUse cap with margin for process startup / shutdown / write.
- *
- * Worst-case math: hookStart → ... → exit ≤ 10s + slack ≈ 11s, fits 15s.
  */
 const OVERALL_BUDGET_MS = 10_000;
 
@@ -181,10 +187,17 @@ export function refreshRemoteRefs(repoDir: string): { ok: boolean; reason?: stri
 
 /**
  * List commits on `mainRef` that are NOT reachable from `branchRef`.
- * Returns up to `limit` subjects (oneline format).
+ * Returns up to `limit` subjects (oneline format) plus the total count.
  *
  * The range `branchRef..mainRef` means "commits reachable from mainRef
  * but not from branchRef" — i.e., commits main has that the branch lacks.
+ *
+ * Atomicity note: this is a SINGLE `git log` invocation. The previous
+ * implementation made TWO calls (rev-list --count, then git log) which
+ * left a TOCTOU window: if `origin/main` advanced between the calls
+ * (e.g., a parallel `git fetch` from a sibling agent), the count and
+ * subjects could disagree. One call closes that window — count is just
+ * the number of returned lines.
  */
 export function listCommitsAhead(
   repoDir: string,
@@ -192,34 +205,20 @@ export function listCommitsAhead(
   mainRef: string,
   limit: number = 10
 ): { count: number; subjects: string[] } {
-  // First get the count (no limit)
-  const countResult = execWithPath(
-    ["git", "-C", repoDir, "rev-list", "--count", `${branchRef}..${mainRef}`],
+  const result = execWithPath(
+    ["git", "-C", repoDir, "log", "--oneline", `${branchRef}..${mainRef}`],
     { timeout: GIT_TIMEOUT_MS }
   );
-  if (countResult.exitCode !== 0) {
-    return { count: 0, subjects: [] };
-  }
-  const count = parseInt(countResult.stdout.trim(), 10);
-  if (isNaN(count) || count === 0) {
+  if (result.exitCode !== 0) {
     return { count: 0, subjects: [] };
   }
 
-  // Get the first N subjects
-  const subjectsResult = execWithPath(
-    ["git", "-C", repoDir, "log", "--oneline", `--max-count=${limit}`, `${branchRef}..${mainRef}`],
-    { timeout: GIT_TIMEOUT_MS }
-  );
-  if (subjectsResult.exitCode !== 0) {
-    return { count, subjects: [] };
-  }
-
-  const subjects = subjectsResult.stdout
+  const lines = result.stdout
     .trim()
     .split("\n")
     .filter((line) => line.length > 0);
 
-  return { count, subjects };
+  return { count: lines.length, subjects: lines.slice(0, limit) };
 }
 
 /**
@@ -246,15 +245,19 @@ export function checkBranchFreshness(
   // Resolve current branch
   const currentBranch = branch ?? detectCurrentBranch(repoDir);
   if (!currentBranch) {
+    // Detached HEAD — silent per Behavioral Contract.
     return {
       blocked: false,
       aheadCount: 0,
       aheadSubjects: [],
       reason: "Could not detect current branch (detached HEAD?) — freshness check skipped",
+      silent: true,
     };
   }
 
   if (overBudget(GIT_TIMEOUT_MS)) {
+    // Budget-exhausted is NOT a contract-silent path — surface so operators
+    // know the hook ran but couldn't complete due to time.
     return {
       blocked: false,
       aheadCount: 0,
@@ -287,11 +290,13 @@ export function checkBranchFreshness(
   // Detect the default remote branch (origin/main or origin/master)
   const mainRef = detectDefaultRemoteBranch(repoDir);
   if (!mainRef) {
+    // Undetectable default — silent per Behavioral Contract.
     return {
       blocked: false,
       aheadCount: 0,
       aheadSubjects: [],
       reason: "Could not detect origin/main or origin/master — freshness check skipped",
+      silent: true,
     };
   }
 
@@ -408,8 +413,7 @@ if (import.meta.main) {
   // refs, which is no worse than the pre-hook baseline.
   const warnings: string[] = [];
   const fetchResult = refreshRemoteRefs(repoDir);
-  const fetchFailed = !fetchResult.ok;
-  if (fetchFailed) {
+  if (!fetchResult.ok) {
     warnings.push(
       `git fetch failed — comparison may be against STALE refs (${fetchResult.reason ?? "unknown"})`
     );
@@ -420,13 +424,12 @@ if (import.meta.main) {
   const result = checkBranchFreshness(repoDir, currentBranch, hookStart);
 
   if (!result.blocked) {
-    // Behavioral Contract: silent paths (fresh branch, branch-even-with-main)
-    // emit nothing. Skipped paths (detached HEAD, undetectable default,
-    // budget exhausted) emit their reason for auditability. Warnings are
-    // always surfaced regardless. Round-3 BLOCKING fix: silence is now
-    // gated by `result.silent` (structural) rather than by reason-string
-    // pattern matching, so future reason-text changes can't accidentally
-    // leak silent paths via additionalContext.
+    // Behavioral Contract: silent paths emit no `reason` to stdout or
+    // additionalContext. Non-silent paths (budget-exhausted) DO emit their
+    // reason. Warnings (e.g., fetch failures) ALWAYS emit regardless of
+    // silent — operators should know about staleness even on the silent
+    // happy paths. This carve-out is documented in the header comment and
+    // in the published Behavioral Contract (.minsky/rules/hook-files.mdc).
     const isSilent = result.silent === true;
     const lines: string[] = [];
     if (!isSilent) {
@@ -462,11 +465,9 @@ if (import.meta.main) {
     result.aheadSubjects
   );
 
-  // Round-3 BLOCKING fix: when fetch failed, the comparison ran against
-  // possibly-stale refs. Always surface that prominently in the deny message
-  // so operators don't act on a block whose evidence may be hours old.
-  // Warnings (which include the fetch failure when it occurred) are
-  // appended to the body in a dedicated section.
+  // When fetch failed, the comparison ran against possibly-stale refs.
+  // Surface that prominently in the deny message so operators don't act on
+  // a block whose evidence may be hours old.
   const fullMessage =
     warnings.length > 0
       ? `${message}\n\nWarnings:\n${warnings.map((w) => `  [check-branch-fresh] ${w}`).join("\n")}`

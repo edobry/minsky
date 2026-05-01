@@ -958,9 +958,27 @@ MINSKY_SKIP_FRESHNESS=1 minsky session commit ...
 The override is **logged to session stdout** (tool name, ISO timestamp) for audit.
 Use only when you have already reviewed main's new commits and confirmed no overlap.
 
-**Fresh branch exception:** The hook does not block the first commit on a branch that has
-no upstream ref yet (`origin/<branch>` does not exist). This prevents false positives
-on the very first push of a new session branch.
+**Behavioral Contract:**
+
+- **Blocks** when `origin/main` is N commits ahead of `origin/<branch>`. The denial
+  message lists the count, the first 10 commit subjects (oneline), and instruction
+  to review before continuing.
+- **Allows silently** (no stdout, no `additionalContext`) on these four paths — they
+  are the "nothing to report" cases:
+  - branch even with main
+  - fresh branch (no upstream ref yet — typical of a brand-new session's first push)
+  - detached HEAD (no current branch to compare against)
+  - undetectable default branch (no `origin/main` or `origin/master` to compare to)
+- **Warnings always surface** even on silent paths. If the pre-check `git fetch`
+  failed (network down, auth issue, slow remote), the resulting "comparison may be
+  against STALE refs" warning IS emitted regardless of whether the path is silent.
+  This carve-out is intentional: silence means "nothing to report"; warnings mean
+  "something the operator should know," and operators should always learn about
+  staleness even on otherwise-silent allow paths.
+- **Skipped** paths (budget exhausted, miscellaneous probe failures) emit their
+  "freshness check skipped" reason for auditability — these are NOT in the silent
+  list because they signal something operationally interesting (the hook ran but
+  couldn't complete its check).
 
 # User Preferences
 
