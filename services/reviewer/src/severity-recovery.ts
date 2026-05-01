@@ -294,11 +294,14 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
     // as metadata; now we record the mapping so applyMonotonicityRecovery
     // can resolve old-path findings against new-path added ranges.
     if (line.startsWith("rename from ")) {
-      pendingRenameFrom = line.slice("rename from ".length);
+      // Normalize at insertion time (PR #922 R18#2): trim trailing
+      // whitespace and convert backslashes to POSIX. Lookup-side in
+      // applyMonotonicityRecovery normalizes the same way.
+      pendingRenameFrom = line.slice("rename from ".length).trim().replace(/\\/g, "/");
       continue;
     }
     if (line.startsWith("rename to ")) {
-      const renameTo = line.slice("rename to ".length);
+      const renameTo = line.slice("rename to ".length).trim().replace(/\\/g, "/");
       if (pendingRenameFrom) {
         renames.set(pendingRenameFrom, renameTo);
         pendingRenameFrom = null;

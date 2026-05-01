@@ -759,9 +759,11 @@ export async function runReview(
     // AND whose cited line range is not touched by new lines in the diff under
     // review. The flag is read per-invocation rather than at boot so operators
     // can toggle without redeploy. Default-off keeps deployed behavior
-    // unchanged until a deliberate enablement.
-    const monotonicityRecoveryEnabled =
-      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED === "true";
+    // unchanged until a deliberate enablement. Accepts "true", "1",
+    // case-insensitive — PR #922 R18#3 robustness fix.
+    const monotonicityRecoveryEnabled = /^(true|1)$/i.test(
+      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? ""
+    );
 
     // Delegate the recovery + reconciliation + composition to the pure
     // helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
