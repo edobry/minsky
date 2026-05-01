@@ -467,22 +467,16 @@ export class ServiceWindowReaper {
   /**
    * Increment the missed-window counter on an Ask.
    *
-   * v1: Uses the Ask's metadata to carry the count since the repository
-   * interface doesn't have a dedicated `setWindowMissedCount` method yet.
-   * The `windowMissedCount` field on the Ask interface exists but the
-   * `transition` method doesn't carry it through — future work can add a
-   * dedicated update path.
-   *
-   * For now, we store the updated count back via metadata-level tracking
-   * so tests can verify the count was incremented.
-   *
-   * NOTE: This is a v1 best-effort implementation. The count is tracked
-   * in-memory via the counter store as an observable side effect.
+   * Persists the updated `windowMissedCount` on the Ask row via
+   * `repo.updateWindowMissedCount`, and also records the event in the
+   * per-requestor counter store for observability.
    */
   private async incrementMissCount(id: string, newMissCount: number): Promise<void> {
-    // Increment counter in the store as the audit trail.
     const ask = await this.repo.getById(id);
     if (!ask) return;
+
+    // Persist windowMissedCount on the DB row.
+    await this.repo.updateWindowMissedCount(id, newMissCount);
 
     // Record in counter store for observability.
     this.counterStore.record(`window-miss:${ask.requestor}`, new Date().toISOString());
