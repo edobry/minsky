@@ -12,9 +12,9 @@ Decide whether v1 inbox UX should adopt one of the existing frameworks or stay D
 
 Before evaluating external frameworks, take an honest inventory of what Minsky already has. The DIY position is not "build from scratch" — it is "extend what's already on main."
 
-- **Persistence**: Drizzle-backed `asksTable` (`src/domain/storage/schemas/ask-schema.ts`) with the full lifecycle columns (state, routedAt, suspendedAt, respondedAt, closedAt, response JSONB, metadata JSONB).
-- **Domain contract**: `AskRepository` interface (`src/domain/ask/repository.ts`) with create / getById / listByParentTask / listByState / transition / respond / close / respondAndClose / findOpenByTaskIds. DrizzleAskRepository for prod, FakeAskRepository for tests.
-- **State machine**: `state-machine.ts` with `VALID_TRANSITIONS`, `guardTransition`, `isTerminal`, `TERMINAL_ASK_STATES`. Single source of truth (mt#1470).
+- **Persistence**: Drizzle-backed `asksTable` ([`src/domain/storage/schemas/ask-schema.ts`](../../src/domain/storage/schemas/ask-schema.ts)) with the full lifecycle columns (state, routedAt, suspendedAt, respondedAt, closedAt, response JSONB, metadata JSONB).
+- **Domain contract**: `AskRepository` interface ([`src/domain/ask/repository.ts`](../../src/domain/ask/repository.ts)) with create / getById / listByParentTask / listByState / transition / respond / close / respondAndClose / findOpenByTaskIds. DrizzleAskRepository for prod, FakeAskRepository for tests.
+- **State machine**: [`src/domain/ask/state-machine.ts`](../../src/domain/ask/state-machine.ts) with `VALID_TRANSITIONS`, `guardTransition`, `isTerminal`, `TERMINAL_ASK_STATES`. Single source of truth (mt#1470).
 - **Lifecycle**: `detected → classified → routed → suspended → responded → closed`, plus terminal `cancelled` and `expired`. State-machine-aware re-entry (mt#1457 R1) so dispatchers can be idempotent.
 - **Transports**: subagent (mt#1070), elicitation (mt#1457) with capability-aware routing (mt#1456 ClientCapabilityRegistry).
 - **CLI surface (v1)**: `minsky asks list` (mt#1240), `minsky asks create` (mt#1456), `minsky asks respond` (mt#1458). Producer + observer + consumer loop is closed.
@@ -40,7 +40,7 @@ What is **missing** at the DIY baseline, relative to a richer inbox UX:
 |---|---|---|
 | `direction.decide` | Yes | Maps to `interrupt()` with `Command.resume(value)`. |
 | `authorization.approve` | Yes | Same shape — interrupt + boolean resume. |
-| `quality.review` | Partial | Body content fits, but multi-round review (R1 → fix → R2) requires re-entering the graph; AskState's responded → reopened flow is more natural in that case. |
+| `quality.review` | Partial | Body content fits, but multi-round review (R1 → fix → R2) requires re-entering the graph; with the current AskState lifecycle (terminal `closed` only — no `reopened`), each new review round is a fresh `Ask` referencing the prior one via `metadata`. That referencing pattern is more natural to express in our domain than as a re-interrupt. |
 | `capability.escalate` | No | LangGraph interrupts are operator-pause-and-resume; capability escalation is agent-to-agent dispatch, not a HITL pause. |
 | `coordination.notify` | No | One-way notification doesn't fit the resume model. |
 | `information.retrieve` | No | Routed to retriever transport (mt#1448), not operator. |
@@ -124,20 +124,20 @@ What is **missing** at the DIY baseline, relative to a richer inbox UX:
 
 ## Comparison matrix
 
-| Dimension                   | LangGraph Agent Inbox                      | LangChain            | Vercel AI SDK           | DIY                               |
-| --------------------------- | ------------------------------------------ | -------------------- | ----------------------- | --------------------------------- |
-| Complexity (integration)    | High — port or adapter                     | Low (libraries only) | Medium (frontend stack) | Lowest (already shipped)          |
-| Lock-in                     | Architectural (runtime)                    | Library-only         | Library-only            | None                              |
-| Observability               | LangSmith-native                           | Callback hooks       | None native             | Existing logs + reconciler events |
-| Local-first compatibility   | Self-host possible, OAuth concerns         | N/A (library)        | Yes                     | Yes (already local)               |
-| Ask-kind native coverage    | 2/7 (4/7 stretched)                        | 0/7                  | 0/7                     | 7/7                               |
-| Adapter point               | Translate AskState ↔ LangGraph interrupts | N/A                  | UI layer only           | None needed                       |
-| Existing surface preserved? | No (parallel SoT)                          | Yes                  | Yes                     | Yes                               |
-| Path to UI                  | Built-in                                   | Roll your own        | Roll your own           | Roll your own                     |
+| Dimension                   | LangGraph Agent Inbox                                                                                                             | LangChain            | Vercel AI SDK           | DIY                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------- | --------------------------------- |
+| Complexity (integration)    | High — port or adapter                                                                                                            | Low (libraries only) | Medium (frontend stack) | Lowest (already shipped)          |
+| Lock-in                     | Architectural (runtime)                                                                                                           | Library-only         | Library-only            | None                              |
+| Observability               | LangSmith-native                                                                                                                  | Callback hooks       | None native             | Existing logs + reconciler events |
+| Local-first compatibility   | Self-host possible, OAuth concerns                                                                                                | N/A (library)        | Yes                     | Yes (already local)               |
+| Ask-kind native coverage    | 2/7 (4/7 stretched)                                                                                                               | 0/7                  | 0/7                     | 7/7                               |
+| Adapter point               | Two paths: AskState → LangGraph interrupts (sidecar SoT) OR port AskRepository to LangGraph checkpointer (architecture inversion) | N/A                  | UI layer only           | None needed                       |
+| Existing surface preserved? | No (parallel SoT)                                                                                                                 | Yes                  | Yes                     | Yes                               |
+| Path to UI                  | Built-in                                                                                                                          | Roll your own        | Roll your own           | Roll your own                     |
 
 ## Recommendation
 
-**Stay DIY for v1, with two specific borrows from the LangGraph Agent Inbox playbook.**
+**Stay DIY for v1, with specific borrows from the LangGraph Agent Inbox playbook.**
 
 The DIY position is not "build everything ourselves." It's "the SoT is AskRepository / AskState; UI candidates plug _into_ that, not over it." Concretely:
 
