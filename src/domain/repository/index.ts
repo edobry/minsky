@@ -295,6 +295,27 @@ export interface ReviewOperations {
    * `undefined` as "listing not supported on this backend."
    */
   listReviews?(prIdentifier: string | number): Promise<ReviewListEntry[]>;
+
+  /**
+   * Mark a GitHub PR review thread as resolved.
+   *
+   * Requires a GraphQL `resolveReviewThread` mutation — no REST equivalent.
+   * The `threadId` is the GraphQL node ID of the `PullRequestReviewThread`.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "thread resolution not supported on this backend."
+   */
+  resolveReviewThread?(threadId: string): Promise<void>;
+
+  /**
+   * Mark a previously-resolved GitHub PR review thread as unresolved.
+   *
+   * Requires a GraphQL `unresolveReviewThread` mutation — no REST equivalent.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "thread resolution not supported on this backend."
+   */
+  unresolveReviewThread?(threadId: string): Promise<void>;
 }
 
 /**

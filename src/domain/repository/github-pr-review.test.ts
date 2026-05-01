@@ -104,6 +104,96 @@ describe("validateReviewComment", () => {
       validateReviewComment(mkComment({ startLine: 67, line: 78, side: "LEFT", startSide: "LEFT" }))
     ).not.toThrow();
   });
+
+  // suggestion field validation
+  test("passes for a single-line comment with a 1-line suggestion", () => {
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "const x = 1;" }))
+    ).not.toThrow();
+  });
+
+  test("passes for a multi-line comment with matching suggestion line count", () => {
+    // startLine 67, line 78 → 12 lines anchored
+    const suggestion = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))
+    ).not.toThrow();
+  });
+
+  test("passes for suggestion with trailing newline (trailing newline ignored in count)", () => {
+    // 12-line range, suggestion ends with newline — should still match
+    const suggestion = `${Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))
+    ).not.toThrow();
+  });
+
+  test("passes for suggestion with multiple trailing newlines (all stripped before counting)", () => {
+    // Single-line range, suggestion ends with "\n\n\n" — all trailing newlines stripped,
+    // so the count is still 1 and validation passes.
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "const x = 1;\n\n\n" }))
+    ).not.toThrow();
+  });
+
+  test("rejects single-line comment with multi-line suggestion", () => {
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "line 1\nline 2" }))
+    ).toThrow(MinskyError);
+  });
+
+  test("rejects multi-line comment with wrong suggestion line count (11 instead of 12)", () => {
+    const suggestion = Array.from({ length: 11 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() => validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))).toThrow(
+      MinskyError
+    );
+  });
+
+  test("rejects multi-line comment with wrong suggestion line count (13 instead of 12)", () => {
+    const suggestion = Array.from({ length: 13 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() => validateReviewComment(mkComment({ startLine: 67, line: 78, suggestion }))).toThrow(
+      MinskyError
+    );
+  });
+
+  test("error message for suggestion mismatch mentions line counts and path", () => {
+    let caught: unknown;
+    try {
+      validateReviewComment(mkComment({ line: 10, suggestion: "line 1\nline 2" }));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(MinskyError);
+    const msg = (caught as MinskyError).message;
+    expect(msg).toContain("src/foo.ts");
+    expect(msg).toContain("2 line(s)");
+    expect(msg).toContain("1 line(s)");
+  });
+
+  // BLOCKING 1: CRLF normalization in line-count validation
+  test("CRLF suggestion is counted correctly (2 CRLF-separated lines = 2 lines)", () => {
+    // A 2-line range with a CRLF-separated 2-line suggestion should pass.
+    // Without normalization, split("\n") on "line1\r\nline2" produces
+    // ["line1\r", "line2"], which is 2 elements but the \r leaks in.
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 9, line: 10, suggestion: "line 1\r\nline 2" }))
+    ).not.toThrow();
+  });
+
+  test("lone CR suggestion is counted correctly (2 CR-separated lines = 2 lines)", () => {
+    // Old Mac line endings: \r without \n.
+    expect(() =>
+      validateReviewComment(mkComment({ startLine: 9, line: 10, suggestion: "line 1\rline 2" }))
+    ).not.toThrow();
+  });
+
+  test("CRLF single-line suggestion with trailing CRLF passes single-line anchor", () => {
+    // "const x = 1;\r\n" — after normalization this is "const x = 1;\n",
+    // then trailing newline stripping makes it "const x = 1;" — 1 line.
+    expect(() =>
+      validateReviewComment(mkComment({ line: 10, suggestion: "const x = 1;\r\n" }))
+    ).not.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -113,13 +203,34 @@ describe("validateReviewComment", () => {
 /**
  * Build the API-comment shape the same way submitReview does — extracted here
  * so we can test the mapping logic without mocking Octokit or the GitHub API.
+ *
+ * Keep this helper in sync with the production mapper in github-pr-review.ts.
  */
 function buildApiComment(c: ReviewComment): Record<string, unknown> {
   const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+
+  // 1. Normalize line endings (\r\n and \r -> \n) then strip trailing newlines.
+  const normalizedSuggestion =
+    c.suggestion !== undefined
+      ? c.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
+      : undefined;
+
+  let resolvedBody: string;
+  if (normalizedSuggestion !== undefined) {
+    // Compute fence length: longest backtick run in content + 1, minimum 3.
+    const backtickRuns = normalizedSuggestion.match(/`+/g);
+    const longestRun = backtickRuns ? Math.max(...backtickRuns.map((r) => r.length)) : 0;
+    const fenceLen = Math.max(3, longestRun + 1);
+    const fence = "`".repeat(fenceLen);
+    resolvedBody = `${c.body}\n\n${fence}suggestion\n${normalizedSuggestion}\n${fence}`;
+  } else {
+    resolvedBody = c.body;
+  }
+
   return {
     path: c.path,
     line: c.line,
-    body: c.body,
+    body: resolvedBody,
     side: resolvedSide,
     ...(c.startLine !== undefined
       ? {
@@ -226,5 +337,100 @@ describe("Octokit payload mapping", () => {
     expect(payload.side).toBe("LEFT");
     expect(payload.start_side).toBe("LEFT");
     expect(payload.start_line).toBe(67);
+  });
+
+  // suggestion body mapping
+  test("comment without suggestion: body unchanged", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "this looks wrong",
+    });
+
+    expect(payload.body).toBe("this looks wrong");
+  });
+
+  test("comment with suggestion: body contains fenced suggestion block", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "use a const instead",
+      suggestion: "const x = 1;",
+    });
+
+    expect(payload.body).toBe("use a const instead\n\n```suggestion\nconst x = 1;\n```");
+  });
+
+  test("comment with multi-line suggestion: body contains full suggestion fence", () => {
+    const suggestion = "const x = 1;\nconst y = 2;";
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 11,
+      startLine: 10,
+      body: "simplify",
+      suggestion,
+    });
+
+    expect(payload.body).toBe(`simplify\n\n\`\`\`suggestion\n${suggestion}\n\`\`\``);
+  });
+
+  test("suggestion with multiple trailing newlines produces exactly one trailing newline inside fence", () => {
+    // suggestion ends with "\n\n\n" — normalization must strip all trailing newlines
+    // so the fence body is "const x = 1;\n" not "const x = 1;\n\n\n\n"
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "use a const",
+      suggestion: "const x = 1;\n\n\n",
+    });
+
+    const body = payload.body as string;
+    // The fenced block must contain exactly one newline before the closing fence.
+    expect(body).toBe("use a const\n\n```suggestion\nconst x = 1;\n```");
+    // Specifically, no double-blank-line inside the fence.
+    expect(body).not.toContain("const x = 1;\n\n");
+  });
+
+  // BLOCKING 1: CRLF normalization in payload mapper
+  test("suggestion with CRLF separators: no carriage-return leaks into fenced block", () => {
+    // Simulates a Windows-style suggestion where lines are separated by \r\n.
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "use a const",
+      suggestion: "const x = 1;\r\nconst y = 2;",
+    });
+
+    const body = payload.body as string;
+    // No \r should appear anywhere in the output.
+    expect(body).not.toContain("\r");
+    // The suggestion content must be present with plain \n separators.
+    expect(body).toContain("const x = 1;\nconst y = 2;");
+  });
+
+  // BLOCKING 2: Dynamic fence length when suggestion contains backticks
+  test("suggestion containing a line with 3 backticks: fence uses 4 or more backticks", () => {
+    // If the suggestion has triple-backticks, a triple-backtick fence would
+    // terminate early. The mapper must use a longer fence.
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "check this",
+      suggestion: "const code = `one` + `two` + `three`;\nif (a) { return ```xyz```; }",
+    });
+
+    const body = payload.body as string;
+    // The fence must use at least 4 backticks (3 in content, so +1 = 4).
+    expect(body).toMatch(/````+suggestion\n/);
+    // The suggestion content (with its backticks) must survive intact.
+    expect(body).toContain("```xyz```");
+    // Opening and closing fence lengths must match.
+    const openMatch = body.match(/(`+)suggestion\n/);
+    if (openMatch === null) {
+      throw new Error("fence open-marker not found in body");
+    }
+    const fenceStr = openMatch[1];
+    // Closing fence must be present at the end.
+    expect(body.endsWith(`\n${fenceStr}`)).toBe(true);
   });
 });

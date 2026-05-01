@@ -4,13 +4,16 @@
  * Contains:
  * - submitReview — posts a review (APPROVE, COMMENT, REQUEST_CHANGES)
  * - dismissReview — dismisses a stale or superseded review
+ * - resolveReviewThread — marks a review thread as resolved (GraphQL-only)
+ * - unresolveReviewThread — marks a resolved thread as unresolved (GraphQL-only)
  *
- * Both route through the service-account / bot token via `gh.getToken()`
+ * All route through the service-account / bot token via `gh.getToken()`
  * (TokenProvider-aware).
  */
 
 import { Octokit } from "@octokit/rest";
 import { MinskyError } from "../../errors/index";
+import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { parseUnifiedDiff } from "../../utils/parse-diff";
 import { validateDiffAnchors } from "./diff-anchor-validator";
@@ -22,6 +25,7 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 import type { ReviewListEntry } from "./index";
+import { applyReviewStateLabel } from "./review-state-labels";
 
 export { DiffAnchorError, type DiffAnchorFailure } from "./diff-anchor-validator";
 
@@ -56,6 +60,23 @@ export interface ReviewComment {
    * (and vice versa) so the resulting payload is always consistent.
    */
   startSide?: "LEFT" | "RIGHT";
+  /**
+   * Optional replacement code for a GitHub suggestion block.
+   *
+   * When present, the comment body sent to GitHub is augmented with a fenced
+   * suggestion block containing this text. GitHub renders suggestion blocks
+   * with a one-click "Apply suggestion" button.
+   *
+   * Constraint: the number of lines in `suggestion` MUST equal the number of
+   * lines in the anchored range:
+   *  - Single-line comment (no startLine): suggestion must be exactly 1 line.
+   *  - Multi-line comment (startLine..line): suggestion must be exactly
+   *    (line - startLine + 1) lines.
+   *
+   * Validation is enforced in validateReviewComment() and throws a MinskyError
+   * before the Octokit call if the counts differ.
+   */
+  suggestion?: string;
 }
 
 /**
@@ -85,6 +106,29 @@ export function validateReviewComment(comment: ReviewComment): void {
       throw new MinskyError(
         `Invalid multi-line comment: startSide ("${comment.startSide}") must equal ` +
           `side ("${comment.side}") on path "${comment.path}". GitHub rejects mismatched sides.`
+      );
+    }
+  }
+
+  if (comment.suggestion !== undefined) {
+    // Normalize line endings first so that \r\n (Windows) and lone \r (old Mac)
+    // are both treated as a single newline for line-counting purposes.
+    // Strip ALL trailing newlines after normalization so that suggestions ending
+    // with "\n", "\r\n", "\r\n\r\n", etc. are counted the same way.
+    const suggestionText = comment.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+    const suggestionLineCount = suggestionText.split("\n").length;
+
+    // Determine the anchored line range
+    const anchoredLineCount =
+      comment.startLine !== undefined ? comment.line - comment.startLine + 1 : 1;
+
+    if (suggestionLineCount !== anchoredLineCount) {
+      throw new MinskyError(
+        `Suggestion line count mismatch on path "${comment.path}": suggestion has ` +
+          `${suggestionLineCount} line(s) but the anchored range covers ` +
+          `${anchoredLineCount} line(s) ` +
+          `(${comment.startLine !== undefined ? `startLine ${comment.startLine}..line ${comment.line}` : `line ${comment.line}`}). ` +
+          `GitHub only renders a suggestion block when the line counts match.`
       );
     }
   }
@@ -192,10 +236,39 @@ export async function submitReview(
     // endpoints, and GitHub rejects null start_line.
     const apiComments = options.comments?.map((c) => {
       const resolvedSide = (c.side ?? c.startSide ?? "RIGHT") as "LEFT" | "RIGHT";
+
+      // When a suggestion is provided, append a fenced suggestion block to the body.
+      // GitHub renders this as an "Apply suggestion" button when the suggestion line
+      // count matches the anchored range (validated above in validateReviewComment).
+      //
+      // 1. Normalize line endings: convert \r\n (Windows) and lone \r (old Mac) to \n
+      //    first, so that \r characters don't leak into the fenced block.
+      // 2. Strip trailing newlines after normalization so suggestions ending with
+      //    "\n\n" etc. don't produce double-blank-lines inside the fenced block.
+      // 3. Compute fence length: if the suggestion contains backtick runs, the fence
+      //    delimiter must be longer than the longest such run to prevent early fence
+      //    termination. Use at least 3 backticks (the GitHub minimum), and at least
+      //    one more than the longest backtick run found in the content.
+      const normalizedSuggestion =
+        c.suggestion !== undefined
+          ? c.suggestion.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
+          : undefined;
+      let resolvedBody: string;
+      if (normalizedSuggestion !== undefined) {
+        // Find longest backtick run in the suggestion content.
+        const backtickRuns = normalizedSuggestion.match(/`+/g);
+        const longestRun = backtickRuns ? Math.max(...backtickRuns.map((r) => r.length)) : 0;
+        const fenceLen = Math.max(3, longestRun + 1);
+        const fence = "`".repeat(fenceLen);
+        resolvedBody = `${c.body}\n\n${fence}suggestion\n${normalizedSuggestion}\n${fence}`;
+      } else {
+        resolvedBody = c.body;
+      }
+
       return {
         path: c.path,
         line: c.line,
-        body: c.body,
+        body: resolvedBody,
         side: resolvedSide,
         ...(c.startLine !== undefined
           ? {
@@ -224,6 +297,17 @@ export async function submitReview(
       owner: gh.owner,
       repo: gh.repo,
     });
+
+    // Apply review-state label based on the review event.
+    // Failure is non-fatal: log and continue so the review result is still returned.
+    try {
+      await applyReviewStateLabel(octokit, gh.owner, gh.repo, prNumber, options.event);
+    } catch (labelError) {
+      log.warn(
+        `Failed to apply review-state label for PR #${prNumber} ` +
+          `(event=${options.event}): ${getErrorMessage(labelError)}`
+      );
+    }
 
     return {
       reviewId: review.id,
@@ -409,6 +493,248 @@ export async function listReviews(
       owner: gh.owner,
       repo: gh.repo,
       prNumber,
+    });
+    throw error;
+  }
+}
+
+// ── GraphQL thread resolution mutations ─────────────────────────────────────
+
+/**
+ * GraphQL response shape for resolveReviewThread and unresolveReviewThread.
+ */
+interface ResolveThreadResponse {
+  resolveReviewThread?: {
+    thread: {
+      id: string;
+      isResolved: boolean;
+    };
+  };
+}
+
+interface UnresolveThreadResponse {
+  unresolveReviewThread?: {
+    thread: {
+      id: string;
+      isResolved: boolean;
+    };
+  };
+}
+
+const RESOLVE_REVIEW_THREAD_MUTATION = `
+  mutation ResolveReviewThread($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+`;
+
+/**
+ * Pre-mutation ownership check: GraphQL accepts a global node ID and will
+ * operate on any thread the bot token can access. Without this guard, a
+ * caller passing a valid threadId from a different repository (mistakenly
+ * or maliciously) would silently mutate that thread. Verify the thread
+ * belongs to the expected owner/repo (and PR if known) before mutating.
+ *
+ * Returns the thread's repository slug for diagnostic logging.
+ */
+const RESOLVE_THREAD_OWNERSHIP_QUERY = `
+  query ReviewThreadOwnership($threadId: ID!) {
+    node(id: $threadId) {
+      __typename
+      ... on PullRequestReviewThread {
+        id
+        repository {
+          owner { login }
+          name
+        }
+        pullRequest {
+          number
+        }
+      }
+    }
+  }
+`;
+
+interface ThreadOwnershipResponse {
+  node: {
+    __typename: string;
+    id: string;
+    repository: { owner: { login: string }; name: string };
+    pullRequest: { number: number };
+  } | null;
+}
+
+async function assertThreadBelongsToRepo(
+  gh: GitHubContext,
+  threadId: string,
+  octokit: ReturnType<typeof createOctokit>,
+  expectedPrNumber?: number
+): Promise<void> {
+  // If the lookup itself fails (network, auth), the caller's outer try/catch
+  // routes it through handleOctokitError; we don't pre-empt here.
+  const response = await octokit.graphql<ThreadOwnershipResponse>(RESOLVE_THREAD_OWNERSHIP_QUERY, {
+    threadId,
+  });
+
+  if (!response.node) {
+    throw new MinskyError(
+      `Thread '${threadId}' does not exist or is not accessible to this token. ` +
+        `Ensure the threadId is the GraphQL node ID of a PullRequestReviewThread ` +
+        `(see resolveReviewThread JSDoc for accepted sources).`
+    );
+  }
+
+  if (response.node.__typename !== "PullRequestReviewThread") {
+    throw new MinskyError(
+      `Thread '${threadId}' resolves to a ${response.node.__typename} node, ` +
+        `not a PullRequestReviewThread. Do NOT pass a review comment's node_id; ` +
+        `comment IDs and thread IDs are distinct GitHub objects.`
+    );
+  }
+
+  const actualOwner = response.node.repository.owner.login;
+  const actualRepo = response.node.repository.name;
+  const actualPr = response.node.pullRequest.number;
+
+  if (
+    actualOwner.toLowerCase() !== gh.owner.toLowerCase() ||
+    actualRepo.toLowerCase() !== gh.repo.toLowerCase()
+  ) {
+    throw new MinskyError(
+      `Thread '${threadId}' belongs to ${actualOwner}/${actualRepo} ` +
+        `but this session targets ${gh.owner}/${gh.repo}. ` +
+        `Cross-repo thread mutation is not permitted.`
+    );
+  }
+
+  if (expectedPrNumber !== undefined && actualPr !== expectedPrNumber) {
+    throw new MinskyError(
+      `Thread '${threadId}' belongs to PR #${actualPr} in ${gh.owner}/${gh.repo} ` +
+        `but this session targets PR #${expectedPrNumber}. ` +
+        `Cross-PR thread mutation is not permitted.`
+    );
+  }
+}
+
+const UNRESOLVE_REVIEW_THREAD_MUTATION = `
+  mutation UnresolveReviewThread($threadId: ID!) {
+    unresolveReviewThread(input: { threadId: $threadId }) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+`;
+
+/**
+ * Resolve a GitHub PR review thread.
+ *
+ * GitHub REST API does not expose review-thread resolution; this is a
+ * GraphQL-only mutation (`resolveReviewThread`). The `threadId` is the
+ * node ID of the `PullRequestReviewThread`. Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{pull_number}/threads`
+ *    carry the thread's `node_id` (the threads endpoint, NOT the comments endpoint).
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343).
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID — distinct GitHub objects.
+ *
+ * Auth goes through `gh.getToken()` — the same TokenProvider path as other
+ * forge mutations — so the resolution is recorded under the bot identity.
+ *
+ * @param gh     GitHub context (owner, repo, getToken).
+ * @param threadId  GraphQL node ID of the `PullRequestReviewThread` to resolve.
+ */
+export async function resolveReviewThread(
+  gh: GitHubContext,
+  threadId: string,
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<void> {
+  if (!threadId || threadId.trim().length === 0) {
+    throw new MinskyError(
+      "resolveReviewThread requires a non-empty threadId (the GraphQL node ID of the review thread)."
+    );
+  }
+
+  try {
+    const token = await gh.getToken();
+    const octokit = octokitOverride ?? createOctokit(token);
+
+    // Cross-repo guard: GraphQL accepts any node ID the bot can access.
+    // Verify the thread belongs to this session's owner/repo before mutating.
+    await assertThreadBelongsToRepo(gh, threadId, octokit);
+
+    const response = await octokit.graphql<ResolveThreadResponse>(RESOLVE_REVIEW_THREAD_MUTATION, {
+      threadId,
+    });
+
+    log.info("GitHub PR review thread resolved", {
+      threadId,
+      isResolved: response.resolveReviewThread?.thread.isResolved,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "resolve review thread",
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Unresolve a previously-resolved GitHub PR review thread.
+ *
+ * Mirror of `resolveReviewThread` — uses the `unresolveReviewThread`
+ * GraphQL mutation. Useful for round-trip testing and for reopening a
+ * thread that was resolved prematurely.
+ *
+ * @param gh     GitHub context (owner, repo, getToken).
+ * @param threadId  GraphQL node ID of the `PullRequestReviewThread` to unresolve.
+ */
+export async function unresolveReviewThread(
+  gh: GitHubContext,
+  threadId: string,
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<void> {
+  if (!threadId || threadId.trim().length === 0) {
+    throw new MinskyError(
+      "unresolveReviewThread requires a non-empty threadId (the GraphQL node ID of the review thread)."
+    );
+  }
+
+  try {
+    const token = await gh.getToken();
+    const octokit = octokitOverride ?? createOctokit(token);
+
+    // Cross-repo guard: same rationale as resolveReviewThread.
+    await assertThreadBelongsToRepo(gh, threadId, octokit);
+
+    const response = await octokit.graphql<UnresolveThreadResponse>(
+      UNRESOLVE_REVIEW_THREAD_MUTATION,
+      { threadId }
+    );
+
+    log.info("GitHub PR review thread unresolved", {
+      threadId,
+      isResolved: response.unresolveReviewThread?.thread.isResolved,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "unresolve review thread",
+      owner: gh.owner,
+      repo: gh.repo,
     });
     throw error;
   }
