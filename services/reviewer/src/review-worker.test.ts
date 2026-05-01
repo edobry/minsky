@@ -11,11 +11,14 @@ import {
   buildConvergenceMetricLog,
   buildSubmitFailureLog,
   serializeSubmitError,
+  applyRecoveryAndCompose,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
   type PriorReviewIngestionResult,
 } from "./review-worker";
+import type { ReviewToolCall } from "./output-tools";
+import type { FlatPriorFinding } from "./severity-recovery";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
@@ -1283,5 +1286,165 @@ describe("callReviewerWithRetry — outputToolsActive forwarding", () => {
     expect(invocations).toHaveLength(2);
     expect(result.retryAttempted).toBe(true);
     expect(result.validation.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRecoveryAndCompose (mt#1496 PR #922 R7-R13)
+// ---------------------------------------------------------------------------
+//
+// Pure helper extracted from runReview's outputToolsActive branch so the
+// recovery + reconciliation + composition flow can be unit-tested without
+// mocking GitHub/OpenAI/MCP. Full integration tests for runReview itself
+// require substantial mock scaffolding and are deferred to mt#1497; this
+// unit-test surface covers the core decision logic the bot has flagged.
+
+describe("applyRecoveryAndCompose (mt#1496)", () => {
+  function finding(
+    severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING",
+    file: string,
+    line: number
+  ): ReviewToolCall {
+    return {
+      name: "submit_finding",
+      args: {
+        severity,
+        file,
+        line,
+        summary: `${severity} on ${file}`,
+        details: "details",
+      },
+    };
+  }
+  function conclude(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"): ReviewToolCall {
+    return {
+      name: "conclude_review",
+      args: { event, summary: `${event} summary` },
+    };
+  }
+
+  test("recovery disabled: passes through unchanged, no downgrades", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", false);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled but no priors: passes through, no recovery applied", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const result = applyRecoveryAndCompose(toolCalls, [], "", true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled with priors: BLOCKING downgrades to NON-BLOCKING when no diff overlap", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+  });
+
+  test("crossed-zero reconciliation: rewrites conclude_review REQUEST_CHANGES → COMMENT", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.reconcileApplied).toBe(true);
+    expect(result.composed.event).toBe("COMMENT");
+    // The reconciled tool calls should have COMMENT as the conclude_review
+    // event, not REQUEST_CHANGES.
+    const concludeCall = result.toolCalls.find((tc) => tc.name === "conclude_review");
+    expect(concludeCall?.name === "conclude_review" ? concludeCall.args.event : null).toBe(
+      "COMMENT"
+    );
+  });
+
+  test("partial downgrade (not crossed zero): no reconciliation", () => {
+    // Two BLOCKING findings, one downgraded, one preserved (different file).
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5), // will downgrade (matches prior)
+      finding("BLOCKING", "src/bar.ts", 5), // will preserve (no prior match)
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(2);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("no conclude_review present: composed event still derived from severities", () => {
+    // No conclude_review → composeReviewBody derives event from blockingCount.
+    // After recovery downgrades all BLOCKING, derived event is COMMENT.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false); // no conclude_review to reconcile
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("conclude_review COMMENT (not REQUEST_CHANGES): no reconciliation needed", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5), conclude("COMMENT")];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("downgrades array contains expected audit fields", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades[0]).toMatchObject({
+      file: "src/foo.ts",
+      line: 5,
+      fromSeverity: "BLOCKING",
+      toSeverity: "NON-BLOCKING",
+      matchingPriorSeverity: "NON-BLOCKING",
+    });
+  });
+
+  test("preserves BLOCKING when diff introduces new lines on cited range", () => {
+    // Recovery should NOT downgrade if the diff actually introduces new code
+    // overlapping the finding's range.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 11)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const diff = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,2 +10,4 @@
+ keep
++new11
++new12
+ keep
+`;
+    const result = applyRecoveryAndCompose(toolCalls, priors, diff, true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
   });
 });
