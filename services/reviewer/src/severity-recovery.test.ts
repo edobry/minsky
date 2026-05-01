@@ -547,6 +547,29 @@ describe("parsePriorBodyFindings", () => {
     const body = "Conclusion: [BLOCKING] above (see notes) — for context";
     expect(parsePriorBodyFindings(body)).toEqual([]);
   });
+
+  test("rejects bare-word with adjacent dash (PR #922 R26#2)", () => {
+    // `[BLOCKING] above — text` previously matched as `file=above` because
+    // the strict branch accepted any extensionless single token. Tightened:
+    // extensionless tokens must be on the allowlist (LICENSE, Dockerfile,
+    // Makefile, etc.) or contain a path-distinctive char.
+    const body = "[BLOCKING] above — for some reason";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
+
+  test("allowlisted basenames still parse without extension (PR #922 R26#2)", () => {
+    // The allowlist preserves matching for canonical extensionless files.
+    const body = [
+      "[BLOCKING] Dockerfile — security issue",
+      "[NON-BLOCKING] Makefile — typo",
+      "[PRE-EXISTING] LICENSE — incompatibility",
+    ].join("\n");
+    const findings = parsePriorBodyFindings(body);
+    expect(findings).toHaveLength(3);
+    expect(findings[0]?.file).toBe("Dockerfile");
+    expect(findings[1]?.file).toBe("Makefile");
+    expect(findings[2]?.file).toBe("LICENSE");
+  });
 });
 
 describe("parsePriorReviewFindings", () => {

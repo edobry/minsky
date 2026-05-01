@@ -141,7 +141,7 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   // the dash-boundary alternative requires WHITESPACE around the dash to
   // disambiguate from path-internal hyphens.
   const findingRe =
-    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+((?:[A-Za-z0-9@._\-/\\]*[./\\][A-Za-z0-9@._\-/\\]*(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)+|[A-Za-z0-9@._\-/\\]+)|(?:[A-Za-z0-9@_\-,()]+(?: +[A-Za-z0-9@_\-,()]+)*\.[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*|[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*(?:[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*)*))(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
+    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+((?:[A-Za-z0-9@._\-/\\]*[./\\][A-Za-z0-9@._\-/\\]*(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)+|(?:LICENSE|Dockerfile|Makefile|README|NOTICE|COPYING|Rakefile|Gemfile)\b|[A-Za-z0-9@._\-/\\]*[./\\][A-Za-z0-9@._\-/\\]+)|(?:[A-Za-z0-9@_\-,()]+(?: +[A-Za-z0-9@_\-,()]+)*\.[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*|[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*(?:[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*)*))(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
 
   for (const match of body.matchAll(findingRe)) {
     // Capture groups (alternation produces parallel sets):
