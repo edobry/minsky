@@ -739,6 +739,43 @@ export const sessionPrReviewDismissCommandParams = {
 };
 
 /**
+ * Session PR Review Thread Resolve command parameters
+ * Resolves or unresolves a GitHub PR review thread (GraphQL-only operation)
+ * through Minsky using the configured bot identity.
+ *
+ * `threadId` is the GraphQL node ID of a `PullRequestReviewThread` object.
+ * Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{n}/threads` carry `node_id` of the thread
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343)
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID. The two are distinct
+ * objects in the GitHub API; only thread node IDs are accepted here.
+ */
+export const sessionPrReviewThreadResolveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  threadId: {
+    schema: z.string().min(1),
+    description:
+      "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: " +
+      "(1) session_pr_review_context.reviewThreads[].id, " +
+      "(2) GraphQL pullRequest.reviewThreads.nodes[].id, or " +
+      "(3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). " +
+      "Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — " +
+      "comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type.",
+    required: true,
+  },
+  action: {
+    schema: z.enum(["resolve", "unresolve"]),
+    description: 'Action to perform: "resolve" marks the thread as done; "unresolve" reopens it.',
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */
