@@ -695,6 +695,34 @@ describe("applyMonotonicityRecovery", () => {
     expect(result.downgrades).toHaveLength(0);
   });
 
+  test("normalizes current finding's backslash path against POSIX diff ranges (PR #922 R11)", () => {
+    // Inverse direction of R10: current finding cites a backslash path,
+    // diff reports added ranges under POSIX. Pre-R11 the rename map and
+    // added/removed range lookups used tc.args.file directly (without
+    // normalization), so a backslash current path would miss POSIX-keyed
+    // ranges and trigger a wrongful downgrade. Now: normalize before all
+    // three lookups (renames, added, removed).
+    const prior: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const tc = [
+      finding("BLOCKING", "src\\foo.ts", 11), // backslash form
+    ];
+    const diffWithRightAdditions = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,2 +10,4 @@
+ keep
++added11
++added12
+ keep
+`;
+    const result = applyMonotonicityRecovery(tc, prior, diffWithRightAdditions);
+    // Diff adds lines 11-12; finding cites line 11. Should preserve BLOCKING.
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+    expect(result.downgrades).toHaveLength(0);
+  });
+
   test("normalizes backslash paths to match POSIX-style current findings (PR #922 R10)", () => {
     // Prior finding cites a Windows-style path; current finding (from
     // production reviewer-bot) uses POSIX-style. Without normalization,

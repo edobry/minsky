@@ -509,15 +509,16 @@ export function applyMonotonicityRecovery(
       continue;
     }
 
-    // Resolve added-range lookups via the rename map: if the finding cites
-    // an OLD path that was renamed to a new path, query the new path's
-    // added ranges. PR #922 R2#2 catch + R4#1 inverse-direction handling:
-    // also detect when the finding cites the NEW path of a rename (via
-    // inverseRenames built above) and treat that case as conservative-
-    // preserve too.
-    const renamedTo = parsedDiff.renames.get(tc.args.file);
-    const renamedFromCheck = inverseRenames.get(tc.args.file);
-    const lookupFile = renamedTo ?? tc.args.file;
+    // Resolve added-range lookups via the rename map. PR #922 R2#2 catch +
+    // R4#1 inverse-direction + R10/R11 normalization: all three map lookups
+    // (renames, inverseRenames, added, removed) must use the normalized
+    // current-file key. parsedDiff.renames is keyed by normalized old path
+    // (we normalized when populating); added/removed are keyed by file as
+    // it appears in the diff — which is always POSIX for `diff --git` output,
+    // but normalize defensively to handle any caller-supplied diff variants.
+    const renamedTo = parsedDiff.renames.get(normalizedCurrentFile);
+    const renamedFromCheck = inverseRenames.get(normalizedCurrentFile);
+    const lookupFile = renamedTo ?? normalizedCurrentFile;
     const fileWasRenamed = renamedTo !== undefined || renamedFromCheck !== undefined;
 
     const addedRanges = parsedDiff.added.get(lookupFile) ?? [];
